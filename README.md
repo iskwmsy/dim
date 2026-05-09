@@ -10,6 +10,7 @@ Path data are stored as a simple array of 3D coordinates and you can switch the 
 It also has a set of vector graphic tools. Pen, Polygon, Star, Ellipse, Doodle, Pixel Art, Spiral, Cycloid, that works inside the 3D space.
 
 Inspired from Adobe dimensions(3.0J),  
+the app we used for the book "Arbitary Point P" by Keio University Masahiko Sato Laboratory + Norio Nakamura (https://bijutsu.press/books/2969/) .  
 "SiNYO Beta" by Hajime Tachibana,  
 Takenobu Igarashi,  
 "3D Graphics Programming from Scratch" by Gustavo Pezzi (https://pikuma.com),  

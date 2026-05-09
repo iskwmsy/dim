@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dim — 3D Application based on SVG for graphic designers</title>
+<meta name="description" content="dim is a 3D application based on SVG for graphic designers. Import 2D paths from Adobe Illustrator, transform in 3D, and export back. No rasterize.">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --accent-color: #2645d2;
+    --bg-app: #f5f5f5;
+    --bg-panel: #fafafa;
+    --text-main: rgba(0, 0, 0, 0.85);
+    --text-secondary: rgba(0, 0, 0, 0.65);
+    --text-muted: rgba(0, 0, 0, 0.45);
+    --border-light: rgba(0, 0, 0, 0.08);
+    --font-family-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-family-sans);
+    background: var(--bg-app);
+    color: var(--text-main);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ─── Layout ─── */
+
+  .page {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 60px 24px 80px;
+  }
+
+  /* ─── Header ─── */
+
+  .header {
+    margin-bottom: 40px;
+  }
+
+  .header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    color: var(--text-main);
+    margin-bottom: 8px;
+  }
+
+  .header .tagline {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    max-width: 560px;
+  }
+
+  .header .version {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent-color);
+    background: oklch(from var(--accent-color) l c h / 0.08);
+    border-radius: 4px;
+    padding: 2px 8px;
+    margin-left: 8px;
+    vertical-align: middle;
+    letter-spacing: 0.3px;
+  }
+
+  /* ─── Screenshot ─── */
+
+  .screenshot {
+    margin-bottom: 32px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border-light);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  }
+
+  .screenshot img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  /* ─── CTA ─── */
+
+  .cta {
+    margin-bottom: 48px;
+  }
+
+  .cta a {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--accent-color);
+    text-decoration: none;
+    padding: 10px 24px;
+    border-radius: 6px;
+    transition: background 0.15s ease, transform 0.1s ease;
+  }
+
+  .cta a:hover {
+    background: oklch(from var(--accent-color) calc(l * 1.15) c h);
+    transform: translateY(-1px);
+  }
+
+  .cta a:active {
+    transform: translateY(0);
+  }
+
+  .cta a svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+
+  /* ─── Sections ─── */
+
+  .section {
+    margin-bottom: 40px;
+  }
+
+  .section h2 {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin-bottom: 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .section p {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.8;
+    margin-bottom: 12px;
+  }
+
+  .section p:last-child {
+    margin-bottom: 0;
+  }
+
+  /* ─── Feature Tags ─── */
+
+  .tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+  }
+
+  .tools span {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg-panel);
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    padding: 3px 10px;
+    letter-spacing: 0.2px;
+  }
+
+  /* ─── Concepts ─── */
+
+  .concepts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .concepts span {
+    display: inline-block;
+    font-size: 10px;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 2px 10px;
+  }
+
+  /* ─── Inspired List ─── */
+
+  .inspired-list {
+    list-style: none;
+    padding: 0;
+  }
+
+  .inspired-list li {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 2;
+    padding-left: 14px;
+    position: relative;
+  }
+
+  .inspired-list li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--border-light);
+  }
+
+  .inspired-list a {
+    color: var(--accent-color);
+    text-decoration: none;
+  }
+
+  .inspired-list a:hover {
+    text-decoration: underline;
+  }
+
+  /* ─── Footer ─── */
+
+  .footer {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-light);
+  }
+
+  .footer p {
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  .footer a {
+    color: var(--accent-color);
+    text-decoration: none;
+  }
+
+  .footer a:hover {
+    text-decoration: underline;
+  }
+
+  .footer details {
+    margin-top: 8px;
+  }
+
+  .footer summary {
+    font-size: 10px;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .footer .license-text {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 8px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- ===== Header ===== -->
+
+  <header class="header">
+    <h1>dim <span class="version">v20260509d</span></h1>
+    <p class="tagline">
+      3D Application based on SVG for graphic designers.<br>
+      Based on concepts of SVG, bezier curves, B-spline curves, perspective projection, orthographic projection, oblique projection.
+    </p>
+  </header>
+
+  <!-- ===== Screenshot ===== -->
+
+  <div class="screenshot">
+    <img src="./images/dim_screenshot_01.png" alt="Screenshot of dim — 3D SVG application">
+  </div>
+
+  <!-- ===== CTA ===== -->
+
+  <div class="cta">
+    <a href="dim.html">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="6,3 16,10 6,17"/>
+      </svg>
+      Launch dim
+    </a>
+  </div>
+
+  <!-- ===== About ===== -->
+
+  <section class="section">
+    <h2>About</h2>
+    <p>
+      You can easily import (copy &amp; paste) 2D path images from Adobe Illustrator CC (or other vector graphic software that uses SVG clipboard) to a 3D space and view, transform, extrude, revolve, sweep, map to a spline or a surface, and export (copy &amp; paste) the result back to Adobe Illustrator. 3D matrix operations are applied to vector data. No rasterize.
+    </p>
+    <p>
+      Path data are stored as a simple array of 3D coordinates and you can switch the interpolation algorithm between Linear, B-Spline(Cubic), B-Spline(Quadratic), Cubic Bezier. B-Splines will be deconstructed to cubic bezier on SVG rendering and exporting.
+    </p>
+    <p>
+      It also has a set of vector graphic tools that work inside the 3D space:
+    </p>
+    <div class="tools">
+      <span>Pen</span>
+      <span>Polygon</span>
+      <span>Star</span>
+      <span>Ellipse</span>
+      <span>Doodle</span>
+      <span>Pixel Art</span>
+      <span>Spiral</span>
+      <span>Cycloid</span>
+    </div>
+  </section>
+
+  <!-- ===== Concepts ===== -->
+
+  <section class="section">
+    <h2>Concepts</h2>
+    <div class="concepts">
+      <span>SVG</span>
+      <span>Bezier Curves</span>
+      <span>B-Spline Curves</span>
+      <span>Perspective Projection</span>
+      <span>Orthographic Projection</span>
+      <span>Oblique Projection</span>
+    </div>
+  </section>
+
+  <!-- ===== Inspired From ===== -->
+
+  <section class="section">
+    <h2>Inspired from</h2>
+    <ul class="inspired-list">
+      <li>Adobe dimensions(3.0J)</li>
+      <li>the app we used for the book &ldquo;Arbitary Point P&rdquo; by Keio University Masahiko Sato Laboratory + Norio Nakamura (<a href="https://bijutsu.press/books/2969/" target="_blank">bijutsu.press</a>)</li>
+      <li>&ldquo;SiNYO Beta&rdquo; by Hajime Tachibana</li>
+      <li>Takenobu Igarashi</li>
+      <li>&ldquo;3D Graphics Programming from Scratch&rdquo; by Gustavo Pezzi (<a href="https://pikuma.com" target="_blank">pikuma.com</a>)</li>
+      <li>&ldquo;The Continuity of Splines&rdquo; by Freya Holmér (<a href="https://youtu.be/jvPPXbo87ds" target="_blank">YouTube</a>)</li>
+      <li>&ldquo;B-Spline Decomposition&rdquo; by designcoding (<a href="https://www.designcoding.net/b-spline-deconstruction/" target="_blank">designcoding.net</a>)</li>
+      <li>Concept of &ldquo;Workplane&rdquo; from Modo by Foundry</li>
+      <li>&ldquo;Interface Craft&rdquo; by Josh Puckett (<a href="https://www.interfacecraft.dev" target="_blank">interfacecraft.dev</a>)</li>
+    </ul>
+  </section>
+
+  <!-- ===== Sample Scenes ===== -->
+
+  <section class="section">
+    <h2>Sample Scenes</h2>
+    <ul class="inspired-list">
+      <li><a href="./scenes/dim_scene_sample_surfacemapping_RtoExtrudedSquare.json" download>Surface Mapping Sample 01 — R on a Square</a></li>
+      <li><a href="./scenes/dim_scene_sample_surfacemapping_RtoExtrudedSqudim_scene_sample_Earth.json" download>Surface Mapping Sample 02 — Earth</a></li>
+    </ul>
+  </section>
+
+  <!-- ===== Footer ===== -->
+
+  <footer class="footer">
+    <p style="font-weight:600;">MIT License</p>
+    <p class="license-text">&copy; 2026 Masaya Ishikawa
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</p>
+  </footer>
+
+</div>
+
+</body>
+</html>

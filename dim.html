@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260509a -->
+<!-- dim v20260509d -->
 <!--
   MIT License
 
@@ -3928,11 +3928,8 @@
               <label for="penPlane">Plane</label>
               <div class="xyz-inputs">
                 <select id="penPlane">
-                  <option value="camera" selected>Camera</option>
-                  <option value="workplane">Workplane</option>
-                  <option value="xz">XZ</option>
-                  <option value="xy">XY</option>
-                  <option value="yz">YZ</option>
+                  <option value="workplane" selected>Workplane</option>
+                  <option value="camera">Camera</option>
                 </select>
               </div>
             </div>
@@ -4224,11 +4221,8 @@
               <label for="doodlePlane">Plane</label>
               <div class="xyz-inputs">
                 <select id="doodlePlane">
-                  <option value="camera" selected>Camera</option>
-                  <option value="workplane">Workplane</option>
-                  <option value="xz">XZ</option>
-                  <option value="xy">XY</option>
-                  <option value="yz">YZ</option>
+                  <option value="workplane" selected>Workplane</option>
+                  <option value="camera">Camera</option>
                 </select>
               </div>
             </div>
@@ -7063,6 +7057,85 @@
     const algorithmInput = document.getElementById('algorithmInput');
     let _skipResetForReEdit = false; // Flag to prevent setTool() from resetting spiral/cycloid inputs during re-edit
 
+    // --- Custom Tool Cursors (SVG data URIs) ---
+    // Each entry stores the SVG inner body, design size, and hotspot in design coords.
+    // buildToolCursor() generates 1x and 2x SVG variants and uses -webkit-image-set()
+    // so retina displays render the cursor at 2× device pixels for crispness.
+    const toolCursorMap = {
+      select: {
+        body: '<polygon fill="#fff" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="10 3 16 17 10 12.86 4 17 10 3"/><polygon stroke="#000" stroke-linecap="round" stroke-linejoin="round" points="10 3 16 17 10 12.86 4 17 10 3"/>',
+        size: 20, x: 10, y: 3
+      },
+      directSelect: {
+        body: '<polygon fill="#fff" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="10 3 16 17 10 12.86 4 17 10 3"/><polygon fill="#fff" stroke="#000" stroke-linecap="round" stroke-linejoin="round" points="10 3 16 17 10 12.86 4 17 10 3"/>',
+        size: 20, x: 10, y: 3
+      },
+      pen: {
+        body: '<polygon fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" points="10 3 16 12 12 17.86 8 17.86 4 12 10 3"/><polygon points="10 3 16 12 12 17.86 8 17.86 4 12 10 3"/><circle fill="#fff" cx="10" cy="12.43" r="1.5"/>',
+        size: 20, x: 10, y: 3
+      },
+      scale: {
+        body: '<line stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="16" y1="4" x2="4.03" y2="15.97"/><polyline fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="11 4 16 4 16 9"/><polyline fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="9.03 15.97 4.03 15.97 4.03 10.97"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="16" y1="4" x2="4.03" y2="15.97"/><polyline fill="none" stroke="#000" stroke-width="1.14" stroke-linecap="round" stroke-linejoin="round" points="11 4 16 4 16 9"/><polyline fill="none" stroke="#000" stroke-width="1.14" stroke-linecap="round" stroke-linejoin="round" points="9.03 15.97 4.03 15.97 4.03 10.97"/>',
+        size: 20, x: 10, y: 10
+      },
+      rotate: {
+        body: '<path fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M3.5,10c0-3.59,2.91-6.5,6.5-6.5s6.5,2.91,6.5,6.5-2.91,6.5-6.5,6.5"/><polyline fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="14.39 18.9 10 16.5 12.4 12.11"/><path fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" d="M3.5,10c0-3.59,2.91-6.5,6.5-6.5s6.5,2.91,6.5,6.5-2.91,6.5-6.5,6.5"/><polyline fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" points="14.39 18.9 10 16.5 12.4 12.11"/>',
+        size: 20, x: 10, y: 10
+      },
+      pivot: {
+        body: '<circle fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" cx="10" cy="10" r="3"/><line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/><circle fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" cx="10" cy="10" r="3"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/>',
+        size: 20, x: 10, y: 10
+      },
+      polygon: {
+        body: '<line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/>',
+        size: 20, x: 10, y: 10
+      },
+      star: {
+        body: '<line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/>',
+        size: 20, x: 10, y: 10
+      },
+      ellipse: {
+        body: '<line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/>',
+        size: 20, x: 10, y: 10
+      },
+      doodle: {
+        body: '<line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/>',
+        size: 20, x: 10, y: 10
+      },
+      pixelArt: {
+        body: '<line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/>',
+        size: 20, x: 10, y: 10
+      },
+      spiral: {
+        body: '<line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/>',
+        size: 20, x: 10, y: 10
+      },
+      cycloid: {
+        body: '<line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/>',
+        size: 20, x: 10, y: 10
+      },
+    };
+    let currentToolCursor = ''; // Tracks the active tool's cursor CSS value
+
+    function _cursorSvg(body, viewSize, renderSize) {
+      return '<svg xmlns="http://www.w3.org/2000/svg" width="' + renderSize + '" height="' + renderSize + '" viewBox="0 0 ' + viewSize + ' ' + viewSize + '">' + body + '</svg>';
+    }
+
+    // Build a CSS cursor value with -webkit-image-set for HiDPI
+    function buildToolCursor(toolName) {
+      const e = toolCursorMap[toolName];
+      if (!e) return 'default';
+      var s = e.size;
+      var enc1 = 'data:image/svg+xml,' + encodeURIComponent(_cursorSvg(e.body, s, s));
+      var enc2 = 'data:image/svg+xml,' + encodeURIComponent(_cursorSvg(e.body, s, s * 2));
+      return '-webkit-image-set(url("' + enc1 + '") 1x, url("' + enc2 + '") 2x) ' + e.x + ' ' + e.y + ', auto';
+    }
+
+    // Apply the current tool's cursor to the SVG canvas
+    function applyToolCursor() {
+      svg.style.cursor = currentToolCursor;
+    }
+
     const setTool = (tool) => {
       // Clear pen preview on any tool change
       _penPreviewLocalHit = null;
@@ -7139,6 +7212,10 @@
         // Clear vertex selection
         selectedVertexInfo = null;
         hoveredVertexInfo = null;
+
+        // Reset cursor to default (no tool)
+        currentToolCursor = 'default';
+        applyToolCursor();
 
         updatePropertiesPanel();
         updateStylePanel();
@@ -7606,6 +7683,10 @@
         selectedVertexInfo = null;
         hoveredVertexInfo = null;
       }
+
+      // Apply custom tool cursor
+      currentToolCursor = buildToolCursor(tool);
+      applyToolCursor();
 
       updatePropertiesPanel();
       updateStylePanel();
@@ -29328,28 +29409,16 @@
      *  Mirrors the doodle tool's plane selection logic.
      *  Returns { point: [x,y,z], normal: [x,y,z] }. */
     const getPenWorkingPlane = () => {
-      const mode = document.getElementById('penPlane')?.value || 'camera';
+      const mode = document.getElementById('penPlane')?.value || 'workplane';
       const offsetZ = parseFloat(document.getElementById('penOffsetZ')?.value) || 0;
       let point, normal;
       if (mode === 'camera') {
         normal = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
         point = [...(activeCamera.target || [0, 0, 0])];
-      } else if (mode === 'workplane') {
+      } else {
         const wp = getWorkingPlane();
         normal = wp.normal;
         point = wp.point;
-      } else if (mode === 'xz') {
-        normal = [0, 1, 0];
-        point = [0, 0, 0];
-      } else if (mode === 'xy') {
-        normal = [0, 0, 1];
-        point = [0, 0, 0];
-      } else if (mode === 'yz') {
-        normal = [1, 0, 0];
-        point = [0, 0, 0];
-      } else {
-        normal = [0, 1, 0];
-        point = [0, 0, 0];
       }
       // Apply Offset Z — shift plane along its normal
       if (offsetZ !== 0) {
@@ -30089,7 +30158,7 @@
         const ray = getRayFromClick(event, vpMatrix);
         if (ray) {
           // Determine plane from doodle settings
-          const doodlePlaneMode = document.getElementById('doodlePlane')?.value || 'camera';
+          const doodlePlaneMode = document.getElementById('doodlePlane')?.value || 'workplane';
           const doodleOffsetZ = parseFloat(document.getElementById('doodleOffsetZ')?.value) || 0;
           _doodleSmooth = parseFloat(document.getElementById('doodleSmooth')?.value) || 0.05;
 
@@ -30098,22 +30167,10 @@
             // Camera-facing plane: freeze camera normal at drag start
             planeNormal = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
             planePoint = [...(activeCamera.target || [0, 0, 0])];
-          } else if (doodlePlaneMode === 'workplane') {
+          } else {
             const wp = getWorkingPlane();
             planeNormal = wp.normal;
             planePoint = wp.point;
-          } else if (doodlePlaneMode === 'xz') {
-            planeNormal = [0, 1, 0];
-            planePoint = [0, 0, 0];
-          } else if (doodlePlaneMode === 'xy') {
-            planeNormal = [0, 0, 1];
-            planePoint = [0, 0, 0];
-          } else if (doodlePlaneMode === 'yz') {
-            planeNormal = [1, 0, 0];
-            planePoint = [0, 0, 0];
-          } else {
-            planeNormal = [0, 1, 0];
-            planePoint = [0, 0, 0];
           }
 
           // Apply Offset Z — shift plane along its normal
@@ -30611,7 +30668,7 @@
           const newHoveredIdx = vtxHit ? vtxHit.vertexIndex : -1;
           if (newHoveredIdx !== _penHoveredVertexIdx) {
             _penHoveredVertexIdx = newHoveredIdx;
-            svg.style.cursor = newHoveredIdx >= 0 ? 'grab' : '';
+            svg.style.cursor = newHoveredIdx >= 0 ? 'grab' : currentToolCursor;
           }
         }
       } else {
@@ -30622,11 +30679,11 @@
           const dotBck = document.getElementById('penTangentDotBck');
           if (dotFwd) { dotFwd.setAttribute('r', '5'); dotFwd.setAttribute('fill', 'white'); dotFwd.setAttribute('stroke-width', '1'); }
           if (dotBck) { dotBck.setAttribute('r', '5'); dotBck.setAttribute('fill', 'white'); dotBck.setAttribute('stroke-width', '1'); }
-          svg.style.cursor = '';
+          applyToolCursor();
         }
         if (_penHoveredVertexIdx >= 0) {
           _penHoveredVertexIdx = -1;
-          svg.style.cursor = '';
+          applyToolCursor();
         }
       }
 
@@ -32940,7 +32997,7 @@
           _penHoveredVertexIdx = -1;
           _penVertexDragSmooth = false;
           _penDragStartScreenPos = null;
-          svg.style.cursor = '';
+          applyToolCursor();
           notifyPathUpdated(activePath);
           requestRender();
         }
@@ -32954,7 +33011,7 @@
             _penDragAnchorLocalPos = null;
             _penDragStartScreenPos = null;
             // Reset cursor and handle dot visuals
-            svg.style.cursor = '';
+            applyToolCursor();
             const dotFwd = document.getElementById('penTangentDotFwd');
             const dotBck = document.getElementById('penTangentDotBck');
             if (dotFwd) { dotFwd.setAttribute('r', '5'); dotFwd.setAttribute('fill', 'white'); dotFwd.setAttribute('stroke-width', '1'); }
@@ -34613,7 +34670,7 @@
             document.documentElement.style.setProperty('--accent-color', color);
             if (accentColorInput) accentColorInput.value = color;
             saveSettings({ accentColor: color });
-          }
+            }
         });
       }
 

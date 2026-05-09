@@ -22,6 +22,12 @@ Takenobu Igarashi,
 Concept of "Workplane" from Modo by Foundry  
 "Interface Craft" by Josh Puckett (https://www.interfacecraft.dev).
 
+Background : I have been working on my own 3D graphic design app "dim", a non destructive path based companion to Adobe Illustrator (or other 2D vector apps) inspired from Adobe dimensions, a software I used when I started my career as a student, and continued using since then.
+Past 5 years, I studied 3D projection, spline interpolation algorithm, svg, and wrote a renderer, parser from scratch.
+Thanks to ai coding, the app has reached a point that I can finally move over from Adobe dimensions and I also wanted to share this tool to others(graphic designers that can not fit to pixelbased 3D apps, like me).
+
+If you find this project useful, please consider supporting the development on GitHub Sponsors. (https://github.com/sponsors/iskwmsy)    
+
 ## Sample Scenes
 [Surface Mapping Sample 01 R on a Square](./scenes/dim_scene_sample_surfacemapping_RtoExtrudedSquare.json),
 [Surface Mapping Sample 02 Earth](./scenes/dim_scene_sample_surfacemapping_RtoExtrudedSqudim_scene_sample_Earth.json),

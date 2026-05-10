@@ -30,8 +30,9 @@ Thanks to ai coding, the app has reached a point that I can finally move over fr
 If you find this project useful, please consider supporting the development on GitHub Sponsors. (https://github.com/sponsors/iskwmsy)    
 
 ## Sample Scenes
-[Surface Mapping Sample 01 R on a Square](./scenes/dim_scene_sample_surfacemapping_RtoExtrudedSquare.json),
-[Surface Mapping Sample 02 Earth](./scenes/dim_scene_sample_surfacemapping_RtoExtrudedSqudim_scene_sample_Earth.json),
+[Spline Flow Sample 01](./scenes/dim_scene_sample_splineflow_01.json),
+[Surface Mapping Sample 01 R to Extruded Square](./scenes/dim_scene_sample_surfacemapping_01_RtoExtrudedSquare.json),
+[Surface Mapping Sample 02 Earth](./scenes/dim_scene_sample_surfacemapping_02_Earth.json),
 
 ## License
 MIT License

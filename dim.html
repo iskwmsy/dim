@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260509e -->
+<!-- dim v20260510a -->
 <!--
   MIT License
 
@@ -3564,7 +3564,7 @@
         <div class="xyz-row">
           <label for="gridSizeInput">Grid Size</label>
           <div class="xyz-inputs">
-            <input type="number" id="gridSizeInput" value="1" step="0.1" min="0.1" />
+            <input type="number" id="gridSizeInput" value="100.00" step="1" min="0.1" />
           </div>
         </div>
         <div class="prop-row prop-inline">
@@ -3632,11 +3632,12 @@
         <div class="tool-panel-label">Settings</div>
 
         <div class="xyz-row">
-          <label for="importExportUnitSelect">Import/Export Unit</label>
+          <label for="displayUnitSelect">Unit</label>
           <div class="xyz-inputs" style="max-width: 80px; margin-left: auto;">
-            <select id="importExportUnitSelect">
+            <select id="displayUnitSelect">
               <option value="px" selected>px (pt)</option>
               <option value="mm">mm</option>
+              <option value="world">World</option>
             </select>
           </div>
         </div>
@@ -3651,7 +3652,7 @@
         <div class="xyz-row">
           <label for="keyboardIncrementInput">Keyboard Increment</label>
           <div class="xyz-inputs" style="max-width: 80px; margin-left: auto;">
-            <input type="number" id="keyboardIncrementInput" value="0.01" step="0.01" min="0" />
+            <input type="number" id="keyboardIncrementInput" value="1.00" step="1" min="0" />
           </div>
         </div>
 
@@ -6373,7 +6374,7 @@
 
     const gridSizeInput = document.getElementById('gridSizeInput');
     gridSizeInput.addEventListener('input', (e) => {
-      const val = parseFloat(e.target.value);
+      const val = fromDisplay(parseFloat(e.target.value));
       if (val > 0) {
         gridSnapUnit = val;
         syncGlobalsToWorkplane();
@@ -6409,7 +6410,7 @@
       requestRender();
     });
     wpOffsetInput.addEventListener('input', (e) => {
-      gridOffset = parseFloat(e.target.value) || 0;
+      gridOffset = fromDisplay(parseFloat(e.target.value) || 0);
       syncGlobalsToWorkplane();
       requestRender();
     });
@@ -7603,7 +7604,7 @@
           const _snfHexVal = rgbToHex(_snfStrokeSource);
           if (_snfStrokeColorEl) _snfStrokeColorEl.value = _snfHexVal;
           if (_snfStrokeHexEl) _snfStrokeHexEl.value = _snfHexVal.replace('#', '').toUpperCase();
-          if (_snfStrokeWidthEl) _snfStrokeWidthEl.value = currentStyle['stroke-width'] || 1;
+          if (_snfStrokeWidthEl) _snfStrokeWidthEl.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(2);
           // Turn off fill in currentStyle
           currentStyle.fill = 'none';
         }
@@ -7636,7 +7637,7 @@
           const _cycHexVal = rgbToHex(_cycStrokeSource);
           if (_cycStrokeColorEl) _cycStrokeColorEl.value = _cycHexVal;
           if (_cycStrokeHexEl) _cycStrokeHexEl.value = _cycHexVal.replace('#', '').toUpperCase();
-          if (_cycStrokeWidthEl) _cycStrokeWidthEl.value = currentStyle['stroke-width'] || 1;
+          if (_cycStrokeWidthEl) _cycStrokeWidthEl.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(2);
           // Turn off fill in currentStyle
           currentStyle.fill = 'none';
         }
@@ -7667,7 +7668,7 @@
           const _lisHexVal = rgbToHex(_lisStrokeSource);
           if (_lisStrokeColorEl) _lisStrokeColorEl.value = _lisHexVal;
           if (_lisStrokeHexEl) _lisStrokeHexEl.value = _lisHexVal.replace('#', '').toUpperCase();
-          if (_lisStrokeWidthEl) _lisStrokeWidthEl.value = currentStyle['stroke-width'] || 1;
+          if (_lisStrokeWidthEl) _lisStrokeWidthEl.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(2);
           // Turn off fill in currentStyle
           currentStyle.fill = 'none';
         }
@@ -7687,7 +7688,7 @@
           const _ddlHexVal = rgbToHex(_ddlStrokeSource);
           if (_ddlStrokeColorEl) _ddlStrokeColorEl.value = _ddlHexVal;
           if (_ddlStrokeHexEl) _ddlStrokeHexEl.value = _ddlHexVal.replace('#', '').toUpperCase();
-          if (_ddlStrokeWidthEl) _ddlStrokeWidthEl.value = currentStyle['stroke-width'] || 1;
+          if (_ddlStrokeWidthEl) _ddlStrokeWidthEl.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(2);
           // Turn off fill in currentStyle — doodles default to stroke-only
           currentStyle.fill = 'none';
         }
@@ -7784,7 +7785,7 @@
             _pxStrokeColor.value = sHex;
             if (_pxStrokeColorHex) _pxStrokeColorHex.value = sHex.slice(1).toUpperCase();
           }
-          if (_pxStrokeWidth) _pxStrokeWidth.value = currentStyle['stroke-width'] || 1;
+          if (_pxStrokeWidth) _pxStrokeWidth.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(2);
           // If a group is selected, use it as the target
           if (selectedObject && selectedObject.isGroup) {
             activePixelGroup = selectedObject;
@@ -7859,7 +7860,7 @@
     });
 
     const updateMoveToolUI = () => {
-      const fmt = (n) => (Math.abs(n) < 0.0001 ? 0 : n).toFixed(2);
+      const fmt = (n) => (Math.abs(n) < 0.0001 ? 0 : toDisplay(n)).toFixed(2);
 
       // 1. Validate Session
       if (!moveToolSession) {
@@ -7894,7 +7895,7 @@
 
       if (!currentPos) return;
 
-      // 3. Update Position inputs (actual world coordinates)
+      // 3. Update Position inputs (display-scaled world coordinates)
       movePosX.value = fmt(currentPos[0]);
       movePosY.value = fmt(currentPos[1]);
       movePosZ.value = fmt(currentPos[2]);
@@ -7907,7 +7908,7 @@
       const dz = currentPos[2] - start[2];
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-      // Update delta position inputs (raw displacement)
+      // Update delta position inputs (display-scaled displacement)
       moveDeltaPosX.value = fmt(dx);
       moveDeltaPosY.value = fmt(dy);
       moveDeltaPosZ.value = fmt(dz);
@@ -7920,9 +7921,10 @@
         ndz = dz / dist;
       }
 
-      moveDeltaInputX.value = fmt(ndx);
-      moveDeltaInputY.value = fmt(ndy);
-      moveDeltaInputZ.value = fmt(ndz);
+      const fmtDir = (n) => (Math.abs(n) < 0.0001 ? 0 : n).toFixed(2);
+      moveDeltaInputX.value = fmtDir(ndx);
+      moveDeltaInputY.value = fmtDir(ndy);
+      moveDeltaInputZ.value = fmtDir(ndz);
       moveDeltaInputDist.value = fmt(dist);
     };
 
@@ -8078,7 +8080,7 @@
       const dY = parseFloat(moveDeltaInputY.value) || 0;
       const dZ = parseFloat(moveDeltaInputZ.value) || 0;
 
-      const currentDist = parseFloat(moveDeltaInputDist.value) || 0;
+      const currentDist = fromDisplay(parseFloat(moveDeltaInputDist.value) || 0);
 
       const rawDir = [dX, dY, dZ];
       let normalizedDir = [0, 0, 0];
@@ -8090,7 +8092,7 @@
       applyMoveDelta(delta);
 
       // Sync delta position inputs (don't touch direction inputs — user is typing there)
-      const fmt = (n) => (Math.abs(n) < 0.0001 ? 0 : n).toFixed(2);
+      const fmt = (n) => (Math.abs(n) < 0.0001 ? 0 : toDisplay(n)).toFixed(2);
       moveDeltaPosX.value = fmt(delta[0]);
       moveDeltaPosY.value = fmt(delta[1]);
       moveDeltaPosZ.value = fmt(delta[2]);
@@ -8099,10 +8101,10 @@
     const processMoveDeltaPosInput = () => {
       if (!moveToolSession) return;
 
-      // Values are raw displacement from session start
-      const dx = parseFloat(moveDeltaPosX.value) || 0;
-      const dy = parseFloat(moveDeltaPosY.value) || 0;
-      const dz = parseFloat(moveDeltaPosZ.value) || 0;
+      // Values are display-scaled displacement from session start
+      const dx = fromDisplay(parseFloat(moveDeltaPosX.value) || 0);
+      const dy = fromDisplay(parseFloat(moveDeltaPosY.value) || 0);
+      const dz = fromDisplay(parseFloat(moveDeltaPosZ.value) || 0);
 
       const delta = [dx, dy, dz];
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
@@ -8110,23 +8112,24 @@
       applyMoveDelta(delta);
 
       // Sync direction + distance inputs (don't touch delta pos inputs — user is typing there)
-      const fmt = (n) => (Math.abs(n) < 0.0001 ? 0 : n).toFixed(2);
+      const fmtDir = (n) => (Math.abs(n) < 0.0001 ? 0 : n).toFixed(2);
+      const fmtDist = (n) => (Math.abs(n) < 0.0001 ? 0 : toDisplay(n)).toFixed(2);
       let ndx = 0, ndy = 0, ndz = 0;
       if (dist > 0.0001) {
         ndx = dx / dist;
         ndy = dy / dist;
         ndz = dz / dist;
       }
-      moveDeltaInputX.value = fmt(ndx);
-      moveDeltaInputY.value = fmt(ndy);
-      moveDeltaInputZ.value = fmt(ndz);
-      moveDeltaInputDist.value = fmt(dist);
+      moveDeltaInputX.value = fmtDir(ndx);
+      moveDeltaInputY.value = fmtDir(ndy);
+      moveDeltaInputZ.value = fmtDir(ndz);
+      moveDeltaInputDist.value = fmtDist(dist);
     };
 
     const processMoveToolDistInput = () => {
       if (!moveToolSession) return;
 
-      const targetDist = parseFloat(moveDeltaInputDist.value) || 0;
+      const targetDist = fromDisplay(parseFloat(moveDeltaInputDist.value) || 0);
 
       const currentDirInputs = [
         parseFloat(moveDeltaInputX.value) || 0,
@@ -8166,9 +8169,9 @@
     // --- Position inputs: directly set object/vertex world coordinates ---
     const processMovePosInput = () => {
       if (!moveToolSession) return;
-      const newX = parseFloat(movePosX.value) || 0;
-      const newY = parseFloat(movePosY.value) || 0;
-      const newZ = parseFloat(movePosZ.value) || 0;
+      const newX = fromDisplay(parseFloat(movePosX.value) || 0);
+      const newY = fromDisplay(parseFloat(movePosY.value) || 0);
+      const newZ = fromDisplay(parseFloat(movePosZ.value) || 0);
       const newPos = [newX, newY, newZ];
 
       if (moveToolSession.mode === 'object') {
@@ -8197,7 +8200,8 @@
         });
       }
       // Update delta/vector/distance UI (but not position — user is editing that)
-      const fmt = (n) => (Math.abs(n) < 0.0001 ? 0 : n).toFixed(2);
+      const fmt = (n) => (Math.abs(n) < 0.0001 ? 0 : toDisplay(n)).toFixed(2);
+      const fmtDir = (n) => (Math.abs(n) < 0.0001 ? 0 : n).toFixed(2);
       const start = moveToolSession.startPos;
       const dx = newX - start[0], dy = newY - start[1], dz = newZ - start[2];
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
@@ -8206,9 +8210,9 @@
       moveDeltaPosZ.value = fmt(dz);
       let ndx = 0, ndy = 0, ndz = 0;
       if (dist > 0.0001) { ndx = dx / dist; ndy = dy / dist; ndz = dz / dist; }
-      moveDeltaInputX.value = fmt(ndx);
-      moveDeltaInputY.value = fmt(ndy);
-      moveDeltaInputZ.value = fmt(ndz);
+      moveDeltaInputX.value = fmtDir(ndx);
+      moveDeltaInputY.value = fmtDir(ndy);
+      moveDeltaInputZ.value = fmtDir(ndz);
       moveDeltaInputDist.value = fmt(dist);
       updatePropertiesPanel();
       requestRender();
@@ -8627,30 +8631,30 @@
       const pivotRot = selectedObject.pivotRotation || [0, 0, 0];
       const fmt = (n) => parseFloat(n.toFixed(4));
 
-      // Absolute position
-      if (pivotToolXEl && document.activeElement !== pivotToolXEl) pivotToolXEl.value = fmt(pivot[0]);
-      if (pivotToolYEl && document.activeElement !== pivotToolYEl) pivotToolYEl.value = fmt(pivot[1]);
-      if (pivotToolZEl && document.activeElement !== pivotToolZEl) pivotToolZEl.value = fmt(pivot[2]);
+      // Absolute position (spatial — convert to display units)
+      if (pivotToolXEl && document.activeElement !== pivotToolXEl) pivotToolXEl.value = toDisplay(pivot[0]).toFixed(2);
+      if (pivotToolYEl && document.activeElement !== pivotToolYEl) pivotToolYEl.value = toDisplay(pivot[1]).toFixed(2);
+      if (pivotToolZEl && document.activeElement !== pivotToolZEl) pivotToolZEl.value = toDisplay(pivot[2]).toFixed(2);
 
-      // Rotation
+      // Rotation (degrees — no conversion)
       if (pivotToolRotXEl && document.activeElement !== pivotToolRotXEl) pivotToolRotXEl.value = fmt(pivotRot[0]);
       if (pivotToolRotYEl && document.activeElement !== pivotToolRotYEl) pivotToolRotYEl.value = fmt(pivotRot[1]);
       if (pivotToolRotZEl && document.activeElement !== pivotToolRotZEl) pivotToolRotZEl.value = fmt(pivotRot[2]);
 
-      // Delta
+      // Delta (spatial — convert to display units)
       if (pivotToolSession && pivotToolSession.startPivot) {
         const delta = vectorSubtract(pivot, pivotToolSession.startPivot);
-        if (pivotDeltaXEl) pivotDeltaXEl.value = fmt(delta[0]);
-        if (pivotDeltaYEl) pivotDeltaYEl.value = fmt(delta[1]);
-        if (pivotDeltaZEl) pivotDeltaZEl.value = fmt(delta[2]);
+        if (pivotDeltaXEl) pivotDeltaXEl.value = toDisplay(delta[0]).toFixed(2);
+        if (pivotDeltaYEl) pivotDeltaYEl.value = toDisplay(delta[1]).toFixed(2);
+        if (pivotDeltaZEl) pivotDeltaZEl.value = toDisplay(delta[2]).toFixed(2);
       }
     };
 
     const processPivotToolInput = () => {
       if (!selectedObject) return;
-      const nx = parseFloat(pivotToolXEl.value);
-      const ny = parseFloat(pivotToolYEl.value);
-      const nz = parseFloat(pivotToolZEl.value);
+      const nx = fromDisplay(parseFloat(pivotToolXEl.value));
+      const ny = fromDisplay(parseFloat(pivotToolYEl.value));
+      const nz = fromDisplay(parseFloat(pivotToolZEl.value));
       if (isNaN(nx) || isNaN(ny) || isNaN(nz)) return;
       setObjectPivot(selectedObject, [nx, ny, nz]);
       updatePivotToolUI();
@@ -9468,22 +9472,22 @@
 
       const base = {
         type,
-        centerU: parseFloat(document.getElementById('polyCenterX').value) || 0,
-        centerV: parseFloat(document.getElementById('polyCenterY').value) || 0,
+        centerU: fromDisplay(parseFloat(document.getElementById('polyCenterX').value) || 0),
+        centerV: fromDisplay(parseFloat(document.getElementById('polyCenterY').value) || 0),
       };
 
       if (type === 'polygon' || type === 'star' || type === 'ellipse') {
         base.sides = polygonSides;
-        base.radiusX = parseFloat(document.getElementById('polyWidth').value) || 0;
-        base.radiusY = parseFloat(document.getElementById('polyHeight').value) || 0;
+        base.radiusX = fromDisplay(parseFloat(document.getElementById('polyWidth').value) || 0);
+        base.radiusY = fromDisplay(parseFloat(document.getElementById('polyHeight').value) || 0);
         if (type === 'star') {
           base.innerRadius = parseFloat(document.getElementById('polyInnerRadius').value) || starInnerRadius;
         }
       } else if (type === 'spiral') {
         base.angle = parseFloat(document.getElementById('snfAngle').value) || 15;
-        base.radius = parseFloat(document.getElementById('snfRadius').value) || 2;
-        base.startRadius = parseFloat(document.getElementById('snfStartRadius').value) || 0;
-        base.height = parseFloat(document.getElementById('snfHeight').value) || 0;
+        base.radius = fromDisplay(parseFloat(document.getElementById('snfRadius').value) || 2);
+        base.startRadius = fromDisplay(parseFloat(document.getElementById('snfStartRadius').value) || 0);
+        base.height = fromDisplay(parseFloat(document.getElementById('snfHeight').value) || 0);
         base.count = Math.min(Math.max(parseInt(document.getElementById('snfCount').value) || 120, 1), 500);
         base.algorithm = document.getElementById('snfAlgorithm').value || 'linear';
         base.closePath = document.getElementById('snfClosePath').checked;
@@ -9493,23 +9497,23 @@
         base.facing = document.getElementById('cycFacing').value || 'XZ';
         base.pathTarget = document.getElementById('cycPathTarget').value || '';
         base.pathFace = document.getElementById('cycPathFace').value || 'Y';
-        base.fixedR = parseFloat(document.getElementById('cycFixedR').value) || 5;
-        base.rollingR = parseFloat(document.getElementById('cycRollingR').value) || 3;
-        base.penD = parseFloat(document.getElementById('cycPenD').value) || 3;
+        base.fixedR = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || 5);
+        base.rollingR = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || 3);
+        base.penD = fromDisplay(parseFloat(document.getElementById('cycPenD').value) || 3);
         base.count = Math.min(Math.max(parseInt(document.getElementById('cycCount').value) || 500, 10), 2000);
         base.loops = Math.min(Math.max(parseInt(document.getElementById('cycLoop').value) || 1, 1), 100);
-        base.height = parseFloat(document.getElementById('cycHeight').value) || 0;
+        base.height = fromDisplay(parseFloat(document.getElementById('cycHeight').value) || 0);
         base.algorithm = document.getElementById('cycAlgorithm').value || 'linear';
         base.closePath = document.getElementById('cycClosePath').checked;
       } else if (type === 'lissajous') {
         base.freqA = parseFloat(document.getElementById('lisFreqA').value) || 3;
         base.freqB = parseFloat(document.getElementById('lisFreqB').value) || 2;
         base.delta = parseFloat(document.getElementById('lisDelta').value) || 0;
-        base.ampA = parseFloat(document.getElementById('lisAmpA').value) || 1;
-        base.ampB = parseFloat(document.getElementById('lisAmpB').value) || 1;
+        base.ampA = fromDisplay(parseFloat(document.getElementById('lisAmpA').value) || 1);
+        base.ampB = fromDisplay(parseFloat(document.getElementById('lisAmpB').value) || 1);
         base.count = Math.min(Math.max(parseInt(document.getElementById('lisCount').value) || 500, 10), 2000);
         base.loops = Math.min(Math.max(parseInt(document.getElementById('lisLoop').value) || 1, 1), 100);
-        base.height = parseFloat(document.getElementById('lisHeight').value) || 0;
+        base.height = fromDisplay(parseFloat(document.getElementById('lisHeight').value) || 0);
         base.algorithm = document.getElementById('lisAlgorithm').value || 'linear';
         base.closePath = document.getElementById('lisClosePath').checked;
       }
@@ -9806,8 +9810,8 @@
         document.getElementById('polyCenterY').value = '0.00';
 
         // Set radii
-        document.getElementById('polyWidth').value = (pd.radiusX || 0).toFixed(2);
-        document.getElementById('polyHeight').value = (pd.radiusY || 0).toFixed(2);
+        document.getElementById('polyWidth').value = toDisplay(pd.radiusX || 0).toFixed(2);
+        document.getElementById('polyHeight').value = toDisplay(pd.radiusY || 0).toFixed(2);
 
         if (pd.type === 'star') {
           starInnerRadius = pd.innerRadius || 0.5;
@@ -9822,9 +9826,9 @@
         }
       } else if (pd.type === 'spiral') {
         document.getElementById('snfAngle').value = pd.angle || 15;
-        document.getElementById('snfRadius').value = pd.radius || 2;
-        document.getElementById('snfStartRadius').value = pd.startRadius || 0;
-        document.getElementById('snfHeight').value = pd.height || 0;
+        document.getElementById('snfRadius').value = toDisplay(pd.radius || 2).toFixed(2);
+        document.getElementById('snfStartRadius').value = toDisplay(pd.startRadius || 0).toFixed(2);
+        document.getElementById('snfHeight').value = toDisplay(pd.height || 0).toFixed(2);
         document.getElementById('snfCount').value = pd.count || 120;
         document.getElementById('snfAlgorithm').value = pd.algorithm || 'linear';
         document.getElementById('snfClosePath').checked = pd.closePath || false;
@@ -9839,18 +9843,18 @@
         const hexVal = rgbToHex(strokeCol);
         document.getElementById('snfStrokeColor').value = hexVal;
         document.getElementById('snfStrokeColorHex').value = hexVal.replace('#', '').toUpperCase();
-        document.getElementById('snfStrokeWidth').value = strokeW;
+        document.getElementById('snfStrokeWidth').value = toDisplayStroke(strokeW).toFixed(2);
       } else if (pd.type === 'cycloid') {
         document.getElementById('cycRail').value = pd.rail || 'circle';
         document.getElementById('cycMode').value = pd.mode || 'hypo';
         updateCycloidRailUI(); // Populate facing options before setting value
         document.getElementById('cycFacing').value = pd.facing || 'XZ';
-        document.getElementById('cycFixedR').value = pd.fixedR || 5;
-        document.getElementById('cycRollingR').value = pd.rollingR || 3;
-        document.getElementById('cycPenD').value = pd.penD || 3;
+        document.getElementById('cycFixedR').value = toDisplay(pd.fixedR || 5).toFixed(2);
+        document.getElementById('cycRollingR').value = toDisplay(pd.rollingR || 3).toFixed(2);
+        document.getElementById('cycPenD').value = toDisplay(pd.penD || 3).toFixed(2);
         document.getElementById('cycCount').value = pd.count || 500;
         document.getElementById('cycLoop').value = pd.loops || 1;
-        document.getElementById('cycHeight').value = pd.height || 0;
+        document.getElementById('cycHeight').value = toDisplay(pd.height || 0).toFixed(2);
         document.getElementById('cycAlgorithm').value = pd.algorithm || 'linear';
         document.getElementById('cycClosePath').checked = pd.closePath || false;
         updateCycloidRailUI();
@@ -9873,16 +9877,16 @@
         const hexVal = rgbToHex(strokeCol);
         document.getElementById('cycStrokeColor').value = hexVal;
         document.getElementById('cycStrokeColorHex').value = hexVal.replace('#', '').toUpperCase();
-        document.getElementById('cycStrokeWidth').value = strokeW;
+        document.getElementById('cycStrokeWidth').value = toDisplayStroke(strokeW).toFixed(2);
       } else if (pd.type === 'lissajous') {
         document.getElementById('lisFreqA').value = pd.freqA || 3;
         document.getElementById('lisFreqB').value = pd.freqB || 2;
         document.getElementById('lisDelta').value = pd.delta != null ? pd.delta : (Math.PI / 2).toFixed(3);
-        document.getElementById('lisAmpA').value = pd.ampA || 1;
-        document.getElementById('lisAmpB').value = pd.ampB || 1;
+        document.getElementById('lisAmpA').value = toDisplay(pd.ampA || 1).toFixed(2);
+        document.getElementById('lisAmpB').value = toDisplay(pd.ampB || 1).toFixed(2);
         document.getElementById('lisCount').value = pd.count || 500;
         document.getElementById('lisLoop').value = pd.loops || 1;
-        document.getElementById('lisHeight').value = pd.height || 0;
+        document.getElementById('lisHeight').value = toDisplay(pd.height || 0).toFixed(2);
         document.getElementById('lisAlgorithm').value = pd.algorithm || 'linear';
         document.getElementById('lisClosePath').checked = pd.closePath || false;
 
@@ -9896,7 +9900,7 @@
         const hexVal = rgbToHex(strokeCol);
         document.getElementById('lisStrokeColor').value = hexVal;
         document.getElementById('lisStrokeColorHex').value = hexVal.replace('#', '').toUpperCase();
-        document.getElementById('lisStrokeWidth').value = strokeW;
+        document.getElementById('lisStrokeWidth').value = toDisplayStroke(strokeW).toFixed(2);
       }
     };
 
@@ -9904,10 +9908,10 @@
     const updatePolygonGeometry = () => {
       if (!pendingPolygon) return;
 
-      const uVal = parseFloat(document.getElementById('polyCenterX').value) || 0;
-      const vVal = parseFloat(document.getElementById('polyCenterY').value) || 0;
-      const rxVal = parseFloat(document.getElementById('polyWidth').value) || 0; // Rx
-      const ryVal = parseFloat(document.getElementById('polyHeight').value) || 0; // Ry
+      const uVal = fromDisplay(parseFloat(document.getElementById('polyCenterX').value) || 0);
+      const vVal = fromDisplay(parseFloat(document.getElementById('polyCenterY').value) || 0);
+      const rxVal = fromDisplay(parseFloat(document.getElementById('polyWidth').value) || 0); // Rx
+      const ryVal = fromDisplay(parseFloat(document.getElementById('polyHeight').value) || 0); // Ry
       const innerR = parseFloat(document.getElementById('polyInnerRadius').value) || starInnerRadius;
 
       const basis = getGridBasis(gridDisplayMode);
@@ -10030,15 +10034,15 @@
       if (!pendingPolygon || !pendingPolygon.name.startsWith('Spl_')) return;
 
       const snfAngle = parseFloat(document.getElementById('snfAngle').value) || 15;
-      const snfRadius = parseFloat(document.getElementById('snfRadius').value) || 2;
-      const snfStartRadius = parseFloat(document.getElementById('snfStartRadius').value) || 0;
-      const snfHeight = parseFloat(document.getElementById('snfHeight').value) || 0;
+      const snfRadius = fromDisplay(parseFloat(document.getElementById('snfRadius').value) || 2);
+      const snfStartRadius = fromDisplay(parseFloat(document.getElementById('snfStartRadius').value) || 0);
+      const snfHeight = fromDisplay(parseFloat(document.getElementById('snfHeight').value) || 0);
       const snfCount = Math.min(Math.max(parseInt(document.getElementById('snfCount').value) || 120, 1), 500);
       const snfAlgo = document.getElementById('snfAlgorithm').value || 'linear';
       const snfClose = document.getElementById('snfClosePath').checked;
 
-      const uVal = parseFloat(document.getElementById('polyCenterX').value) || 0;
-      const vVal = parseFloat(document.getElementById('polyCenterY').value) || 0;
+      const uVal = fromDisplay(parseFloat(document.getElementById('polyCenterX').value) || 0);
+      const vVal = fromDisplay(parseFloat(document.getElementById('polyCenterY').value) || 0);
 
       const basis = getGridBasis(gridDisplayMode);
       const workingPlane = getWorkingPlane();
@@ -10058,7 +10062,7 @@
 
       // Live-update stroke style from inline inputs
       const _snfStrokeColor = document.getElementById('snfStrokeColor').value || '#4466cc';
-      const _snfStrokeWidth = parseFloat(document.getElementById('snfStrokeWidth').value) || 1;
+      const _snfStrokeWidth = fromDisplayStroke(parseFloat(document.getElementById('snfStrokeWidth').value) || 1);
       pendingPolygon.style.stroke = _snfStrokeColor;
       pendingPolygon.style['stroke-width'] = _snfStrokeWidth;
 
@@ -10108,9 +10112,9 @@
         const preset = spiralPresets[snfPresetEl.value];
         if (preset) {
           document.getElementById('snfAngle').value = preset.angle;
-          document.getElementById('snfRadius').value = preset.radius;
-          document.getElementById('snfStartRadius').value = preset.startRadius;
-          document.getElementById('snfHeight').value = preset.height;
+          document.getElementById('snfRadius').value = toDisplay(preset.radius).toFixed(2);
+          document.getElementById('snfStartRadius').value = toDisplay(preset.startRadius).toFixed(2);
+          document.getElementById('snfHeight').value = toDisplay(preset.height).toFixed(2);
           document.getElementById('snfCount').value = preset.count;
           updateSpiralGeometry();
         }
@@ -10120,12 +10124,12 @@
     const syncSpiralPreset = () => {
       if (!snfPresetEl) return;
       const a = parseFloat(document.getElementById('snfAngle').value);
-      const r = parseFloat(document.getElementById('snfRadius').value);
-      const sr = parseFloat(document.getElementById('snfStartRadius').value);
-      const h = parseFloat(document.getElementById('snfHeight').value);
+      const r = fromDisplay(parseFloat(document.getElementById('snfRadius').value));
+      const sr = fromDisplay(parseFloat(document.getElementById('snfStartRadius').value));
+      const h = fromDisplay(parseFloat(document.getElementById('snfHeight').value));
       const c = parseInt(document.getElementById('snfCount').value);
       const match = Object.entries(spiralPresets).find(([, p]) =>
-        p.angle === a && p.radius === r && p.startRadius === sr && p.height === h && p.count === c
+        p.angle === a && Math.abs(p.radius - r) < 0.001 && Math.abs(p.startRadius - sr) < 0.001 && Math.abs(p.height - h) < 0.001 && p.count === c
       );
       snfPresetEl.value = match ? match[0] : '';
     };
@@ -10485,18 +10489,18 @@
 
       const rail = document.getElementById('cycRail').value || 'circle';
       const mode = document.getElementById('cycMode').value || 'hypo';
-      const R = parseFloat(document.getElementById('cycFixedR').value) || 5;
-      const r = parseFloat(document.getElementById('cycRollingR').value) || 3;
-      const d = parseFloat(document.getElementById('cycPenD').value) || 3;
+      const R = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || 5);
+      const r = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || 3);
+      const d = fromDisplay(parseFloat(document.getElementById('cycPenD').value) || 3);
       const count = Math.min(Math.max(parseInt(document.getElementById('cycCount').value) || 500, 10), 2000);
       const loop = Math.min(Math.max(parseInt(document.getElementById('cycLoop').value) || 1, 1), 100);
-      const cycHeight = parseFloat(document.getElementById('cycHeight').value) || 0;
+      const cycHeight = fromDisplay(parseFloat(document.getElementById('cycHeight').value) || 0);
       const algo = document.getElementById('cycAlgorithm').value || 'linear';
       const close = document.getElementById('cycClosePath').checked;
       const facing = document.getElementById('cycFacing').value || 'XZ';
 
-      const uVal = parseFloat(document.getElementById('polyCenterX').value) || 0;
-      const vVal = parseFloat(document.getElementById('polyCenterY').value) || 0;
+      const uVal = fromDisplay(parseFloat(document.getElementById('polyCenterX').value) || 0);
+      const vVal = fromDisplay(parseFloat(document.getElementById('polyCenterY').value) || 0);
 
       const basis = getGridBasis(gridDisplayMode);
       const workingPlane = getWorkingPlane();
@@ -10537,7 +10541,7 @@
 
       // Live-update stroke style from inline inputs
       const _cycStrokeColor = document.getElementById('cycStrokeColor').value || '#cc4466';
-      const _cycStrokeWidth = parseFloat(document.getElementById('cycStrokeWidth').value) || 1;
+      const _cycStrokeWidth = fromDisplayStroke(parseFloat(document.getElementById('cycStrokeWidth').value) || 1);
       pendingPolygon.style.stroke = _cycStrokeColor;
       pendingPolygon.style['stroke-width'] = _cycStrokeWidth;
 
@@ -10583,16 +10587,16 @@
       const freqA = parseFloat(document.getElementById('lisFreqA').value) || 3;
       const freqB = parseFloat(document.getElementById('lisFreqB').value) || 2;
       const delta = parseFloat(document.getElementById('lisDelta').value) || 0;
-      const ampA = parseFloat(document.getElementById('lisAmpA').value) || 1;
-      const ampB = parseFloat(document.getElementById('lisAmpB').value) || 1;
+      const ampA = fromDisplay(parseFloat(document.getElementById('lisAmpA').value) || 1);
+      const ampB = fromDisplay(parseFloat(document.getElementById('lisAmpB').value) || 1);
       const count = Math.min(Math.max(parseInt(document.getElementById('lisCount').value) || 500, 10), 2000);
       const loop = Math.min(Math.max(parseInt(document.getElementById('lisLoop').value) || 1, 1), 100);
-      const lisHeight = parseFloat(document.getElementById('lisHeight').value) || 0;
+      const lisHeight = fromDisplay(parseFloat(document.getElementById('lisHeight').value) || 0);
       const algo = document.getElementById('lisAlgorithm').value || 'linear';
       const close = document.getElementById('lisClosePath').checked;
 
-      const uVal = parseFloat(document.getElementById('polyCenterX').value) || 0;
-      const vVal = parseFloat(document.getElementById('polyCenterY').value) || 0;
+      const uVal = fromDisplay(parseFloat(document.getElementById('polyCenterX').value) || 0);
+      const vVal = fromDisplay(parseFloat(document.getElementById('polyCenterY').value) || 0);
 
       const basis = getGridBasis(gridDisplayMode);
       const workingPlane = getWorkingPlane();
@@ -10614,7 +10618,7 @@
 
       // Live-update stroke style from inline inputs
       const _lisStrokeColor = document.getElementById('lisStrokeColor').value || '#cc4466';
-      const _lisStrokeWidth = parseFloat(document.getElementById('lisStrokeWidth').value) || 1;
+      const _lisStrokeWidth = fromDisplayStroke(parseFloat(document.getElementById('lisStrokeWidth').value) || 1);
       pendingPolygon.style.stroke = _lisStrokeColor;
       pendingPolygon.style['stroke-width'] = _lisStrokeWidth;
 
@@ -10655,12 +10659,12 @@
         const preset = cycloidPresets[cycPresetEl.value];
         if (preset) {
           document.getElementById('cycMode').value = preset.mode;
-          document.getElementById('cycFixedR').value = preset.R;
-          document.getElementById('cycRollingR').value = preset.r;
-          document.getElementById('cycPenD').value = preset.d;
+          document.getElementById('cycFixedR').value = toDisplay(preset.R).toFixed(2);
+          document.getElementById('cycRollingR').value = toDisplay(preset.r).toFixed(2);
+          document.getElementById('cycPenD').value = toDisplay(preset.d).toFixed(2);
           document.getElementById('cycCount').value = preset.count;
           document.getElementById('cycLoop').value = preset.loop;
-          document.getElementById('cycHeight').value = preset.height;
+          document.getElementById('cycHeight').value = toDisplay(preset.height).toFixed(2);
           updateCycloidGeometry();
         }
       });
@@ -10669,14 +10673,14 @@
     const syncCycloidPreset = () => {
       if (!cycPresetEl) return;
       const m = document.getElementById('cycMode').value;
-      const R = parseFloat(document.getElementById('cycFixedR').value);
-      const r = parseFloat(document.getElementById('cycRollingR').value);
-      const d = parseFloat(document.getElementById('cycPenD').value);
+      const R = fromDisplay(parseFloat(document.getElementById('cycFixedR').value));
+      const r = fromDisplay(parseFloat(document.getElementById('cycRollingR').value));
+      const d = fromDisplay(parseFloat(document.getElementById('cycPenD').value));
       const c = parseInt(document.getElementById('cycCount').value);
       const lp = parseInt(document.getElementById('cycLoop').value) || 1;
-      const h = parseFloat(document.getElementById('cycHeight').value) || 0;
+      const h = fromDisplay(parseFloat(document.getElementById('cycHeight').value) || 0);
       const match = Object.entries(cycloidPresets).find(([, p]) =>
-        p.mode === m && p.R === R && p.r === r && p.d === d && p.count === c && p.loop === lp && p.height === h
+        p.mode === m && Math.abs(p.R - R) < 0.001 && Math.abs(p.r - r) < 0.001 && Math.abs(p.d - d) < 0.001 && p.count === c && p.loop === lp && Math.abs(p.height - h) < 0.001
       );
       cycPresetEl.value = match ? match[0] : '';
     };
@@ -10762,7 +10766,7 @@
       if (el) {
         const handler = () => {
           currentStyle.stroke = document.getElementById('lisStrokeColor').value;
-          currentStyle['stroke-width'] = parseFloat(document.getElementById('lisStrokeWidth').value) || 1;
+          currentStyle['stroke-width'] = fromDisplayStroke(parseFloat(document.getElementById('lisStrokeWidth').value) || 1);
         };
         el.addEventListener('input', handler);
         el.addEventListener('change', handler);
@@ -10791,7 +10795,7 @@
       if (el) {
         const handler = () => {
           currentStyle.stroke = document.getElementById('doodleStrokeColor').value;
-          currentStyle['stroke-width'] = parseFloat(document.getElementById('doodleStrokeWidth').value) || 1;
+          currentStyle['stroke-width'] = fromDisplayStroke(parseFloat(document.getElementById('doodleStrokeWidth').value) || 1);
         };
         el.addEventListener('input', handler);
         el.addEventListener('change', handler);
@@ -10818,13 +10822,42 @@
     let gridDisplayMode = 'vertical'; // vertical, horizontal, side, object-local, camera-target-origin, camera-target, custom
     let gridOffset = 0;
 
-    // --- Import/Export Unit ---
-    let importExportUnit = 'px'; // 'px' or 'mm'
-    const PT_PER_MM = 72 / 25.4; // 1mm = 2.83464567pt(px) in Illustrator SVG
+    // --- Display Unit System ---
+    // Internal data: 1 unit = 100 Illustrator pts (px). Never changes.
+    // Display layer converts for UI only.
+    let displayUnit = 'px'; // 'px', 'mm', or 'world'
+    const PT_PER_MM = 72 / 25.4; // 1mm ≈ 2.8346 pt(px) in Illustrator SVG
     const BASE_IMPORT_SCALE = 0.01;
-    const MM_VIEWPORT_BOOST = 10; // Make mm paths 10x bigger in viewport for visual comfort
-    const getImportScale = () => importExportUnit === 'mm' ? BASE_IMPORT_SCALE * MM_VIEWPORT_BOOST / PT_PER_MM : BASE_IMPORT_SCALE;
-    const getExportScale = () => importExportUnit === 'mm' ? PT_PER_MM / MM_VIEWPORT_BOOST : 1;
+    const BASE_DISPLAY_SCALE = 100; // 1 internal unit = 100 Illustrator pts
+
+    // Import/Export: always px (simplified — no mm branching)
+    const getImportScale = () => BASE_IMPORT_SCALE;
+
+    // Internal → Display (for showing values in UI inputs)
+    const toDisplay = (v) => displayUnit === 'mm'
+      ? v * BASE_DISPLAY_SCALE / PT_PER_MM
+      : displayUnit === 'world' ? v
+      : v * BASE_DISPLAY_SCALE;
+
+    // Display → Internal (for reading user input from UI)
+    const fromDisplay = (v) => displayUnit === 'mm'
+      ? v * PT_PER_MM / BASE_DISPLAY_SCALE
+      : displayUnit === 'world' ? v
+      : v / BASE_DISPLAY_SCALE;
+
+    // Stroke-width specific conversions.
+    // Stroke widths are stored as raw SVG attribute values (not world-space
+    // coordinates), so for px/pt and world display they should be shown as-is.
+    // Only mm mode needs conversion.
+    const toDisplayStroke = (v) => displayUnit === 'mm'
+      ? v / PT_PER_MM
+      : v;
+    const fromDisplayStroke = (v) => displayUnit === 'mm'
+      ? v * PT_PER_MM
+      : v;
+
+    // Format for display (respects current unit, rounds appropriately)
+    const fmtDisplay = (v, decimals = 2) => toDisplay(v).toFixed(decimals);
 
     // Custom Grid State
     let customGridOrigin = [0, 0, 0];
@@ -10877,9 +10910,9 @@
         }
       }
       const offsetInput = document.getElementById('custom-offset-z-field');
-      if (offsetInput) offsetInput.value = gridOffset.toFixed(2);
+      if (offsetInput) offsetInput.value = toDisplay(gridOffset).toFixed(2);
       const sizeInput = document.getElementById('gridSizeInput');
-      if (sizeInput) sizeInput.value = gridSnapUnit;
+      if (sizeInput) sizeInput.value = toDisplay(gridSnapUnit).toFixed(2);
       const snapCb = document.getElementById('snapToGridCheckbox');
       if (snapCb) snapCb.checked = snapToGrid;
     };
@@ -10901,7 +10934,7 @@
     let currentStyle = {
       fill: 'none',
       stroke: 'rgba(255, 165, 0, 0.8)', // Orange
-      'stroke-width': 3,
+      'stroke-width': 0.01,
       'stroke-linecap': 'round',
       'stroke-linejoin': 'round',
       'stroke-opacity': 1,
@@ -10942,6 +10975,67 @@
     // --- MODIFIED: Nudge Speed ---
     let KEYBOARD_NUDGE_AMOUNT = 0.01; // 1/100 world unit
     // --- END MODIFIED ---
+
+    // Spatial input IDs — these represent world-space distances/positions
+    // and their step attribute should scale with the display unit.
+    // Non-spatial inputs (angles, counts, opacity, scale factors, frequencies)
+    // keep their original step values.
+    const SPATIAL_INPUT_IDS = new Set([
+      // Camera positions
+      'camPosXInput', 'camPosYInput', 'camPosZInput',
+      'camTargetXInput', 'camTargetYInput', 'camTargetZInput',
+      'camTruckInput', 'camPedestalInput', 'camDistInput',
+      // Workplane / grid
+      'custom-offset-z-field', 'gridSizeInput',
+      // Transform panel
+      'posXInput', 'posYInput', 'posZInput',
+      'pivotXInput', 'pivotYInput', 'pivotZInput',
+      // Vertex coordinates
+      'vXInput', 'vYInput', 'vZInput',
+      // Move tool
+      'movePosX', 'movePosY', 'movePosZ',
+      'moveDeltaPosX', 'moveDeltaPosY', 'moveDeltaPosZ',
+      'moveDeltaX', 'moveDeltaY', 'moveDeltaZ', 'moveDeltaDist',
+      // Pivot tool
+      'pivotToolX', 'pivotToolY', 'pivotToolZ',
+      'pivotDeltaX', 'pivotDeltaY', 'pivotDeltaZ',
+      // Pen tool
+      'penOffsetZ',
+      // Polygon / rect sizing
+      'polyCenterX', 'polyCenterY', 'polyWidth', 'polyHeight', 'polyInnerRadius',
+      // Spiral
+      'snfRadius', 'snfStartRadius', 'snfHeight',
+      // Cycloid
+      'cycFixedR', 'cycRollingR', 'cycPenD', 'cycHeight',
+      // Lissajous
+      'lisAmpA', 'lisAmpB', 'lisHeight',
+      // Doodle
+      'doodleOffsetZ', 'doodleSmooth',
+      // Extrude
+      'extrudeDepthInput', 'extrudeVecXInput', 'extrudeVecYInput', 'extrudeVecZInput',
+      'extrudePointSizeInput',
+      // Revolve
+      'revolveOffsetInput', 'revolvePointSizeInput',
+      // Sweep
+      'sweepPointSizeInput',
+      // Surface mapping
+      'surfaceMappingOffsetN', 'surfaceMappingOffsetU', 'surfaceMappingOffsetV',
+      'surfaceOffsetInput', 'surfaceHOffsetInput',
+      // Spline flow
+      'splineFlowRepeatGap',
+      // Reference image
+      'refImagePosX', 'refImagePosY', 'refImageScale',
+      // Vertex point size
+      'vertexPointSizeInput',
+    ]);
+
+    /** Update step attribute on all spatial number inputs to match display scale. */
+    const updateSpatialInputSteps = (displayStep) => {
+      SPATIAL_INPUT_IDS.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.step = displayStep;
+      });
+    };
 
     // --- 3D Vector Math ---
     const vectorScale = (v, s) => [v[0] * s, v[1] * s, v[2] * s];
@@ -23957,17 +24051,10 @@
           // Helper using getComputedStyle
           const getComputedSVGStyle = (el) => {
             const comp = window.getComputedStyle(el);
-            // Scale factor for style values (stroke-width, dash) in mm mode
-            // Must match the ratio of getImportScale(mm) / BASE_IMPORT_SCALE to keep proportions
-            const styleScale = importExportUnit === 'mm' ? (MM_VIEWPORT_BOOST / PT_PER_MM) : 1;
 
             let sw = parseFloat(comp.strokeWidth) || 1;
-            sw *= styleScale;
 
             let dashArray = comp.strokeDasharray !== 'none' ? comp.strokeDasharray : undefined;
-            if (dashArray && styleScale !== 1) {
-              dashArray = dashArray.split(/[\s,]+/).map(v => (parseFloat(v) * styleScale).toString()).join(', ');
-            }
 
             return {
               stroke: comp.stroke !== 'none' ? comp.stroke : 'none',
@@ -24892,7 +24979,7 @@
     const getCurrentPathStyle = () => {
       return {
         stroke: document.getElementById('strokeEnabledInput').checked ? document.getElementById('strokeColorInput').value : 'none',
-        'stroke-width': parseFloat(document.getElementById('strokeWidthInput').value),
+        'stroke-width': fromDisplayStroke(parseFloat(document.getElementById('strokeWidthInput').value)),
         'stroke-linejoin': document.getElementById('strokeLineJoinInput').value,
         'stroke-linecap': document.getElementById('strokeLineCapInput').value,
         'stroke-dasharray': document.getElementById('strokeDashArrayInput').value,
@@ -25125,7 +25212,7 @@
       }
 
       const enabled = extrudeEnabledInput.checked;
-      const depth = parseFloat(extrudeDepthInput.value) || 0;
+      const depth = fromDisplay(parseFloat(extrudeDepthInput.value) || 0);
       const symmetric = extrudeSymmetricInput.checked;
       const capFront = extrudeCapFrontInput.checked;
       const capBack = extrudeCapBackInput.checked;
@@ -25188,11 +25275,11 @@
         const toolBakeRow = document.getElementById('toolDrawerBakeRow');
         if (toolBakeRow) toolBakeRow.style.display = selectedObject.primitiveData ? '' : 'none';
 
-        if (document.activeElement !== posXInput) posXInput.value = selectedObject.position[0].toFixed(2);
+        if (document.activeElement !== posXInput) posXInput.value = fmtDisplay(selectedObject.position[0]);
         posXInput.disabled = false;
-        if (document.activeElement !== posYInput) posYInput.value = selectedObject.position[1].toFixed(2);
+        if (document.activeElement !== posYInput) posYInput.value = fmtDisplay(selectedObject.position[1]);
         posYInput.disabled = false;
-        if (document.activeElement !== posZInput) posZInput.value = selectedObject.position[2].toFixed(2);
+        if (document.activeElement !== posZInput) posZInput.value = fmtDisplay(selectedObject.position[2]);
         posZInput.disabled = false;
 
         const euler = selectedObject.rotationEuler || matrixToEuler(selectedObject.rotationMatrix);
@@ -25223,11 +25310,11 @@
 
         if (!selectedObject.pivot) selectedObject.pivot = [0, 0, 0];
 
-        if (document.activeElement !== pivotXInput) pivotXInput.value = selectedObject.pivot[0];
-        if (document.activeElement !== pivotYInput) pivotYInput.value = selectedObject.pivot[1];
-        if (document.activeElement !== pivotZInput) pivotZInput.value = selectedObject.pivot[2];
+        if (document.activeElement !== pivotXInput) pivotXInput.value = fmtDisplay(selectedObject.pivot[0]);
+        if (document.activeElement !== pivotYInput) pivotYInput.value = fmtDisplay(selectedObject.pivot[1]);
+        if (document.activeElement !== pivotZInput) pivotZInput.value = fmtDisplay(selectedObject.pivot[2]);
 
-        if (document.activeElement !== pivotZInput) pivotZInput.value = selectedObject.pivot[2];
+        if (document.activeElement !== pivotZInput) pivotZInput.value = fmtDisplay(selectedObject.pivot[2]);
 
         // Pivot Rotation Inputs
         const pivotRotXInput = document.getElementById('pivotRotXInput');
@@ -25261,13 +25348,13 @@
 
 
           if (document.activeElement !== vXInput) {
-            vXInput.value = localVertex[0].toFixed(2);
+            vXInput.value = toDisplay(localVertex[0]).toFixed(2);
           }
           if (document.activeElement !== vYInput) {
-            vYInput.value = localVertex[1].toFixed(2);
+            vYInput.value = toDisplay(localVertex[1]).toFixed(2);
           }
           if (document.activeElement !== vZInput) {
-            vZInput.value = localVertex[2].toFixed(2);
+            vZInput.value = toDisplay(localVertex[2]).toFixed(2);
           }
         } else {
           vertexProps.style.display = 'none';
@@ -25311,7 +25398,7 @@
       if (document.activeElement !== strokeEnabledInput) strokeEnabledInput.checked = hasStroke;
 
       const sw = parseFloat(styleSource['stroke-width']) || 1;
-      if (document.activeElement !== strokeWidthInput) strokeWidthInput.value = sw;
+      if (document.activeElement !== strokeWidthInput) strokeWidthInput.value = toDisplayStroke(sw).toFixed(2);
       strokeWidthInput.disabled = !hasStroke;
 
       // Use saved stroke if current is none, otherwise use current
@@ -25405,7 +25492,7 @@
       const extrudeParamsEl = document.getElementById('extrudeParams');
       if (extrudeParamsEl) extrudeParamsEl.classList.toggle('collapsed', !extrudeEnabledInput.checked);
       if (document.activeElement !== extrudeDepthInput) {
-        extrudeDepthInput.value = isPath ? (selectedObject.extrudeSettings?.depth || 2) : 2;
+        extrudeDepthInput.value = isPath ? fmtDisplay(selectedObject.extrudeSettings?.depth || 2) : fmtDisplay(2);
         extrudeDepthInput.disabled = !isPath || !extrudeEnabledInput.checked;
       }
       if (document.activeElement !== extrudeSymmetricInput) {
@@ -25599,7 +25686,7 @@
         revolveAxisInput.disabled = !isPath || !revolveEnabled;
       }
       if (document.activeElement !== revolveOffsetInput && revolveOffsetInput) {
-        revolveOffsetInput.value = isPath && selectedObject.revolveSettings?.offset !== undefined ? selectedObject.revolveSettings.offset : 0;
+        revolveOffsetInput.value = isPath && selectedObject.revolveSettings?.offset !== undefined ? fmtDisplay(selectedObject.revolveSettings.offset) : fmtDisplay(0);
         revolveOffsetInput.disabled = !isPath || !revolveEnabled;
       }
       if (document.activeElement !== revolveAngleInput && revolveAngleInput) {
@@ -26137,7 +26224,7 @@
         if (smScaleV && document.activeElement !== smScaleV) smScaleV.value = sm.scaleV ?? 1;
         if (smOffsetU && document.activeElement !== smOffsetU) smOffsetU.value = sm.offsetU ?? 0;
         if (smOffsetV && document.activeElement !== smOffsetV) smOffsetV.value = sm.offsetV ?? 0;
-        if (smOffsetN && document.activeElement !== smOffsetN) smOffsetN.value = sm.offsetN || 0;
+        if (smOffsetN && document.activeElement !== smOffsetN) smOffsetN.value = toDisplay(sm.offsetN || 0).toFixed(2);
         const smRotation = document.getElementById('surfaceMappingRotation');
         if (smRotation && document.activeElement !== smRotation) smRotation.value = sm.rotation || 0;
         const smAxisUSelect = document.getElementById('surfaceMappingAxisU');
@@ -26222,7 +26309,7 @@
       const strokeHex = rgbToHex(strokeToShow);
       if (document.activeElement !== qsStrokeColor) qsStrokeColor.value = strokeHex;
       if (document.activeElement !== qsStrokeHex) qsStrokeHex.value = strokeHex.slice(1).toUpperCase();
-      if (document.activeElement !== qsStrokeWidth) qsStrokeWidth.value = parseFloat(style['stroke-width']) || 1;
+      if (document.activeElement !== qsStrokeWidth) qsStrokeWidth.value = toDisplayStroke(parseFloat(style['stroke-width']) || 1).toFixed(2);
       qsStrokeColor.disabled = !hasStroke;
       qsStrokeHex.disabled = !hasStroke;
       qsStrokeWidth.disabled = !hasStroke;
@@ -26307,9 +26394,9 @@
       pushUndoStateCoalesced(); // Coalesced undo for property edits
 
       const newPos = [
-        parseFloat(document.getElementById('posXInput').value) || 0,
-        parseFloat(document.getElementById('posYInput').value) || 0,
-        parseFloat(document.getElementById('posZInput').value) || 0
+        fromDisplay(parseFloat(document.getElementById('posXInput').value) || 0),
+        fromDisplay(parseFloat(document.getElementById('posYInput').value) || 0),
+        fromDisplay(parseFloat(document.getElementById('posZInput').value) || 0)
       ];
       selectedObject.position = newPos;
 
@@ -26404,9 +26491,9 @@
       if (!selectedObject) return;
 
       const newPivot = [
-        parseFloat(document.getElementById('pivotXInput').value) || 0,
-        parseFloat(document.getElementById('pivotYInput').value) || 0,
-        parseFloat(document.getElementById('pivotZInput').value) || 0
+        fromDisplay(parseFloat(document.getElementById('pivotXInput').value) || 0),
+        fromDisplay(parseFloat(document.getElementById('pivotYInput').value) || 0),
+        fromDisplay(parseFloat(document.getElementById('pivotZInput').value) || 0)
       ];
 
       setObjectPivot(selectedObject, newPivot);
@@ -26809,7 +26896,7 @@
     if (surfaceMappingOffsetN) {
       surfaceMappingOffsetN.addEventListener('input', (e) => {
         if (selectedObject && selectedObject.surfaceConstraint?.surfaceMapping?.enabled) {
-          selectedObject.surfaceConstraint.surfaceMapping.offsetN = parseFloat(e.target.value) || 0;
+          selectedObject.surfaceConstraint.surfaceMapping.offsetN = fromDisplay(parseFloat(e.target.value) || 0);
           requestRender();
         }
       });
@@ -27352,17 +27439,11 @@
     const updateVertexFromInput = () => {
       if (selectedObject && selectedVertexInfo) {
         pushUndoStateCoalesced(); // Coalesced undo for vertex editing
-        const x = parseFloat(document.getElementById('vXInput').value) || 0;
-        const y = parseFloat(document.getElementById('vYInput').value) || 0;
-        const z = parseFloat(document.getElementById('vZInput').value) || 0;
+        const x = fromDisplay(parseFloat(document.getElementById('vXInput').value) || 0);
+        const y = fromDisplay(parseFloat(document.getElementById('vYInput').value) || 0);
+        const z = fromDisplay(parseFloat(document.getElementById('vZInput').value) || 0);
 
-        // Divide by scale to get local coordinates (user enters scaled values)
-        const scale = selectedObject.scale || [1, 1, 1];
-        selectedObject.localVertices[selectedVertexInfo.vertexIndex] = [
-          x / scale[0],
-          y / scale[1],
-          z / scale[2]
-        ];
+        selectedObject.localVertices[selectedVertexInfo.vertexIndex] = [x, y, z];
 
         // Update world position in selectedVertexInfo (optional but good for consistency if used elsewhere)
         // Recalculating world position requires full transform chain.
@@ -27489,7 +27570,7 @@
            (or all properties if no event provided / manual call).
       */
       const hasStroke = document.getElementById('strokeEnabledInput').checked;
-      const sw = parseFloat(document.getElementById('strokeWidthInput').value) || 0;
+      const sw = fromDisplayStroke(parseFloat(document.getElementById('strokeWidthInput').value) || 0);
       const color = document.getElementById('strokeColorInput').value;
       const lineJoin = document.getElementById('strokeLineJoinInput').value;
       const lineCap = document.getElementById('strokeLineCapInput').value;
@@ -27524,7 +27605,7 @@
       const revolveCapEndInput = document.getElementById('revolveCapEndInput');
 
       const extrudeEnabled = extrudeEnabledInput.checked;
-      const extrudeDepth = parseFloat(extrudeDepthInput.value) || 0;
+      const extrudeDepth = fromDisplay(parseFloat(extrudeDepthInput.value) || 0);
       const extrudeSymmetric = extrudeSymmetricInput.checked;
       const extrudeCapFront = extrudeCapFrontInput.checked;
       const extrudeCapBack = extrudeCapBackInput.checked;
@@ -27536,7 +27617,7 @@
 
       const revolveEnabled = revolveEnabledInput.checked;
       const revolveAxis = revolveAxisInput.value;
-      const revolveOffset = parseFloat(revolveOffsetInput.value) || 0;
+      const revolveOffset = fromDisplay(parseFloat(revolveOffsetInput.value) || 0);
       const revolveAngle = parseFloat(revolveAngleInput.value) || 360;
       const revolveSegments = parseInt(revolveSegmentsInput.value) || 32;
       const revolveCapStart = revolveCapStartInput.checked;
@@ -29752,7 +29833,7 @@
      *  Returns { point: [x,y,z], normal: [x,y,z] }. */
     const getPenWorkingPlane = () => {
       const mode = document.getElementById('penPlane')?.value || 'workplane';
-      const offsetZ = parseFloat(document.getElementById('penOffsetZ')?.value) || 0;
+      const offsetZ = fromDisplay(parseFloat(document.getElementById('penOffsetZ')?.value) || 0);
       let point, normal;
       if (mode === 'camera') {
         normal = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
@@ -29892,7 +29973,7 @@
       const color = document.getElementById('pixelArtColor') ? document.getElementById('pixelArtColor').value : '#4444ff';
       const hasStroke = document.getElementById('pixelArtStrokeCb') ? document.getElementById('pixelArtStrokeCb').checked : false;
       const strokeColor = document.getElementById('pixelArtStrokeColor') ? document.getElementById('pixelArtStrokeColor').value : '#000000';
-      const strokeWidth = document.getElementById('pixelArtStrokeWidth') ? parseFloat(document.getElementById('pixelArtStrokeWidth').value) || 1 : 1;
+      const strokeWidth = document.getElementById('pixelArtStrokeWidth') ? fromDisplayStroke(parseFloat(document.getElementById('pixelArtStrokeWidth').value) || 1) : 1;
       return {
         fill: hasFill ? color : 'none',
         stroke: hasStroke ? strokeColor : 'none',
@@ -30529,8 +30610,8 @@
         if (ray) {
           // Determine plane from doodle settings
           const doodlePlaneMode = document.getElementById('doodlePlane')?.value || 'workplane';
-          const doodleOffsetZ = parseFloat(document.getElementById('doodleOffsetZ')?.value) || 0;
-          _doodleSmooth = parseFloat(document.getElementById('doodleSmooth')?.value) || 0.05;
+          const doodleOffsetZ = fromDisplay(parseFloat(document.getElementById('doodleOffsetZ')?.value) || 0);
+          _doodleSmooth = fromDisplay(parseFloat(document.getElementById('doodleSmooth')?.value) || 0.05);
 
           let planeNormal, planePoint;
           if (doodlePlaneMode === 'camera') {
@@ -32426,7 +32507,7 @@
 
           // Override stroke from spiral tool's inline inputs
           const _snfStrokeColor = document.getElementById('snfStrokeColor').value || '#4466cc';
-          const _snfStrokeWidth = parseFloat(document.getElementById('snfStrokeWidth').value) || 1;
+          const _snfStrokeWidth = fromDisplayStroke(parseFloat(document.getElementById('snfStrokeWidth').value) || 1);
           pathStyle.stroke = _snfStrokeColor;
           pathStyle['stroke-width'] = _snfStrokeWidth;
 
@@ -32579,7 +32660,7 @@
 
           // Override stroke from cycloid tool's inline inputs
           const _cycStrokeColor = document.getElementById('cycStrokeColor').value || '#cc4466';
-          const _cycStrokeWidth = parseFloat(document.getElementById('cycStrokeWidth').value) || 1;
+          const _cycStrokeWidth = fromDisplayStroke(parseFloat(document.getElementById('cycStrokeWidth').value) || 1);
           pathStyle.stroke = _cycStrokeColor;
           pathStyle['stroke-width'] = _cycStrokeWidth;
 
@@ -32748,7 +32829,7 @@
 
           // Override stroke from lissajous tool's inline inputs
           const _lisStrokeColor = document.getElementById('lisStrokeColor').value || '#cc4466';
-          const _lisStrokeWidth = parseFloat(document.getElementById('lisStrokeWidth').value) || 1;
+          const _lisStrokeWidth = fromDisplayStroke(parseFloat(document.getElementById('lisStrokeWidth').value) || 1);
           pathStyle.stroke = _lisStrokeColor;
           pathStyle['stroke-width'] = _lisStrokeWidth;
 
@@ -32972,10 +33053,10 @@
               const vCoord = vectorDot(vecToCenter, v);
 
               // Update Form Inputs Live (Always Center/Rx/Ry)
-              document.getElementById('polyCenterX').value = uCoord.toFixed(2);
-              document.getElementById('polyCenterY').value = (-vCoord).toFixed(2);
-              document.getElementById('polyWidth').value = (finalW / 2).toFixed(2);
-              document.getElementById('polyHeight').value = (finalH / 2).toFixed(2);
+              document.getElementById('polyCenterX').value = toDisplay(uCoord).toFixed(2);
+              document.getElementById('polyCenterY').value = toDisplay(-vCoord).toFixed(2);
+              document.getElementById('polyWidth').value = toDisplay(finalW / 2).toFixed(2);
+              document.getElementById('polyHeight').value = toDisplay(finalH / 2).toFixed(2);
               document.getElementById('polyInnerRadius').value = starInnerRadius;
 
               document.getElementById('polygonCreationPanel').style.display = 'block';
@@ -33636,8 +33717,6 @@
     };
 
     const generateSVGString = () => {
-      const exportScale = getExportScale();
-
       const exportSVG = document.createElementNS(svgNS, 'svg');
       exportSVG.setAttribute('xmlns', svgNS);
       exportSVG.setAttribute('width', FRAME_SIZE);
@@ -33833,16 +33912,7 @@
         if (el) el.parentNode.removeChild(el);
       });
 
-      // Apply export scale for mm mode via g-transform wrapper
-      // viewBox stays at FRAME_SIZE so the scale wrapper actually multiplies coordinates by PT_PER_MM
-      if (importExportUnit === 'mm') {
-        const scaleWrapper = document.createElementNS(svgNS, 'g');
-        scaleWrapper.setAttribute('transform', `scale(${exportScale})`);
-        scaleWrapper.appendChild(clonedGroup);
-        exportSVG.appendChild(scaleWrapper); // Append scaled content SECOND
-      } else {
-        exportSVG.appendChild(clonedGroup); // Append content SECOND
-      }
+      exportSVG.appendChild(clonedGroup);
 
       const serializer = new XMLSerializer();
       return serializer.serializeToString(exportSVG);
@@ -35185,20 +35255,20 @@
               const hexInp = document.getElementById('accentColorHexInput');
               if (hexInp) hexInp.value = settings.accentColor.slice(1).toUpperCase();
             }
-            if (settings.importExportUnit) {
-              importExportUnit = settings.importExportUnit;
-              const sel = document.getElementById('importExportUnitSelect');
-              if (sel) sel.value = importExportUnit;
+            if (settings.displayUnit) {
+              displayUnit = settings.displayUnit;
+              const sel = document.getElementById('displayUnitSelect');
+              if (sel) sel.value = displayUnit;
             }
+            // Legacy migration: if old importExportUnit was saved, ignore it
+            // (import/export is now always px)
             if (settings.keyboardIncrement) {
               const val = parseFloat(settings.keyboardIncrement);
               if (!isNaN(val) && val > 0) {
                 KEYBOARD_NUDGE_AMOUNT = val;
                 const kbInp = document.getElementById('keyboardIncrementInput');
-                if (kbInp) kbInp.value = val;
-                document.querySelectorAll('input[type="number"]:not(.slider-fill-value)').forEach(inp => {
-                  if (inp.id !== 'keyboardIncrementInput') inp.step = val;
-                });
+                if (kbInp) kbInp.value = toDisplay(val).toFixed(2);
+                updateSpatialInputSteps(toDisplay(val));
               }
             }
             if (settings.undoLimit) {
@@ -35249,12 +35319,35 @@
         });
       }
 
-      // Import/Export Unit selector
-      const unitSelect = document.getElementById('importExportUnitSelect');
+      // Display Unit selector
+      const unitSelect = document.getElementById('displayUnitSelect');
       if (unitSelect) {
         unitSelect.addEventListener('change', (e) => {
-          importExportUnit = e.target.value;
-          saveSettings({ importExportUnit });
+          displayUnit = e.target.value;
+          saveSettings({ displayUnit });
+          // Refresh all panels to show new display values
+          updatePropertiesPanel();
+          updateMoveToolUI();
+          // Update keyboard increment display
+          const kbInp = document.getElementById('keyboardIncrementInput');
+          if (kbInp && document.activeElement !== kbInp) kbInp.value = toDisplay(KEYBOARD_NUDGE_AMOUNT).toFixed(2);
+          // Update grid size display
+          const gsInp = document.getElementById('gridSizeInput');
+          if (gsInp && document.activeElement !== gsInp) gsInp.value = toDisplay(gridSnapUnit).toFixed(2);
+          // Update workplane offset display
+          const wpOff = document.getElementById('custom-offset-z-field');
+          if (wpOff && document.activeElement !== wpOff) wpOff.value = toDisplay(gridOffset).toFixed(2);
+          // Update step on number inputs to match new display scale
+          updateSpatialInputSteps(toDisplay(KEYBOARD_NUDGE_AMOUNT));
+          // Refresh stroke width displays (tool-specific + quick-style bar)
+          const swInternal = parseFloat(currentStyle['stroke-width']) || 1;
+          const swConverted = toDisplayStroke(swInternal).toFixed(2);
+          ['snfStrokeWidth', 'cycStrokeWidth', 'lisStrokeWidth',
+           'doodleStrokeWidth', 'pixelArtStrokeWidth'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && document.activeElement !== el) el.value = swConverted;
+          });
+          updateQuickStyleBar();
         });
       }
 
@@ -35287,18 +35380,16 @@
           const hexInp = document.getElementById('accentColorHexInput');
           if (hexInp) hexInp.value = '2645D2';
 
-          // Reset import/export unit to px
-          importExportUnit = 'px';
-          const sel = document.getElementById('importExportUnitSelect');
+          // Reset display unit to px
+          displayUnit = 'px';
+          const sel = document.getElementById('displayUnitSelect');
           if (sel) sel.value = 'px';
 
-          // Reset keyboard increment to 0.1
+          // Reset keyboard increment to default (0.01 internal = 1 px)
           KEYBOARD_NUDGE_AMOUNT = 0.01;
           const kbInp = document.getElementById('keyboardIncrementInput');
-          if (kbInp) kbInp.value = 0.01;
-          document.querySelectorAll('input[type="number"]:not(.slider-fill-value)').forEach(inp => {
-            if (inp.id !== 'keyboardIncrementInput') inp.step = 0.01;
-          });
+          if (kbInp) kbInp.value = toDisplay(0.01).toFixed(2);
+          updateSpatialInputSteps(toDisplay(0.01));
 
           // Reset undo limit to default
           HISTORY_MAX = 50;
@@ -35520,15 +35611,11 @@
     if (keyboardIncrementInput) {
       keyboardIncrementInput.addEventListener('keydown', (e) => e.stopPropagation());
       keyboardIncrementInput.addEventListener('change', () => {
-        const val = parseFloat(keyboardIncrementInput.value);
+        const val = fromDisplay(parseFloat(keyboardIncrementInput.value));
         if (!isNaN(val) && val > 0) {
           KEYBOARD_NUDGE_AMOUNT = val;
           // Update step on all number inputs (except sliders and self)
-          document.querySelectorAll('input[type="number"]:not(.slider-fill-value)').forEach(inp => {
-            if (inp.id !== 'keyboardIncrementInput') {
-              inp.step = val;
-            }
-          });
+          updateSpatialInputSteps(toDisplay(val));
           saveSettings({ keyboardIncrement: val });
         }
       });

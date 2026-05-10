@@ -15,11 +15,12 @@ It also has a set of vector graphic tools. Pen, Polygon, Star, Ellipse, Doodle, 
 Inspired from Adobe dimensions(3.0J),  
 the app we used for the book "Arbitary Point P" by Keio University Masahiko Sato Laboratory + Norio Nakamura (https://bijutsu.press/books/2969/) .  
 "SiNYO Beta" by Hajime Tachibana,  
-Takenobu Igarashi,  
+Takenobu Igarashi, graphic design work with oblique projection,    
 "3D Graphics Programming from Scratch" by Gustavo Pezzi (https://pikuma.com),  
 "The Continuity of Splines" by Freya Holmér (https://youtu.be/jvPPXbo87ds),  
 "B-Spline Decomposition" by designcoding (https://www.designcoding.net/b-spline-deconstruction/)  
 Concept of "Workplane" from Modo by Foundry  
+"Plastacity" by plasticity.xyz (https://www.plasticity.xyz)
 "Interface Craft" by Josh Puckett (https://www.interfacecraft.dev).
 
 Background : I have been working on my own 3D graphic design app "dim", a non destructive path based companion to Adobe Illustrator (or other 2D vector apps) inspired from Adobe dimensions, a software I used when I started my career as a student, and continued using since then.

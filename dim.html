@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260510a -->
+<!-- dim v20260510e -->
 <!--
   MIT License
 
@@ -7253,7 +7253,7 @@
             delete pendingPolygon._preCreationSceneState;
           }
           pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-          pushUndoState();
+          pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
           const p = pendingPolygon;
           delete p._isReEditing;
           pendingPolygon = null;
@@ -7273,7 +7273,7 @@
             _lastSceneState = activePath._preCreationSceneState;
             delete activePath._preCreationSceneState;
           }
-          pushUndoState();
+          pushUndoState('Pen path');
           const confirmedPen = activePath;
           activePath = null;
           dragMode = 'none';
@@ -7332,7 +7332,7 @@
           delete pendingPolygon._preCreationSceneState;
         }
         pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-        pushUndoState();
+        pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
         const p = pendingPolygon;
         delete p._isReEditing;
         pendingPolygon = null;
@@ -7363,7 +7363,7 @@
           _lastSceneState = activePath._preCreationSceneState;
           delete activePath._preCreationSceneState;
         }
-        pushUndoState();
+        pushUndoState('Pen path');
         const confirmedPen = activePath;
         activePath = null;
         dragMode = 'none';
@@ -8867,11 +8867,12 @@
     };
 
     // --- Scene Undo Push (diff-based) ---
-    const pushUndoState = () => {
+    const pushUndoState = (label) => {
       const current = captureSceneState();
       if (_lastSceneState) {
         const diffs = computeDiff(_lastSceneState, current);
         if (diffs.length === 0) return;
+        if (label) diffs._label = label;
         sceneUndoHistory.push(diffs);
         if (sceneUndoHistory.length > HISTORY_MAX) sceneUndoHistory.shift();
         sceneRedoHistory.length = 0;
@@ -9223,8 +9224,16 @@
         }
       }
 
-      // Build label
+      // Build label — if an explicit label was provided, use it directly
+      if (diffs._label && addedCount === 0) {
+        const lbl = diffs._label.charAt(0).toUpperCase() + diffs._label.slice(1);
+        return lbl;
+      }
       if (addedCount > 0) {
+        if (diffs._label) {
+          const lbl = diffs._label.charAt(0).toUpperCase() + diffs._label.slice(1);
+          return addedCount === 1 ? `Add ${lbl}` : `Add ${addedCount} ${lbl}`;
+        }
         return addedCount === 1 ? 'Add object' : `Add ${addedCount} objects`;
       }
       if (removedCount) return 'Delete object';
@@ -9591,7 +9600,7 @@
       const wasCycloid = pendingPolygon.name && (pendingPolygon.name.startsWith('Cyc_') || pendingPolygon.name.startsWith('LCyc_') || pendingPolygon.name.startsWith('PCyc_'));
       const wasSpiral = pendingPolygon.name && pendingPolygon.name.startsWith('Spl_');
       pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-      pushUndoState();
+      pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
       const p = pendingPolygon;
       delete p._isReEditing;
       const _reTag = document.getElementById('toolDrawerReEditTag');
@@ -9650,7 +9659,7 @@
         _lastSceneState = activePath._preCreationSceneState;
         delete activePath._preCreationSceneState;
       }
-      pushUndoState();
+      pushUndoState('Pen path');
       const confirmedPath = activePath;
       activePath = null;
       _penPreviewLocalHit = null;
@@ -9734,7 +9743,7 @@
       // If there's already a pending shape, confirm it first
       if (pendingPolygon && pendingPolygon !== obj) {
         pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-        pushUndoState();
+        pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
         const p = pendingPolygon;
         delete p._isReEditing;
         pendingPolygon = null;
@@ -10934,7 +10943,7 @@
     let currentStyle = {
       fill: 'none',
       stroke: 'rgba(255, 165, 0, 0.8)', // Orange
-      'stroke-width': 0.01,
+      'stroke-width': 1,
       'stroke-linecap': 'round',
       'stroke-linejoin': 'round',
       'stroke-opacity': 1,
@@ -17193,6 +17202,7 @@
                   const isSplit = (frag.type === 'split');
                   const dClosed = frag.d + " Z";
                   const dOpen = frag.d;
+                  const fragGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 
                   if (this.style.fill && this.style.fill !== 'none') {
                     const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -17200,7 +17210,7 @@
                     pathEl.setAttribute('d', dClosed);
                     pathEl.setAttribute('fill', this.style.fill);
                     pathEl.setAttribute('stroke', 'none');
-                    this.svgElement.appendChild(pathEl);
+                    fragGroup.appendChild(pathEl);
                   }
 
                   if (this.style.stroke && this.style.stroke !== 'none') {
@@ -17214,7 +17224,7 @@
                         pathEl.setAttribute('stroke-width', strokeWidth);
                         pathEl.setAttribute('stroke-linecap', 'round');
                         pathEl.setAttribute('stroke-linejoin', 'round');
-                        this.svgElement.appendChild(pathEl);
+                        fragGroup.appendChild(pathEl);
                       });
                     } else if (isSplit) {
                       const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -17224,8 +17234,12 @@
                       pathEl.setAttribute('stroke-width', strokeWidth);
                       pathEl.setAttribute('stroke-linecap', 'round');
                       pathEl.setAttribute('stroke-linejoin', 'round');
-                      this.svgElement.appendChild(pathEl);
+                      fragGroup.appendChild(pathEl);
                     }
+                  }
+
+                  if (fragGroup.childNodes.length > 0) {
+                    faceList.push({ element: fragGroup, z: frag.avgZ || 0 });
                   }
                 });
               }
@@ -24354,7 +24368,7 @@
             sceneObjects.push(importTarget);
             // Restore pre-import baseline and push, so the import is a single undo entry
             if (_svgPreImportState) _lastSceneState = _svgPreImportState;
-            pushUndoState();
+            pushUndoState('Import SVG');
             setSelectedObject(importTarget);
             updateTreeView();
             requestRender();
@@ -24451,7 +24465,7 @@
               sceneObjects.push(rootGroup);
               // Restore pre-import baseline and push, so the import is a single undo entry
               if (_svgPreImportState) _lastSceneState = _svgPreImportState;
-              pushUndoState();
+              pushUndoState('Import SVG');
               setSelectedObject(rootGroup);
               updateTreeView();
               requestRender();
@@ -27481,6 +27495,7 @@
         updateTreeView();
         updatePropertiesPanel(); // Will hide vertex panel
         requestRender();
+        pushUndoState('Delete vertex');
       }
     };
 
@@ -30124,7 +30139,7 @@
 
       // Get or create pixel art group
       if (!activePixelGroup) {
-        pushUndoState();
+        pushUndoState('Pixel Art');
         const id = Math.floor(Math.random() * 10000);
         activePixelGroup = new Group(`Pixel_Art_${id}`);
         sceneObjects.push(activePixelGroup);
@@ -30460,6 +30475,7 @@
                   }
                 }
                 notifyPathUpdated(activePath);
+                pushUndoState('Edit vertices');
               }
             }
           }
@@ -32477,7 +32493,7 @@
               delete pendingPolygon._preCreationSceneState;
             }
             pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-            pushUndoState();
+            pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
             const confirmedShape = pendingPolygon;
             pendingPolygon = null;
             activePath = null;
@@ -32491,9 +32507,9 @@
           dragMode = 'draw-spiral';
 
           const snfAngle = parseFloat(document.getElementById('snfAngle').value) || 15;
-          const snfRadius = parseFloat(document.getElementById('snfRadius').value) || 2;
-          const snfStartRadius = parseFloat(document.getElementById('snfStartRadius').value) || 0;
-          const snfHeight = parseFloat(document.getElementById('snfHeight').value) || 0;
+          const snfRadius = fromDisplay(parseFloat(document.getElementById('snfRadius').value) || 2);
+          const snfStartRadius = fromDisplay(parseFloat(document.getElementById('snfStartRadius').value) || 0);
+          const snfHeight = fromDisplay(parseFloat(document.getElementById('snfHeight').value) || 0);
           const snfCount = Math.min(Math.max(parseInt(document.getElementById('snfCount').value) || 120, 1), 500);
           const snfAlgo = document.getElementById('snfAlgorithm').value || 'linear';
           const snfClose = document.getElementById('snfClosePath').checked;
@@ -32558,12 +32574,12 @@
               );
 
               // Update radius input
-              document.getElementById('snfRadius').value = dragRadius.toFixed(2);
+              document.getElementById('snfRadius').value = toDisplay(dragRadius).toFixed(2);
 
               // Re-generate vertices with new radius
               const snfAngle = parseFloat(document.getElementById('snfAngle').value) || 15;
-              const snfStartRadius = parseFloat(document.getElementById('snfStartRadius').value) || 0;
-              const snfHeight = parseFloat(document.getElementById('snfHeight').value) || 0;
+              const snfStartRadius = fromDisplay(parseFloat(document.getElementById('snfStartRadius').value) || 0);
+              const snfHeight = fromDisplay(parseFloat(document.getElementById('snfHeight').value) || 0);
               const snfCount = Math.min(Math.max(parseInt(document.getElementById('snfCount').value) || 120, 1), 500);
               const snfAlgo = document.getElementById('snfAlgorithm').value || 'linear';
               const snfClose = document.getElementById('snfClosePath').checked;
@@ -32598,7 +32614,7 @@
             }
             const wasCycloid = pendingPolygon.name && (pendingPolygon.name.startsWith('Cyc_') || pendingPolygon.name.startsWith('LCyc_') || pendingPolygon.name.startsWith('PCyc_'));
             pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-            pushUndoState();
+            pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
             const confirmedShape = pendingPolygon;
             pendingPolygon = null;
             activePath = null;
@@ -32609,9 +32625,9 @@
               const presetKey = document.getElementById('cycPreset').value;
               const preset = typeof cycloidPresets !== 'undefined' && cycloidPresets[presetKey];
               if (preset) {
-                document.getElementById('cycFixedR').value = preset.R;
-                document.getElementById('cycRollingR').value = preset.r;
-                document.getElementById('cycPenD').value = preset.d;
+                document.getElementById('cycFixedR').value = toDisplay(preset.R).toFixed(2);
+                document.getElementById('cycRollingR').value = toDisplay(preset.r).toFixed(2);
+                document.getElementById('cycPenD').value = toDisplay(preset.d).toFixed(2);
               }
             }
             updateTreeView();
@@ -32624,12 +32640,12 @@
           const cycRail = document.getElementById('cycRail').value || 'circle';
           const cycMode = document.getElementById('cycMode').value || 'hypo';
           const cycFacing = document.getElementById('cycFacing').value || 'XZ';
-          const cycR = parseFloat(document.getElementById('cycFixedR').value) || 5;
-          const cycr = parseFloat(document.getElementById('cycRollingR').value) || 3;
-          const cycD = parseFloat(document.getElementById('cycPenD').value) || 3;
+          const cycR = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || 5);
+          const cycr = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || 3);
+          const cycD = fromDisplay(parseFloat(document.getElementById('cycPenD').value) || 3);
           const cycCount = Math.min(Math.max(parseInt(document.getElementById('cycCount').value) || 500, 10), 2000);
           const cycLoop = Math.min(Math.max(parseInt(document.getElementById('cycLoop').value) || 1, 1), 100);
-          const cycHeightVal = parseFloat(document.getElementById('cycHeight').value) || 0;
+          const cycHeightVal = fromDisplay(parseFloat(document.getElementById('cycHeight').value) || 0);
           const cycAlgo = document.getElementById('cycAlgorithm').value || 'linear';
           const cycClose = document.getElementById('cycClosePath').checked;
 
@@ -32712,15 +32728,15 @@
 
               // Scale Wheel (r) and Offset (d) proportionally from drag distance
               // For circle mode, Ring (R) is also scaled; for line/path, R is unused
-              const origR = parseFloat(document.getElementById('cycFixedR').dataset.origR || document.getElementById('cycFixedR').value) || 5;
-              const origr = parseFloat(document.getElementById('cycRollingR').dataset.origr || document.getElementById('cycRollingR').value) || 3;
-              const origD = parseFloat(document.getElementById('cycPenD').dataset.origD || document.getElementById('cycPenD').value) || 3;
+              const origR = fromDisplay(parseFloat(document.getElementById('cycFixedR').dataset.origR || document.getElementById('cycFixedR').value) || 5);
+              const origr = fromDisplay(parseFloat(document.getElementById('cycRollingR').dataset.origr || document.getElementById('cycRollingR').value) || 3);
+              const origD = fromDisplay(parseFloat(document.getElementById('cycPenD').dataset.origD || document.getElementById('cycPenD').value) || 3);
 
               // On first drag frame, store original values
               if (!document.getElementById('cycRollingR').dataset.origr) {
-                document.getElementById('cycFixedR').dataset.origR = origR;
-                document.getElementById('cycRollingR').dataset.origr = origr;
-                document.getElementById('cycPenD').dataset.origD = origD;
+                document.getElementById('cycFixedR').dataset.origR = document.getElementById('cycFixedR').value;
+                document.getElementById('cycRollingR').dataset.origr = document.getElementById('cycRollingR').value;
+                document.getElementById('cycPenD').dataset.origD = document.getElementById('cycPenD').value;
               }
 
               if (_isLineCyc || _isPathCyc) {
@@ -32728,27 +32744,27 @@
                 const scale = dragR / origr;
                 const newWheel = origr * scale;
                 const newPen = origD * scale;
-                document.getElementById('cycRollingR').value = newWheel.toFixed(3);
-                document.getElementById('cycPenD').value = newPen.toFixed(3);
+                document.getElementById('cycRollingR').value = toDisplay(newWheel).toFixed(3);
+                document.getElementById('cycPenD').value = toDisplay(newPen).toFixed(3);
               } else {
                 // Circle mode: scale R, r and d proportionally to maintain pattern shape
                 const scale = dragR / origR;
                 const newR2 = origr * scale;
                 const newD = origD * scale;
-                document.getElementById('cycFixedR').value = dragR.toFixed(3);
-                document.getElementById('cycRollingR').value = newR2.toFixed(3);
-                document.getElementById('cycPenD').value = newD.toFixed(3);
+                document.getElementById('cycFixedR').value = toDisplay(dragR).toFixed(3);
+                document.getElementById('cycRollingR').value = toDisplay(newR2).toFixed(3);
+                document.getElementById('cycPenD').value = toDisplay(newD).toFixed(3);
               }
 
               // Re-generate vertices
               const cycMode = document.getElementById('cycMode').value || 'hypo';
               const cycFacing = document.getElementById('cycFacing').value || 'XZ';
-              const newR = parseFloat(document.getElementById('cycFixedR').value) || 5;
-              const newR2 = parseFloat(document.getElementById('cycRollingR').value) || 3;
-              const newD = parseFloat(document.getElementById('cycPenD').value) || 3;
+              const newR = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || 5);
+              const newR2 = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || 3);
+              const newD = fromDisplay(parseFloat(document.getElementById('cycPenD').value) || 3);
               const cycCount = Math.min(Math.max(parseInt(document.getElementById('cycCount').value) || 500, 10), 2000);
               const cycLoop = Math.min(Math.max(parseInt(document.getElementById('cycLoop').value) || 1, 1), 100);
-              const cycHeightVal = parseFloat(document.getElementById('cycHeight').value) || 0;
+              const cycHeightVal = fromDisplay(parseFloat(document.getElementById('cycHeight').value) || 0);
               const cycAlgo = document.getElementById('cycAlgorithm').value || 'linear';
               const cycClose = document.getElementById('cycClosePath').checked;
 
@@ -32796,7 +32812,7 @@
             }
             const wasLissajous = pendingPolygon.name && pendingPolygon.name.startsWith('Lis_');
             pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-            pushUndoState();
+            pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
             const confirmedShape = pendingPolygon;
             pendingPolygon = null;
             activePath = null;
@@ -32812,11 +32828,11 @@
           const lisFreqA = parseFloat(document.getElementById('lisFreqA').value) || 3;
           const lisFreqB = parseFloat(document.getElementById('lisFreqB').value) || 2;
           const lisDelta = parseFloat(document.getElementById('lisDelta').value) || 0;
-          const lisAmpA = parseFloat(document.getElementById('lisAmpA').value) || 1;
-          const lisAmpB = parseFloat(document.getElementById('lisAmpB').value) || 1;
+          const lisAmpA = fromDisplay(parseFloat(document.getElementById('lisAmpA').value) || 1);
+          const lisAmpB = fromDisplay(parseFloat(document.getElementById('lisAmpB').value) || 1);
           const lisCount = Math.min(Math.max(parseInt(document.getElementById('lisCount').value) || 500, 10), 2000);
           const lisLoop = Math.min(Math.max(parseInt(document.getElementById('lisLoop').value) || 1, 1), 100);
-          const lisHeightVal = parseFloat(document.getElementById('lisHeight').value) || 0;
+          const lisHeightVal = fromDisplay(parseFloat(document.getElementById('lisHeight').value) || 0);
           const lisAlgo = document.getElementById('lisAlgorithm').value || 'linear';
           const lisClose = document.getElementById('lisClosePath').checked;
 
@@ -32876,28 +32892,28 @@
               );
 
               // Scale ampA and ampB proportionally from drag distance
-              const origAmpA = parseFloat(document.getElementById('lisAmpA').dataset.origAmpA || document.getElementById('lisAmpA').value) || 1;
-              const origAmpB = parseFloat(document.getElementById('lisAmpB').dataset.origAmpB || document.getElementById('lisAmpB').value) || 1;
+              const origAmpA = fromDisplay(parseFloat(document.getElementById('lisAmpA').dataset.origAmpA || document.getElementById('lisAmpA').value) || 1);
+              const origAmpB = fromDisplay(parseFloat(document.getElementById('lisAmpB').dataset.origAmpB || document.getElementById('lisAmpB').value) || 1);
 
               // On first drag frame, store original values
               if (!document.getElementById('lisAmpA').dataset.origAmpA) {
-                document.getElementById('lisAmpA').dataset.origAmpA = origAmpA;
-                document.getElementById('lisAmpB').dataset.origAmpB = origAmpB;
+                document.getElementById('lisAmpA').dataset.origAmpA = document.getElementById('lisAmpA').value;
+                document.getElementById('lisAmpB').dataset.origAmpB = document.getElementById('lisAmpB').value;
               }
 
               const scale = dragR / origAmpA;
-              document.getElementById('lisAmpA').value = (origAmpA * scale).toFixed(3);
-              document.getElementById('lisAmpB').value = (origAmpB * scale).toFixed(3);
+              document.getElementById('lisAmpA').value = toDisplay(origAmpA * scale).toFixed(3);
+              document.getElementById('lisAmpB').value = toDisplay(origAmpB * scale).toFixed(3);
 
               // Re-generate vertices
               const lisFreqA = parseFloat(document.getElementById('lisFreqA').value) || 3;
               const lisFreqB = parseFloat(document.getElementById('lisFreqB').value) || 2;
               const lisDelta = parseFloat(document.getElementById('lisDelta').value) || 0;
-              const newAmpA = parseFloat(document.getElementById('lisAmpA').value) || 1;
-              const newAmpB = parseFloat(document.getElementById('lisAmpB').value) || 1;
+              const newAmpA = fromDisplay(parseFloat(document.getElementById('lisAmpA').value) || 1);
+              const newAmpB = fromDisplay(parseFloat(document.getElementById('lisAmpB').value) || 1);
               const lisCount = Math.min(Math.max(parseInt(document.getElementById('lisCount').value) || 500, 10), 2000);
               const lisLoop = Math.min(Math.max(parseInt(document.getElementById('lisLoop').value) || 1, 1), 100);
-              const lisHeightVal = parseFloat(document.getElementById('lisHeight').value) || 0;
+              const lisHeightVal = fromDisplay(parseFloat(document.getElementById('lisHeight').value) || 0);
               const lisAlgo = document.getElementById('lisAlgorithm').value || 'linear';
               const lisClose = document.getElementById('lisClosePath').checked;
 
@@ -33267,9 +33283,9 @@
           pendingPolygon.position = dragStartPoint;
 
           const snfAngle = parseFloat(document.getElementById('snfAngle').value) || 15;
-          const snfRadius = parseFloat(document.getElementById('snfRadius').value) || 2;
-          const snfStartRadius = parseFloat(document.getElementById('snfStartRadius').value) || 0;
-          const snfHeight = parseFloat(document.getElementById('snfHeight').value) || 0;
+          const snfRadius = fromDisplay(parseFloat(document.getElementById('snfRadius').value) || 2);
+          const snfStartRadius = fromDisplay(parseFloat(document.getElementById('snfStartRadius').value) || 0);
+          const snfHeight = fromDisplay(parseFloat(document.getElementById('snfHeight').value) || 0);
           const snfCount = Math.min(Math.max(parseInt(document.getElementById('snfCount').value) || 120, 1), 500);
           const localOffsets = generateSpiralVertices(dragStartPoint, snfAngle, snfRadius, snfCount, basis, snfStartRadius, snfHeight, workingPlane.normal);
           pendingPolygon.localVertices = localOffsets;
@@ -33278,8 +33294,8 @@
           const vecToCenter = vectorSubtract(dragStartPoint, workingPlane.point);
           const uCoord = vectorDot(vecToCenter, basis.u);
           const vCoord = vectorDot(vecToCenter, basis.v);
-          document.getElementById('polyCenterX').value = uCoord.toFixed(2);
-          document.getElementById('polyCenterY').value = (-vCoord).toFixed(2);
+          document.getElementById('polyCenterX').value = toDisplay(uCoord).toFixed(2);
+          document.getElementById('polyCenterY').value = toDisplay(-vCoord).toFixed(2);
 
           dragMode = 'edit-polygon';
           requestRender();
@@ -33298,8 +33314,8 @@
         const vecToCenter = vectorSubtract(dragStartPoint, workingPlane.point);
         const uCoord = vectorDot(vecToCenter, basis.u);
         const vCoord = vectorDot(vecToCenter, basis.v);
-        document.getElementById('polyCenterX').value = uCoord.toFixed(2);
-        document.getElementById('polyCenterY').value = (-vCoord).toFixed(2);
+        document.getElementById('polyCenterX').value = toDisplay(uCoord).toFixed(2);
+        document.getElementById('polyCenterY').value = toDisplay(-vCoord).toFixed(2);
 
         // Show creation panel
         const polyWidthRow = document.getElementById('polyWidth');
@@ -33325,12 +33341,12 @@
           const cycRail = document.getElementById('cycRail').value || 'circle';
           const cycMode = document.getElementById('cycMode').value || 'hypo';
           const cycFacing = document.getElementById('cycFacing').value || 'XZ';
-          const cycR = parseFloat(document.getElementById('cycFixedR').value) || 5;
-          const cycr = parseFloat(document.getElementById('cycRollingR').value) || 3;
-          const cycD = parseFloat(document.getElementById('cycPenD').value) || 3;
+          const cycR = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || 5);
+          const cycr = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || 3);
+          const cycD = fromDisplay(parseFloat(document.getElementById('cycPenD').value) || 3);
           const cycCount = Math.min(Math.max(parseInt(document.getElementById('cycCount').value) || 500, 10), 2000);
           const cycLoop = Math.min(Math.max(parseInt(document.getElementById('cycLoop').value) || 1, 1), 100);
-          const cycHeightVal = parseFloat(document.getElementById('cycHeight').value) || 0;
+          const cycHeightVal = fromDisplay(parseFloat(document.getElementById('cycHeight').value) || 0);
           let localOffsets;
           if (cycRail === 'path') {
             const targetId = document.getElementById('cycPathTarget').value;
@@ -33357,8 +33373,8 @@
           const vecToCenter = vectorSubtract(dragStartPoint, workingPlane.point);
           const uCoord = vectorDot(vecToCenter, basis.u);
           const vCoord = vectorDot(vecToCenter, basis.v);
-          document.getElementById('polyCenterX').value = uCoord.toFixed(2);
-          document.getElementById('polyCenterY').value = (-vCoord).toFixed(2);
+          document.getElementById('polyCenterX').value = toDisplay(uCoord).toFixed(2);
+          document.getElementById('polyCenterY').value = toDisplay(-vCoord).toFixed(2);
 
           dragMode = 'edit-polygon';
           requestRender();
@@ -33382,8 +33398,8 @@
         const vecToCenter = vectorSubtract(dragStartPoint, workingPlane.point);
         const uCoord = vectorDot(vecToCenter, basis.u);
         const vCoord = vectorDot(vecToCenter, basis.v);
-        document.getElementById('polyCenterX').value = uCoord.toFixed(2);
-        document.getElementById('polyCenterY').value = (-vCoord).toFixed(2);
+        document.getElementById('polyCenterX').value = toDisplay(uCoord).toFixed(2);
+        document.getElementById('polyCenterY').value = toDisplay(-vCoord).toFixed(2);
 
         // Show creation panel
         const polyWidthRow = document.getElementById('polyWidth');
@@ -33409,11 +33425,11 @@
           const lisFreqA = parseFloat(document.getElementById('lisFreqA').value) || 3;
           const lisFreqB = parseFloat(document.getElementById('lisFreqB').value) || 2;
           const lisDelta = parseFloat(document.getElementById('lisDelta').value) || 0;
-          const lisAmpA = parseFloat(document.getElementById('lisAmpA').value) || 1;
-          const lisAmpB = parseFloat(document.getElementById('lisAmpB').value) || 1;
+          const lisAmpA = fromDisplay(parseFloat(document.getElementById('lisAmpA').value) || 1);
+          const lisAmpB = fromDisplay(parseFloat(document.getElementById('lisAmpB').value) || 1);
           const lisCount = Math.min(Math.max(parseInt(document.getElementById('lisCount').value) || 500, 10), 2000);
           const lisLoop = Math.min(Math.max(parseInt(document.getElementById('lisLoop').value) || 1, 1), 100);
-          const lisHeightVal = parseFloat(document.getElementById('lisHeight').value) || 0;
+          const lisHeightVal = fromDisplay(parseFloat(document.getElementById('lisHeight').value) || 0);
 
           pendingPolygon.position = dragStartPoint;
           const localOffsets = generateLissajousVertices(dragStartPoint, lisFreqA, lisFreqB, lisDelta, lisAmpA, lisAmpB, lisCount, basis, lisLoop, lisHeightVal, workingPlane.normal);
@@ -33423,8 +33439,8 @@
           const vecToCenter = vectorSubtract(dragStartPoint, workingPlane.point);
           const uCoord = vectorDot(vecToCenter, basis.u);
           const vCoord = vectorDot(vecToCenter, basis.v);
-          document.getElementById('polyCenterX').value = uCoord.toFixed(2);
-          document.getElementById('polyCenterY').value = (-vCoord).toFixed(2);
+          document.getElementById('polyCenterX').value = toDisplay(uCoord).toFixed(2);
+          document.getElementById('polyCenterY').value = toDisplay(-vCoord).toFixed(2);
 
           dragMode = 'edit-polygon';
           requestRender();
@@ -33447,8 +33463,8 @@
         const vecToCenter = vectorSubtract(dragStartPoint, workingPlane.point);
         const uCoord = vectorDot(vecToCenter, basis.u);
         const vCoord = vectorDot(vecToCenter, basis.v);
-        document.getElementById('polyCenterX').value = uCoord.toFixed(2);
-        document.getElementById('polyCenterY').value = (-vCoord).toFixed(2);
+        document.getElementById('polyCenterX').value = toDisplay(uCoord).toFixed(2);
+        document.getElementById('polyCenterY').value = toDisplay(-vCoord).toFixed(2);
 
         // Show creation panel
         const polyWidthRow = document.getElementById('polyWidth');
@@ -33633,7 +33649,7 @@
             _lastSceneState = activePath._preCreationSceneState;
             delete activePath._preCreationSceneState;
           }
-          pushUndoState();
+          pushUndoState('Doodle stroke');
           updateTreeView();
           updatePropertiesPanel();
           // Deactivate so next drag starts a new stroke
@@ -34651,6 +34667,7 @@
         updateTreeView();
         updatePropertiesPanel();
         requestRender();
+        pushUndoState('Cancel creation');
         return;
       }
 
@@ -34673,6 +34690,7 @@
         updateTreeView();
         updatePropertiesPanel();
         requestRender();
+        pushUndoState('Delete vertex');
         return;
       } else if (selectedObject) {
         // Recursive Clean-up Helper
@@ -34723,6 +34741,7 @@
         updatePropertiesPanel(); // Clear properties panel
         updateStylePanel(); // Reset style panel
         requestRender();
+        pushUndoState('Delete object');
       }
     };
 
@@ -35323,8 +35342,39 @@
       const unitSelect = document.getElementById('displayUnitSelect');
       if (unitSelect) {
         unitSelect.addEventListener('change', (e) => {
+          const oldUnit = displayUnit;
           displayUnit = e.target.value;
           saveSettings({ displayUnit });
+          // Re-convert parametric tool spatial inputs from old unit → new unit.
+          // These inputs hold "live" display-unit values with no backing world variable,
+          // so we must explicitly rescale them when the unit changes.
+          const _convertOldToNew = (oldVal) => {
+            // old display → world → new display
+            const oldFromDisplay = oldUnit === 'mm'
+              ? oldVal * PT_PER_MM / BASE_DISPLAY_SCALE
+              : oldUnit === 'world' ? oldVal
+              : oldVal / BASE_DISPLAY_SCALE;
+            return toDisplay(oldFromDisplay);
+          };
+          const _paramSpatialIds = [
+            // Spiral
+            'snfRadius', 'snfStartRadius', 'snfHeight',
+            // Cycloid
+            'cycFixedR', 'cycRollingR', 'cycPenD', 'cycHeight',
+            // Lissajous
+            'lisAmpA', 'lisAmpB', 'lisHeight',
+            // Polygon / creation panel center & size
+            'polyCenterX', 'polyCenterY', 'polyWidth', 'polyHeight',
+          ];
+          _paramSpatialIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el && el.value !== '' && document.activeElement !== el) {
+              const oldVal = parseFloat(el.value);
+              if (!isNaN(oldVal) && oldVal !== 0) {
+                el.value = _convertOldToNew(oldVal).toFixed(3);
+              }
+            }
+          });
           // Refresh all panels to show new display values
           updatePropertiesPanel();
           updateMoveToolUI();
@@ -35380,10 +35430,31 @@
           const hexInp = document.getElementById('accentColorHexInput');
           if (hexInp) hexInp.value = '2645D2';
 
-          // Reset display unit to px
+          // Reset display unit to px (re-convert parametric inputs first)
+          const _oldUnit = displayUnit;
           displayUnit = 'px';
           const sel = document.getElementById('displayUnitSelect');
           if (sel) sel.value = 'px';
+          if (_oldUnit !== 'px') {
+            const _convertReset = (oldVal) => {
+              const worldVal = _oldUnit === 'mm'
+                ? oldVal * PT_PER_MM / BASE_DISPLAY_SCALE
+                : _oldUnit === 'world' ? oldVal
+                : oldVal / BASE_DISPLAY_SCALE;
+              return toDisplay(worldVal);
+            };
+            ['snfRadius', 'snfStartRadius', 'snfHeight',
+             'cycFixedR', 'cycRollingR', 'cycPenD', 'cycHeight',
+             'lisAmpA', 'lisAmpB', 'lisHeight',
+             'polyCenterX', 'polyCenterY', 'polyWidth', 'polyHeight',
+            ].forEach(id => {
+              const el = document.getElementById(id);
+              if (el && el.value !== '') {
+                const v = parseFloat(el.value);
+                if (!isNaN(v) && v !== 0) el.value = _convertReset(v).toFixed(3);
+              }
+            });
+          }
 
           // Reset keyboard increment to default (0.01 internal = 1 px)
           KEYBOARD_NUDGE_AMOUNT = 0.01;

@@ -1,6 +1,7 @@
 # dim
 
 dim / 3D Application based on SVG for graphic designers.  
+created by Masaya Ishikawa   
 Based on SVG, bezier curves, B-spline curves, perspective projection, orthographic projection, oblique projection.
 
 ![screenshot of "dim"](./images/dim_screenshot_01.png)
@@ -28,6 +29,9 @@ Past 5 years, I studied 3D projection, spline interpolation algorithm, svg, and 
 Thanks to ai coding, the app has reached a point that I can finally move over from Adobe dimensions and I also wanted to share this tool to others(graphic designers that can not fit to pixelbased 3D apps, like me).
 
 If you find this project useful, please consider supporting the development on GitHub Sponsors. (https://github.com/sponsors/iskwmsy)    
+
+## contacts 
+[github](https://github.com/iskwmsy), [twitter](https://x.com/kamone), [instagram](https://www.instagram.com/kamone),   
 
 ## Sample Scenes
 [Spline Flow Sample 01](./scenes/dim_scene_sample_splineflow_01.json),

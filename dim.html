@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260510f -->
+<!-- dim v20260512d -->
 <!--
   MIT License
 
@@ -3389,7 +3389,7 @@
           <div class="xyz-inputs">
             <div class="xyz-field">
               <span class="xyz-col-label">Dist</span>
-              <input type="number" id="camDistInput" step="1" min="0.1" />
+              <input type="number" id="camDistInput" step="1" min="0" />
             </div>
             <div class="xyz-field">
               <span class="xyz-col-label" id="camFovColLabel">FOV</span>
@@ -3564,7 +3564,7 @@
         <div class="xyz-row">
           <label for="gridSizeInput">Grid Size</label>
           <div class="xyz-inputs">
-            <input type="number" id="gridSizeInput" value="100.00" step="1" min="0.1" />
+            <input type="number" id="gridSizeInput" value="100.00" step="1" min="0" />
           </div>
         </div>
         <div class="prop-row prop-inline">
@@ -4802,7 +4802,7 @@
                   <div class="style-row" id="drawPointsRow">
                     <label class="ui-checkbox-label">Draw Points</label>
                     <input type="checkbox" id="vertexDrawPointsInput" class="ui-checkbox" />
-                    <input type="number" id="vertexPointSizeInput" value="5.0" min="0.5" step="1.0" />
+                    <input type="number" id="vertexPointSizeInput" value="5.0" min="0" step="1.0" />
                     <input type="text" id="vertexPointColorHexInput" class="color-hex-input" maxlength="6"
                       placeholder="0000FF" spellcheck="false" />
                     <input type="color" id="vertexPointColorInput" value="#0000ff" class="color-fill" />
@@ -4937,7 +4937,7 @@
                       <div class="style-row">
                         <label class="ui-checkbox-label">Draw Points</label>
                         <input type="checkbox" id="extrudeDrawPointsInput" class="ui-checkbox" />
-                        <input type="number" id="extrudePointSizeInput" value="5.0" min="0.5" step="1.0" />
+                        <input type="number" id="extrudePointSizeInput" value="5.0" min="0" step="1.0" />
                         <input type="text" id="extrudePointColorHexInput" class="color-hex-input" maxlength="6"
                           placeholder="0000FF" spellcheck="false" />
                         <input type="color" id="extrudePointColorInput" value="#0000ff" class="color-fill" />
@@ -5214,7 +5214,7 @@
                     <div class="style-row">
                       <label class="ui-checkbox-label">Draw Points</label>
                       <input type="checkbox" id="sweepDrawPointsInput" class="ui-checkbox" />
-                      <input type="number" id="sweepPointSizeInput" value="5.0" min="0.5" step="1.0" />
+                      <input type="number" id="sweepPointSizeInput" value="5.0" min="0" step="1.0" />
                       <input type="text" id="sweepPointColorHexInput" class="color-hex-input" maxlength="6"
                         placeholder="0000FF" spellcheck="false" />
                       <input type="color" id="sweepPointColorInput" value="#0000ff" class="color-fill" />
@@ -6311,33 +6311,34 @@
 
     // --- Face Workplane ---
     const faceWorkplane = () => {
-      // Determine normal and up based on gridDisplayMode
+      // Determine normal and up based on activeWorkplane.mode
+      const mode = activeWorkplane.mode;
       let normal = [0, 0, 1]; // Default
       let up = [0, 1, 0];
 
-      if (gridDisplayMode === 'horizontal') {
+      if (mode === 'horizontal') {
         normal = [0, 1, 0];
         up = [0, 0, -1];
-      } else if (gridDisplayMode === 'vertical') {
+      } else if (mode === 'vertical') {
         normal = [0, 0, 1];
         up = [0, 1, 0];
-      } else if (gridDisplayMode === 'side') {
+      } else if (mode === 'side') {
         normal = [1, 0, 0];
         up = [0, 1, 0];
-      } else if (gridDisplayMode === 'camera-target-origin') {
+      } else if (mode === 'camera-target-origin') {
         normal = frozenCameraNormal;
         let xAxis = vectorNormalize(vectorCross([0, 1, 0], normal));
         if (vectorLength(xAxis) < 0.001) xAxis = [1, 0, 0];
         up = vectorNormalize(vectorCross(normal, xAxis));
-      } else if (gridDisplayMode === 'object-local') {
+      } else if (mode === 'object-local') {
         if (selectedObject) {
           const R = selectedObject.rotationMatrix;
           normal = [R[0][2], R[1][2], R[2][2]];
           up = [R[0][1], R[1][1], R[2][1]];
         }
-      } else if (gridDisplayMode === 'custom') {
-        normal = customGridNormal;
-        up = vectorNormalize(vectorCross(normal, customGridRight));
+      } else if (mode === 'custom') {
+        normal = activeWorkplane.normal;
+        up = vectorNormalize(vectorCross(normal, activeWorkplane.right));
       }
 
       const fixedDistance = 17.32;
@@ -6368,50 +6369,41 @@
 
     const wpOffsetInput = document.getElementById('custom-offset-z-field');
 
-    // Snap to Grid State
-    let snapToGrid = false;
-    let gridSnapUnit = 1;
+    // Snap to Grid State (stored on activeWorkplane)
 
     const gridSizeInput = document.getElementById('gridSizeInput');
     gridSizeInput.addEventListener('input', (e) => {
       const val = fromDisplay(parseFloat(e.target.value));
       if (val > 0) {
-        gridSnapUnit = val;
-        syncGlobalsToWorkplane();
-        updateVisualGrid(gridSnapUnit);
+        activeWorkplane.gridSize = val;
+        updateVisualGrid(activeWorkplane.gridSize);
         requestRender();
       }
     });
 
     document.getElementById('snapToGridCheckbox').addEventListener('change', (e) => {
-      snapToGrid = e.target.checked;
-      syncGlobalsToWorkplane();
+      activeWorkplane.snapToGrid = e.target.checked;
       requestRender();
     });
 
     document.getElementById('workplaneSelect').addEventListener('change', (e) => {
       if (e.target.value === 'selection') {
         setWorkplaneFromSelection();
-        // The function updates properties panel, so we don't need to do anything else usually.
-        // But if selection failed (no object), we might want to revert?
-        // setWorkplaneFromSelection doesn't return success/fail explicitly but handles it.
         return;
       }
-      gridDisplayMode = e.target.value;
-      gridOffset = 0;
+      activeWorkplane.mode = e.target.value;
+      activeWorkplane.offset = 0;
       document.getElementById('custom-offset-z-field').value = "0.00";
-      if (gridDisplayMode === 'camera-target-origin') {
+      if (activeWorkplane.mode === 'camera-target-origin') {
         // Basic camera normal capture if selected from menu
         frozenCameraNormal = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
         frozenCameraUp = [...activeCamera.up];
       }
-      syncGlobalsToWorkplane();
       updatePropertiesPanel();
       requestRender();
     });
     wpOffsetInput.addEventListener('input', (e) => {
-      gridOffset = fromDisplay(parseFloat(e.target.value) || 0);
-      syncGlobalsToWorkplane();
+      activeWorkplane.offset = fromDisplay(parseFloat(e.target.value) || 0);
       requestRender();
     });
 
@@ -6555,10 +6547,8 @@
 
     const activateWorkplane = () => {
       if (selectedWorkplane && selectedWorkplane !== activeWorkplane) {
-        // Sync current globals into old active before switching
-        syncGlobalsToWorkplane();
         activeWorkplane = selectedWorkplane;
-        syncWorkplaneToGlobals();
+        activeWorkplane.syncUI();
         updateWorkplaneList();
         updateWorkplanePanel();
         updatePropertiesPanel();
@@ -6569,14 +6559,8 @@
     const loadWorkplane = () => {
       if (selectedWorkplane && selectedWorkplane !== activeWorkplane) {
         // Copy all settings from selected into active
-        activeWorkplane.mode = selectedWorkplane.mode;
-        activeWorkplane.offset = selectedWorkplane.offset;
-        activeWorkplane.gridSize = selectedWorkplane.gridSize;
-        activeWorkplane.snapToGrid = selectedWorkplane.snapToGrid;
-        activeWorkplane.origin = [...selectedWorkplane.origin];
-        activeWorkplane.right = [...selectedWorkplane.right];
-        activeWorkplane.normal = [...selectedWorkplane.normal];
-        syncWorkplaneToGlobals();
+        activeWorkplane.copyFrom(selectedWorkplane);
+        activeWorkplane.syncUI();
         // Select the active workplane so the user can edit it immediately
         selectedWorkplane = activeWorkplane;
         updateWorkplaneList();
@@ -6589,18 +6573,7 @@
     const saveCopyWorkplane = () => {
       const wp = selectedWorkplane || activeWorkplane;
       if (!wp) return;
-      // If this is the active workplane, sync globals first
-      if (wp === activeWorkplane) syncGlobalsToWorkplane();
-      const copy = createWorkplane(wp.name + ' copy', wp.mode, {
-        offset: wp.offset,
-        gridSize: wp.gridSize,
-        snapToGrid: wp.snapToGrid,
-        lock: wp.lock,
-        origin: [...wp.origin],
-        right: [...wp.right],
-        normal: [...wp.normal],
-      });
-      workplanes.push(copy);
+      workplanes.push(wp.clone());
       updateWorkplaneList();
     };
 
@@ -6612,7 +6585,7 @@
         workplanes.splice(index, 1);
         if (wp === activeWorkplane) {
           activeWorkplane = workplanes[0];
-          syncWorkplaneToGlobals();
+          activeWorkplane.syncUI();
         }
         if (wp === selectedWorkplane) {
           selectedWorkplane = activeWorkplane;
@@ -8835,12 +8808,11 @@
 
     // --- Snapshot Capture ---
     const captureSceneState = () => {
-      syncGlobalsToWorkplane();
       return {
         objects: sceneObjects.map(obj => serializeObject(obj)),
         workplane: {
           active: workplanes.indexOf(activeWorkplane),
-          list: workplanes.map(wp => ({ ...wp }))
+          list: workplanes.map(wp => wp.serialize())
         }
       };
     };
@@ -8855,13 +8827,12 @@
 
     // Legacy: full snapshot for tool session undoSnapshot (still uses JSON string)
     const captureSceneSnapshot = () => {
-      syncGlobalsToWorkplane();
       return JSON.stringify({
         objects: sceneObjects.map(obj => serializeObject(obj)),
         camera: captureCameraState(),
         workplane: {
           active: workplanes.indexOf(activeWorkplane),
-          list: workplanes.map(wp => ({ ...wp }))
+          list: workplanes.map(wp => wp.serialize())
         }
       });
     };
@@ -8967,18 +8938,18 @@
           // New format: multi-workplane
           workplanes.length = 0;
           state.workplane.list.forEach(wpData => {
-            workplanes.push(createWorkplane(wpData.name, wpData.mode, wpData));
+            workplanes.push(Workplane.deserialize(wpData));
           });
-          if (workplanes.length === 0) workplanes.push(createWorkplane('Workplane 1', 'vertical'));
+          if (workplanes.length === 0) workplanes.push(new Workplane('Workplane 1', 'vertical'));
           activeWorkplane = workplanes[state.workplane.active || 0] || workplanes[0];
           selectedWorkplane = activeWorkplane;
-          syncWorkplaneToGlobals();
+          activeWorkplane.syncUI();
           updateWorkplaneList();
         } else {
-          // Legacy format
-          gridDisplayMode = state.workplane.mode || 'horizontal';
-          gridOffset = state.workplane.offset || 0;
-          syncGlobalsToWorkplane();
+          // Legacy format: write directly to activeWorkplane
+          activeWorkplane.mode = state.workplane.mode || 'horizontal';
+          activeWorkplane.offset = state.workplane.offset || 0;
+          activeWorkplane.syncUI();
         }
       }
       moveToolSession = null;
@@ -9923,7 +9894,7 @@
       const ryVal = fromDisplay(parseFloat(document.getElementById('polyHeight').value) || 0); // Ry
       const innerR = parseFloat(document.getElementById('polyInnerRadius').value) || starInnerRadius;
 
-      const basis = getGridBasis(gridDisplayMode);
+      const basis = getGridBasis();
       const workingPlane = getWorkingPlane();
       const planeOrigin = workingPlane.point;
 
@@ -10053,7 +10024,7 @@
       const uVal = fromDisplay(parseFloat(document.getElementById('polyCenterX').value) || 0);
       const vVal = fromDisplay(parseFloat(document.getElementById('polyCenterY').value) || 0);
 
-      const basis = getGridBasis(gridDisplayMode);
+      const basis = getGridBasis();
       const workingPlane = getWorkingPlane();
       const planeOrigin = workingPlane.point;
       const center = vectorAdd(planeOrigin, vectorAdd(vectorScale(basis.u, uVal), vectorScale(basis.v, -vVal)));
@@ -10511,7 +10482,7 @@
       const uVal = fromDisplay(parseFloat(document.getElementById('polyCenterX').value) || 0);
       const vVal = fromDisplay(parseFloat(document.getElementById('polyCenterY').value) || 0);
 
-      const basis = getGridBasis(gridDisplayMode);
+      const basis = getGridBasis();
       const workingPlane = getWorkingPlane();
       const planeOrigin = workingPlane.point;
       const center = vectorAdd(planeOrigin, vectorAdd(vectorScale(basis.u, uVal), vectorScale(basis.v, -vVal)));
@@ -10607,7 +10578,7 @@
       const uVal = fromDisplay(parseFloat(document.getElementById('polyCenterX').value) || 0);
       const vVal = fromDisplay(parseFloat(document.getElementById('polyCenterY').value) || 0);
 
-      const basis = getGridBasis(gridDisplayMode);
+      const basis = getGridBasis();
       const workingPlane = getWorkingPlane();
       const planeOrigin = workingPlane.point;
       const center = vectorAdd(planeOrigin, vectorAdd(vectorScale(basis.u, uVal), vectorScale(basis.v, -vVal)));
@@ -10828,8 +10799,6 @@
     })();
 
     let gizmoMode = 'local';
-    let gridDisplayMode = 'vertical'; // vertical, horizontal, side, object-local, camera-target-origin, camera-target, custom
-    let gridOffset = 0;
 
     // --- Display Unit System ---
     // Internal data: 1 unit = 100 Illustrator pts (px). Never changes.
@@ -10868,77 +10837,98 @@
     // Format for display (respects current unit, rounds appropriately)
     const fmtDisplay = (v, decimals = 2) => toDisplay(v).toFixed(decimals);
 
-    // Custom Grid State
-    let customGridOrigin = [0, 0, 0];
-    let customGridRight = [1, 0, 0];
-    let customGridNormal = [0, 0, 1];
-
     let frozenCameraNormal = [0, 0, 1];
 
-    // --- Workplane Object System ---
-    const createWorkplane = (name, mode, opts = {}) => ({
-      name: name || 'Workplane',
-      mode: mode || 'vertical',
-      offset: opts.offset || 0,
-      gridSize: opts.gridSize || 1,
-      snapToGrid: opts.snapToGrid || false,
-      lock: opts.lock || false,
-      origin: opts.origin ? [...opts.origin] : [0, 0, 0],
-      right: opts.right ? [...opts.right] : [1, 0, 0],
-      normal: opts.normal ? [...opts.normal] : [0, 0, 1],
-    });
+    // --- Workplane Class ---
+    class Workplane {
+      constructor(name, mode, opts = {}) {
+        this.name = name || 'Workplane';
+        this.mode = mode || 'vertical';      // vertical, horizontal, side, object-local, camera-target-origin, camera-target, custom
+        this.offset = opts.offset || 0;
+        this.gridSize = opts.gridSize || 1;
+        this.snapToGrid = opts.snapToGrid || false;
+        this.lock = opts.lock || false;
+        this.origin = opts.origin ? [...opts.origin] : [0, 0, 0];
+        this.right = opts.right ? [...opts.right] : [1, 0, 0];
+        this.normal = opts.normal ? [...opts.normal] : [0, 0, 1];
+      }
+
+      /** Deep-copy this workplane with an optional new name. */
+      clone(newName) {
+        return new Workplane(newName || this.name + ' copy', this.mode, {
+          offset: this.offset,
+          gridSize: this.gridSize,
+          snapToGrid: this.snapToGrid,
+          lock: this.lock,
+          origin: [...this.origin],
+          right: [...this.right],
+          normal: [...this.normal],
+        });
+      }
+
+      /** Copy all editable settings from another Workplane into this one. */
+      copyFrom(other) {
+        this.mode = other.mode;
+        this.offset = other.offset;
+        this.gridSize = other.gridSize;
+        this.snapToGrid = other.snapToGrid;
+        this.origin = [...other.origin];
+        this.right = [...other.right];
+        this.normal = [...other.normal];
+      }
+
+      /** Serialize to a plain object for JSON export / undo snapshots. */
+      serialize() {
+        return {
+          name: this.name,
+          mode: this.mode,
+          offset: this.offset,
+          gridSize: this.gridSize,
+          snapToGrid: this.snapToGrid,
+          lock: this.lock,
+          origin: [...this.origin],
+          right: [...this.right],
+          normal: [...this.normal],
+        };
+      }
+
+      /** Reconstruct a Workplane from serialized data. */
+      static deserialize(data) {
+        return new Workplane(data.name, data.mode, data);
+      }
+
+      /** Sync this workplane's settings to the DOM UI elements. */
+      syncUI() {
+        const wpSelect = document.getElementById('workplaneSelect');
+        if (wpSelect) {
+          if (this.mode === 'custom' || this.mode === 'object-local') {
+            wpSelect.value = 'selection';
+          } else {
+            wpSelect.value = this.mode;
+          }
+        }
+        const offsetInput = document.getElementById('custom-offset-z-field');
+        if (offsetInput) offsetInput.value = toDisplay(this.offset).toFixed(2);
+        const sizeInput = document.getElementById('gridSizeInput');
+        if (sizeInput) sizeInput.value = toDisplay(this.gridSize).toFixed(2);
+        const snapCb = document.getElementById('snapToGridCheckbox');
+        if (snapCb) snapCb.checked = this.snapToGrid;
+        // Refresh visual grid to match this workplane's grid size
+        if (typeof updateVisualGrid === 'function') updateVisualGrid(this.gridSize);
+      }
+    }
 
     const workplanes = [];
     let activeWorkplane = null;
     let selectedWorkplane = null;
 
     // Initialize with 1 default workplane
-    workplanes.push(createWorkplane('Workplane 1', 'vertical'));
+    workplanes.push(new Workplane('Workplane 1', 'vertical'));
     activeWorkplane = workplanes[0];
     selectedWorkplane = activeWorkplane;
 
-    // Sync: push activeWorkplane settings → global variables
-    const syncWorkplaneToGlobals = () => {
-      if (!activeWorkplane) return;
-      gridDisplayMode = activeWorkplane.mode;
-      gridOffset = activeWorkplane.offset;
-      gridSnapUnit = activeWorkplane.gridSize;
-      snapToGrid = activeWorkplane.snapToGrid;
-      if (activeWorkplane.mode === 'custom') {
-        customGridOrigin = [...activeWorkplane.origin];
-        customGridRight = [...activeWorkplane.right];
-        customGridNormal = [...activeWorkplane.normal];
-      }
-      // Sync UI inputs
-      const wpSelect = document.getElementById('workplaneSelect');
-      if (wpSelect) {
-        if (gridDisplayMode === 'custom' || gridDisplayMode === 'object-local') {
-          wpSelect.value = 'selection';
-        } else {
-          wpSelect.value = gridDisplayMode;
-        }
-      }
-      const offsetInput = document.getElementById('custom-offset-z-field');
-      if (offsetInput) offsetInput.value = toDisplay(gridOffset).toFixed(2);
-      const sizeInput = document.getElementById('gridSizeInput');
-      if (sizeInput) sizeInput.value = toDisplay(gridSnapUnit).toFixed(2);
-      const snapCb = document.getElementById('snapToGridCheckbox');
-      if (snapCb) snapCb.checked = snapToGrid;
-    };
 
-    // Sync: pull global variables → activeWorkplane object
-    const syncGlobalsToWorkplane = () => {
-      if (!activeWorkplane) return;
-      activeWorkplane.mode = gridDisplayMode;
-      activeWorkplane.offset = gridOffset;
-      activeWorkplane.gridSize = gridSnapUnit;
-      activeWorkplane.snapToGrid = snapToGrid;
-      if (gridDisplayMode === 'custom') {
-        activeWorkplane.origin = [...customGridOrigin];
-        activeWorkplane.right = [...customGridRight];
-        activeWorkplane.normal = [...customGridNormal];
-      }
-    };
+
     // Default Style (Persisted)
     let currentStyle = {
       fill: 'none',
@@ -24318,7 +24308,7 @@
               console.log(`[SVG Import] Bounds: X[${minX}, ${maxX}], Y[${minY}, ${maxY}]. Center: ${cx}, ${cy}`);
 
               // Offset all path vertices to center them around 0,0,0 locally, then map to Workplane
-              const { u, v } = getGridBasis(gridDisplayMode);
+              const { u, v } = getGridBasis();
               const { point: planeOrigin } = getWorkingPlane();
 
               allPaths.forEach(path => {
@@ -24442,7 +24432,7 @@
               const cx = (minX + maxX) / 2;
               const cy = (minY + maxY) / 2;
 
-              const { u, v } = getGridBasis(gridDisplayMode);
+              const { u, v } = getGridBasis();
               const { point: planeOrigin } = getWorkingPlane();
 
               allNewPaths.forEach(path => {
@@ -25171,10 +25161,11 @@
 
       const wpSelect = document.getElementById('workplaneSelect');
       if (wpSelect) {
-        if (gridDisplayMode === 'custom' || gridDisplayMode === 'object-local') {
+        const mode = activeWorkplane.mode;
+        if (mode === 'custom' || mode === 'object-local') {
           wpSelect.value = 'selection';
-        } else if (wpSelect.value !== gridDisplayMode) {
-          wpSelect.value = gridDisplayMode;
+        } else if (wpSelect.value !== mode) {
+          wpSelect.value = mode;
         }
       }
       const propertiesPanel = document.getElementById('propertiesPanel');
@@ -27683,7 +27674,7 @@
       if (targetId === 'extrudeEnabledInput' && extrudeEnabled) {
         try {
           // basis is defined in scope? No, getGridBasis is.
-          const basis = getGridBasis(gridDisplayMode);
+          const basis = getGridBasis();
           if (basis && basis.n) {
             // Determine Direction Policy:
             // - Standard Grids (Horiz, Vert, Side): Extrude "Behind/Down" (-Normal).
@@ -27691,9 +27682,9 @@
             // - Camera: Extrude "Away" (+Normal, since we defined n as Away).
 
             let dir = -1;
-            if (gridDisplayMode === 'object-local' ||
-              gridDisplayMode === 'camera-target-origin' ||
-              gridDisplayMode === 'camera-target') {
+            if (activeWorkplane.mode === 'object-local' ||
+              activeWorkplane.mode === 'camera-target-origin' ||
+              activeWorkplane.mode === 'camera-target') {
               dir = 1;
             }
 
@@ -28911,7 +28902,9 @@
       };
 
       if (showGuides) {
-        if (gridDisplayMode === 'horizontal') {
+        const wpMode = activeWorkplane.mode;
+        const wpOffset = activeWorkplane.offset;
+        if (wpMode === 'horizontal') {
           gridGroupXY.style.display = 'block';
           // XZ Plane: Rotate 90 deg around X to make XY grid lie on XZ
           // And apply offset along Y (which is local Z after rotation? No, local Z of grid is normal)
@@ -28921,24 +28914,24 @@
           // So we want to translate by offset along Y.
 
           const rotMat = createRotationXMatrix(Math.PI / 2);
-          const transMat = createTranslationMatrix(0, gridOffset, 0);
+          const transMat = createTranslationMatrix(0, wpOffset, 0);
           const modelMat = matrixMultiply(transMat, rotMat);
           const mvp = matrixMultiply(vpMatrix, modelMat);
           drawXYGrid(mvp);
           drawReferenceImage(mvp); // Draw Image
-        } else if (gridDisplayMode === 'vertical') {
+        } else if (wpMode === 'vertical') {
           gridGroupXY.style.display = 'block';
           // XY Plane: Normal is Z.
           // Translate by offset along Z.
-          const transMat = createTranslationMatrix(0, 0, gridOffset);
+          const transMat = createTranslationMatrix(0, 0, wpOffset);
           const mvp = matrixMultiply(vpMatrix, transMat);
           drawXYGrid(mvp);
           drawReferenceImage(mvp); // Draw Image
-        } else if (gridDisplayMode === 'side') {
+        } else if (wpMode === 'side') {
           gridGroupYZ.style.display = 'block';
           // YZ Plane: Normal is X.
           // Translate by offset along X.
-          const transMat = createTranslationMatrix(gridOffset, 0, 0);
+          const transMat = createTranslationMatrix(wpOffset, 0, 0);
           const mvp = matrixMultiply(vpMatrix, transMat);
           drawYZGrid(mvp);
           // Note: drawReferenceImage expects XY plane input. For YZ plane, we need to adapt?
@@ -28956,7 +28949,7 @@
           // If drawYZGrid works on Y and Z, then we might need to rotate the image?
           // Let's assume for now that Reference Image Logic assumes "Horizontal" alignment in local space (X, Y).
 
-          // If gridDisplayMode is 'side' (YZ), we want the image to be on YZ plane.
+          // If wpMode is 'side' (YZ), we want the image to be on YZ plane.
           // The `transMat` above just shifts X. It doesn't rotate.
           // So the "Local Space" is still World (just shifted).
           // World Y is Up. World Z is Depth. World X is Normal.
@@ -28975,26 +28968,12 @@
           const rotImg = createRotationYMatrix(-Math.PI / 2);
           const mvpImg = matrixMultiply(mvp, rotImg);
           drawReferenceImage(mvpImg);
-        } else if (gridDisplayMode === 'camera-target') {
+        } else if (wpMode === 'camera-target') {
           // Camera Facing (Object Center)
-          // We can reuse XY grid but transform it to face camera
-          // Or just use the grid logic but apply a billboard transform?
-          // For simplicity, let's use the XY grid and rotate it to face camera.
-          // But wait, createXYGrid creates lines on Z=0.
-
-          // Actually, for "Camera Facing", it's a plane perpendicular to view dir.
-          // We can construct a matrix that positions the grid at the target point and rotates it to face camera.
-
           gridGroupXY.style.display = 'block';
 
           const target = selectedObject ? selectedObject.position : [0, 0, 0];
           const camDir = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-
-          // Create a rotation matrix that aligns Z axis with camDir
-          // We need a "LookAt" equivalent but for the object orientation
-          // Z_local = camDir
-          // Y_local = Up (or camera Up)
-          // X_local = Cross(Y, Z)
 
           const zAxis = camDir;
           let xAxis = vectorNormalize(vectorCross([0, 1, 0], zAxis));
@@ -29009,7 +28988,7 @@
           ];
 
           // Apply offset along normal (zAxis)
-          const offsetVec = vectorScale(zAxis, gridOffset);
+          const offsetVec = vectorScale(zAxis, wpOffset);
           const finalPos = vectorAdd(target, offsetVec);
 
           const transMat = createTranslationMatrix(finalPos[0], finalPos[1], finalPos[2]);
@@ -29019,12 +28998,11 @@
           drawXYGrid(mvp);
           drawReferenceImage(mvp);
 
-        } else if (gridDisplayMode === 'camera-target-origin') {
+        } else if (wpMode === 'camera-target-origin') {
           // Camera Facing (World Origin) - Static
           gridGroupXY.style.display = 'block';
 
           const target = [0, 0, 0];
-          // Use frozen normal instead of current camera direction
           // Use frozen normal instead of current camera direction
           const zAxis = frozenCameraNormal;
           let xAxis = vectorNormalize(vectorCross([0, 1, 0], zAxis));
@@ -29039,7 +29017,7 @@
           ];
 
           // Apply offset along normal (zAxis)
-          const offsetVec = vectorScale(zAxis, gridOffset);
+          const offsetVec = vectorScale(zAxis, wpOffset);
           const finalPos = vectorAdd(target, offsetVec);
 
           const transMat = createTranslationMatrix(finalPos[0], finalPos[1], finalPos[2]);
@@ -29047,25 +29025,13 @@
           const mvp = matrixMultiply(vpMatrix, modelMat);
 
           drawXYGrid(mvp);
-        } else if (gridDisplayMode === 'object-local') {
+        } else if (wpMode === 'object-local') {
           if (selectedObject) {
             gridGroupXY.style.display = 'block';
             // Apply offset along local Z
-            // We can just translate in local space before rotation?
-            // Or translate along local Z axis in world space.
-            // T_offset_local = translation(0, 0, offset)
-            // Model = T_pos * R_obj * T_offset
-
-            // Use getWorldMatrix logic if possible, but here we construct explicitly from pos/rot
-            // to match previous robust logic. But we should respect hierarchy if we want?
-            // For now, assume consistent with previous implementation.
 
             const T = createTranslationMatrix(selectedObject.position[0], selectedObject.position[1], selectedObject.position[2]);
-            const T_offset = createTranslationMatrix(0, 0, gridOffset);
-
-            // Order: Scale -> Rotate -> Translate
-            // Here we want to shift the grid plane along its Z axis relative to the object center.
-            // So: T_pos * R_obj * T_offset
+            const T_offset = createTranslationMatrix(0, 0, wpOffset);
 
             let modelMatrix = matrixMultiply(T, selectedObject.rotationMatrix);
             modelMatrix = matrixMultiply(modelMatrix, T_offset);
@@ -29073,12 +29039,12 @@
             const mvp = matrixMultiply(vpMatrix, modelMatrix);
             drawXYGrid(mvp);
           }
-        } else if (gridDisplayMode === 'custom') {
+        } else if (wpMode === 'custom') {
           gridGroupXY.style.display = 'block';
 
-          // Construct Basis from Globals
-          const xAxis = customGridRight; // u
-          const zAxis = customGridNormal; // n
+          // Construct Basis from activeWorkplane
+          const xAxis = activeWorkplane.right; // u
+          const zAxis = activeWorkplane.normal; // n
           // Ensure yAxis is orthogonal
           const yAxis = vectorNormalize(vectorCross(zAxis, xAxis));
 
@@ -29091,8 +29057,8 @@
           ];
 
           // Offset
-          const offsetVec = vectorScale(zAxis, gridOffset);
-          const finalPos = vectorAdd(customGridOrigin, offsetVec);
+          const offsetVec = vectorScale(zAxis, wpOffset);
+          const finalPos = vectorAdd(activeWorkplane.origin, offsetVec);
 
           const transMat = createTranslationMatrix(finalPos[0], finalPos[1], finalPos[2]);
           const modelMat = matrixMultiply(transMat, rotMat);
@@ -29800,30 +29766,31 @@
 
     const getWorkingPlane = () => {
       // Returns { point: [x,y,z], normal: [x,y,z] }
+      const mode = activeWorkplane.mode;
       let point = [0, 0, 0];
       let normal = [0, 1, 0];
 
-      if (gridDisplayMode === 'horizontal') {
+      if (mode === 'horizontal') {
         // XZ Plane
         point = [0, 0, 0];
         normal = [0, 1, 0];
-      } else if (gridDisplayMode === 'vertical') {
+      } else if (mode === 'vertical') {
         // XY Plane
         point = [0, 0, 0];
         normal = [0, 0, 1];
-      } else if (gridDisplayMode === 'side') {
+      } else if (mode === 'side') {
         // YZ Plane
         point = [0, 0, 0];
         normal = [1, 0, 0];
-      } else if (gridDisplayMode === 'camera-target-origin') {
+      } else if (mode === 'camera-target-origin') {
         // Camera Facing (Origin) - Static
         normal = frozenCameraNormal;
         point = [0, 0, 0];
-      } else if (gridDisplayMode === 'camera-target') {
+      } else if (mode === 'camera-target') {
         // Camera Facing (Object)
         normal = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
         point = selectedObject ? selectedObject.position : [0, 0, 0];
-      } else if (gridDisplayMode === 'object-local') {
+      } else if (mode === 'object-local') {
         // Object Local (XY Plane)
         if (selectedObject) {
           const R = selectedObject.rotationMatrix;
@@ -29836,8 +29803,9 @@
       }
 
       // Apply Offset
-      if (gridOffset !== 0) {
-        point = vectorAdd(point, vectorScale(normal, gridOffset));
+      const offset = activeWorkplane.offset;
+      if (offset !== 0) {
+        point = vectorAdd(point, vectorScale(normal, offset));
       }
 
       return { point, normal };
@@ -29867,47 +29835,43 @@
 
     // Helper to get basis vectors for current grid mode
     // We aim for 'v' to point visually "Down" on screen, so that -PI/2 angle points "Up".
+    // Reads from activeWorkplane directly. Optional mode param for override.
     const getGridBasis = (mode) => {
+      const m = mode || activeWorkplane.mode;
       // Return u (Right), v (Down for Screen, or just Grid Y), n (Normal/Up)
-      if (mode === 'horizontal') return { u: [1, 0, 0], v: [0, 0, 1], n: [0, 1, 0] }; // XZ plane, Normal Y
-      if (mode === 'vertical') return { u: [1, 0, 0], v: [0, -1, 0], n: [0, 0, 1] }; // XY plane, Normal Z
-      if (mode === 'side') return { u: [0, 0, 1], v: [0, -1, 0], n: [1, 0, 0] };     // YZ plane, Normal X
+      if (m === 'horizontal') return { u: [1, 0, 0], v: [0, 0, 1], n: [0, 1, 0] }; // XZ plane, Normal Y
+      if (m === 'vertical') return { u: [1, 0, 0], v: [0, -1, 0], n: [0, 0, 1] }; // XY plane, Normal Z
+      if (m === 'side') return { u: [0, 0, 1], v: [0, -1, 0], n: [1, 0, 0] };     // YZ plane, Normal X
 
-      if (mode === 'camera-target-origin' || mode === 'camera-target') {
+      if (m === 'camera-target-origin' || m === 'camera-target') {
         const normal = frozenCameraNormal;
         const up = frozenCameraUp;
         const xAxis = vectorNormalize(vectorCross(up, normal));
         const yAxis = vectorNormalize(vectorCross(normal, xAxis));
         // yAxis is Real Up. We want Screen Down, so Invert.
-        // Normal is 'normal' (Towards Camera? Or From Camera? Camera.forward is usually -Z local)
-        // frozenCameraNormal is normalized (target - pos) usually?
         return { u: xAxis, v: vectorScale(yAxis, -1), n: vectorScale(normal, -1) };
-        // Note: if normal is Cam->Target, then -normal is Target->Cam (Up out of screen)
       }
 
-      if (mode === 'object-local' && selectedObject) {
+      if (m === 'object-local' && selectedObject) {
         const R = selectedObject.rotationMatrix;
-        // Local X = Col 0, Local Y = Col 1, Local Z = Col 2
-        // Usually Y is Up. We want Down for v?
-        // Let's keep v consistent with others.
         const localX = [R[0][0], R[1][0], R[2][0]];
         const localY = [R[0][1], R[1][1], R[2][1]];
         const localZ = [R[0][2], R[1][2], R[2][2]];
 
         return {
           u: localX,
-          v: vectorScale(localY, -1), // If localY is Up, -localY is Down
+          v: vectorScale(localY, -1),
           n: localZ,
-          o: selectedObject.position // Include origin for object-local
+          o: selectedObject.position
         };
       }
 
-      if (mode === 'custom') {
+      if (m === 'custom') {
         return {
-          u: [...customGridRight],
-          v: vectorScale(vectorNormalize(vectorCross(customGridNormal, customGridRight)), -1),
-          n: [...customGridNormal],
-          o: [...customGridOrigin]
+          u: [...activeWorkplane.right],
+          v: vectorScale(vectorNormalize(vectorCross(activeWorkplane.normal, activeWorkplane.right)), -1),
+          n: [...activeWorkplane.normal],
+          o: [...activeWorkplane.origin]
         };
       }
 
@@ -30033,7 +29997,7 @@
 
     const _findPixelAtCell = (snapped) => {
       if (!activePixelGroup) return null;
-      const epsilon = gridSnapUnit * 0.1;
+      const epsilon = activeWorkplane.gridSize * 0.1;
       for (let i = activePixelGroup.children.length - 1; i >= 0; i--) {
         const child = activePixelGroup.children[i];
         if (!child.localVertices || child.localVertices.length < 4) continue;
@@ -30085,7 +30049,7 @@
         // Fall through to create new pixel below
       }
 
-      const unit = gridSnapUnit;
+      const unit = activeWorkplane.gridSize;
       let vertices;
       let pathAlgorithm;
       let isEllipseFlag = false;
@@ -30169,7 +30133,7 @@
 
     const _removePixelAtCell = (snapped) => {
       if (!activePixelGroup) return;
-      const epsilon = gridSnapUnit * 0.1;
+      const epsilon = activeWorkplane.gridSize * 0.1;
       for (let i = activePixelGroup.children.length - 1; i >= 0; i--) {
         const child = activePixelGroup.children[i];
         if (!child.localVertices || child.localVertices.length < 4) continue;
@@ -30354,9 +30318,9 @@
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
 
-              if (snapToGrid) {
-                const basis = getGridBasis(gridDisplayMode);
-                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, gridSnapUnit);
+              if (activeWorkplane.snapToGrid) {
+                const basis = getGridBasis();
+                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
               }
               // Snap to point (if enabled)
               if (snapToPoint) {
@@ -30497,9 +30461,9 @@
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
 
-              if (snapToGrid) {
-                const basis = getGridBasis(gridDisplayMode);
-                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, gridSnapUnit);
+              if (activeWorkplane.snapToGrid) {
+                const basis = getGridBasis();
+                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
               }
 
               // Auto-confirm existing pending shape before starting a new one.
@@ -30547,9 +30511,9 @@
             const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
-              if (snapToGrid) {
-                const basis = getGridBasis(gridDisplayMode);
-                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, gridSnapUnit);
+              if (activeWorkplane.snapToGrid) {
+                const basis = getGridBasis();
+                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
               }
 
               // Store drag start for spiral drag-and-release
@@ -30575,9 +30539,9 @@
             const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
-              if (snapToGrid) {
-                const basis = getGridBasis(gridDisplayMode);
-                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, gridSnapUnit);
+              if (activeWorkplane.snapToGrid) {
+                const basis = getGridBasis();
+                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
               }
 
               // Store drag start for cycloid drag-and-release
@@ -30603,9 +30567,9 @@
             const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
-              if (snapToGrid) {
-                const basis = getGridBasis(gridDisplayMode);
-                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, gridSnapUnit);
+              if (activeWorkplane.snapToGrid) {
+                const basis = getGridBasis();
+                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
               }
 
               // Store drag start for lissajous drag-and-release
@@ -30653,9 +30617,9 @@
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
 
-              if (snapToGrid) {
-                const basis = getGridBasis(gridDisplayMode);
-                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, gridSnapUnit);
+              if (activeWorkplane.snapToGrid) {
+                const basis = getGridBasis();
+                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
               }
 
               // Create a new path with the first point — save pre-creation baseline for undo
@@ -30688,9 +30652,9 @@
             const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
             if (t >= 0) {
               const hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
-              const basis = getGridBasis(gridDisplayMode);
+              const basis = getGridBasis();
               // Snap to grid cell corner (always snap for pixel art, use floor to get cell origin)
-              const snapped = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, gridSnapUnit, 'floor');
+              const snapped = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize, 'floor');
               _placePixelAtCell(snapped, basis, event);
             }
           }
@@ -30981,9 +30945,9 @@
             const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
-              if (snapToGrid) {
-                const basis = getGridBasis(gridDisplayMode);
-                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, gridSnapUnit);
+              if (activeWorkplane.snapToGrid) {
+                const basis = getGridBasis();
+                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
               }
               // Snap to point preview — shows indicator circle during hover
               if (snapToPoint) {
@@ -31041,9 +31005,9 @@
             const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
-              if (snapToGrid) {
-                const basis = getGridBasis(gridDisplayMode);
-                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, gridSnapUnit);
+              if (activeWorkplane.snapToGrid) {
+                const basis = getGridBasis();
+                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
               }
               if (_snapTargetCache === null) {
                 _snapTargetCache = collectSnapTargets(new Set(), []);
@@ -31203,9 +31167,9 @@
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
 
-              if (snapToGrid) {
-                const basis = getGridBasis(gridDisplayMode);
-                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, gridSnapUnit);
+              if (activeWorkplane.snapToGrid) {
+                const basis = getGridBasis();
+                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
               }
 
               // Distance-based smoothing
@@ -31250,9 +31214,9 @@
         const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
         if (t < 0) return;
         let cursorWorld = vectorAdd(ray.origin, vectorScale(ray.direction, t));
-        if (snapToGrid) {
-          const basis = getGridBasis(gridDisplayMode);
-          cursorWorld = snapPointToPlaneLocal(cursorWorld, planePoint, basis.u, basis.v, gridSnapUnit);
+        if (activeWorkplane.snapToGrid) {
+          const basis = getGridBasis();
+          cursorWorld = snapPointToPlaneLocal(cursorWorld, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
         }
         const relativePos = vectorSubtract(cursorWorld, activePath.position);
         const invRotation = matrixTranspose(activePath.rotationMatrix);
@@ -31361,9 +31325,9 @@
         const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
         if (t < 0) return;
         let cursorWorld = vectorAdd(ray.origin, vectorScale(ray.direction, t));
-        if (snapToGrid) {
-          const basis = getGridBasis(gridDisplayMode);
-          cursorWorld = snapPointToPlaneLocal(cursorWorld, planePoint, basis.u, basis.v, gridSnapUnit);
+        if (activeWorkplane.snapToGrid) {
+          const basis = getGridBasis();
+          cursorWorld = snapPointToPlaneLocal(cursorWorld, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
         }
         // Snap to point during vertex drag (if enabled)
         if (snapToPoint) {
@@ -31464,9 +31428,9 @@
         const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
         if (t < 0) return;
         let cursorWorld = vectorAdd(ray.origin, vectorScale(ray.direction, t));
-        if (snapToGrid) {
-          const basis = getGridBasis(gridDisplayMode);
-          cursorWorld = snapPointToPlaneLocal(cursorWorld, planePoint, basis.u, basis.v, gridSnapUnit);
+        if (activeWorkplane.snapToGrid) {
+          const basis = getGridBasis();
+          cursorWorld = snapPointToPlaneLocal(cursorWorld, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
         }
         const relativePos = vectorSubtract(cursorWorld, activePath.position);
         const invRotation = matrixTranspose(activePath.rotationMatrix);
@@ -31562,8 +31526,8 @@
             const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
             if (t >= 0) {
               const hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
-              const basis = getGridBasis(gridDisplayMode);
-              const snapped = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, gridSnapUnit, 'floor');
+              const basis = getGridBasis();
+              const snapped = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize, 'floor');
               // Only place if moved to a new cell
               if (!_lastPixelCell ||
                 Math.abs(snapped[0] - _lastPixelCell[0]) > 1e-6 ||
@@ -31972,8 +31936,8 @@
         const pixelToWorld = getPixelToWorldFactor(distance);
         let totalMoveAmount = totalDotProduct * pixelToWorld / projectedAxisLength;
 
-        if (snapToGrid) {
-          totalMoveAmount = Math.round(totalMoveAmount / gridSnapUnit) * gridSnapUnit;
+        if (activeWorkplane.snapToGrid) {
+          totalMoveAmount = Math.round(totalMoveAmount / activeWorkplane.gridSize) * activeWorkplane.gridSize;
         }
 
         let totalWorldDelta = vectorScale(worldAxis, totalMoveAmount);
@@ -32096,12 +32060,12 @@
               // Delta from initial plane hit to current plane hit
               totalWorldDelta = vectorSubtract(hitPoint, dragStartPlaneHit);
 
-              if (snapToGrid) {
+              if (activeWorkplane.snapToGrid) {
                 // Project delta onto plane axes and snap
                 let amount1 = vectorDot(totalWorldDelta, worldAxis1);
                 let amount2 = vectorDot(totalWorldDelta, worldAxis2);
-                amount1 = Math.round(amount1 / gridSnapUnit) * gridSnapUnit;
-                amount2 = Math.round(amount2 / gridSnapUnit) * gridSnapUnit;
+                amount1 = Math.round(amount1 / activeWorkplane.gridSize) * activeWorkplane.gridSize;
+                amount2 = Math.round(amount2 / activeWorkplane.gridSize) * activeWorkplane.gridSize;
                 totalWorldDelta = vectorAdd(vectorScale(worldAxis1, amount1), vectorScale(worldAxis2, amount2));
               }
 
@@ -32193,11 +32157,11 @@
 
               let totalWorldDelta = vectorSubtract(hitPoint, dragStartPlaneHit);
 
-              if (snapToGrid) {
+              if (activeWorkplane.snapToGrid) {
                 totalWorldDelta = [
-                  Math.round(totalWorldDelta[0] / gridSnapUnit) * gridSnapUnit,
-                  Math.round(totalWorldDelta[1] / gridSnapUnit) * gridSnapUnit,
-                  Math.round(totalWorldDelta[2] / gridSnapUnit) * gridSnapUnit
+                  Math.round(totalWorldDelta[0] / activeWorkplane.gridSize) * activeWorkplane.gridSize,
+                  Math.round(totalWorldDelta[1] / activeWorkplane.gridSize) * activeWorkplane.gridSize,
+                  Math.round(totalWorldDelta[2] / activeWorkplane.gridSize) * activeWorkplane.gridSize
                 ];
               }
 
@@ -32259,8 +32223,8 @@
         const pixelToWorld = getPixelToWorldFactor(distance);
         let totalMoveAmount = totalDotProduct * pixelToWorld / projectedAxisLength;
 
-        if (snapToGrid) {
-          totalMoveAmount = Math.round(totalMoveAmount / gridSnapUnit) * gridSnapUnit;
+        if (activeWorkplane.snapToGrid) {
+          totalMoveAmount = Math.round(totalMoveAmount / activeWorkplane.gridSize) * activeWorkplane.gridSize;
         }
 
         let totalWorldDelta = vectorScale(worldAxis, totalMoveAmount);
@@ -32332,11 +32296,11 @@
 
               let totalWorldDelta = vectorSubtract(hitPoint, dragStartPlaneHit);
 
-              if (snapToGrid) {
+              if (activeWorkplane.snapToGrid) {
                 let amount1 = vectorDot(totalWorldDelta, worldAxis1);
                 let amount2 = vectorDot(totalWorldDelta, worldAxis2);
-                amount1 = Math.round(amount1 / gridSnapUnit) * gridSnapUnit;
-                amount2 = Math.round(amount2 / gridSnapUnit) * gridSnapUnit;
+                amount1 = Math.round(amount1 / activeWorkplane.gridSize) * activeWorkplane.gridSize;
+                amount2 = Math.round(amount2 / activeWorkplane.gridSize) * activeWorkplane.gridSize;
                 totalWorldDelta = vectorAdd(vectorScale(worldAxis1, amount1), vectorScale(worldAxis2, amount2));
               }
 
@@ -32399,12 +32363,12 @@
 
               let totalWorldDelta = vectorSubtract(hitPoint, dragStartPlaneHit);
 
-              if (snapToGrid) {
+              if (activeWorkplane.snapToGrid) {
                 // For free mode with grid snap, snap each component independently
                 totalWorldDelta = [
-                  Math.round(totalWorldDelta[0] / gridSnapUnit) * gridSnapUnit,
-                  Math.round(totalWorldDelta[1] / gridSnapUnit) * gridSnapUnit,
-                  Math.round(totalWorldDelta[2] / gridSnapUnit) * gridSnapUnit
+                  Math.round(totalWorldDelta[0] / activeWorkplane.gridSize) * activeWorkplane.gridSize,
+                  Math.round(totalWorldDelta[1] / activeWorkplane.gridSize) * activeWorkplane.gridSize,
+                  Math.round(totalWorldDelta[2] / activeWorkplane.gridSize) * activeWorkplane.gridSize
                 ];
               }
 
@@ -32514,7 +32478,7 @@
           const snfAlgo = document.getElementById('snfAlgorithm').value || 'linear';
           const snfClose = document.getElementById('snfClosePath').checked;
 
-          const basis = getGridBasis(gridDisplayMode);
+          const basis = getGridBasis();
           const workingPlane = getWorkingPlane();
           const localOffsets = generateSpiralVertices(dragStartPoint, snfAngle, snfRadius, snfCount, basis, snfStartRadius, snfHeight, workingPlane.normal);
 
@@ -32557,9 +32521,9 @@
             const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
-              if (snapToGrid) {
-                const basis = getGridBasis(gridDisplayMode);
-                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, gridSnapUnit);
+              if (activeWorkplane.snapToGrid) {
+                const basis = getGridBasis();
+                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
               }
 
               // Compute signed radius from drag distance
@@ -32584,7 +32548,7 @@
               const snfAlgo = document.getElementById('snfAlgorithm').value || 'linear';
               const snfClose = document.getElementById('snfClosePath').checked;
 
-              const basis = getGridBasis(gridDisplayMode);
+              const basis = getGridBasis();
               const localOffsets = generateSpiralVertices(dragStartPoint, snfAngle, dragRadius, snfCount, basis, snfStartRadius, snfHeight, workingPlane.normal);
 
               activePath.localVertices = localOffsets;
@@ -32649,7 +32613,7 @@
           const cycAlgo = document.getElementById('cycAlgorithm').value || 'linear';
           const cycClose = document.getElementById('cycClosePath').checked;
 
-          const basis = getGridBasis(gridDisplayMode);
+          const basis = getGridBasis();
           const workingPlane = getWorkingPlane();
           let localOffsets;
           let pathPosition = dragStartPoint;
@@ -32710,9 +32674,9 @@
             const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
-              if (snapToGrid) {
-                const basis = getGridBasis(gridDisplayMode);
-                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, gridSnapUnit);
+              if (activeWorkplane.snapToGrid) {
+                const basis = getGridBasis();
+                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
               }
 
               // Compute drag distance
@@ -32768,7 +32732,7 @@
               const cycAlgo = document.getElementById('cycAlgorithm').value || 'linear';
               const cycClose = document.getElementById('cycClosePath').checked;
 
-              const basis = getGridBasis(gridDisplayMode);
+              const basis = getGridBasis();
               const workingPlane = getWorkingPlane();
               let localOffsets;
               if (_isPathCyc) {
@@ -32836,7 +32800,7 @@
           const lisAlgo = document.getElementById('lisAlgorithm').value || 'linear';
           const lisClose = document.getElementById('lisClosePath').checked;
 
-          const basis = getGridBasis(gridDisplayMode);
+          const basis = getGridBasis();
           const workingPlane = getWorkingPlane();
           const localOffsets = generateLissajousVertices(dragStartPoint, lisFreqA, lisFreqB, lisDelta, lisAmpA, lisAmpB, lisCount, basis, lisLoop, lisHeightVal, workingPlane.normal);
 
@@ -32879,9 +32843,9 @@
             const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
-              if (snapToGrid) {
-                const basis = getGridBasis(gridDisplayMode);
-                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, gridSnapUnit);
+              if (activeWorkplane.snapToGrid) {
+                const basis = getGridBasis();
+                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
               }
 
               // Compute drag distance as amplitude
@@ -32917,7 +32881,7 @@
               const lisAlgo = document.getElementById('lisAlgorithm').value || 'linear';
               const lisClose = document.getElementById('lisClosePath').checked;
 
-              const basis = getGridBasis(gridDisplayMode);
+              const basis = getGridBasis();
               const workingPlane2 = getWorkingPlane();
               const localOffsets = generateLissajousVertices(dragStartPoint, lisFreqA, lisFreqB, lisDelta, newAmpA, newAmpB, lisCount, basis, lisLoop, lisHeightVal, workingPlane2.normal);
 
@@ -32951,15 +32915,15 @@
             const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
-              if (snapToGrid) {
-                const basis = getGridBasis(gridDisplayMode);
-                hitPoint = snapPointToPlaneLocal(hitPoint, workingPlane.point, basis.u, basis.v, gridSnapUnit);
+              if (activeWorkplane.snapToGrid) {
+                const basis = getGridBasis();
+                hitPoint = snapPointToPlaneLocal(hitPoint, workingPlane.point, basis.u, basis.v, activeWorkplane.gridSize);
               }
               let p1 = dragStartPoint;
               let p3 = hitPoint;
 
               // 1. Calculate Raw Delta in Basis
-              const { u, v } = getGridBasis(gridDisplayMode);
+              const { u, v } = getGridBasis();
               let deltaVector = vectorSubtract(p3, p1);
               let w = vectorDot(deltaVector, u);
               let h = vectorDot(deltaVector, v);
@@ -33118,10 +33082,10 @@
 
         let newWorldPosition = vectorAdd(dragStartWorldPosition, totalWorldDelta);
 
-        if (snapToGrid) {
+        if (activeWorkplane.snapToGrid) {
           const workingPlane = getWorkingPlane();
-          const basis = getGridBasis(gridDisplayMode);
-          newWorldPosition = snapPointToPlaneLocal(newWorldPosition, workingPlane.point, basis.u, basis.v, gridSnapUnit);
+          const basis = getGridBasis();
+          newWorldPosition = snapPointToPlaneLocal(newWorldPosition, workingPlane.point, basis.u, basis.v, activeWorkplane.gridSize);
 
           // Recalculate totalWorldDelta so vertex storage uses snapped values
           totalWorldDelta = vectorSubtract(newWorldPosition, dragStartWorldPosition);
@@ -33278,7 +33242,7 @@
 
         if (pendingPolygon && pendingPolygon.name.startsWith('Spl_')) {
           // --- Recenter existing pending spiral ---
-          const basis = getGridBasis(gridDisplayMode);
+          const basis = getGridBasis();
           const workingPlane = getWorkingPlane();
           pendingPolygon.position = dragStartPoint;
 
@@ -33309,7 +33273,7 @@
         pendingPolygon = activePath;
 
         // Update Center UI
-        const basis = getGridBasis(gridDisplayMode);
+        const basis = getGridBasis();
         const workingPlane = getWorkingPlane();
         const vecToCenter = vectorSubtract(dragStartPoint, workingPlane.point);
         const uCoord = vectorDot(vecToCenter, basis.u);
@@ -33335,7 +33299,7 @@
 
         if (pendingPolygon && (pendingPolygon.name.startsWith('Cyc_') || pendingPolygon.name.startsWith('LCyc_') || pendingPolygon.name.startsWith('PCyc_'))) {
           // --- Recenter existing pending cycloid ---
-          const basis = getGridBasis(gridDisplayMode);
+          const basis = getGridBasis();
           const workingPlane = getWorkingPlane();
 
           const cycRail = document.getElementById('cycRail').value || 'circle';
@@ -33393,7 +33357,7 @@
         delete document.getElementById('cycPenD').dataset.origD;
 
         // Update Center UI
-        const basis = getGridBasis(gridDisplayMode);
+        const basis = getGridBasis();
         const workingPlane = getWorkingPlane();
         const vecToCenter = vectorSubtract(dragStartPoint, workingPlane.point);
         const uCoord = vectorDot(vecToCenter, basis.u);
@@ -33419,7 +33383,7 @@
 
         if (pendingPolygon && pendingPolygon.name.startsWith('Lis_')) {
           // --- Recenter existing pending lissajous ---
-          const basis = getGridBasis(gridDisplayMode);
+          const basis = getGridBasis();
           const workingPlane = getWorkingPlane();
 
           const lisFreqA = parseFloat(document.getElementById('lisFreqA').value) || 3;
@@ -33458,7 +33422,7 @@
         delete document.getElementById('lisAmpB').dataset.origAmpB;
 
         // Update Center UI
-        const basis = getGridBasis(gridDisplayMode);
+        const basis = getGridBasis();
         const workingPlane = getWorkingPlane();
         const vecToCenter = vectorSubtract(dragStartPoint, workingPlane.point);
         const uCoord = vectorDot(vecToCenter, basis.u);
@@ -33964,13 +33928,12 @@
           return;
         } else if (event.shiftKey) {
           // Shift + G: Create Work Plane from Camera
-          gridDisplayMode = 'camera-target-origin';
+          activeWorkplane.mode = 'camera-target-origin';
           frozenCameraNormal = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
           frozenCameraUp = [...activeCamera.up]; // Snapshot current up vector
-          gridOffset = 0;
+          activeWorkplane.offset = 0;
           const wpInput = document.getElementById('custom-offset-z-field');
           if (wpInput) wpInput.value = "0.00";
-          syncGlobalsToWorkplane();
           updatePropertiesPanel();
           requestRender();
           return; // Stop processing
@@ -33986,15 +33949,14 @@
         } else if (!event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
           // G: Cycle Standard Modes (XY -> XZ -> YZ)
           const standardModes = ['vertical', 'horizontal', 'side'];
-          let nextIndex = standardModes.indexOf(gridDisplayMode) + 1;
-          if (nextIndex >= standardModes.length || nextIndex === 0 && !standardModes.includes(gridDisplayMode)) {
+          let nextIndex = standardModes.indexOf(activeWorkplane.mode) + 1;
+          if (nextIndex >= standardModes.length || nextIndex === 0 && !standardModes.includes(activeWorkplane.mode)) {
             nextIndex = 0;
           }
-          gridDisplayMode = standardModes[nextIndex];
-          gridOffset = 0;
+          activeWorkplane.mode = standardModes[nextIndex];
+          activeWorkplane.offset = 0;
           const wpInput = document.getElementById('custom-offset-z-field');
           if (wpInput) wpInput.value = "0.00";
-          syncGlobalsToWorkplane();
           updatePropertiesPanel();
           requestRender();
           return; // Stop processing
@@ -34553,7 +34515,7 @@
       if (!selectedObject) return;
 
       // 1. Get Workplane Orientation
-      const { u, v, n } = getGridBasis(gridDisplayMode);
+      const { u, v, n } = getGridBasis();
       // u = Right, v = Down (usually), n = Normal
       // We want the Pivot's Local Frame to match the Workplane Frame.
       // Let's assume Pivot X aligns with Workplane U
@@ -34614,24 +34576,23 @@
       if (currentTool === 'directSelect' && selectedVertices.length > 0) {
         const basis = calculateSelectionBasis(selectedVertices, selectedObject);
         if (basis) {
-          gridDisplayMode = 'custom';
+          activeWorkplane.mode = 'custom';
 
           // Transform to World Space
           const worldMat = selectedObject.getWorldMatrix();
           // Position
-          customGridOrigin = transformVertex(basis.position, worldMat);
+          activeWorkplane.origin = transformVertex(basis.position, worldMat);
 
-          const p0 = customGridOrigin;
+          const p0 = activeWorkplane.origin;
           const px = transformVertex(vectorAdd(basis.position, basis.xAxis), worldMat);
           const pz = transformVertex(vectorAdd(basis.position, basis.zAxis), worldMat);
 
-          customGridRight = vectorNormalize(vectorSubtract(px, p0));
-          customGridNormal = vectorNormalize(vectorSubtract(pz, p0));
+          activeWorkplane.right = vectorNormalize(vectorSubtract(px, p0));
+          activeWorkplane.normal = vectorNormalize(vectorSubtract(pz, p0));
 
-          gridOffset = 0;
+          activeWorkplane.offset = 0;
           const wpInput = document.getElementById('custom-offset-z-field');
           if (wpInput) wpInput.value = "0.00";
-          syncGlobalsToWorkplane();
           updatePropertiesPanel();
           requestRender();
           return;
@@ -34640,11 +34601,10 @@
 
       // Object Local Mode
       if (selectedObject) {
-        gridDisplayMode = 'object-local';
-        gridOffset = 0;
+        activeWorkplane.mode = 'object-local';
+        activeWorkplane.offset = 0;
         const wpInput = document.getElementById('custom-offset-z-field');
         if (wpInput) wpInput.value = "0.00";
-        syncGlobalsToWorkplane();
         updatePropertiesPanel();
         requestRender();
       }
@@ -34892,7 +34852,7 @@
     // --- Initialization ---
     const init = () => {
       resizeSVG();
-      updateVisualGrid(gridSnapUnit);
+      updateVisualGrid(activeWorkplane.gridSize);
       createXYGrid(); // No-op now
       createYZGrid(); // No-op now
       createAxisGizmo();
@@ -35287,7 +35247,6 @@
                 KEYBOARD_NUDGE_AMOUNT = val;
                 const kbInp = document.getElementById('keyboardIncrementInput');
                 if (kbInp) kbInp.value = toDisplay(val).toFixed(2);
-                updateSpatialInputSteps(toDisplay(val));
               }
             }
             if (settings.undoLimit) {
@@ -35302,6 +35261,9 @@
         } catch (e) {
           console.warn('Failed to load settings:', e);
         }
+        // Always sync spatial input steps to the current keyboard increment,
+        // even on first launch with no saved settings.
+        updateSpatialInputSteps(toDisplay(KEYBOARD_NUDGE_AMOUNT));
       };
 
       const saveSettings = (updates) => {
@@ -35383,10 +35345,10 @@
           if (kbInp && document.activeElement !== kbInp) kbInp.value = toDisplay(KEYBOARD_NUDGE_AMOUNT).toFixed(2);
           // Update grid size display
           const gsInp = document.getElementById('gridSizeInput');
-          if (gsInp && document.activeElement !== gsInp) gsInp.value = toDisplay(gridSnapUnit).toFixed(2);
+          if (gsInp && document.activeElement !== gsInp) gsInp.value = toDisplay(activeWorkplane.gridSize).toFixed(2);
           // Update workplane offset display
           const wpOff = document.getElementById('custom-offset-z-field');
-          if (wpOff && document.activeElement !== wpOff) wpOff.value = toDisplay(gridOffset).toFixed(2);
+          if (wpOff && document.activeElement !== wpOff) wpOff.value = toDisplay(activeWorkplane.offset).toFixed(2);
           // Update step on number inputs to match new display scale
           updateSpatialInputSteps(toDisplay(KEYBOARD_NUDGE_AMOUNT));
           // Refresh stroke width displays (tool-specific + quick-style bar)
@@ -35864,7 +35826,6 @@
 
     const saveSceneToStorage = () => {
       try {
-        syncGlobalsToWorkplane();
         const sceneData = {
           version: '1.0',
           timestamp: Date.now(),
@@ -35879,7 +35840,7 @@
           objects: sceneObjects.map(obj => serializeObject(obj)),
           workplane: {
             active: workplanes.indexOf(activeWorkplane),
-            list: workplanes.map(wp => ({ ...wp }))
+            list: workplanes.map(wp => wp.serialize())
           }
         };
         localStorage.setItem(SCENE_KEY, JSON.stringify(sceneData));
@@ -35947,8 +35908,6 @@
     };
 
     const exportScene = () => {
-      // Sync current globals to active workplane before export
-      syncGlobalsToWorkplane();
       const sceneData = {
         version: '1.0',
         timestamp: Date.now(),
@@ -35962,7 +35921,7 @@
         objects: sceneObjects.map(obj => serializeObject(obj)),
         workplane: {
           active: workplanes.indexOf(activeWorkplane),
-          list: workplanes.map(wp => ({ ...wp }))
+          list: workplanes.map(wp => wp.serialize())
         }
       };
 
@@ -36093,20 +36052,20 @@
           // New format: full workplane array
           workplanes.length = 0;
           data.workplane.list.forEach(wpData => {
-            workplanes.push(createWorkplane(wpData.name, wpData.mode, wpData));
+            workplanes.push(Workplane.deserialize(wpData));
           });
-          if (workplanes.length === 0) workplanes.push(createWorkplane('Workplane 1', 'vertical'));
+          if (workplanes.length === 0) workplanes.push(new Workplane('Workplane 1', 'vertical'));
           activeWorkplane = workplanes[data.workplane.active || 0] || workplanes[0];
         } else {
           // Legacy format: {mode, offset}
           workplanes.length = 0;
-          workplanes.push(createWorkplane('Workplane 1', data.workplane.mode || 'vertical', {
-            offset: data.workplane.offset || 0
-          }));
+          const legacyWp = new Workplane('Workplane 1', data.workplane.mode || 'vertical');
+          legacyWp.offset = data.workplane.offset || 0;
+          workplanes.push(legacyWp);
           activeWorkplane = workplanes[0];
         }
         selectedWorkplane = activeWorkplane;
-        syncWorkplaneToGlobals();
+        activeWorkplane.syncUI();
         updateWorkplaneList();
       }
 

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260512d -->
+<!-- dim v20260513b -->
 <!--
   MIT License
 
@@ -24273,7 +24273,12 @@
 
           traverseSVG(svgRoot, rootGroup);
 
-          // Centering Logic
+          // --- Per-Object Center Anchoring ---
+          // Each path gets its own bbox center as position; vertices are stored
+          // relative to that center.  Groups get the bbox center of their
+          // descendants.  The visual result is identical to global centering,
+          // but individual objects have predictable anchors when ungrouped.
+
           let allPaths = [];
           const collectPaths = (group) => {
             group.children.forEach(child => {
@@ -24286,73 +24291,115 @@
           if (allPaths.length > 0) {
             console.log(`[SVG Import] Imported ${allPaths.length} paths.`);
 
-            let minX = Infinity, minY = Infinity, minZ = Infinity;
-            let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-
-            allPaths.forEach(path => {
-              path.localVertices.forEach(v => {
-                if (v[0] < minX) minX = v[0];
-                if (v[1] < minY) minY = v[1];
-                if (v[2] < minZ) minZ = v[2];
-                if (v[0] > maxX) maxX = v[0];
-                if (v[1] > maxY) maxY = v[1];
-                if (v[2] > maxZ) maxZ = v[2];
-              });
-            });
-
-            // If any value is still Infinity, skip
-            if (minX !== Infinity) {
-              const cx = (minX + maxX) / 2;
-              const cy = (minY + maxY) / 2;
-              const cz = (minZ + maxZ) / 2;
-              console.log(`[SVG Import] Bounds: X[${minX}, ${maxX}], Y[${minY}, ${maxY}]. Center: ${cx}, ${cy}`);
-
-              // Offset all path vertices to center them around 0,0,0 locally, then map to Workplane
-              const { u, v } = getGridBasis();
-              const { point: planeOrigin } = getWorkingPlane();
-
-              allPaths.forEach(path => {
-                const before = path.localVertices[0] ? [...path.localVertices[0]] : 'empty';
-                path.localVertices.forEach(ver => {
-                  const xc = ver[0] - cx;
-                  const yc = ver[1] - cy;
-                  // ver[2] is ignored (0)
-
-                  // Map to Workplane: Origin + (xc * u) + (-yc * v)
-                  // Note: yc is parser Y (Up is +), but SVG Y is Down.
-                  // We map -yc (Down) to v (Down).
-                  // Wait, earlier logic: vertex[1] is -SVG_Y.
-                  // If SVG_Y = 10 (Down), vertex[1] = -0.2.
-                  // We want Down movement. v is Down.
-                  // So we want +0.2 * v? No.
-                  // If vertex[1] is negative (Down), we want positive contribution along v (Down)?
-                  // v is [0, -1, 0] (Front View).
-                  // If we want [0, -0.2, 0] (Down), we need 0.2 * v.
-                  // vertex[1] is -0.2. So -vertex[1] * v.
-
-                  const term1 = vectorScale(u, xc);
-                  const term2 = vectorScale(v, -yc);
-                  const combined = vectorAdd(term1, term2);
-                  const final = vectorAdd(planeOrigin, combined);
-
-                  ver[0] = final[0];
-                  ver[1] = final[1];
-                  ver[2] = final[2];
+            // Phase 1: Bottom-up recursive centering in 2D SVG space.
+            // Returns the absolute bbox [minX, minY, maxX, maxY] of the
+            // subtree in original SVG coordinates, or null if empty.
+            // After this call every Path/Group has a ._center2d = [cx, cy]
+            // representing its center relative to its parent's center.
+            const computeAndCenter = (obj) => {
+              if (obj instanceof Path) {
+                let pMinX = Infinity, pMaxX = -Infinity;
+                let pMinY = Infinity, pMaxY = -Infinity;
+                obj.localVertices.forEach(v => {
+                  if (v[0] < pMinX) pMinX = v[0];
+                  if (v[0] > pMaxX) pMaxX = v[0];
+                  if (v[1] < pMinY) pMinY = v[1];
+                  if (v[1] > pMaxY) pMaxY = v[1];
                 });
-                const after = path.localVertices[0] ? [...path.localVertices[0]] : 'empty';
-                console.log(`[SVG Import] Shifted ${path.name}: ${before} -> ${after}`);
-              });
+                if (pMinX === Infinity) return null;
+                const pcx = (pMinX + pMaxX) / 2;
+                const pcy = (pMinY + pMaxY) / 2;
+                // Center vertices around own center
+                obj.localVertices.forEach(v => { v[0] -= pcx; v[1] -= pcy; });
+                obj._center2d = [pcx, pcy];
+                return [pMinX, pMinY, pMaxX, pMaxY];
 
-              // Root group stays at 0,0,0
-              rootGroup.position = [0, 0, 0];
+              } else if (obj.isGroup && obj.children.length > 0) {
+                let gMinX = Infinity, gMaxX = -Infinity;
+                let gMinY = Infinity, gMaxY = -Infinity;
+                obj.children.forEach(child => {
+                  const bbox = computeAndCenter(child);
+                  if (bbox) {
+                    if (bbox[0] < gMinX) gMinX = bbox[0];
+                    if (bbox[1] < gMinY) gMinY = bbox[1];
+                    if (bbox[2] > gMaxX) gMaxX = bbox[2];
+                    if (bbox[3] > gMaxY) gMaxY = bbox[3];
+                  }
+                });
+                if (gMinX === Infinity) return null;
+                const gcx = (gMinX + gMaxX) / 2;
+                const gcy = (gMinY + gMaxY) / 2;
+                // Make children's centers relative to this group's center
+                obj.children.forEach(child => {
+                  if (child._center2d) {
+                    child._center2d[0] -= gcx;
+                    child._center2d[1] -= gcy;
+                  }
+                });
+                obj._center2d = [gcx, gcy];
+                return [gMinX, gMinY, gMaxX, gMaxY];
+              }
+              return null;
+            };
+
+            computeAndCenter(rootGroup);
+
+            // Phase 2: Map 2D centers and vertices to 3D workplane coords.
+            const { u, v } = getGridBasis();
+            const { point: planeOrigin } = getWorkingPlane();
+
+            // Helper: convert a 2D offset [dx, dy] to a 3D workplane vector
+            const map2dTo3d = (dx, dy) => {
+              const t1 = vectorScale(u, dx);
+              const t2 = vectorScale(v, -dy);
+              return vectorAdd(t1, t2);
+            };
+
+            const mapToWorkplane = (obj) => {
+              // Set position from 2D center
+              if (obj._center2d) {
+                obj.position = map2dTo3d(obj._center2d[0], obj._center2d[1]);
+                delete obj._center2d;
+              }
+              // For paths, rotate vertices to workplane orientation (no translation)
+              if (obj instanceof Path) {
+                obj.localVertices.forEach(ver => {
+                  const xc = ver[0];
+                  const yc = ver[1];
+                  ver[0] = u[0] * xc + v[0] * (-yc);
+                  ver[1] = u[1] * xc + v[1] * (-yc);
+                  ver[2] = u[2] * xc + v[2] * (-yc);
+                });
+              }
+              // Recurse into children
+              if (obj.isGroup && obj.children) {
+                obj.children.forEach(child => mapToWorkplane(child));
+              }
+            };
+
+            // Root group sits at planeOrigin (centered import).
+            // The global center (_center2d) was already subtracted from all
+            // children by computeAndCenter, so we just discard it here.
+            if (rootGroup._center2d) delete rootGroup._center2d;
+            rootGroup.position = [...planeOrigin];
+            // Map all children (positions + vertex orientation)
+            if (rootGroup.children) {
+              rootGroup.children.forEach(child => mapToWorkplane(child));
             }
+
+            console.log(`[SVG Import] Per-object centering complete. Root position: [${rootGroup.position.map(n => n.toFixed(3))}]`);
 
             // Unwrap single-child groups for convenience
             // e.g. Group("Imported_SVG") > Path → just push Path
+            // When unwrapping, fold the parent group's position into the child
+            // so the child retains its correct world-space position.
             let importTarget = rootGroup;
             while (importTarget.isGroup && importTarget.children.length === 1) {
-              importTarget = importTarget.children[0];
-              importTarget.parent = null; // Detach from parent group
+              const child = importTarget.children[0];
+              // Accumulate parent position into child
+              child.position = vectorAdd(importTarget.position, child.position);
+              child.parent = null; // Detach from parent group
+              importTarget = child;
             }
 
             sceneObjects.push(importTarget);
@@ -24435,20 +24482,27 @@
               const { u, v } = getGridBasis();
               const { point: planeOrigin } = getWorkingPlane();
 
+              // Per-path centering: center vertices, set position to workplane-mapped center
               allNewPaths.forEach(path => {
+                // Center vertices around own center
                 path.localVertices.forEach(ver => {
-                  const xc = ver[0] - cx;
-                  const yc = ver[1] - cy;
-
-                  const term1 = vectorScale(u, xc);
-                  const term2 = vectorScale(v, -yc);
-                  const combined = vectorAdd(term1, term2);
-                  const final = vectorAdd(planeOrigin, combined);
-
-                  ver[0] = final[0];
-                  ver[1] = final[1];
-                  ver[2] = final[2];
+                  ver[0] -= cx;
+                  ver[1] -= cy;
                 });
+
+                // Map vertices to workplane orientation (no translation)
+                path.localVertices.forEach(ver => {
+                  const xc = ver[0];
+                  const yc = ver[1];
+                  ver[0] = u[0] * xc + v[0] * (-yc);
+                  ver[1] = u[1] * xc + v[1] * (-yc);
+                  ver[2] = u[2] * xc + v[2] * (-yc);
+                });
+
+                // Set position to workplane-mapped center + planeOrigin
+                const t1 = vectorScale(u, cx);
+                const t2 = vectorScale(v, -cy);
+                path.position = vectorAdd(planeOrigin, vectorAdd(t1, t2));
               });
 
               rootGroup.position = [0, 0, 0];
@@ -34682,6 +34736,10 @@
           activePath = null;
         }
 
+        // Determine next sibling to auto-select after deletion
+        const siblings = selectedObject.parent ? selectedObject.parent.children : sceneObjects;
+        const delIdx = siblings.indexOf(selectedObject);
+
         // Remove from parent if exists, otherwise from sceneObjects
         if (selectedObject.parent) {
           selectedObject.parent.remove(selectedObject);
@@ -34695,8 +34753,17 @@
           }
         }
 
+        // Auto-select next sibling: prefer same index (layer below), else previous
+        let nextObj = null;
+        if (delIdx > -1 && siblings.length > 0) {
+          nextObj = siblings[Math.min(delIdx, siblings.length - 1)] || null;
+        }
+
         selectedObject = null;
         selectedObjects = []; // Clear array to prevent highlight artifacts
+        if (nextObj) {
+          setSelectedObject(nextObj);
+        }
         updateTreeView();
         updatePropertiesPanel(); // Clear properties panel
         updateStylePanel(); // Reset style panel

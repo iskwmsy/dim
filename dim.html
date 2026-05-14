@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260513b -->
+<!-- dim v20260514a -->
 <!--
   MIT License
 
@@ -6378,12 +6378,15 @@
         activeWorkplane.gridSize = val;
         updateVisualGrid(activeWorkplane.gridSize);
         requestRender();
+        pushUndoStateCoalesced();
       }
     });
 
     document.getElementById('snapToGridCheckbox').addEventListener('change', (e) => {
+      pushUndoState();
       activeWorkplane.snapToGrid = e.target.checked;
       requestRender();
+      pushUndoState('Toggle snap to grid');
     });
 
     document.getElementById('workplaneSelect').addEventListener('change', (e) => {
@@ -6391,6 +6394,7 @@
         setWorkplaneFromSelection();
         return;
       }
+      pushUndoState();
       activeWorkplane.mode = e.target.value;
       activeWorkplane.offset = 0;
       document.getElementById('custom-offset-z-field').value = "0.00";
@@ -6401,10 +6405,12 @@
       }
       updatePropertiesPanel();
       requestRender();
+      pushUndoState('Change workplane mode');
     });
     wpOffsetInput.addEventListener('input', (e) => {
       activeWorkplane.offset = fromDisplay(parseFloat(e.target.value) || 0);
       requestRender();
+      pushUndoStateCoalesced();
     });
 
     // Allow arrow keys to work in the input, but prevent them from triggering global shortcuts
@@ -6419,6 +6425,7 @@
         if (selectedWorkplane) {
           selectedWorkplane.name = e.target.value;
           updateWorkplaneList();
+          pushUndoStateCoalesced();
         }
       });
       workplaneNameInput.addEventListener('keydown', (e) => e.stopPropagation());
@@ -6455,9 +6462,11 @@
         }
         lockSvg.addEventListener('click', (e) => {
           e.stopPropagation();
+          pushUndoState();
           wp.lock = !wp.lock;
           updateWorkplaneList();
           updateWorkplanePanel();
+          pushUndoState('Toggle workplane lock');
         });
         li.appendChild(lockSvg);
 
@@ -6505,6 +6514,7 @@
           e.preventDefault();
           e.stopPropagation();
           if (!draggedWp || draggedWp === wp) return;
+          pushUndoState();
           const fromIdx = workplanes.indexOf(draggedWp);
           if (fromIdx > -1) workplanes.splice(fromIdx, 1);
           let toIdx = workplanes.indexOf(wp);
@@ -6513,6 +6523,7 @@
           workplanes.splice(toIdx, 0, draggedWp);
           draggedWp = null;
           updateWorkplaneList();
+          pushUndoState('Reorder workplanes');
         });
 
         list.appendChild(li);
@@ -6547,17 +6558,20 @@
 
     const activateWorkplane = () => {
       if (selectedWorkplane && selectedWorkplane !== activeWorkplane) {
+        pushUndoState();
         activeWorkplane = selectedWorkplane;
         activeWorkplane.syncUI();
         updateWorkplaneList();
         updateWorkplanePanel();
         updatePropertiesPanel();
         requestRender();
+        pushUndoState('Activate workplane');
       }
     };
 
     const loadWorkplane = () => {
       if (selectedWorkplane && selectedWorkplane !== activeWorkplane) {
+        pushUndoState();
         // Copy all settings from selected into active
         activeWorkplane.copyFrom(selectedWorkplane);
         activeWorkplane.syncUI();
@@ -6567,14 +6581,17 @@
         updateWorkplanePanel();
         updatePropertiesPanel();
         requestRender();
+        pushUndoState('Load workplane');
       }
     };
 
     const saveCopyWorkplane = () => {
       const wp = selectedWorkplane || activeWorkplane;
       if (!wp) return;
+      pushUndoState();
       workplanes.push(wp.clone());
       updateWorkplaneList();
+      pushUndoState('Duplicate workplane');
     };
 
     const deleteWorkplane = () => {
@@ -6582,6 +6599,7 @@
       if (workplanes.length <= 1) return;
       const index = workplanes.indexOf(wp);
       if (index > -1) {
+        pushUndoState();
         workplanes.splice(index, 1);
         if (wp === activeWorkplane) {
           activeWorkplane = workplanes[0];
@@ -6594,6 +6612,7 @@
         updateWorkplanePanel();
         updatePropertiesPanel();
         requestRender();
+        pushUndoState('Delete workplane');
       }
     };
 
@@ -6601,9 +6620,11 @@
       const wp = selectedWorkplane || activeWorkplane;
       const index = workplanes.indexOf(wp);
       if (index > 0) {
+        pushUndoState();
         workplanes.splice(index, 1);
         workplanes.splice(index - 1, 0, wp);
         updateWorkplaneList();
+        pushUndoState('Move workplane up');
       }
     };
 
@@ -6611,9 +6632,11 @@
       const wp = selectedWorkplane || activeWorkplane;
       const index = workplanes.indexOf(wp);
       if (index > -1 && index < workplanes.length - 1) {
+        pushUndoState();
         workplanes.splice(index, 1);
         workplanes.splice(index + 1, 0, wp);
         updateWorkplaneList();
+        pushUndoState('Move workplane down');
       }
     };
 
@@ -8817,12 +8840,22 @@
       };
     };
 
+    const serializeCamera = (cam) => ({
+      position: [...cam.position],
+      target: [...cam.target],
+      up: [...cam.up],
+      fovDegrees: cam.fovDegrees,
+      name: cam.name,
+      lock: cam.lock,
+      projectionType: cam.projectionType,
+      orthoZoom: cam.orthoZoom,
+      obliqueAngle: cam.obliqueAngle,
+      obliqueScale: cam.obliqueScale
+    });
+
     const captureCameraState = () => ({
-      position: [...activeCamera.position],
-      target: [...activeCamera.target],
-      up: [...activeCamera.up],
-      fovDegrees: activeCamera.fovDegrees,
-      name: activeCamera.name
+      active: cameras.indexOf(activeCamera),
+      list: cameras.map(cam => serializeCamera(cam))
     });
 
     // Legacy: full snapshot for tool session undoSnapshot (still uses JSON string)
@@ -8972,12 +9005,43 @@
     };
 
     const restoreCameraFromState = (state) => {
-      activeCamera.position = [...state.position];
-      activeCamera.target = [...state.target];
-      activeCamera.up = [...state.up];
-      activeCamera.fovDegrees = state.fovDegrees;
-      activeCamera.fovRadians = state.fovDegrees * Math.PI / 180;
-      if (state.name) activeCamera.name = state.name;
+      if (state.list && Array.isArray(state.list)) {
+        // Full cameras list format
+        cameras.length = 0;
+        state.list.forEach(camData => {
+          const cam = new Camera(
+            camData.position || [10, 10, 10],
+            camData.up || [0, 1, 0],
+            camData.fovDegrees || 32.2
+          );
+          cam.target = camData.target ? [...camData.target] : [0, 0, 0];
+          cam.name = camData.name || 'Camera';
+          cam.lock = camData.lock || false;
+          cam.projectionType = camData.projectionType || 'perspective';
+          if (camData.orthoZoom !== undefined) cam.orthoZoom = camData.orthoZoom;
+          if (camData.obliqueAngle !== undefined) cam.obliqueAngle = camData.obliqueAngle;
+          if (camData.obliqueScale !== undefined) cam.obliqueScale = camData.obliqueScale;
+          cameras.push(cam);
+        });
+        if (cameras.length === 0) {
+          const fallback = new Camera([10, 10, 10], [0, 1, 0], 32.2);
+          fallback.name = 'Camera 1';
+          cameras.push(fallback);
+        }
+        activeCamera = cameras[state.active || 0] || cameras[0];
+        selectedCamera = activeCamera;
+        projectionType = activeCamera.projectionType || 'perspective';
+      } else {
+        // Legacy single-camera format
+        activeCamera.position = [...state.position];
+        activeCamera.target = [...state.target];
+        activeCamera.up = [...state.up];
+        activeCamera.fovDegrees = state.fovDegrees;
+        activeCamera.fovRadians = state.fovDegrees * Math.PI / 180;
+        if (state.name) activeCamera.name = state.name;
+      }
+      updateCameraList();
+      updateCameraPanel();
       updatePropertiesPanel();
       requestRender();
     };
@@ -9118,6 +9182,9 @@
       cameraRedoHistory.push(diffs);
       _lastCameraState = applyDiffs(_lastCameraState, diffs, true);
       restoreCameraFromState(_lastCameraState);
+      // Re-capture from live state after restoration to prevent ghost diffs
+      // from lazily-initialized Camera properties not present in diff-computed state.
+      _lastCameraState = deepClone(captureCameraState());
       _scheduleHistoryUpdate();
     };
 
@@ -9128,6 +9195,8 @@
       if (cameraUndoHistory.length > HISTORY_MAX) cameraUndoHistory.shift();
       _lastCameraState = applyDiffs(_lastCameraState, diffs, false);
       restoreCameraFromState(_lastCameraState);
+      // Re-capture after redo restoration for the same reason as in performCameraUndo
+      _lastCameraState = deepClone(captureCameraState());
       _scheduleHistoryUpdate();
     };
 
@@ -9144,7 +9213,33 @@
     const summarizeDiffs = (diffs, isCamera) => {
       if (!diffs || diffs.length === 0) return 'No changes';
       if (isCamera) {
-        // Camera diffs
+        // Camera diffs — check for list-level changes
+        const topKeys = new Set(diffs.map(d => d.path[0]));
+        if (diffs._label) {
+          return diffs._label.charAt(0).toUpperCase() + diffs._label.slice(1);
+        }
+        if (topKeys.has('list')) {
+          // Structural change (add/remove/reorder)
+          const listDiffs = diffs.filter(d => d.path[0] === 'list');
+          // Check if array length changed
+          const lenDiff = listDiffs.find(d => d.path.length === 1);
+          if (lenDiff) {
+            const oldLen = Array.isArray(lenDiff.old) ? lenDiff.old.length : 0;
+            const newLen = Array.isArray(lenDiff.val) ? lenDiff.val.length : 0;
+            if (newLen > oldLen) return 'Add camera';
+            if (newLen < oldLen) return 'Delete camera';
+          }
+          // Property changes within cameras
+          const propKeys = new Set(listDiffs.filter(d => d.path.length >= 3).map(d => d.path[2]));
+          if (propKeys.has('position') && propKeys.has('target')) return 'Camera orbit';
+          if (propKeys.has('position')) return 'Camera move';
+          if (propKeys.has('target')) return 'Camera target';
+          if (propKeys.has('fovDegrees')) return 'Camera FOV';
+          if (propKeys.has('name')) return 'Camera rename';
+          return 'Camera change';
+        }
+        if (topKeys.has('active')) return 'Activate camera';
+        // Fallback for legacy single-camera diffs
         const keys = new Set(diffs.map(d => d.path[0]));
         if (keys.has('fovDegrees')) return 'Camera FOV';
         if (keys.has('position') && keys.has('target')) return 'Camera orbit';
@@ -22074,9 +22169,11 @@
         }
         lockSvg.addEventListener('click', (e) => {
           e.stopPropagation();
+          pushCameraUndoState();
           cam.lock = !cam.lock;
           updateCameraList();
           updateCameraPanel();
+          pushCameraUndoState();
         });
         li.appendChild(lockSvg);
 
@@ -22124,6 +22221,7 @@
           e.preventDefault();
           e.stopPropagation();
           if (!draggedCam || draggedCam === cam) return;
+          pushCameraUndoState();
           const fromIdx = cameras.indexOf(draggedCam);
           if (fromIdx > -1) cameras.splice(fromIdx, 1);
           let toIdx = cameras.indexOf(cam);
@@ -22132,6 +22230,7 @@
           cameras.splice(toIdx, 0, draggedCam);
           draggedCam = null;
           updateCameraList();
+          pushCameraUndoState();
         });
 
         list.appendChild(li);
@@ -22144,16 +22243,19 @@
 
     document.getElementById('activateCameraBtn').addEventListener('click', () => {
       if (selectedCamera && selectedCamera !== activeCamera) {
+        pushCameraUndoState();
         activeCamera = selectedCamera;
         projectionType = activeCamera.projectionType; // Sync global from camera
         updateCameraList();
         updateCameraPanel();
         requestRender(); // Re-render with new camera
+        pushCameraUndoState();
       }
     });
 
     document.getElementById('loadCameraBtn').addEventListener('click', () => {
       if (selectedCamera && selectedCamera !== activeCamera) {
+        pushCameraUndoState();
         // Copy settings from selectedCamera to activeCamera
         activeCamera.position = [...selectedCamera.position];
         activeCamera.target = [...selectedCamera.target];
@@ -22175,6 +22277,7 @@
         updateCameraList();
         updateCameraPanel();
         requestRender();
+        pushCameraUndoState();
       }
     });
 
@@ -24743,10 +24846,12 @@
         }
         lockSvg.addEventListener('click', (e) => {
           e.stopPropagation();
+          pushUndoState();
           obj.lock = !obj.lock;
           updateTreeView();
           updatePropertiesPanel();
           requestRender();
+          pushUndoState('Toggle lock');
         });
         statusIcons.appendChild(lockSvg);
 
@@ -24761,10 +24866,12 @@
         }
         eyeSvg.addEventListener('click', (e) => {
           e.stopPropagation();
+          pushUndoState();
           obj.visible = obj.visible === false ? true : false;
           updateTreeView();
           updatePropertiesPanel();
           requestRender();
+          pushUndoState('Toggle visibility');
         });
         statusIcons.appendChild(eyeSvg);
 
@@ -24918,6 +25025,7 @@
           updateTreeView();
           updatePropertiesPanel();
           requestRender();
+          pushUndoState('Reorder objects');
         });
 
         container.appendChild(li);
@@ -27165,6 +27273,7 @@
           sceneObjects.push(newObj);
         }
         setSelectedObject(newObj);
+        pushUndoState('Duplicate object');
       }
     };
 
@@ -28584,10 +28693,12 @@
 
     const saveCopyCamera = () => {
       const cam = selectedCamera || activeCamera;
+      pushCameraUndoState();
       const newCam = cam.clone();
       newCam.name = cam.name + " copy";
       cameras.push(newCam);
       updateCameraList();
+      pushCameraUndoState();
     };
 
     const deleteCamera = () => {
@@ -28596,6 +28707,7 @@
 
       const index = cameras.indexOf(cam);
       if (index > -1) {
+        pushCameraUndoState();
         cameras.splice(index, 1);
 
         // If we deleted the active camera, switch to safe default
@@ -28612,6 +28724,7 @@
         updateCameraList();
         updateCameraPanel(); // Refresh inputs
         requestRender();
+        pushCameraUndoState();
       }
     };
 
@@ -28619,9 +28732,11 @@
       const cam = selectedCamera || activeCamera;
       const index = cameras.indexOf(cam);
       if (index > 0) {
+        pushCameraUndoState();
         cameras.splice(index, 1);
         cameras.splice(index - 1, 0, cam);
         updateCameraList();
+        pushCameraUndoState();
       }
     };
 
@@ -28629,9 +28744,11 @@
       const cam = selectedCamera || activeCamera;
       const index = cameras.indexOf(cam);
       if (index > -1 && index < cameras.length - 1) {
+        pushCameraUndoState();
         cameras.splice(index, 1);
         cameras.splice(index + 1, 0, cam);
         updateCameraList();
+        pushCameraUndoState();
       }
     };
 
@@ -33995,13 +34112,16 @@
           // Cmd/Ctrl + G: Group / Ungroup
           event.preventDefault();
           if (event.shiftKey) {
+            pushUndoState();
             ungroupSelectedObjects();
           } else {
+            pushUndoState();
             groupSelectedObjects();
           }
           return;
         } else if (!event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
           // G: Cycle Standard Modes (XY -> XZ -> YZ)
+          pushUndoState();
           const standardModes = ['vertical', 'horizontal', 'side'];
           let nextIndex = standardModes.indexOf(activeWorkplane.mode) + 1;
           if (nextIndex >= standardModes.length || nextIndex === 0 && !standardModes.includes(activeWorkplane.mode)) {
@@ -34013,6 +34133,7 @@
           if (wpInput) wpInput.value = "0.00";
           updatePropertiesPanel();
           requestRender();
+          pushUndoState('Change workplane mode');
           return; // Stop processing
         }
       }
@@ -34795,6 +34916,7 @@
 
         updateTreeView();
         requestRender(); // Re-render to reflect drawing order change
+        pushUndoState('Move layer');
       }
     };
 
@@ -34855,6 +34977,7 @@
 
       // 5. Select the new Group
       setSelectedObject(newGroup);
+      pushUndoState('Group objects');
     };
 
     const ungroupSelectedObjects = () => {
@@ -34914,6 +35037,7 @@
       updatePropertiesPanel();
       updateTreeView();
       requestRender(); // Re-render
+      pushUndoState('Ungroup');
     };
 
     // --- Initialization ---

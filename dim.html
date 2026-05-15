@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260514a -->
+<!-- dim v20260515a -->
 <!--
   MIT License
 
@@ -6359,11 +6359,40 @@
     document.getElementById('bgColorInput').addEventListener('input', (e) => {
       const frameRect = document.getElementById('frameRect');
       if (frameRect) {
-        if (e.target.value === '#000000') {
-          // Optional: If black, maybe transparency? Or just fill.
-          // User said "change this fill color".
-        }
         frameRect.setAttribute('fill', e.target.value);
+      }
+      // Capture undo BEFORE updating model variable so the "before" snapshot has the old color
+      pushUndoStateCoalesced();
+      _currentBackgroundColor = e.target.value;
+    });
+    // 'change' fires once on picker close/commit — flush any pending coalesced undo
+    // and guarantee a record even when 'input' didn't fire (single-click selection)
+    document.getElementById('bgColorInput').addEventListener('change', (e) => {
+      const frameRect = document.getElementById('frameRect');
+      if (frameRect) {
+        frameRect.setAttribute('fill', e.target.value);
+      }
+      // Flush pending coalesced timer immediately
+      if (_sceneCoalesceTimer) {
+        clearTimeout(_sceneCoalesceTimer);
+        _sceneCoalesceTimer = null;
+      }
+      // Update model variable to the final value before capturing state
+      _currentBackgroundColor = e.target.value;
+      if (_sceneCoalesceBeforeState) {
+        const current = captureSceneState();
+        const diffs = computeDiff(_sceneCoalesceBeforeState, current);
+        if (diffs.length > 0) {
+          sceneUndoHistory.push(diffs);
+          if (sceneUndoHistory.length > HISTORY_MAX) sceneUndoHistory.shift();
+          sceneRedoHistory.length = 0;
+        }
+        _lastSceneState = deepClone(current);
+        _sceneCoalesceBeforeState = null;
+        _scheduleHistoryUpdate();
+      } else {
+        // No pending coalesced state — record directly (single-click case)
+        pushUndoState();
       }
     });
 
@@ -7795,8 +7824,8 @@
 
       // Tool specific resets
       if (tool === 'pen' || tool === 'polygon' || tool === 'star') {
-        // Don't set activePath to a parametric primitive for pen tool — prevents corruption
-        if (selectedObject && !(tool === 'pen' && selectedObject.primitiveData)) {
+        // Don't set activePath to a parametric primitive or group (groups lack localVertices)
+        if (selectedObject && !selectedObject.isGroup && !(tool === 'pen' && selectedObject.primitiveData)) {
           activePath = selectedObject;
         } else {
           activePath = null;
@@ -8751,6 +8780,10 @@
     let _cameraCoalesceTimer = null;
     let _cameraCoalesceBeforeState = null;
 
+    // Background color model variable — updated AFTER undo capture so
+    // captureSceneState() snapshots the old value, not the already-changed DOM value.
+    let _currentBackgroundColor = document.getElementById('bgColorInput')?.value || '#ffffff';
+
     // Legacy aliases (for tool session auto-commit snapshot check)
     let undoHistory = sceneUndoHistory;
     let redoHistory = sceneRedoHistory;
@@ -8833,6 +8866,7 @@
     const captureSceneState = () => {
       return {
         objects: sceneObjects.map(obj => serializeObject(obj)),
+        backgroundColor: _currentBackgroundColor,
         workplane: {
           active: workplanes.indexOf(activeWorkplane),
           list: workplanes.map(wp => wp.serialize())
@@ -8994,6 +9028,14 @@
       selectedVertexInfo = null;
       selectedVertices = [];
       hoveredVertexInfo = null;
+      // Restore Background Color
+      if (state.backgroundColor) {
+        const bgInput = document.getElementById('bgColorInput');
+        const frameRectEl = document.getElementById('frameRect');
+        if (bgInput) bgInput.value = state.backgroundColor;
+        if (frameRectEl) frameRectEl.setAttribute('fill', state.backgroundColor);
+        _currentBackgroundColor = state.backgroundColor;
+      }
       updateMoveToolUI();
       updateRotateToolUI();
       updateScaleToolUI();
@@ -9255,9 +9297,12 @@
       let addedCount = 0;
       let removedCount = false;
 
+      let hasBgColor = false;
+
       for (const d of diffs) {
         const p = d.path;
         if (p[0] === 'workplane') { hasWorkplane = true; continue; }
+        if (p[0] === 'backgroundColor') { hasBgColor = true; continue; }
         if (p[0] === 'objects') {
           if (p.length === 1) {
             // Array length change (add/remove objects)
@@ -9330,8 +9375,10 @@
         return `Edit ${name}`;
       }
 
-      if (hasWorkplane && objIndices.size === 0) return 'Workplane';
+      if (hasWorkplane && objIndices.size === 0 && !hasBgColor) return 'Workplane';
+      if (hasBgColor && objIndices.size === 0 && !hasWorkplane) return 'Background color';
       if (hasWorkplane) return `Edit ${name} + Workplane`;
+      if (hasBgColor) return `Edit ${name} + Background`;
 
       return `${diffs.length} changes`;
     };
@@ -34896,23 +34943,30 @@
     const moveSelection = (direction) => {
       // direction: 1 for up (newest/front), -1 for down (oldest/back)
       if (!selectedObject) return;
-      const index = sceneObjects.indexOf(selectedObject);
+
+      // Resolve the correct siblings array: parent.children for grouped objects, sceneObjects for root
+      const siblings = selectedObject.parent ? selectedObject.parent.children : sceneObjects;
+      const index = siblings.indexOf(selectedObject);
       if (index === -1) return;
 
       const newIndex = index + direction;
       // Check bounds
-      if (newIndex >= 0 && newIndex < sceneObjects.length) {
+      if (newIndex >= 0 && newIndex < siblings.length) {
         // Swap
-        const temp = sceneObjects[index];
-        sceneObjects[index] = sceneObjects[newIndex];
-        sceneObjects[newIndex] = temp;
+        const temp = siblings[index];
+        siblings[index] = siblings[newIndex];
+        siblings[newIndex] = temp;
 
-        // Sync DOM order to match array order (for correct Z-indexing)
-        sceneObjects.forEach((obj) => {
-          if (obj.svgElement && obj.svgElement.parentNode) {
-            obj.svgElement.parentNode.appendChild(obj.svgElement);
-          }
-        });
+        // Sync DOM order within the correct SVG container
+        if (selectedObject.parent) {
+          syncSvgOrder(selectedObject.parent);
+        } else {
+          sceneObjects.forEach((obj) => {
+            if (obj.svgElement && obj.svgElement.parentNode) {
+              obj.svgElement.parentNode.appendChild(obj.svgElement);
+            }
+          });
+        }
 
         updateTreeView();
         requestRender(); // Re-render to reflect drawing order change
@@ -36021,6 +36075,7 @@
           version: '1.0',
           timestamp: Date.now(),
           fileName: (fileNameInput && fileNameInput.value.trim()) || 'Untitled 3D work',
+          backgroundColor: _currentBackgroundColor,
           camera: {
             position: activeCamera.position,
             target: activeCamera.target,
@@ -36102,6 +36157,7 @@
       const sceneData = {
         version: '1.0',
         timestamp: Date.now(),
+        backgroundColor: _currentBackgroundColor,
         camera: {
           position: activeCamera.position,
           target: activeCamera.target,
@@ -36258,6 +36314,15 @@
         selectedWorkplane = activeWorkplane;
         activeWorkplane.syncUI();
         updateWorkplaneList();
+      }
+
+      // Restore Background Color
+      if (data.backgroundColor) {
+        const bgInput = document.getElementById('bgColorInput');
+        const frameRect = document.getElementById('frameRect');
+        if (bgInput) bgInput.value = data.backgroundColor;
+        if (frameRect) frameRect.setAttribute('fill', data.backgroundColor);
+        _currentBackgroundColor = data.backgroundColor;
       }
 
       // Update diff tracking state after import

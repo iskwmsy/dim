@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260515a -->
+<!-- dim v20260516g -->
 <!--
   MIT License
 
@@ -5232,6 +5232,82 @@
                 </div>
 
 
+                  <!-- LOFT SECTION (Profile Blend) -->
+                  <div class="feature-toggle-header">
+                    <input type="checkbox" id="loftEnabledInput" class="ui-toggle" />
+                    <div class="ui-header-small">Loft (Profile Blend)</div>
+                  </div>
+                  <div id="loftParams" class="feature-params collapsed">
+                    <div class="xyz-row">
+                      <label for="loftTargetSelect">Target Path</label>
+                      <div class="xyz-inputs">
+                        <select id="loftTargetSelect">
+                          <option value="">-- None --</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div id="loftMiddleContainer" style="display:none"></div>
+                    <!-- Middle profiles are dynamically generated in updatePropertiesPanel -->
+
+                    <div class="xyz-row">
+                      <label>Depth</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="loftDepthInput" step="0.1" value="1.0" />
+                      </div>
+                    </div>
+                    <div class="xyz-row">
+                      <label>Segments</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="loftSegmentsInput" step="1" min="2" max="128" value="16" />
+                      </div>
+                    </div>
+                    <div class="xyz-row">
+                      <label>Interpolation</label>
+                      <div class="xyz-inputs">
+                        <select id="loftInterpolationInput">
+                          <option value="linear">Linear</option>
+                          <option value="smooth">Smooth</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="style-row">
+                      <label class="ui-checkbox-label">Auto Align</label>
+                      <input type="checkbox" id="loftAutoAlignInput" class="ui-checkbox" checked />
+                    </div>
+                    <div class="style-row">
+                      <label>Cap</label>
+                      <span class="axis-label">Start</span>
+                      <input type="checkbox" id="loftCapStartInput" class="ui-checkbox" checked />
+                      <span class="axis-label">End</span>
+                      <input type="checkbox" id="loftCapEndInput" class="ui-checkbox" checked />
+                    </div>
+
+                    <div class="ui-header-small">Render Settings</div>
+
+                    <div class="style-row">
+                      <label class="ui-checkbox-label">Surface Color</label>
+                      <input type="checkbox" id="loftColorEnabledInput" class="ui-checkbox" />
+                      <input type="text" id="loftColorHexInput" class="color-hex-input" maxlength="6"
+                        placeholder="888888" spellcheck="false" />
+                      <input type="color" id="loftColorInput" value="#888888" class="color-fill" />
+                    </div>
+                    <div class="xyz-row">
+                      <label>Div V</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="loftDivisionsVInput" step="1" min="3" max="128" value="16" />
+                      </div>
+                    </div>
+                    <div class="style-row">
+                      <label class="ui-checkbox-label">Simple Sides</label>
+                      <input type="checkbox" id="loftSimpleSidesInput" class="ui-checkbox" />
+                    </div>
+                    <div class="style-row">
+                      <label class="ui-checkbox-label">Curved Surface</label>
+                      <input type="checkbox" id="loftCurvedInput" class="ui-checkbox" />
+                    </div>
+                  </div>
+
+
               </div>
             </div>
             <!-- END 3D SETTINGS -->
@@ -5356,7 +5432,7 @@
                     <label class="ui-checkbox-label">Silhouette Split</label>
                     <input type="checkbox" id="surfaceSilhouetteSplitInput" class="ui-checkbox" checked />
                   </div>
-                  <div class="xyz-row">
+                  <div class="xyz-row" id="splineFlowClosureStepsRow">
                     <label>Closure Steps</label>
                     <div class="xyz-inputs">
                       <input type="number" id="splineFlowClosureSteps" min="2" max="32" step="1" value="8" />
@@ -5492,7 +5568,7 @@
                     <label class="ui-checkbox-label">Silhouette Split</label>
                     <input type="checkbox" id="surfaceMappingSplitInput" class="ui-checkbox" checked />
                   </div>
-                  <div class="xyz-row">
+                  <div class="xyz-row" id="surfaceMappingClosureStepsRow">
                     <label>Closure Steps</label>
                     <div class="xyz-inputs">
                       <input type="number" id="surfaceMappingClosureSteps" min="2" max="32" step="1" value="8" />
@@ -9330,6 +9406,7 @@
             else if (prop === 'extrudeSettings') propTypes.add('extrude');
             else if (prop === 'revolveSettings') propTypes.add('revolve');
             else if (prop === 'sweepSettings') propTypes.add('sweep');
+            else if (prop === 'loftSettings') propTypes.add('loft');
             else propTypes.add('property');
           }
         }
@@ -13343,15 +13420,157 @@
         // profileIsClosed: true if V=0 and V=1 are the same 3D point (closed profile)
         let railIsClosed = false;
         let profileIsClosed = false;
+        const isLoft = surfaceType === 'loft';
+
+        // --- Loft surface mapping: pre-compute profile chain ---
+        let _loftProfileChain = null; // [{points, t}] sorted by t
+        let _loftDirection = [0, 0, 0], _loftDepth = 1.0, _loftInterp = 'linear';
+        let _loftDivsV = 64, _loftIsClosed = false, _loftSmoothMiddles = false;
+        if (isLoft) {
+          const ls = surfacePath.loftSettings;
+          if (!ls || !ls.enabled || !ls.targetId) return [];
+          const targetPath = sceneObjects.find(o => o.id === ls.targetId);
+          if (!targetPath) return [];
+
+          // Backward compat: migrate middleId → middleIds
+          if (ls.middleId && !ls.middleIds) {
+            ls.middleIds = [ls.middleId];
+            delete ls.middleId;
+          }
+          const middleIds = ls.middleIds || [];
+
+          _loftDepth = ls.depth ?? 1.0;
+          _loftInterp = ls.interpolation || 'linear';
+          _loftSmoothMiddles = ls.smoothMiddles || false;
+          _loftDivsV = Math.max(16, (ls.divisionsV || 16) * 4); // high-res for smooth mapping
+          _loftIsClosed = surfacePath.subPathData?.[0]?.closed ?? surfacePath.loop ?? false;
+
+          const posA = surfacePath.getWorldPosition ? surfacePath.getWorldPosition() : surfacePath.position;
+          const posB = targetPath.getWorldPosition ? targetPath.getWorldPosition() : targetPath.position;
+          _loftDirection = vectorSubtract(posB, posA);
+          const abDot = _loftDirection[0]*_loftDirection[0] + _loftDirection[1]*_loftDirection[1] + _loftDirection[2]*_loftDirection[2];
+
+          // Resample profiles (same logic as drawLoft)
+          const resampleForLoft = (path, count) => {
+            const segs = path.getBezierSegments();
+            if (!segs || segs.length === 0) return null;
+            const lut = [];
+            let totalLen = 0;
+            let prevPt = segs[0].p0;
+            lut.push({ dist: 0, segIdx: 0, t: 0 });
+            for (let si = 0; si < segs.length; si++) {
+              const seg = segs[si];
+              if (seg.command === 'M' && si > 0) break;
+              for (let j = 1; j <= 16; j++) {
+                const t = j / 16;
+                const pt = SurfaceMapper.evaluateCurvePoint(seg, t);
+                const d = vectorLength(vectorSubtract(pt, prevPt));
+                totalLen += d;
+                lut.push({ dist: totalLen, segIdx: si, t });
+                prevPt = pt;
+              }
+            }
+            if (totalLen < 1e-9) return null;
+            const worldMatrix = path.getWorldMatrix();
+            const points = [];
+            for (let i = 0; i < count; i++) {
+              const targetDist = (i / (_loftIsClosed ? count : count - 1)) * totalLen;
+              let lo = 0, hi = lut.length - 1;
+              while (lo < hi - 1) {
+                const mid2 = (lo + hi) >> 1;
+                if (lut[mid2].dist <= targetDist) lo = mid2; else hi = mid2;
+              }
+              const a = lut[lo], b = lut[hi];
+              let ratio = 0;
+              if (b.dist - a.dist > 1e-9) ratio = (targetDist - a.dist) / (b.dist - a.dist);
+              let localPt;
+              if (a.segIdx === b.segIdx) {
+                localPt = SurfaceMapper.evaluateCurvePoint(segs[a.segIdx], a.t + (b.t - a.t) * ratio);
+              } else {
+                const ptA = SurfaceMapper.evaluateCurvePoint(segs[a.segIdx], a.t);
+                const ptB = SurfaceMapper.evaluateCurvePoint(segs[b.segIdx], b.t);
+                localPt = [ptA[0]+(ptB[0]-ptA[0])*ratio, ptA[1]+(ptB[1]-ptA[1])*ratio, (ptA[2]||0)+((ptB[2]||0)-(ptA[2]||0))*ratio];
+              }
+              const wp = transformVertex(localPt, worldMatrix);
+              points.push([wp[0], wp[1], wp[2]]);
+            }
+            return points;
+          };
+
+          const sourcePts = resampleForLoft(surfacePath, _loftDivsV);
+          const rawTarget = resampleForLoft(targetPath, _loftDivsV);
+          if (!sourcePts || !rawTarget) return [];
+
+          // Auto-align
+          const autoAlign = (ref, cand) => {
+            if (!_loftIsClosed || !ls.autoAlign) return cand;
+            let bestOff = 0, bestD = Infinity;
+            for (let off = 0; off < cand.length; off++) {
+              let d = 0;
+              for (let i = 0; i < cand.length; i++) {
+                const jj = (i + off) % cand.length;
+                const dx = ref[i][0]-cand[jj][0], dy = ref[i][1]-cand[jj][1], dz = ref[i][2]-cand[jj][2];
+                d += dx*dx + dy*dy + dz*dz;
+              }
+              if (d < bestD) { bestD = d; bestOff = off; }
+            }
+            return bestOff === 0 ? cand : [...cand.slice(bestOff), ...cand.slice(0, bestOff)];
+          };
+
+          const alignedTarget = autoAlign(sourcePts, rawTarget);
+
+          // Build profile chain: [source, ...middles, target]
+          _loftProfileChain = [{ points: sourcePts, t: 0.0 }];
+
+          for (const mid of middleIds) {
+            if (!mid) continue;
+            const mp = sceneObjects.find(o => o.id === mid);
+            if (!mp || !(mp instanceof Path)) continue;
+            const midClosed = mp.subPathData?.[0]?.closed ?? mp.loop ?? false;
+            if (midClosed !== _loftIsClosed) continue;
+            const rawMid = resampleForLoft(mp, _loftDivsV);
+            if (!rawMid) continue;
+            const aligned = autoAlign(sourcePts, rawMid);
+            const posM = mp.getWorldPosition ? mp.getWorldPosition() : mp.position;
+            const am = vectorSubtract(posM, posA);
+            let t = 0.5;
+            if (abDot > 1e-9) {
+              t = (am[0]*_loftDirection[0] + am[1]*_loftDirection[1] + am[2]*_loftDirection[2]) / abDot;
+            }
+            t = Math.max(0.01, Math.min(0.99, t));
+            _loftProfileChain.push({ points: aligned, t });
+          }
+
+          _loftProfileChain.push({ points: alignedTarget, t: 1.0 });
+
+          // Sort middle entries by t (if auto-sort enabled)
+          if (_loftProfileChain.length > 3 && (ls.autoSortMiddles !== false)) {
+            const midEntries = _loftProfileChain.slice(1, -1);
+            midEntries.sort((a, b) => a.t - b.t);
+            for (let i = 0; i < midEntries.length; i++) {
+              _loftProfileChain[i + 1] = midEntries[i];
+            }
+          }
+          // Ensure unique t values
+          for (let i = 1; i < _loftProfileChain.length; i++) {
+            if (_loftProfileChain[i].t <= _loftProfileChain[i - 1].t) {
+              _loftProfileChain[i].t = _loftProfileChain[i - 1].t + 0.001;
+            }
+          }
+        }
 
         // 1. Get the surface's rail path — supports both Sweep (sweepSettings) and Revolve
-        // surfaceType: 'revolve' | 'sweep' | null (null = auto: prefer revolve for backward compat)
+        // surfaceType: 'revolve' | 'sweep' | 'loft' | null (null = auto: prefer revolve for backward compat)
         const ss = surfacePath.sweepSettings;
         const rs = surfacePath.revolveSettings;
         const useRevolve = surfaceType === 'revolve'
           || (surfaceType === null && rs?.enabled);   // auto: prefer revolve
         let railPath;
-        if (useRevolve && rs?.enabled) {
+        if (isLoft) {
+          // Loft: no real rail — create dummy with arc length = distance between profiles
+          const loftLen = vectorLength(_loftDirection) || 1;
+          railPath = { id: '__loftRail__', _arcLengthData: { totalLength: loftLen }, _frameData: [] };
+        } else if (useRevolve && rs?.enabled) {
           // Revolve path used as surface mapping target.
           // Generate/cache the circular rail if not already done (draw order may mean it isn't cached yet).
           const railKey = `rev_${rs.axis}_${rs.offset}_${rs.angle}_${rs.segments}_${rs.scaleStart || 1}_${rs.scaleEnd || 1}`;
@@ -13393,7 +13612,10 @@
         // Resolve closedness now that rail path is known
         // railIsClosed: whether U=0 and U=1 map to the same 3D point
         // profileIsClosed: whether V=0 and V=1 map to the same 3D point
-        if (useRevolve && rs?.enabled) {
+        if (isLoft) {
+          railIsClosed = false; // Loft rail (source→target) is always open
+          profileIsClosed = _loftIsClosed;
+        } else if (useRevolve && rs?.enabled) {
           railIsClosed = (rs.angle || 360) >= 360;
         } else if (surfaceType === 'extrude') {
           railIsClosed = false; // Linear rail is always open
@@ -13401,11 +13623,11 @@
           // Real sweep rail: check path's loop property
           railIsClosed = railPath.loop || (railPath.subPathData?.[0]?.closed ?? false);
         }
-        profileIsClosed = surfacePath.subPathData?.[0]?.closed ?? surfacePath.loop ?? false;
+        if (!isLoft) profileIsClosed = surfacePath.subPathData?.[0]?.closed ?? surfacePath.loop ?? false;
 
         // 2. Ensure rail frame data is computed
         // Skip for synthetic rails — _frameData already pre-computed by their generators
-        if (railPath.id === '__revolveRail__' || railPath.id === '__extrudeRail__') {
+        if (railPath.id === '__revolveRail__' || railPath.id === '__extrudeRail__' || railPath.id === '__loftRail__') {
           // frames already set; nothing to do
         } else {
           if (!railPath._arcLengthData) {
@@ -13537,7 +13759,10 @@
 
         // 4. Get rail world matrix
         let railWorldMatrix;
-        if (railPath.getWorldMatrix) {
+        if (isLoft) {
+          // Loft points are pre-computed in world space — use identity
+          railWorldMatrix = createIdentityMatrix();
+        } else if (railPath.getWorldMatrix) {
           railWorldMatrix = railPath.getWorldMatrix();
         } else if (railPath.id === '__extrudeRail__') {
           // Extrude rail frames are in LOCAL space — use the extruded path's world matrix.
@@ -13557,7 +13782,7 @@
         }
         // For real sweep rails, combine the surface path's (profile's) transform with the rail's.
         // Extrude/Revolve synthetic rails already carry the profile's world matrix.
-        const isSyntheticRail = (railPath.id === '__revolveRail__' || railPath.id === '__extrudeRail__');
+        const isSyntheticRail = (railPath.id === '__revolveRail__' || railPath.id === '__extrudeRail__' || railPath.id === '__loftRail__');
         if (!isSyntheticRail && surfacePath.getWorldMatrix) {
           const profileWorldMatrix = surfacePath.getWorldMatrix();
           railWorldMatrix = matrixMultiply(profileWorldMatrix, railWorldMatrix);
@@ -13567,8 +13792,135 @@
         // U and V overflow/wrapping are handled independently per-axis.
         // U: mapAroundU wraps, overflowU extrapolates linearly beyond rail endpoints.
         // V: handled by getProfilePointAtV (mapAroundV wraps, overflowV extrapolates).
+        // Helper: evaluate loft surface point at (u, v) — directly in world space
+        const _loftEval = isLoft ? (u, v) => {
+          const smoothstep = (t) => t * t * (3 - 2 * t);
+          const n = _loftDivsV;
+          const chain = _loftProfileChain;
+          // Map v to profile index (fractional)
+          const vIdx = v * (_loftIsClosed ? n : n - 1);
+          const j0 = Math.floor(vIdx);
+          const frac = vIdx - j0;
+          const getBlended = (j, s) => {
+            const jj = _loftIsClosed ? ((j % n) + n) % n : Math.max(0, Math.min(n - 1, j));
+            let blended;
+            // Catmull-Rom spline for smooth middles (3+ profiles)
+            if (_loftSmoothMiddles && chain.length >= 3) {
+              // Find segment
+              let segIdx = 0;
+              for (let k = 1; k < chain.length; k++) {
+                if (s <= chain[k].t) { segIdx = k - 1; break; }
+                segIdx = k - 1;
+              }
+              const span = chain[segIdx + 1].t - chain[segIdx].t;
+              const localT = span > 1e-9 ? (s - chain[segIdx].t) / span : 0;
+              // Get 4 control points (p0, p1, p2, p3) for Catmull-Rom
+              const p1 = chain[segIdx].points[jj];
+              const p2 = chain[segIdx + 1].points[jj];
+              const p0 = segIdx > 0 ? chain[segIdx - 1].points[jj]
+                : [2*p1[0]-p2[0], 2*p1[1]-p2[1], 2*p1[2]-p2[2]]; // reflect
+              const p3 = segIdx + 2 < chain.length ? chain[segIdx + 2].points[jj]
+                : [2*p2[0]-p1[0], 2*p2[1]-p1[1], 2*p2[2]-p1[2]]; // reflect
+              // Non-uniform Catmull-Rom: compute tangents weighted by knot intervals
+              const t0 = segIdx > 0 ? chain[segIdx - 1].t : (chain[0].t - span);
+              const t1 = chain[segIdx].t;
+              const t2 = chain[segIdx + 1].t;
+              const t3 = segIdx + 2 < chain.length ? chain[segIdx + 2].t : (t2 + span);
+              const dt1 = t2 - t1 || 1e-9;
+              const dt0 = t1 - t0 || 1e-9;
+              const dt2 = t3 - t2 || 1e-9;
+              blended = [0, 0, 0];
+              for (let c = 0; c < 3; c++) {
+                // Tangent at p1
+                const m1 = 0.5 * ((p2[c]-p1[c])/dt1 + (p1[c]-p0[c])/dt0) * dt1;
+                // Tangent at p2
+                const m2 = 0.5 * ((p3[c]-p2[c])/dt2 + (p2[c]-p1[c])/dt1) * dt1;
+                // Cubic Hermite
+                const t_2 = localT * localT;
+                const t_3 = t_2 * localT;
+                blended[c] = (2*t_3 - 3*t_2 + 1)*p1[c] + (t_3 - 2*t_2 + localT)*m1
+                           + (-2*t_3 + 3*t_2)*p2[c] + (t_3 - t_2)*m2;
+              }
+            } else {
+              // Piecewise interpolation along profile chain
+              let segIdx = 0;
+              for (let k = 1; k < chain.length; k++) {
+                if (s <= chain[k].t) { segIdx = k - 1; break; }
+                segIdx = k - 1;
+              }
+              const pFrom = chain[segIdx].points[jj];
+              const pTo = chain[segIdx + 1].points[jj];
+              const span = chain[segIdx + 1].t - chain[segIdx].t;
+              const localT = span > 1e-9 ? (s - chain[segIdx].t) / span : 0;
+              const t = _loftInterp === 'smooth' ? smoothstep(localT) : localT;
+              blended = [
+                pFrom[0]+(pTo[0]-pFrom[0])*t,
+                pFrom[1]+(pTo[1]-pFrom[1])*t,
+                pFrom[2]+(pTo[2]-pFrom[2])*t
+              ];
+            }
+            if (_loftDepth !== 1.0) {
+              const depthOff = s * (_loftDepth - 1.0);
+              blended[0] += _loftDirection[0] * depthOff;
+              blended[1] += _loftDirection[1] * depthOff;
+              blended[2] += _loftDirection[2] * depthOff;
+            }
+            return blended;
+          };
+          const p0 = getBlended(j0, u);
+          if (frac < 1e-9) return p0;
+          const p1 = getBlended(j0 + 1, u);
+          return [p0[0]+(p1[0]-p0[0])*frac, p0[1]+(p1[1]-p0[1])*frac, p0[2]+(p1[2]-p0[2])*frac];
+        } : null;
+
         const wrapCoord = (x) => ((x % 1) + 1) % 1;
         const surfacePoint = (u, v) => {
+          if (isLoft) {
+            // U handling (along loft axis: source→target)
+            let eu, ev;
+            if (mapAroundU) {
+              eu = wrapCoord(u);
+            } else if (overflowU && (u < 0 || u > 1)) {
+              // Linear extrapolation beyond loft endpoints using edge tangent
+              const edgeU = u < 0 ? 0 : 1;
+              const eps = 0.002;
+              const nearU = u < 0 ? eps : 1 - eps;
+              const clampedV = mapAroundV ? wrapCoord(v) : Math.max(0, Math.min(1, v));
+              const edgePt = _loftEval(edgeU, clampedV);
+              const nearPt = _loftEval(nearU, clampedV);
+              const overshoot = u - edgeU; // negative for u<0, positive for u>1
+              // Tangent direction at edge, scaled by overshoot
+              const scale = overshoot / (edgeU - nearU || 1e-9);
+              return [
+                edgePt[0] + (edgePt[0] - nearPt[0]) * scale,
+                edgePt[1] + (edgePt[1] - nearPt[1]) * scale,
+                edgePt[2] + (edgePt[2] - nearPt[2]) * scale
+              ];
+            } else {
+              eu = Math.max(0, Math.min(1, u));
+            }
+            // V handling (around profile cross-section)
+            if (mapAroundV) {
+              ev = wrapCoord(v);
+            } else if (overflowV && (v < 0 || v > 1)) {
+              // Linear extrapolation beyond profile endpoints
+              const edgeV = v < 0 ? 0 : 1;
+              const eps = 0.002;
+              const nearV = v < 0 ? eps : 1 - eps;
+              const edgePt = _loftEval(eu, edgeV);
+              const nearPt = _loftEval(eu, nearV);
+              const overshoot = v - edgeV;
+              const scale = overshoot / (edgeV - nearV || 1e-9);
+              return [
+                edgePt[0] + (edgePt[0] - nearPt[0]) * scale,
+                edgePt[1] + (edgePt[1] - nearPt[1]) * scale,
+                edgePt[2] + (edgePt[2] - nearPt[2]) * scale
+              ];
+            } else {
+              ev = Math.max(0, Math.min(1, v));
+            }
+            return _loftEval(eu, ev);
+          }
           // U handling: wrap or extrapolate or clamp
           if (mapAroundU) {
             // Around U: wrap u with modulo
@@ -13773,6 +14125,7 @@
         const surfacePointNoWrap = (u, v) => {
           const cu = Math.max(0, Math.min(1, u));
           const cv = Math.max(0, Math.min(1, v));
+          if (isLoft) return _loftEval(cu, cv);
           const frame = SurfaceMapper.getFrameAtU(railPath._frameData, cu);
           const pp = getProfilePointAtV(cv);
           const frameScale = frame.scale !== undefined ? frame.scale : 1.0;
@@ -16771,6 +17124,26 @@
           scaleEnd: 1.0      // Taper scale at rail end (u=1)
         };
 
+        // Loft Settings (Profile Blend: morph between two profiles)
+        this.loftSettings = {
+          enabled: false,
+          targetId: null,        // ID of target profile path
+          middleIds: [],         // Ordered array of middle waypoint path IDs (max 8)
+          depth: 1.0,            // Separation scale factor
+          segments: 16,          // Number of intermediate cross-sections
+          divisionsV: 16,        // Resampling resolution per profile
+          interpolation: 'linear', // 'linear' (ruled) or 'smooth' (cubic ease)
+          autoAlign: true,       // Auto-fix starting point alignment
+          surfaceColor: '#888888',
+          useSurfaceColor: false,
+          showCapStart: true,
+          showCapEnd: true,
+          simpleSides: false,
+          curvedSurface: false,
+          autoSortMiddles: true,  // Auto-sort middles by spatial position
+          smoothMiddles: false    // Catmull-Rom spline through middles (no creases)
+        };
+
 
         // Phase 1: Surface Mapping Constraint
         this.surfaceConstraint = {
@@ -17220,7 +17593,7 @@
           return '';
         };
 
-        if (this.extrudeSettings.enabled || this.revolveSettings.enabled || this.sweepSettings.enabled || splineFlowActive || surfaceMappingActive) {
+        if (this.extrudeSettings.enabled || this.revolveSettings.enabled || this.sweepSettings.enabled || this.loftSettings.enabled || splineFlowActive || surfaceMappingActive) {
           // --- 3D Mode ---
           const faceList = externalFaceList || [];
           // NOTE: SVG children are cleared AFTER face list is built (below),
@@ -17387,7 +17760,7 @@
             const selectedSurfaceType = colonIdx >= 0 ? smRaw.slice(colonIdx + 1) : null;
 
             const surfacePath = sceneObjects.find(o => o.id === actualSurfacePathId);
-            if (surfacePath && (surfacePath.sweepSettings?.enabled || surfacePath.revolveSettings?.enabled || surfacePath.extrudeSettings?.enabled)) {
+            if (surfacePath && (surfacePath.sweepSettings?.enabled || surfacePath.revolveSettings?.enabled || surfacePath.extrudeSettings?.enabled || surfacePath.loftSettings?.enabled)) {
               const sm = activeMapping.surfaceMapping;
               // For standalone paths (no inherited group mapping), sourceMatrix is null.
               // We need the source path's own world matrix so that axis U/V selection
@@ -17695,6 +18068,10 @@
 
           if (this.sweepSettings.enabled) {
             await this.drawSurface(faceList, vpMatrix, modelMatrix);
+          }
+
+          if (this.loftSettings.enabled) {
+            this.drawLoft(faceList, vpMatrix, modelMatrix);
           }
 
           // Guard: object may have been destroyed during async drawSurface
@@ -21506,6 +21883,520 @@
         }
       }
 
+      // Loft: morph between source profile (this) and target profile, optionally through a middle profile
+      drawLoft(faceList, vpMatrix, modelMatrix) {
+        const ls = this.loftSettings;
+        if (!ls.enabled) return;
+
+        const targetPath = sceneObjects.find(o => o.id === ls.targetId);
+        if (!targetPath || !(targetPath instanceof Path)) return;
+
+        // Closed/open type check
+        const sourceIsClosed = this.subPathData && this.subPathData[0] ? this.subPathData[0].closed : this.loop;
+        const targetIsClosed = targetPath.subPathData && targetPath.subPathData[0] ? targetPath.subPathData[0].closed : targetPath.loop;
+        if (sourceIsClosed !== targetIsClosed) {
+          // Mismatch — warn once and skip
+          if (!this._loftMismatchWarned) {
+            this._loftMismatchWarned = true;
+            console.warn('[Loft] Profile type mismatch: source is ' + (sourceIsClosed ? 'closed' : 'open') +
+              ', target is ' + (targetIsClosed ? 'closed' : 'open') + '. Both must match.');
+          }
+          return;
+        }
+        this._loftMismatchWarned = false;
+
+        // Collect valid middle profiles (multi-middle support)
+        // Backward compat: migrate middleId → middleIds
+        if (ls.middleId && !ls.middleIds) {
+          ls.middleIds = [ls.middleId];
+          delete ls.middleId;
+        }
+        const middleIds = ls.middleIds || [];
+        const validMiddles = [];
+        for (const mid of middleIds) {
+          if (!mid) continue;
+          const mp = sceneObjects.find(o => o.id === mid);
+          if (!mp || !(mp instanceof Path)) continue;
+          const midClosed = mp.subPathData && mp.subPathData[0] ? mp.subPathData[0].closed : mp.loop;
+          if (midClosed !== sourceIsClosed) continue; // type mismatch, skip
+          validMiddles.push(mp);
+        }
+
+        const isClosed = sourceIsClosed;
+        const divsV = Math.max(3, ls.divisionsV || 16);
+        const segments = Math.max(2, ls.segments || 16);
+        const depth = ls.depth !== undefined ? ls.depth : 1.0;
+
+        // Loft direction for depth scaling and position projection
+        const posA = this.getWorldPosition ? this.getWorldPosition() : this.position;
+        const posB = targetPath.getWorldPosition ? targetPath.getWorldPosition() : targetPath.position;
+        const direction = vectorSubtract(posB, posA);
+        const abDot = direction[0]*direction[0] + direction[1]*direction[1] + direction[2]*direction[2];
+
+        // --- 1. Resample profiles to uniform arc-length points ---
+        const resamplePath = (path, count) => {
+          const segs = path.getBezierSegments();
+          if (!segs || segs.length === 0) return null;
+
+          // Build arc-length LUT for this profile's first subpath
+          const lut = [];
+          let totalLen = 0;
+          let prevPt = segs[0].p0;
+          lut.push({ dist: 0, segIdx: 0, t: 0 });
+
+          for (let si = 0; si < segs.length; si++) {
+            const seg = segs[si];
+            if (seg.command === 'M' && si > 0) break; // only first subpath
+            const steps = 16;
+            for (let j = 1; j <= steps; j++) {
+              const t = j / steps;
+              const pt = SurfaceMapper.evaluateCurvePoint(seg, t);
+              const d = vectorLength(vectorSubtract(pt, prevPt));
+              totalLen += d;
+              lut.push({ dist: totalLen, segIdx: si, t });
+              prevPt = pt;
+            }
+          }
+
+          if (totalLen < 1e-9) return null;
+
+          // Sample N evenly-spaced points
+          const worldMatrix = path.getWorldMatrix();
+          const points = [];
+
+          for (let i = 0; i < count; i++) {
+            const targetDist = (i / (isClosed ? count : count - 1)) * totalLen;
+            // Binary search in LUT
+            let lo = 0, hi = lut.length - 1;
+            while (lo < hi - 1) {
+              const mid2 = (lo + hi) >> 1;
+              if (lut[mid2].dist <= targetDist) lo = mid2;
+              else hi = mid2;
+            }
+            const a = lut[lo], b = lut[hi];
+            let ratio = 0;
+            if (b.dist - a.dist > 1e-9) ratio = (targetDist - a.dist) / (b.dist - a.dist);
+
+            let localPt;
+            if (a.segIdx === b.segIdx) {
+              const seg = segs[a.segIdx];
+              const interpT = a.t + (b.t - a.t) * ratio;
+              localPt = SurfaceMapper.evaluateCurvePoint(seg, interpT);
+            } else {
+              const ptA = SurfaceMapper.evaluateCurvePoint(segs[a.segIdx], a.t);
+              const ptB = SurfaceMapper.evaluateCurvePoint(segs[b.segIdx], b.t);
+              localPt = [
+                ptA[0] + (ptB[0] - ptA[0]) * ratio,
+                ptA[1] + (ptB[1] - ptA[1]) * ratio,
+                (ptA[2] || 0) + ((ptB[2] || 0) - (ptA[2] || 0)) * ratio
+              ];
+            }
+
+            // Transform to world space
+            const wp = transformVertex(localPt, worldMatrix);
+            points.push([wp[0], wp[1], wp[2]]);
+          }
+          return points;
+        };
+
+        const sourcePoints = resamplePath(this, divsV);
+        const targetPoints = resamplePath(targetPath, divsV);
+        if (!sourcePoints || !targetPoints) return;
+
+        // --- 2. Auto-align starting points (minimize twist for closed profiles) ---
+        const autoAlignProfile = (reference, candidate) => {
+          if (!isClosed || !ls.autoAlign) return candidate;
+          let bestOffset = 0, bestDist = Infinity;
+          const n = candidate.length;
+          for (let offset = 0; offset < n; offset++) {
+            let dist = 0;
+            for (let i = 0; i < n; i++) {
+              const jj = (i + offset) % n;
+              const dx = reference[i][0] - candidate[jj][0];
+              const dy = reference[i][1] - candidate[jj][1];
+              const dz = reference[i][2] - candidate[jj][2];
+              dist += dx * dx + dy * dy + dz * dz;
+            }
+            if (dist < bestDist) { bestDist = dist; bestOffset = offset; }
+          }
+          if (bestOffset === 0) return candidate;
+          return [...candidate.slice(bestOffset), ...candidate.slice(0, bestOffset)];
+        };
+
+        const alignedTarget = autoAlignProfile(sourcePoints, targetPoints);
+
+        // --- 3. Build profile chain: [source, ...middles, target] ---
+        // Each entry: { points, t } where t is position along loft (0→1)
+        const profileChain = [{ points: sourcePoints, t: 0.0 }];
+
+        for (const mp of validMiddles) {
+          const pts = resamplePath(mp, divsV);
+          if (!pts) continue;
+          const aligned = autoAlignProfile(sourcePoints, pts);
+          // Auto-compute position by projecting onto source→target axis
+          const posM = mp.getWorldPosition ? mp.getWorldPosition() : mp.position;
+          const am = vectorSubtract(posM, posA);
+          let t = 0.5;
+          if (abDot > 1e-9) {
+            t = (am[0]*direction[0] + am[1]*direction[1] + am[2]*direction[2]) / abDot;
+          }
+          t = Math.max(0.01, Math.min(0.99, t));
+          profileChain.push({ points: aligned, t });
+        }
+
+        profileChain.push({ points: alignedTarget, t: 1.0 });
+
+        // Sort chain by t (source=0 and target=1 stay at ends)
+        // Only sort the middle entries (indices 1 to length-2)
+        if (profileChain.length > 3 && (ls.autoSortMiddles !== false)) {
+          const midEntries = profileChain.slice(1, -1);
+          midEntries.sort((a, b) => a.t - b.t);
+          for (let i = 0; i < midEntries.length; i++) {
+            profileChain[i + 1] = midEntries[i];
+          }
+        }
+
+        // Ensure unique t values (nudge duplicates)
+        for (let i = 1; i < profileChain.length; i++) {
+          if (profileChain[i].t <= profileChain[i - 1].t) {
+            profileChain[i].t = profileChain[i - 1].t + 0.001;
+          }
+        }
+
+        // Smoothstep helper
+        const smoothstep = (t) => t * t * (3 - 2 * t);
+        const useSmoothMiddles = ls.smoothMiddles && profileChain.length >= 3;
+
+        // Piecewise or Catmull-Rom interpolation helper: blend point j at parameter s
+        const blendAtS = (s, j) => {
+          // Find which segment s falls into
+          let segIdx = 0;
+          for (let k = 1; k < profileChain.length; k++) {
+            if (s <= profileChain[k].t) { segIdx = k - 1; break; }
+            segIdx = k - 1;
+          }
+          const pFrom = profileChain[segIdx];
+          const pTo = profileChain[segIdx + 1];
+          const span = pTo.t - pFrom.t;
+          const localT = span > 1e-9 ? (s - pFrom.t) / span : 0;
+
+          let blended;
+          if (useSmoothMiddles) {
+            // Catmull-Rom spline: smooth interpolation through all profiles
+            const p1 = pFrom.points[j];
+            const p2 = pTo.points[j];
+            // Neighbor points (reflect at boundaries for natural end tangents)
+            const p0 = segIdx > 0 ? profileChain[segIdx - 1].points[j]
+              : [2*p1[0]-p2[0], 2*p1[1]-p2[1], 2*p1[2]-p2[2]];
+            const p3 = segIdx + 2 < profileChain.length ? profileChain[segIdx + 2].points[j]
+              : [2*p2[0]-p1[0], 2*p2[1]-p1[1], 2*p2[2]-p1[2]];
+            // Non-uniform Catmull-Rom: weight tangents by knot intervals
+            const t0 = segIdx > 0 ? profileChain[segIdx - 1].t : (pFrom.t - span);
+            const t1 = pFrom.t;
+            const t2 = pTo.t;
+            const t3 = segIdx + 2 < profileChain.length ? profileChain[segIdx + 2].t : (t2 + span);
+            const dt1 = t2 - t1 || 1e-9;
+            const dt0 = t1 - t0 || 1e-9;
+            const dt2 = t3 - t2 || 1e-9;
+            blended = [0, 0, 0];
+            for (let c = 0; c < 3; c++) {
+              const m1 = 0.5 * ((p2[c]-p1[c])/dt1 + (p1[c]-p0[c])/dt0) * dt1;
+              const m2 = 0.5 * ((p3[c]-p2[c])/dt2 + (p2[c]-p1[c])/dt1) * dt1;
+              const t_2 = localT * localT;
+              const t_3 = t_2 * localT;
+              blended[c] = (2*t_3 - 3*t_2 + 1)*p1[c] + (t_3 - 2*t_2 + localT)*m1
+                         + (-2*t_3 + 3*t_2)*p2[c] + (t_3 - t_2)*m2;
+            }
+          } else {
+            const t = ls.interpolation === 'smooth' ? smoothstep(localT) : localT;
+            const a = pFrom.points[j];
+            const b = pTo.points[j];
+            blended = [
+              a[0] + (b[0] - a[0]) * t,
+              a[1] + (b[1] - a[1]) * t,
+              a[2] + (b[2] - a[2]) * t
+            ];
+          }
+
+          // Apply depth: offset along the loft direction
+          if (depth !== 1.0) {
+            const depthOffset = s * (depth - 1.0);
+            blended[0] += direction[0] * depthOffset;
+            blended[1] += direction[1] * depthOffset;
+            blended[2] += direction[2] * depthOffset;
+          }
+
+          return blended;
+        };
+
+        // --- 4. Build cross-sections ---
+        const crossSections = [];
+        for (let i = 0; i <= segments; i++) {
+          const s = i / segments;
+          const section = [];
+          for (let j = 0; j < divsV; j++) {
+            section.push(blendAtS(s, j));
+          }
+          crossSections.push(section);
+        }
+
+        // --- 5. Project and generate quad faces ---
+        const mvp = vpMatrix;
+        const toScreen = (pt3d) => {
+          const t2 = transformVertex(pt3d, mvp);
+          if (!t2) return null;
+          return { x: (t2[0] * FRAME_SIZE) / 2, y: (-t2[1] * FRAME_SIZE) / 2, z: t2[2] };
+        };
+
+        // Colors
+        const resolvedFill = (this.style.fill && this.style.fill !== 'none') ? rgbToHex(this.style.fill) : this.style.fill;
+        const fillColor = (ls.useSurfaceColor && ls.surfaceColor) ? ls.surfaceColor : resolvedFill;
+        const strokeColor = (this.style.stroke && this.style.stroke !== 'none') ? rgbToHex(this.style.stroke) : null;
+        const strokeWidth = this.style['stroke-width'] || (2 / FRAME_SIZE).toString();
+        const simpleSides = ls.simpleSides || false;
+        const camPos = activeCamera.position;
+        const isCurved = ls.curvedSurface || false;
+
+        // --- Curved surface: build V-edge and U-edge Bezier CPs ---
+        let gridVCurves = null; // [sectionIdx][j] → {p0,p1,p2,p3} in 3D
+        let gridUCurves = null; // [intervalIdx][j] → {p0,p1,p2,p3} in 3D
+
+        if (isCurved) {
+          // V-edge curves: for each cross-section row, build cubic CPs along the profile.
+          // Since cross-section points are uniformly resampled, we use Catmull-Rom-style
+          // tangent estimation to produce smooth V-edges through the resampled points.
+          gridVCurves = [];
+          for (let i = 0; i <= segments; i++) {
+            const row = crossSections[i];
+            const rowCurves = [];
+            const vCount = isClosed ? divsV : divsV - 1;
+            for (let j = 0; j < vCount; j++) {
+              const j1 = (j + 1) % divsV;
+              const pA = row[j];
+              const pB = row[j1];
+              // Catmull-Rom tangent at pA and pB for smooth profile curves
+              const jPrev = (j - 1 + divsV) % divsV;
+              const j2 = (j + 2) % divsV;
+              const canUsePrev = isClosed || j > 0;
+              const canUseNext = isClosed || j1 < divsV - 1;
+              let tA, tB;
+              if (canUsePrev) {
+                const prev = row[jPrev];
+                tA = [(pB[0] - prev[0]) / 6, (pB[1] - prev[1]) / 6, (pB[2] - prev[2]) / 6];
+              } else {
+                tA = [(pB[0] - pA[0]) / 3, (pB[1] - pA[1]) / 3, (pB[2] - pA[2]) / 3];
+              }
+              if (canUseNext) {
+                const next = row[j2];
+                tB = [(next[0] - pA[0]) / 6, (next[1] - pA[1]) / 6, (next[2] - pA[2]) / 6];
+              } else {
+                tB = [(pB[0] - pA[0]) / 3, (pB[1] - pA[1]) / 3, (pB[2] - pA[2]) / 3];
+              }
+              rowCurves.push({
+                p0: pA,
+                p1: [pA[0] + tA[0], pA[1] + tA[1], pA[2] + tA[2]],
+                p2: [pB[0] - tB[0], pB[1] - tB[1], pB[2] - tB[2]],
+                p3: pB
+              });
+            }
+            gridVCurves.push(rowCurves);
+          }
+
+          // U-edge curves: for each U-interval, sample two intermediate cross-sections
+          // at 1/3 and 2/3 positions, then apply 4-point arc fitting.
+          gridUCurves = [];
+          for (let i = 0; i < segments; i++) {
+            const sA = i / segments;
+            const sB = (i + 1) / segments;
+            const sMid1 = sA + (sB - sA) / 3;
+            const sMid2 = sA + 2 * (sB - sA) / 3;
+
+            // Build intermediate cross-section points at sMid1 and sMid2
+            // Reuses the blendAtS helper which handles the full profile chain
+            const buildSection = (s) => {
+              const sec = [];
+              for (let j = 0; j < divsV; j++) {
+                sec.push(blendAtS(s, j));
+              }
+              return sec;
+            };
+
+            const mid1Pts = buildSection(sMid1);
+            const mid2Pts = buildSection(sMid2);
+
+            const row = [];
+            for (let j = 0; j < divsV; j++) {
+              const p0 = crossSections[i][j];
+              const p3 = crossSections[i + 1][j];
+              const q1 = mid1Pts[j];
+              const q2 = mid2Pts[j];
+              // 4-point arc fitting: derive cubic CPs from endpoints + two interior samples
+              const cp1 = [
+                (18*q1[0] - 9*q2[0] - 5*p0[0] + 2*p3[0]) / 6,
+                (18*q1[1] - 9*q2[1] - 5*p0[1] + 2*p3[1]) / 6,
+                (18*q1[2] - 9*q2[2] - 5*p0[2] + 2*p3[2]) / 6
+              ];
+              const cp2 = [
+                (-9*q1[0] + 18*q2[0] + 2*p0[0] - 5*p3[0]) / 6,
+                (-9*q1[1] + 18*q2[1] + 2*p0[1] - 5*p3[1]) / 6,
+                (-9*q1[2] + 18*q2[2] + 2*p0[2] - 5*p3[2]) / 6
+              ];
+              row.push({ p0, p1: cp1, p2: cp2, p3 });
+            }
+            gridUCurves.push(row);
+          }
+        }
+
+        // Generate quad mesh
+        for (let i = 0; i < crossSections.length - 1; i++) {
+          const rowA = crossSections[i];
+          const rowB = crossSections[i + 1];
+          const vCount = isClosed ? divsV : divsV - 1;
+
+          for (let j = 0; j < vCount; j++) {
+            const j1 = (j + 1) % divsV;
+
+            const p0 = rowA[j], p1 = rowA[j1], p2 = rowB[j1], p3 = rowB[j];
+
+            // Compute face normal for backface culling / simple sides
+            // Use adjacent edges (not diagonals) for a consistent winding-aware normal
+            const edgeU = vectorSubtract(p1, p0); // along profile (V direction)
+            const edgeV = vectorSubtract(p3, p0); // along loft (U direction)
+            const faceNormal = vectorCross(edgeU, edgeV);
+            const faceCentroid = [
+              (p0[0]+p1[0]+p2[0]+p3[0])/4,
+              (p0[1]+p1[1]+p2[1]+p3[1])/4,
+              (p0[2]+p1[2]+p2[2]+p3[2])/4
+            ];
+
+            if (simpleSides && isClosed) {
+              // For closed profiles: cull faces whose normal points away from camera.
+              // Ensure normal points outward from the loft centerline:
+              // compute centroid of this cross-section and check if normal points away from it.
+              const sectionRow = crossSections[i];
+              const cx = sectionRow.reduce((s, p) => s + p[0], 0) / sectionRow.length;
+              const cy = sectionRow.reduce((s, p) => s + p[1], 0) / sectionRow.length;
+              const cz = sectionRow.reduce((s, p) => s + p[2], 0) / sectionRow.length;
+              const outward = vectorSubtract(faceCentroid, [cx, cy, cz]);
+              // Flip normal if it points inward (opposite to outward direction)
+              const orientDot = vectorDot(faceNormal, outward);
+              const orientedNormal = orientDot >= 0 ? faceNormal : [-faceNormal[0], -faceNormal[1], -faceNormal[2]];
+              const viewVec = vectorSubtract(camPos, faceCentroid);
+              const dot = vectorDot(orientedNormal, viewVec);
+              if (dot < 0) continue; // backface cull
+            }
+            // Open-path lofts: no backface culling (both sides visible)
+
+            let d, avgZ;
+
+            if (isCurved && gridVCurves && gridUCurves) {
+              // Curved face: build SVG path with cubic Bezier edges
+              const botV = gridVCurves[i][j];     // bottom V-edge (rowA, j→j1)
+              const topV = gridVCurves[i + 1][j]; // top V-edge (rowB, j→j1)
+              const leftU = gridUCurves[i][j];     // left U-edge (j, rowA→rowB)
+              const rightU = gridUCurves[i][j1];   // right U-edge (j1, rowA→rowB)
+
+              const s00 = toScreen(botV.p0);
+              const sv1 = toScreen(botV.p1);
+              const sv2 = toScreen(botV.p2);
+              const s01 = toScreen(botV.p3);
+              const s10 = toScreen(topV.p0);
+              const sv3 = toScreen(topV.p1);
+              const sv4 = toScreen(topV.p2);
+              const s11 = toScreen(topV.p3);
+              const su_l1 = toScreen(leftU.p1);
+              const su_l2 = toScreen(leftU.p2);
+              const su_r1 = toScreen(rightU.p1);
+              const su_r2 = toScreen(rightU.p2);
+
+              if (!s00 || !s01 || !s10 || !s11 ||
+                !sv1 || !sv2 || !sv3 || !sv4 ||
+                !su_l1 || !su_l2 || !su_r1 || !su_r2) continue;
+
+              avgZ = (s00.z + s01.z + s10.z + s11.z) / 4;
+
+              // Bottom V-edge → Right U-edge → Top V-edge (reversed) → Left U-edge (reversed)
+              d = `M ${s00.x} ${s00.y} ` +
+                `C ${sv1.x} ${sv1.y}, ${sv2.x} ${sv2.y}, ${s01.x} ${s01.y} ` +
+                `C ${su_r1.x} ${su_r1.y}, ${su_r2.x} ${su_r2.y}, ${s11.x} ${s11.y} ` +
+                `C ${sv4.x} ${sv4.y}, ${sv3.x} ${sv3.y}, ${s10.x} ${s10.y} ` +
+                `C ${su_l2.x} ${su_l2.y}, ${su_l1.x} ${su_l1.y}, ${s00.x} ${s00.y} Z`;
+            } else {
+              // Flat quad
+              const s0 = toScreen(p0), s1 = toScreen(p1), s2 = toScreen(p2), s3 = toScreen(p3);
+              if (!s0 || !s1 || !s2 || !s3) continue;
+              avgZ = (s0.z + s1.z + s2.z + s3.z) / 4;
+              d = null; // use polygon
+              const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+              poly.setAttribute('points', `${s0.x},${s0.y} ${s1.x},${s1.y} ${s2.x},${s2.y} ${s3.x},${s3.y}`);
+              poly.setAttribute('fill', fillColor || 'none');
+              poly.setAttribute('fill-opacity', this.style['fill-opacity'] || '1');
+              if (strokeColor) {
+                poly.setAttribute('stroke', strokeColor);
+                poly.setAttribute('stroke-width', strokeWidth);
+                if (this.style['stroke-opacity'] !== undefined) {
+                  poly.setAttribute('stroke-opacity', this.style['stroke-opacity']);
+                }
+              } else {
+                poly.setAttribute('stroke', 'none');
+              }
+              poly.setAttribute('stroke-linejoin', 'round');
+              faceList.push({ element: poly, z: avgZ });
+              continue;
+            }
+
+            // Curved face element
+            const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            pathEl.setAttribute('d', d);
+            pathEl.setAttribute('fill', fillColor || 'none');
+            pathEl.setAttribute('fill-opacity', this.style['fill-opacity'] || '1');
+            if (strokeColor) {
+              pathEl.setAttribute('stroke', strokeColor);
+              pathEl.setAttribute('stroke-width', strokeWidth);
+              if (this.style['stroke-opacity'] !== undefined) {
+                pathEl.setAttribute('stroke-opacity', this.style['stroke-opacity']);
+              }
+            } else {
+              pathEl.setAttribute('stroke', 'none');
+            }
+            pathEl.setAttribute('stroke-linejoin', 'round');
+            faceList.push({ element: pathEl, z: avgZ });
+          }
+        }
+
+        // --- 6. Cap rendering ---
+        const drawCap = (crossSection, isStart) => {
+          if (!isClosed) return;
+          if (isStart && !ls.showCapStart) return;
+          if (!isStart && !ls.showCapEnd) return;
+
+          const pts2d = [];
+          let zSum = 0;
+          for (const pt of crossSection) {
+            const sc = toScreen(pt);
+            if (!sc) return;
+            pts2d.push(`${sc.x},${sc.y}`);
+            zSum += sc.z;
+          }
+          const avgZ = zSum / crossSection.length;
+
+          const capEl = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+          capEl.setAttribute('points', pts2d.join(' '));
+          capEl.setAttribute('fill', resolvedFill || 'none');
+          capEl.setAttribute('fill-opacity', this.style['fill-opacity'] || '1');
+          if (strokeColor) {
+            capEl.setAttribute('stroke', strokeColor);
+            capEl.setAttribute('stroke-width', strokeWidth);
+          } else {
+            capEl.setAttribute('stroke', 'none');
+          }
+          faceList.push({ element: capEl, z: avgZ });
+        };
+
+        drawCap(crossSections[0], true);
+        drawCap(crossSections[crossSections.length - 1], false);
+      }
+
       drawSideRibbons(mvpFront, mvpBack, faceList) {
         if (!this.extrudeSettings.enabled) return;
 
@@ -25216,6 +26107,9 @@
           });
           requestRender();
         }
+        // Directly toggle Closure Steps row visibility
+        const sfClosureRow = document.getElementById('splineFlowClosureStepsRow');
+        if (sfClosureRow) sfClosureRow.style.display = val ? '' : 'none';
       });
     }
 
@@ -26180,6 +27074,260 @@
         }
       }
 
+      // Loft Settings
+      const loftEnabledInput = document.getElementById('loftEnabledInput');
+      const loftTargetSelect = document.getElementById('loftTargetSelect');
+      if (loftEnabledInput && loftTargetSelect) {
+        // Populate target dropdown with sibling paths (same pattern as sweep)
+        const currentTargetId = isPath ? (selectedObject.loftSettings?.targetId || '') : '';
+        if (document.activeElement !== loftTargetSelect) {
+          loftTargetSelect.innerHTML = '<option value="">-- None --' + '<' + '/option>';
+          const siblings = (selectedObject && selectedObject.parent)
+            ? selectedObject.parent.children
+            : sceneObjects;
+          siblings.forEach(obj => {
+            if (obj instanceof Path && (!selectedObject || obj.id !== selectedObject.id)) {
+              const opt = document.createElement('option');
+              opt.value = obj.id;
+              opt.textContent = obj.name || obj.id;
+              if (obj.id === currentTargetId) opt.selected = true;
+              loftTargetSelect.appendChild(opt);
+            }
+          });
+        }
+
+        if (document.activeElement !== loftEnabledInput) {
+          loftEnabledInput.checked = isPath ? (selectedObject.loftSettings?.enabled || false) : false;
+          loftEnabledInput.disabled = !isPath;
+        }
+
+        const loftEnabled = loftEnabledInput.checked;
+        const loftParamsEl = document.getElementById('loftParams');
+        if (loftParamsEl) loftParamsEl.classList.toggle('collapsed', !loftEnabled);
+        loftTargetSelect.disabled = !isPath || !loftEnabled;
+
+        // Dynamic middle profile dropdowns (multi-middle support)
+        const loftMiddleContainer = document.getElementById('loftMiddleContainer');
+        const hasTarget = loftEnabled && currentTargetId;
+        if (loftMiddleContainer) loftMiddleContainer.style.display = hasTarget ? '' : 'none';
+
+        if (loftMiddleContainer && hasTarget) {
+          // Backward compat: migrate middleId → middleIds
+          if (isPath && selectedObject.loftSettings) {
+            const ls = selectedObject.loftSettings;
+            if (ls.middleId && !ls.middleIds) {
+              ls.middleIds = [ls.middleId];
+              delete ls.middleId;
+            }
+            if (!ls.middleIds) ls.middleIds = [];
+          }
+
+          const middleIds = isPath ? (selectedObject.loftSettings?.middleIds || []) : [];
+          const MAX_MIDDLES = 8;
+          loftMiddleContainer.innerHTML = '';
+          const siblings = (selectedObject && selectedObject.parent)
+            ? selectedObject.parent.children
+            : sceneObjects;
+
+          // Build rows: one per existing middle + one empty "add" row (if under cap)
+          const rowCount = Math.min(middleIds.length + 1, MAX_MIDDLES + 1);
+          for (let mi = 0; mi < rowCount; mi++) {
+            const currentMidId = middleIds[mi] || '';
+            // Skip the "add" row if we're at the cap and this slot is empty
+            if (mi >= MAX_MIDDLES && !currentMidId) break;
+
+            const row = document.createElement('div');
+            row.className = 'xyz-row';
+            const label = document.createElement('label');
+            label.textContent = 'Middle ' + (mi + 1);
+            row.appendChild(label);
+
+            const inputsDiv = document.createElement('div');
+            inputsDiv.className = 'xyz-inputs';
+            const sel = document.createElement('select');
+            sel.className = 'loft-middle-select';
+            sel.dataset.middleIndex = mi;
+
+            // "None" option
+            const noneOpt = document.createElement('option');
+            noneOpt.value = '';
+            noneOpt.textContent = '-- None --';
+            sel.appendChild(noneOpt);
+
+            // Sibling paths, excluding source, target, and other assigned middles
+            const excludeIds = new Set([selectedObject.id, currentTargetId]);
+            middleIds.forEach((id, idx) => { if (idx !== mi && id) excludeIds.add(id); });
+            siblings.forEach(obj => {
+              if (obj instanceof Path && !excludeIds.has(obj.id)) {
+                const opt = document.createElement('option');
+                opt.value = obj.id;
+                opt.textContent = obj.name || obj.id;
+                if (obj.id === currentMidId) opt.selected = true;
+                sel.appendChild(opt);
+              }
+            });
+
+            sel.disabled = !isPath || !loftEnabled;
+
+            // Event handler: update middleIds array on change
+            sel.addEventListener('change', function () {
+              if (!selectedObject || !selectedObject.loftSettings) return;
+              pushUndoStateCoalesced('loftMiddle');
+              const idx = parseInt(this.dataset.middleIndex);
+              const newVal = this.value || null;
+              const ids = selectedObject.loftSettings.middleIds || [];
+
+              if (newVal) {
+                // Set or add
+                ids[idx] = newVal;
+              } else {
+                // Remove this middle and shift remaining
+                ids.splice(idx, 1);
+              }
+              // Clean up: remove trailing nulls/empties
+              while (ids.length > 0 && !ids[ids.length - 1]) ids.pop();
+              selectedObject.loftSettings.middleIds = ids;
+
+              // Defer panel rebuild so the browser completes the change event first
+              setTimeout(() => { updatePropertiesPanel(); renderAll(); }, 0);
+            });
+
+            inputsDiv.appendChild(sel);
+            row.appendChild(inputsDiv);
+            loftMiddleContainer.appendChild(row);
+          }
+
+          // Auto Sort Middles checkbox (only when 2+ middles exist)
+          if (middleIds.length >= 2) {
+            const sortRow = document.createElement('div');
+            sortRow.className = 'style-row';
+            const sortLabel = document.createElement('label');
+            sortLabel.className = 'ui-checkbox-label';
+            sortLabel.textContent = 'Auto Sort Middles';
+            sortRow.appendChild(sortLabel);
+            const sortCb = document.createElement('input');
+            sortCb.type = 'checkbox';
+            sortCb.id = 'loftAutoSortMiddlesInput';
+            sortCb.className = 'ui-checkbox';
+            sortCb.checked = isPath ? (selectedObject.loftSettings?.autoSortMiddles !== false) : true;
+            sortCb.title = 'Auto-sort middle profiles by spatial position along source→target axis';
+            sortCb.addEventListener('change', function () {
+              if (!selectedObject || !selectedObject.loftSettings) return;
+              pushUndoState();
+              selectedObject.loftSettings.autoSortMiddles = this.checked;
+              pushUndoState('Toggle auto sort middles');
+              renderAll();
+            });
+            sortRow.appendChild(sortCb);
+            loftMiddleContainer.appendChild(sortRow);
+          }
+
+          // Smooth Middles checkbox (only when 1+ middles exist)
+          if (middleIds.length >= 1) {
+            const smoothRow = document.createElement('div');
+            smoothRow.className = 'style-row';
+            const smoothLabel = document.createElement('label');
+            smoothLabel.className = 'ui-checkbox-label';
+            smoothLabel.textContent = 'Smooth Middles';
+            smoothRow.appendChild(smoothLabel);
+            const smoothCb = document.createElement('input');
+            smoothCb.type = 'checkbox';
+            smoothCb.id = 'loftSmoothMiddlesInput';
+            smoothCb.className = 'ui-checkbox';
+            smoothCb.checked = isPath ? (selectedObject.loftSettings?.smoothMiddles || false) : false;
+            smoothCb.title = 'Catmull-Rom spline interpolation through middle profiles for crease-free surfaces';
+            smoothCb.addEventListener('change', function () {
+              if (!selectedObject || !selectedObject.loftSettings) return;
+              pushUndoState();
+              selectedObject.loftSettings.smoothMiddles = this.checked;
+              pushUndoState('Toggle smooth middles');
+              renderAll();
+            });
+            smoothRow.appendChild(smoothCb);
+            loftMiddleContainer.appendChild(smoothRow);
+          }
+        }
+
+        // Depth input
+        const loftDepthInput = document.getElementById('loftDepthInput');
+        if (loftDepthInput && document.activeElement !== loftDepthInput) {
+          loftDepthInput.value = isPath && selectedObject.loftSettings?.depth !== undefined ? selectedObject.loftSettings.depth : 1.0;
+          loftDepthInput.disabled = !isPath || !loftEnabled;
+        }
+
+        // Segments input
+        const loftSegmentsInput = document.getElementById('loftSegmentsInput');
+        if (loftSegmentsInput && document.activeElement !== loftSegmentsInput) {
+          loftSegmentsInput.value = isPath && selectedObject.loftSettings?.segments !== undefined ? selectedObject.loftSettings.segments : 16;
+          loftSegmentsInput.disabled = !isPath || !loftEnabled;
+        }
+
+        // Interpolation
+        const loftInterpInput = document.getElementById('loftInterpolationInput');
+        if (loftInterpInput && document.activeElement !== loftInterpInput) {
+          loftInterpInput.value = isPath && selectedObject.loftSettings?.interpolation ? selectedObject.loftSettings.interpolation : 'linear';
+          loftInterpInput.disabled = !isPath || !loftEnabled;
+        }
+
+        // Auto Align
+        const loftAutoAlignInput = document.getElementById('loftAutoAlignInput');
+        if (loftAutoAlignInput && document.activeElement !== loftAutoAlignInput) {
+          loftAutoAlignInput.checked = isPath ? (selectedObject.loftSettings?.autoAlign !== false) : true;
+          loftAutoAlignInput.disabled = !isPath || !loftEnabled;
+        }
+
+        // Cap Start/End
+        const loftCapStartInput = document.getElementById('loftCapStartInput');
+        if (loftCapStartInput && document.activeElement !== loftCapStartInput) {
+          loftCapStartInput.checked = isPath && (selectedObject.loftSettings?.showCapStart !== false);
+          loftCapStartInput.disabled = !isPath || !loftEnabled;
+        }
+        const loftCapEndInput = document.getElementById('loftCapEndInput');
+        if (loftCapEndInput && document.activeElement !== loftCapEndInput) {
+          loftCapEndInput.checked = isPath && (selectedObject.loftSettings?.showCapEnd !== false);
+          loftCapEndInput.disabled = !isPath || !loftEnabled;
+        }
+
+        // Surface Color
+        const loftColorEnabledInput = document.getElementById('loftColorEnabledInput');
+        if (loftColorEnabledInput && document.activeElement !== loftColorEnabledInput) {
+          loftColorEnabledInput.checked = isPath && selectedObject.loftSettings?.useSurfaceColor;
+          loftColorEnabledInput.disabled = !isPath || !loftEnabled;
+        }
+        const loftColorInput = document.getElementById('loftColorInput');
+        if (loftColorInput && document.activeElement !== loftColorInput) {
+          loftColorInput.value = isPath && selectedObject.loftSettings?.surfaceColor ? selectedObject.loftSettings.surfaceColor : '#888888';
+          loftColorInput.disabled = !isPath || !loftEnabled || !(loftColorEnabledInput && loftColorEnabledInput.checked);
+        }
+        const loftColorHexInput = document.getElementById('loftColorHexInput');
+        if (loftColorHexInput) {
+          const lcColor = isPath && selectedObject.loftSettings?.surfaceColor ? selectedObject.loftSettings.surfaceColor : '#888888';
+          if (document.activeElement !== loftColorHexInput) loftColorHexInput.value = lcColor.slice(1).toUpperCase();
+          loftColorHexInput.disabled = !isPath || !loftEnabled || !(loftColorEnabledInput && loftColorEnabledInput.checked);
+        }
+
+        // Div V
+        const loftDivsVInput = document.getElementById('loftDivisionsVInput');
+        if (loftDivsVInput && document.activeElement !== loftDivsVInput) {
+          loftDivsVInput.value = isPath && selectedObject.loftSettings?.divisionsV !== undefined ? selectedObject.loftSettings.divisionsV : 16;
+          loftDivsVInput.disabled = !isPath || !loftEnabled;
+        }
+
+        // Simple Sides
+        const loftSimpleSidesInput = document.getElementById('loftSimpleSidesInput');
+        if (loftSimpleSidesInput && document.activeElement !== loftSimpleSidesInput) {
+          loftSimpleSidesInput.checked = isPath ? (selectedObject.loftSettings?.simpleSides || false) : false;
+          loftSimpleSidesInput.disabled = !isPath || !loftEnabled;
+        }
+
+        // Curved Surface
+        const loftCurvedInput = document.getElementById('loftCurvedInput');
+        if (loftCurvedInput && document.activeElement !== loftCurvedInput) {
+          loftCurvedInput.checked = isPath ? (selectedObject.loftSettings?.curvedSurface || false) : false;
+          loftCurvedInput.disabled = !isPath || !loftEnabled;
+        }
+      }
+
       // Algorithm (hide for Groups — Groups don't have path type)
       const algorithmRow = document.getElementById('algorithmRow');
       const fillRuleRow = document.getElementById('fillRuleRow');
@@ -26352,6 +27500,10 @@
         if (hOffInput) hOffInput.disabled = ctrlDisabled;
         if (resInput) resInput.disabled = ctrlDisabled;
         if (splitInput) splitInput.disabled = ctrlDisabled;
+        const sfClosureStepsRow = document.getElementById('splineFlowClosureStepsRow');
+        const sfSplitOn = sc ? (sc.silhouetteSplit !== false) : false;
+        if (sfClosureStepsInput) sfClosureStepsInput.disabled = ctrlDisabled || !sfSplitOn;
+        if (sfClosureStepsRow) sfClosureStepsRow.style.display = (!ctrlDisabled && sfSplitOn) ? '' : 'none';
         if (bankInput) bankInput.disabled = ctrlDisabled;
         if (twistInput) twistInput.disabled = ctrlDisabled;
         if (sfScaleUInput) sfScaleUInput.disabled = ctrlDisabled;
@@ -26427,6 +27579,13 @@
                 if (opt.value === currentSurfaceId) opt.selected = true;
                 smTargetSelect.appendChild(opt);
               }
+              if (obj.loftSettings?.enabled) {
+                const opt = document.createElement('option');
+                opt.value = obj.id + ':loft';
+                opt.textContent = label + ' [Loft]';
+                if (opt.value === currentSurfaceId) opt.selected = true;
+                smTargetSelect.appendChild(opt);
+              }
             });
           }
         }
@@ -26470,7 +27629,10 @@
         if (smRotation) smRotation.disabled = smDisabled;
         if (smResolution) smResolution.disabled = smDisabled;
         if (smSplitInput) smSplitInput.disabled = smDisabled;
-        if (smClosureSteps) smClosureSteps.disabled = smDisabled;
+        const smSplitOn = sm.silhouetteSplit !== false;
+        if (smClosureSteps) smClosureSteps.disabled = smDisabled || !smSplitOn;
+        const smClosureStepsRow = document.getElementById('surfaceMappingClosureStepsRow');
+        if (smClosureStepsRow) smClosureStepsRow.style.display = (!smDisabled && smSplitOn) ? '' : 'none';
         const smAxisUEl = document.getElementById('surfaceMappingAxisU');
         const smAxisVEl = document.getElementById('surfaceMappingAxisV');
         if (smAxisUEl) smAxisUEl.disabled = smDisabled;
@@ -27044,6 +28206,12 @@
                   opt.textContent = label + ' [Extrude]';
                   smTarget.appendChild(opt);
                 }
+                if (obj.loftSettings?.enabled) {
+                  const opt = document.createElement('option');
+                  opt.value = obj.id + ':loft';
+                  opt.textContent = label + ' [Loft]';
+                  smTarget.appendChild(opt);
+                }
               });
             }
           }
@@ -27173,6 +28341,9 @@
           selectedObject.surfaceConstraint.surfaceMapping.silhouetteSplit = e.target.checked;
           requestRender();
         }
+        // Directly toggle Closure Steps row visibility
+        const smClosureRow = document.getElementById('surfaceMappingClosureStepsRow');
+        if (smClosureRow) smClosureRow.style.display = e.target.checked ? '' : 'none';
       });
     }
 
@@ -28172,6 +29343,45 @@
           }
         }
 
+        // Loft Settings
+        if (!obj.isGroup && (forceAll || targetId.startsWith('loft'))) {
+          if (!obj.loftSettings) obj.loftSettings = {};
+          const loftEnabled = document.getElementById('loftEnabledInput');
+          const loftTarget = document.getElementById('loftTargetSelect');
+          // middleIds are managed directly by dynamic dropdown handlers in updatePropertiesPanel
+          const loftDepth = document.getElementById('loftDepthInput');
+          const loftSegments = document.getElementById('loftSegmentsInput');
+          const loftInterp = document.getElementById('loftInterpolationInput');
+          const loftAutoAlign = document.getElementById('loftAutoAlignInput');
+          const loftCapStart = document.getElementById('loftCapStartInput');
+          const loftCapEnd = document.getElementById('loftCapEndInput');
+          const loftColorEnabled = document.getElementById('loftColorEnabledInput');
+          const loftColor = document.getElementById('loftColorInput');
+          const loftColorHex = document.getElementById('loftColorHexInput');
+          const loftDivsV = document.getElementById('loftDivisionsVInput');
+          const loftSimpleSides = document.getElementById('loftSimpleSidesInput');
+
+          if (loftEnabled) obj.loftSettings.enabled = loftEnabled.checked;
+          if (loftTarget) obj.loftSettings.targetId = loftTarget.value || null;
+          if (loftDepth) obj.loftSettings.depth = parseFloat(loftDepth.value) || 1.0;
+          if (loftSegments) obj.loftSettings.segments = parseInt(loftSegments.value) || 16;
+          if (loftInterp) obj.loftSettings.interpolation = loftInterp.value;
+          if (loftAutoAlign) obj.loftSettings.autoAlign = loftAutoAlign.checked;
+          if (loftCapStart) obj.loftSettings.showCapStart = loftCapStart.checked;
+          if (loftCapEnd) obj.loftSettings.showCapEnd = loftCapEnd.checked;
+          if (loftColorEnabled) obj.loftSettings.useSurfaceColor = loftColorEnabled.checked;
+          if (loftColorHex && targetId === 'loftColorHexInput') {
+            const hex = loftColorHex.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
+            if (hex.length === 6) obj.loftSettings.surfaceColor = '#' + hex;
+          } else if (loftColor) {
+            obj.loftSettings.surfaceColor = loftColor.value;
+          }
+          if (loftDivsV) obj.loftSettings.divisionsV = parseInt(loftDivsV.value) || 16;
+          if (loftSimpleSides) obj.loftSettings.simpleSides = loftSimpleSides.checked;
+          const loftCurved = document.getElementById('loftCurvedInput');
+          if (loftCurved) obj.loftSettings.curvedSurface = loftCurved.checked;
+        }
+
         // Vertex Point Settings
         if (!obj.isGroup && (forceAll || (targetId && targetId.startsWith('vertex')))) {
           if (!obj.vertexPointSettings) obj.vertexPointSettings = { enabled: false, size: 5.0, color: '#0000ff', shape: 'circle' };
@@ -28503,6 +29713,32 @@
     document.getElementById('sweepPointShapeInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('sweepScaleStartInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('sweepScaleEndInput').addEventListener('input', updateStyleFromInput);
+
+    // Loft Event Listeners (middle dropdowns are dynamic — handlers attached in updatePropertiesPanel)
+    document.getElementById('loftEnabledInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('loftTargetSelect').addEventListener('change', updateStyleFromInput);
+    document.getElementById('loftDepthInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('loftSegmentsInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('loftInterpolationInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('loftAutoAlignInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('loftCapStartInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('loftCapEndInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('loftColorEnabledInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('loftColorInput').addEventListener('input', function (e) {
+      document.getElementById('loftColorHexInput').value = this.value.slice(1).toUpperCase();
+      updateStyleFromInput(e);
+    });
+    document.getElementById('loftColorHexInput').addEventListener('input', function (e) {
+      const hex = this.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
+      this.value = hex;
+      if (hex.length === 6) {
+        document.getElementById('loftColorInput').value = '#' + hex;
+        updateStyleFromInput(e);
+      }
+    });
+    document.getElementById('loftDivisionsVInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('loftSimpleSidesInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('loftCurvedInput').addEventListener('change', updateStyleFromInput);
 
     // Face Camera Event Listeners
     const faceCamXInput = document.getElementById('faceCamXInput');
@@ -36145,6 +37381,7 @@
         data.extrudeSettings = obj.extrudeSettings;
         data.revolveSettings = obj.revolveSettings;
         data.sweepSettings = obj.sweepSettings;
+        data.loftSettings = obj.loftSettings;
         data.vertexPointSettings = obj.vertexPointSettings;
         if (obj._pixelEllipse) data._pixelEllipse = true;
         if (obj._pixelCellOrigin) data._pixelCellOrigin = [...obj._pixelCellOrigin];
@@ -36211,6 +37448,15 @@
         if (data.revolveSettings) obj.revolveSettings = { ...obj.revolveSettings, ...data.revolveSettings };
         if (data.sweepSettings) obj.sweepSettings = { ...obj.sweepSettings, ...data.sweepSettings };
         else if (data.surfaceSettings) obj.sweepSettings = { ...obj.sweepSettings, ...data.surfaceSettings }; // backward compat
+        if (data.loftSettings) {
+          obj.loftSettings = { ...obj.loftSettings, ...data.loftSettings };
+          // Backward compat: migrate middleId → middleIds
+          if (obj.loftSettings.middleId && !obj.loftSettings.middleIds) {
+            obj.loftSettings.middleIds = [obj.loftSettings.middleId];
+            delete obj.loftSettings.middleId;
+          }
+          if (!obj.loftSettings.middleIds) obj.loftSettings.middleIds = [];
+        }
         if (data.vertexPointSettings) obj.vertexPointSettings = { ...obj.vertexPointSettings, ...data.vertexPointSettings };
         if (data._pixelEllipse) obj._pixelEllipse = true;
         if (data._pixelCellOrigin) obj._pixelCellOrigin = [...data._pixelCellOrigin];

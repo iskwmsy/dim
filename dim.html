@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260516g -->
+<!-- dim v20260516h -->
 <!--
   MIT License
 
@@ -3220,6 +3220,7 @@
         </div>
         <div class="prop-row prop-row-plain">
           <button id="createTestSceneBtn" class="ui-btn ui-btn-small">Test Scene</button>
+          <button id="clearSceneBtn" class="ui-btn ui-btn-small">Clear Scene</button>
         </div>
 
 
@@ -5304,6 +5305,23 @@
                     <div class="style-row">
                       <label class="ui-checkbox-label">Curved Surface</label>
                       <input type="checkbox" id="loftCurvedInput" class="ui-checkbox" />
+                    </div>
+                    <div class="style-row">
+                      <label class="ui-checkbox-label">Draw Points</label>
+                      <input type="checkbox" id="loftDrawPointsInput" class="ui-checkbox" />
+                      <input type="number" id="loftPointSizeInput" value="5.0" min="0" step="1.0" />
+                      <input type="text" id="loftPointColorHexInput" class="color-hex-input" maxlength="6"
+                        placeholder="0000FF" spellcheck="false" />
+                      <input type="color" id="loftPointColorInput" value="#0000ff" class="color-fill" />
+                    </div>
+                    <div class="xyz-row">
+                      <label for="loftPointShapeInput">Shape</label>
+                      <div class="xyz-inputs">
+                        <select id="loftPointShapeInput">
+                          <option value="circle">Circle</option>
+                          <option value="square">Square</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
 
@@ -10480,17 +10498,7 @@
     // height: out-of-plane offset accumulated over the path
     function generatePathCycloid(targetId, r, d, count, loop, height, face) {
       // Resolve the target path from scene
-      const findById = (objects, id) => {
-        for (const obj of objects) {
-          if (obj.id === id) return obj;
-          if (obj.isGroup && obj.children) {
-            const found = findById(obj.children, id);
-            if (found) return found;
-          }
-        }
-        return null;
-      };
-      const targetPath = findById(sceneObjects, targetId);
+      const targetPath = findObjectById(targetId);
       if (!targetPath || !targetPath.localVertices || targetPath.localVertices.length < 2) {
         return []; // No valid path
       }
@@ -11167,6 +11175,24 @@
     let dragStartWorldPosition = null;
     let dragStartPlaneHit = null;
     let gizmoScreenRotationAngle = 0; // Accumulated screen rotation in degrees for visual feedback
+
+    // --- Scene Graph Lookup (recursive) ---
+    // Recursively search sceneObjects (and all nested Group children) by ID.
+    // Used by loft, sweep, spline flow, and surface mapping to resolve
+    // cross-referenced paths that may be inside groups.
+    const findObjectById = (id) => {
+      const search = (objects) => {
+        for (const obj of objects) {
+          if (obj.id === id) return obj;
+          if (obj.isGroup && obj.children) {
+            const found = search(obj.children);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+      return search(sceneObjects);
+    };
 
     // --- Constants ---
     const FRAME_SIZE = 1000;
@@ -13429,7 +13455,7 @@
         if (isLoft) {
           const ls = surfacePath.loftSettings;
           if (!ls || !ls.enabled || !ls.targetId) return [];
-          const targetPath = sceneObjects.find(o => o.id === ls.targetId);
+          const targetPath = findObjectById(ls.targetId);
           if (!targetPath) return [];
 
           // Backward compat: migrate middleId → middleIds
@@ -13524,7 +13550,7 @@
 
           for (const mid of middleIds) {
             if (!mid) continue;
-            const mp = sceneObjects.find(o => o.id === mid);
+            const mp = findObjectById(mid);
             if (!mp || !(mp instanceof Path)) continue;
             const midClosed = mp.subPathData?.[0]?.closed ?? mp.loop ?? false;
             if (midClosed !== _loftIsClosed) continue;
@@ -13605,7 +13631,7 @@
           railPath = surfacePath._extrudeRail;
         } else {
           if (!ss || !ss.enabled || !ss.railId) return [];
-          railPath = sceneObjects.find(o => o.id === ss.railId);
+          railPath = findObjectById(ss.railId);
           if (!railPath) return [];
         }
 
@@ -17141,7 +17167,11 @@
           simpleSides: false,
           curvedSurface: false,
           autoSortMiddles: true,  // Auto-sort middles by spatial position
-          smoothMiddles: false    // Catmull-Rom spline through middles (no creases)
+          smoothMiddles: false,   // Catmull-Rom spline through middles (no creases)
+          drawPoints: false,      // Draw points at mesh intersections
+          pointSize: 5.0,
+          pointColor: '#0000ff',
+          pointShape: 'circle'
         };
 
 
@@ -17603,7 +17633,7 @@
 
           // --- Spline Flow Rendering ---
           if (splineFlowActive) {
-            const targetPath = sceneObjects.find(o => o.id === activeMapping.targetId);
+            const targetPath = findObjectById(activeMapping.targetId);
             if (targetPath) {
               // Compute effective camera position for silhouette detection.
               // For ortho/oblique, push eye far along view direction (parallel rays).
@@ -17759,7 +17789,7 @@
             const actualSurfacePathId = colonIdx >= 0 ? smRaw.slice(0, colonIdx) : smRaw;
             const selectedSurfaceType = colonIdx >= 0 ? smRaw.slice(colonIdx + 1) : null;
 
-            const surfacePath = sceneObjects.find(o => o.id === actualSurfacePathId);
+            const surfacePath = findObjectById(actualSurfacePathId);
             if (surfacePath && (surfacePath.sweepSettings?.enabled || surfacePath.revolveSettings?.enabled || surfacePath.extrudeSettings?.enabled || surfacePath.loftSettings?.enabled)) {
               const sm = activeMapping.surfaceMapping;
               // For standalone paths (no inherited group mapping), sourceMatrix is null.
@@ -20297,7 +20327,7 @@
         if (!ssOverride && !this.sweepSettings.enabled) return;
 
         const ss = ssOverride || this.sweepSettings;
-        const railPath = railOverride || sceneObjects.find(o => o.id === ss.railId);
+        const railPath = railOverride || findObjectById(ss.railId);
         if (!railPath) return;
 
         const cleanRender = ss.cleanRender || false;
@@ -21888,7 +21918,7 @@
         const ls = this.loftSettings;
         if (!ls.enabled) return;
 
-        const targetPath = sceneObjects.find(o => o.id === ls.targetId);
+        const targetPath = findObjectById(ls.targetId);
         if (!targetPath || !(targetPath instanceof Path)) return;
 
         // Closed/open type check
@@ -21915,7 +21945,7 @@
         const validMiddles = [];
         for (const mid of middleIds) {
           if (!mid) continue;
-          const mp = sceneObjects.find(o => o.id === mid);
+          const mp = findObjectById(mid);
           if (!mp || !(mp instanceof Path)) continue;
           const midClosed = mp.subPathData && mp.subPathData[0] ? mp.subPathData[0].closed : mp.loop;
           if (midClosed !== sourceIsClosed) continue; // type mismatch, skip
@@ -22395,6 +22425,40 @@
 
         drawCap(crossSections[0], true);
         drawCap(crossSections[crossSections.length - 1], false);
+
+        // --- 7. Draw Points at Grid Intersections ---
+        if (ls.drawPoints) {
+          const ptSize = ls.pointSize || 5.0;
+          const ptColor = ls.pointColor || '#0000ff';
+          const ptShape = ls.pointShape || 'circle';
+          const halfSize = ptSize / 2;
+
+          for (let i = 0; i <= segments; i++) {
+            const section = crossSections[i];
+            for (let j = 0; j < divsV; j++) {
+              const sc = toScreen(section[j]);
+              if (!sc) continue;
+
+              let el;
+              if (ptShape === 'square') {
+                el = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                el.setAttribute('x', sc.x - halfSize);
+                el.setAttribute('y', sc.y - halfSize);
+                el.setAttribute('width', ptSize);
+                el.setAttribute('height', ptSize);
+              } else {
+                el = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                el.setAttribute('cx', sc.x);
+                el.setAttribute('cy', sc.y);
+                el.setAttribute('r', halfSize);
+              }
+              el.setAttribute('fill', ptColor);
+              el.setAttribute('stroke', 'none');
+
+              faceList.push({ element: el, z: sc.z });
+            }
+          }
+        }
       }
 
       drawSideRibbons(mvpFront, mvpBack, faceList) {
@@ -26153,14 +26217,14 @@
         if (selectedObject && selectedObject.surfaceConstraint?.active) {
           selectedObject.surfaceConstraint.bankFactor = val;
           // Invalidate frame cache to recompute
-          const targetPath = sceneObjects.find(o => o.id === selectedObject.surfaceConstraint.targetId);
+          const targetPath = findObjectById(selectedObject.surfaceConstraint.targetId);
           if (targetPath && targetPath._frameData) targetPath._frameData = null;
           requestRender();
         } else if (selectedObjects.length > 0) {
           selectedObjects.forEach(obj => {
             if (obj.surfaceConstraint) {
               obj.surfaceConstraint.bankFactor = val;
-              const tp = sceneObjects.find(o => o.id === obj.surfaceConstraint.targetId);
+              const tp = findObjectById(obj.surfaceConstraint.targetId);
               if (tp && tp._frameData) tp._frameData = null;
             }
           });
@@ -26178,14 +26242,14 @@
         if (isNaN(val)) return;
         if (selectedObject && selectedObject.surfaceConstraint?.active) {
           selectedObject.surfaceConstraint.twist = val;
-          const targetPath = sceneObjects.find(o => o.id === selectedObject.surfaceConstraint.targetId);
+          const targetPath = findObjectById(selectedObject.surfaceConstraint.targetId);
           if (targetPath && targetPath._frameData) targetPath._frameData = null;
           requestRender();
         } else if (selectedObjects.length > 0) {
           selectedObjects.forEach(obj => {
             if (obj.surfaceConstraint) {
               obj.surfaceConstraint.twist = val;
-              const tp = sceneObjects.find(o => o.id === obj.surfaceConstraint.targetId);
+              const tp = findObjectById(obj.surfaceConstraint.targetId);
               if (tp && tp._frameData) tp._frameData = null;
             }
           });
@@ -27326,6 +27390,35 @@
           loftCurvedInput.checked = isPath ? (selectedObject.loftSettings?.curvedSurface || false) : false;
           loftCurvedInput.disabled = !isPath || !loftEnabled;
         }
+
+        // Draw Points
+        const loftDrawPointsInput = document.getElementById('loftDrawPointsInput');
+        const loftPointSizeInput = document.getElementById('loftPointSizeInput');
+        const loftPointColorInput = document.getElementById('loftPointColorInput');
+        const loftPointShapeInput = document.getElementById('loftPointShapeInput');
+        if (document.activeElement !== loftDrawPointsInput && loftDrawPointsInput) {
+          loftDrawPointsInput.checked = isPath && selectedObject.loftSettings?.drawPoints;
+          loftDrawPointsInput.disabled = !isPath || !loftEnabled;
+        }
+        const loftPointsEnabled = loftDrawPointsInput ? loftDrawPointsInput.checked : false;
+        if (document.activeElement !== loftPointSizeInput && loftPointSizeInput) {
+          loftPointSizeInput.value = isPath && selectedObject.loftSettings?.pointSize !== undefined ? selectedObject.loftSettings.pointSize : 5.0;
+          loftPointSizeInput.disabled = !isPath || !loftEnabled || !loftPointsEnabled;
+        }
+        if (document.activeElement !== loftPointColorInput && loftPointColorInput) {
+          loftPointColorInput.value = isPath && selectedObject.loftSettings?.pointColor ? selectedObject.loftSettings.pointColor : '#0000ff';
+          loftPointColorInput.disabled = !isPath || !loftEnabled || !loftPointsEnabled;
+        }
+        const loftPointColorHexInput = document.getElementById('loftPointColorHexInput');
+        if (loftPointColorHexInput) {
+          const lpColor = isPath && selectedObject.loftSettings?.pointColor ? selectedObject.loftSettings.pointColor : '#0000ff';
+          if (document.activeElement !== loftPointColorHexInput) loftPointColorHexInput.value = lpColor.slice(1).toUpperCase();
+          loftPointColorHexInput.disabled = !isPath || !loftEnabled || !loftPointsEnabled;
+        }
+        if (document.activeElement !== loftPointShapeInput && loftPointShapeInput) {
+          loftPointShapeInput.value = isPath && selectedObject.loftSettings?.pointShape ? selectedObject.loftSettings.pointShape : 'circle';
+          loftPointShapeInput.disabled = !isPath || !loftEnabled || !loftPointsEnabled;
+        }
       }
 
       // Algorithm (hide for Groups — Groups don't have path type)
@@ -28054,8 +28147,7 @@
 
           // Auto-detect target mode
           if (targetId) {
-            const target = sceneObjects.find(o => o.id === targetId) ||
-              (selectedObject.parent ? selectedObject.parent.children.find(o => o.id === targetId) : null);
+            const target = findObjectById(targetId);
             if (target) {
               if (target.revolveSettings && target.revolveSettings.enabled) {
                 selectedObject.surfaceConstraint.mappingType = 'revolve';
@@ -29335,7 +29427,7 @@
           if (pshInput) obj.sweepSettings.pointShape = pshInput.value;
           // Invalidate rail cache when settings change
           if (obj.sweepSettings.railId) {
-            const rail = sceneObjects.find(o => o.id === obj.sweepSettings.railId);
+            const rail = findObjectById(obj.sweepSettings.railId);
             if (rail) {
               rail._arcLengthData = null;
               rail._frameData = null;
@@ -29380,6 +29472,22 @@
           if (loftSimpleSides) obj.loftSettings.simpleSides = loftSimpleSides.checked;
           const loftCurved = document.getElementById('loftCurvedInput');
           if (loftCurved) obj.loftSettings.curvedSurface = loftCurved.checked;
+
+          // Draw Points settings
+          const loftDpInput = document.getElementById('loftDrawPointsInput');
+          const loftPsInput = document.getElementById('loftPointSizeInput');
+          const loftPcInput = document.getElementById('loftPointColorInput');
+          const loftPcHex = document.getElementById('loftPointColorHexInput');
+          const loftPshInput = document.getElementById('loftPointShapeInput');
+          if (loftDpInput) obj.loftSettings.drawPoints = loftDpInput.checked;
+          if (loftPsInput) obj.loftSettings.pointSize = parseFloat(loftPsInput.value) || 5.0;
+          if (loftPcHex && targetId === 'loftPointColorHexInput') {
+            const hex = loftPcHex.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
+            if (hex.length === 6) obj.loftSettings.pointColor = '#' + hex;
+          } else if (loftPcInput) {
+            obj.loftSettings.pointColor = loftPcInput.value;
+          }
+          if (loftPshInput) obj.loftSettings.pointShape = loftPshInput.value;
         }
 
         // Vertex Point Settings
@@ -29739,6 +29847,20 @@
     document.getElementById('loftDivisionsVInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('loftSimpleSidesInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('loftCurvedInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('loftDrawPointsInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('loftPointSizeInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('loftPointColorInput').addEventListener('input', function (e) {
+      document.getElementById('loftPointColorHexInput').value = this.value.slice(1).toUpperCase();
+      updateStyleFromInput(e);
+    });
+    document.getElementById('loftPointColorHexInput').addEventListener('input', function (e) {
+      const hex = this.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
+      if (hex.length === 6) {
+        document.getElementById('loftPointColorInput').value = '#' + hex;
+      }
+      updateStyleFromInput(e);
+    });
+    document.getElementById('loftPointShapeInput').addEventListener('change', updateStyleFromInput);
 
     // Face Camera Event Listeners
     const faceCamXInput = document.getElementById('faceCamXInput');
@@ -37242,6 +37364,21 @@
       if (testSceneBtn) {
         testSceneBtn.addEventListener('click', () => {
           loadTestSceneWithFallback();
+        });
+      }
+
+      const clearSceneBtn = document.getElementById('clearSceneBtn');
+      if (clearSceneBtn) {
+        clearSceneBtn.addEventListener('click', async () => {
+          const ok = await showAppConfirm('Clear Scene', 'Remove all objects and start with an empty scene?');
+          if (!ok) return;
+          pushUndoState();
+          importScene({
+            version: '1.0',
+            objects: [],
+            camera: { position: [10, 10, 10], target: [0, 0, 0], up: [0, 1, 0], fovDegrees: 32.2, name: 'Camera 1' },
+            workplane: { active: 0, list: [{ name: 'Workplane 1', mode: 'vertical', offset: 0, gridSize: 1, snapToGrid: false, lock: false, origin: [0, 0, 0], right: [1, 0, 0], normal: [0, 0, 1] }] }
+          });
         });
       }
 

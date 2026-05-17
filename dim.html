@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260517c -->
+<!-- dim v20260517d -->
 <!--
   MIT License
 
@@ -39,6 +39,22 @@
       min-width: 0;
       text-box: trim-both cap alphabetic;
       /* css reset end */
+    }
+
+    /* Form elements: undo text-box trimming so all input types share
+       the same height regardless of browser-internal rendering.
+       Explicit height forces pixel-identical sizing across input/select
+       (browsers add different internal chrome to each element type). */
+    input, select, textarea {
+      text-box: normal;
+      line-height: 1;
+    }
+    input[type="text"],
+    input[type="number"],
+    input[type="search"],
+    input[type="password"],
+    select {
+      height: 21px;
     }
 
     :root {
@@ -1202,6 +1218,8 @@
       font-weight: 500;
       font-variant-numeric: tabular-nums;
       font-family: var(--font-family-sans);
+      line-height: 1;
+      text-box: normal;
     }
 
     .ui-input:hover,
@@ -1220,6 +1238,144 @@
 
     input[type="number"].ui-input {
       text-align: right;
+    }
+
+    /* ─── Custom Number Spinner (v20260517c) ─── */
+    /* Hide native browser spinners globally */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type="number"] {
+      appearance: textfield;       /* standard — hides Firefox spinner */
+      -moz-appearance: textfield;  /* legacy Firefox fallback */
+    }
+
+    /* Spinner wrapper — transparent layout pass-through */
+    .num-spin-wrap {
+      position: relative;
+      display: inline-flex;
+    }
+    /* Input inside wrapper: enforce app's flat style (wrapper breaks
+       parent>input direct-child selectors, so we re-apply here) */
+    .num-spin-wrap > input[type="number"] {
+      padding-right: 12px; /* space for 8px spinner + 1.5px border inset + gap */
+      width: 100%;
+      border: none;
+      border-radius: 0;
+      outline: none;
+      box-sizing: border-box;
+      background: var(--bg-input);
+      color: var(--text-main);
+      font-size: var(--font-size-field);
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      font-family: var(--font-family-sans);
+      padding-top: var(--row-padding-v);
+      padding-bottom: var(--row-padding-v);
+      padding-left: 6px;
+      text-align: right;
+      min-width: 0;
+      line-height: 1;
+      text-box: normal;
+    }
+    .num-spin-wrap > input[type="number"]:hover {
+      background: rgba(255, 255, 255, 0.95);
+    }
+    .num-spin-wrap > input[type="number"]:focus {
+      background: rgba(255, 255, 255, 1);
+      position: relative;
+      z-index: 1;
+      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+    }
+
+    /* Spinner button container — inset inside focus border */
+    .num-spin-btns {
+      position: absolute;
+      right: 1.5px;
+      top: 1.5px;
+      bottom: 1.5px;
+      width: 8px;
+      display: flex;
+      flex-direction: column;
+      z-index: 3;
+      pointer-events: auto;
+      opacity: 0;
+      transition: opacity 0.12s ease;
+    }
+    .num-spin-wrap:hover > .num-spin-btns,
+    .num-spin-wrap:focus-within > .num-spin-btns {
+      opacity: 1;
+    }
+
+    /* Individual up/down buttons */
+    .num-spin-btns > button {
+      flex: 1;
+      border: none;
+      border-radius: 0;
+      padding: 0;
+      margin: 0;
+      cursor: pointer;
+      background: #dcdcdc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    .num-spin-btns > button:hover {
+      background: #c8c8c8;
+    }
+    .num-spin-btns > button:active {
+      background: #b0b0b0;
+    }
+    .num-spin-btns > .num-spin-up {
+      border-bottom: 0.5px solid #fff;
+    }
+    .num-spin-btns > button > svg {
+      width: 100%;
+      height: 100%;
+      fill: none;
+      stroke: #fff;
+      stroke-width: 0.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* Layout integration: xyz-inputs children */
+    .xyz-row > .xyz-inputs > .num-spin-wrap {
+      flex: 1;
+      min-width: 0;
+    }
+    /* xyz-field children */
+    .xyz-row > .xyz-inputs > .xyz-field > .num-spin-wrap {
+      flex: 1;
+      min-width: 0;
+    }
+    /* style-row children */
+    .style-row > .num-spin-wrap,
+    .style-row .num-spin-wrap {
+      width: 50px;
+      flex-shrink: 0;
+    }
+    .style-row > label + .num-spin-wrap {
+      margin-left: auto;
+    }
+    /* quickStyleBar children */
+    #quickStyleBar .num-spin-wrap {
+      width: 48px;
+      height: 24px;
+    }
+    #quickStyleBar .num-spin-wrap > input[type="number"] {
+      text-align: center;
+      padding: 0 12px 0 2px;
+    }
+    /* feature-params / mapping panel single inputs */
+    .feature-params .xyz-inputs > .num-spin-wrap {
+      flex: 1;
+      min-width: 0;
     }
 
     .ui-select {
@@ -1325,14 +1481,14 @@
       appearance: none;
       width: 56px;
       height: 26px;
-      border-radius: var(--radius-sm);
+      border-radius: 0;
       background-color: var(--row-bg);
       position: relative;
       cursor: pointer;
       margin: 0;
       vertical-align: middle;
       outline: none;
-      border: 1px solid var(--border-light);
+      border: 1px solid black;
       font-family: var(--font-family-sans);
       flex-shrink: 0;
     }
@@ -1341,10 +1497,10 @@
     .ui-label-switch::before {
       content: 'Off';
       position: absolute;
-      left: 2px;
-      top: 2px;
-      width: calc(50% - 2px);
-      height: calc(100% - 4px);
+      left: 1px;
+      top: 1px;
+      width: calc(50% - 1px);
+      height: calc(100% - 2px);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1352,7 +1508,7 @@
       font-weight: 600;
       color: var(--text-main);
       background-color: white;
-      border-radius: 3px;
+      border-radius: 0;
       transition: background-color 0.2s cubic-bezier(0.25, 1, 0.5, 1),
         color 0.2s cubic-bezier(0.25, 1, 0.5, 1),
         box-shadow 0.2s cubic-bezier(0.25, 1, 0.5, 1);
@@ -1363,10 +1519,10 @@
     .ui-label-switch::after {
       content: 'On';
       position: absolute;
-      right: 2px;
-      top: 2px;
-      width: calc(50% - 2px);
-      height: calc(100% - 4px);
+      right: 1px;
+      top: 1px;
+      width: calc(50% - 1px);
+      height: calc(100% - 2px);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1374,7 +1530,7 @@
       font-weight: 500;
       color: var(--text-muted);
       background-color: transparent;
-      border-radius: 3px;
+      border-radius: 0;
       transition: background-color 0.2s cubic-bezier(0.25, 1, 0.5, 1),
         color 0.2s cubic-bezier(0.25, 1, 0.5, 1),
         box-shadow 0.2s cubic-bezier(0.25, 1, 0.5, 1);
@@ -1467,7 +1623,6 @@
       inset: 0;
       z-index: 100000;
       background: rgba(0, 0, 0, 0.35);
-      backdrop-filter: blur(2px);
       justify-content: center;
       align-items: center;
     }
@@ -1764,7 +1919,7 @@
     }
 
     #quickStyleBar input[type="number"] {
-      width: 36px;
+      width: 48px;
       height: 24px;
       font-size: var(--font-size-field);
       text-align: center;
@@ -1790,7 +1945,7 @@
     }
 
     #quickStyleBar .color-hex-input {
-      width: 56px;
+      width: 64px;
       height: 24px;
       border: none;
       border-radius: 0;
@@ -1897,6 +2052,7 @@
       background: var(--bg-input);
       padding: var(--row-padding-v) 6px;
       line-height: 1;
+      text-box: normal;
       box-sizing: border-box;
       text-align: right;
       font-size: var(--font-size-field);
@@ -7741,7 +7897,7 @@
           const _snfHexVal = rgbToHex(_snfStrokeSource);
           if (_snfStrokeColorEl) _snfStrokeColorEl.value = _snfHexVal;
           if (_snfStrokeHexEl) _snfStrokeHexEl.value = _snfHexVal.replace('#', '').toUpperCase();
-          if (_snfStrokeWidthEl) _snfStrokeWidthEl.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(2);
+          if (_snfStrokeWidthEl) _snfStrokeWidthEl.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(1);
           // Turn off fill in currentStyle
           currentStyle.fill = 'none';
         }
@@ -7774,7 +7930,7 @@
           const _cycHexVal = rgbToHex(_cycStrokeSource);
           if (_cycStrokeColorEl) _cycStrokeColorEl.value = _cycHexVal;
           if (_cycStrokeHexEl) _cycStrokeHexEl.value = _cycHexVal.replace('#', '').toUpperCase();
-          if (_cycStrokeWidthEl) _cycStrokeWidthEl.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(2);
+          if (_cycStrokeWidthEl) _cycStrokeWidthEl.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(1);
           // Turn off fill in currentStyle
           currentStyle.fill = 'none';
         }
@@ -7805,7 +7961,7 @@
           const _lisHexVal = rgbToHex(_lisStrokeSource);
           if (_lisStrokeColorEl) _lisStrokeColorEl.value = _lisHexVal;
           if (_lisStrokeHexEl) _lisStrokeHexEl.value = _lisHexVal.replace('#', '').toUpperCase();
-          if (_lisStrokeWidthEl) _lisStrokeWidthEl.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(2);
+          if (_lisStrokeWidthEl) _lisStrokeWidthEl.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(1);
           // Turn off fill in currentStyle
           currentStyle.fill = 'none';
         }
@@ -7825,7 +7981,7 @@
           const _ddlHexVal = rgbToHex(_ddlStrokeSource);
           if (_ddlStrokeColorEl) _ddlStrokeColorEl.value = _ddlHexVal;
           if (_ddlStrokeHexEl) _ddlStrokeHexEl.value = _ddlHexVal.replace('#', '').toUpperCase();
-          if (_ddlStrokeWidthEl) _ddlStrokeWidthEl.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(2);
+          if (_ddlStrokeWidthEl) _ddlStrokeWidthEl.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(1);
           // Turn off fill in currentStyle — doodles default to stroke-only
           currentStyle.fill = 'none';
         }
@@ -7922,7 +8078,7 @@
             _pxStrokeColor.value = sHex;
             if (_pxStrokeColorHex) _pxStrokeColorHex.value = sHex.slice(1).toUpperCase();
           }
-          if (_pxStrokeWidth) _pxStrokeWidth.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(2);
+          if (_pxStrokeWidth) _pxStrokeWidth.value = toDisplayStroke(currentStyle['stroke-width'] || 1).toFixed(1);
           // If a group is selected, use it as the target
           if (selectedObject && selectedObject.isGroup) {
             activePixelGroup = selectedObject;
@@ -10098,7 +10254,7 @@
         const hexVal = rgbToHex(strokeCol);
         document.getElementById('snfStrokeColor').value = hexVal;
         document.getElementById('snfStrokeColorHex').value = hexVal.replace('#', '').toUpperCase();
-        document.getElementById('snfStrokeWidth').value = toDisplayStroke(strokeW).toFixed(2);
+        document.getElementById('snfStrokeWidth').value = toDisplayStroke(strokeW).toFixed(1);
       } else if (pd.type === 'cycloid') {
         document.getElementById('cycRail').value = pd.rail || 'circle';
         document.getElementById('cycMode').value = pd.mode || 'hypo';
@@ -10132,7 +10288,7 @@
         const hexVal = rgbToHex(strokeCol);
         document.getElementById('cycStrokeColor').value = hexVal;
         document.getElementById('cycStrokeColorHex').value = hexVal.replace('#', '').toUpperCase();
-        document.getElementById('cycStrokeWidth').value = toDisplayStroke(strokeW).toFixed(2);
+        document.getElementById('cycStrokeWidth').value = toDisplayStroke(strokeW).toFixed(1);
       } else if (pd.type === 'lissajous') {
         document.getElementById('lisFreqA').value = pd.freqA || 3;
         document.getElementById('lisFreqB').value = pd.freqB || 2;
@@ -10155,7 +10311,7 @@
         const hexVal = rgbToHex(strokeCol);
         document.getElementById('lisStrokeColor').value = hexVal;
         document.getElementById('lisStrokeColorHex').value = hexVal.replace('#', '').toUpperCase();
-        document.getElementById('lisStrokeWidth').value = toDisplayStroke(strokeW).toFixed(2);
+        document.getElementById('lisStrokeWidth').value = toDisplayStroke(strokeW).toFixed(1);
       }
     };
 
@@ -26774,7 +26930,7 @@
       if (document.activeElement !== strokeEnabledInput) strokeEnabledInput.checked = hasStroke;
 
       const sw = parseFloat(styleSource['stroke-width']) || 1;
-      if (document.activeElement !== strokeWidthInput) strokeWidthInput.value = toDisplayStroke(sw).toFixed(2);
+      if (document.activeElement !== strokeWidthInput) strokeWidthInput.value = toDisplayStroke(sw).toFixed(1);
       strokeWidthInput.disabled = !hasStroke;
 
       // Use saved stroke if current is none, otherwise use current
@@ -27997,7 +28153,7 @@
       const strokeHex = rgbToHex(strokeToShow);
       if (document.activeElement !== qsStrokeColor) qsStrokeColor.value = strokeHex;
       if (document.activeElement !== qsStrokeHex) qsStrokeHex.value = strokeHex.slice(1).toUpperCase();
-      if (document.activeElement !== qsStrokeWidth) qsStrokeWidth.value = toDisplayStroke(parseFloat(style['stroke-width']) || 1).toFixed(2);
+      if (document.activeElement !== qsStrokeWidth) qsStrokeWidth.value = toDisplayStroke(parseFloat(style['stroke-width']) || 1).toFixed(1);
       qsStrokeColor.disabled = !hasStroke;
       qsStrokeHex.disabled = !hasStroke;
       qsStrokeWidth.disabled = !hasStroke;
@@ -37076,6 +37232,79 @@
       };
       initObjTabs();
 
+      // --- Custom Number Input Spinners (v20260517c) ---
+      const initCustomSpinners = (root = document) => {
+        const inputs = root.querySelectorAll('input[type="number"]');
+        inputs.forEach(input => {
+          // Skip if already wrapped or is a slider-fill value
+          if (input.closest('.num-spin-wrap') || input.classList.contains('slider-fill-value')) return;
+
+          // Create wrapper
+          const wrap = document.createElement('div');
+          wrap.className = 'num-spin-wrap';
+          input.parentNode.insertBefore(wrap, input);
+          wrap.appendChild(input);
+
+          // Create spinner button container
+          const btns = document.createElement('div');
+          btns.className = 'num-spin-btns';
+
+          const upBtn = document.createElement('button');
+          upBtn.className = 'num-spin-up';
+          upBtn.tabIndex = -1;
+          upBtn.type = 'button';
+          upBtn.innerHTML = '<svg viewBox="0 0 8 8"><polyline points="6.4 5.6 4 2.4 1.6 5.6"/></svg>';
+
+          const downBtn = document.createElement('button');
+          downBtn.className = 'num-spin-down';
+          downBtn.tabIndex = -1;
+          downBtn.type = 'button';
+          downBtn.innerHTML = '<svg viewBox="0 0 8 8"><polyline points="1.6 2.4 4 5.6 6.4 2.4"/></svg>';
+
+          btns.appendChild(upBtn);
+          btns.appendChild(downBtn);
+          wrap.appendChild(btns);
+
+          // Step function: increment or decrement
+          const doStep = (dir) => {
+            const s = parseFloat(input.step) || 1;
+            const min = input.min !== '' ? parseFloat(input.min) : -Infinity;
+            const max = input.max !== '' ? parseFloat(input.max) : Infinity;
+            let val = parseFloat(input.value) || 0;
+            val = Math.round((val + dir * s) * 1e9) / 1e9; // avoid float precision noise
+            val = Math.max(min, Math.min(max, val));
+            input.value = val;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          };
+
+          // Mouse-down with repeat-on-hold
+          const bindBtn = (btn, dir) => {
+            let holdTimer = null;
+            let holdInterval = null;
+            btn.addEventListener('mousedown', (e) => {
+              e.preventDefault();
+              doStep(dir);
+              // After 400ms delay, start repeating every 80ms
+              holdTimer = setTimeout(() => {
+                holdInterval = setInterval(() => doStep(dir), 80);
+              }, 400);
+            });
+            const stopHold = () => {
+              clearTimeout(holdTimer);
+              clearInterval(holdInterval);
+              holdTimer = null;
+              holdInterval = null;
+            };
+            btn.addEventListener('mouseup', stopHold);
+            btn.addEventListener('mouseleave', stopHold);
+          };
+          bindBtn(upBtn, 1);
+          bindBtn(downBtn, -1);
+        });
+      };
+      initCustomSpinners();
+
       // --- App Settings (localStorage) ---
       const SETTINGS_KEY = 'dim-settings';
 
@@ -37210,7 +37439,7 @@
           updateSpatialInputSteps(toDisplay(KEYBOARD_NUDGE_AMOUNT));
           // Refresh stroke width displays (tool-specific + quick-style bar)
           const swInternal = parseFloat(currentStyle['stroke-width']) || 1;
-          const swConverted = toDisplayStroke(swInternal).toFixed(2);
+          const swConverted = toDisplayStroke(swInternal).toFixed(1);
           ['snfStrokeWidth', 'cycStrokeWidth', 'lisStrokeWidth',
             'doodleStrokeWidth', 'pixelArtStrokeWidth'].forEach(id => {
               const el = document.getElementById(id);

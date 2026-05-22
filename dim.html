@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260521a -->
+<!-- dim v20260522a -->
 <!--
   MIT License
 
@@ -1278,7 +1278,7 @@
       font-family: var(--font-family-sans);
       padding-top: var(--row-padding-v);
       padding-bottom: var(--row-padding-v);
-      padding-left: 6px;
+      padding-left: 12px; /* space for 8px scrub handle + 1.5px border inset + gap */
       text-align: right;
       min-width: 0;
       line-height: 1;
@@ -1380,6 +1380,55 @@
     .feature-params .xyz-inputs > .num-spin-wrap {
       flex: 1;
       min-width: 0;
+    }
+
+    /* ─── Drag Scrub Handle (v20260522) ─── */
+    /* Left-side drag-to-adjust button */
+    .num-spin-scrub {
+      position: absolute;
+      left: 1.5px;
+      top: 1.5px;
+      bottom: 1.5px;
+      width: 8px;
+      z-index: 3;
+      pointer-events: auto;
+      opacity: 0;
+      transition: opacity 0.12s ease;
+      cursor: ew-resize;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #dcdcdc;
+      border: none;
+      padding: 0;
+      margin: 0;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    .num-spin-wrap:hover > .num-spin-scrub,
+    .num-spin-wrap:focus-within > .num-spin-scrub {
+      opacity: 1;
+    }
+    .num-spin-scrub:hover {
+      background: #c8c8c8;
+    }
+    .num-spin-scrub:active,
+    .num-spin-scrub.scrubbing {
+      background: #b0b0b0;
+    }
+    .num-spin-scrub > svg {
+      width: 100%;
+      height: 100%;
+      fill: none;
+      stroke: #fff;
+      stroke-width: 0.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    /* Hide scrub handle in compact quickStyleBar */
+    #quickStyleBar .num-spin-scrub {
+      display: none;
     }
 
     .ui-select {
@@ -37305,6 +37354,113 @@
           };
           bindBtn(upBtn, 1);
           bindBtn(downBtn, -1);
+
+          // --- Drag Scrub Handle (v20260522) ---
+          // Skip compact quickStyleBar inputs
+          if (!input.closest('#quickStyleBar')) {
+            const scrub = document.createElement('button');
+            scrub.className = 'num-spin-scrub';
+            scrub.tabIndex = -1;
+            scrub.type = 'button';
+            scrub.setAttribute('aria-label', 'Drag to adjust value');
+            scrub.innerHTML = '<svg viewBox="0 0 8 16"><polyline points="5.2 9.2 6.8 8 5.2 6.8"/><polyline points="2.8 6.8 1.2 8 2.8 9.2"/><line x1="6.8" y1="8" x2="1.2" y2="8"/></svg>';
+            wrap.appendChild(scrub);
+
+            // Horizontal/vertical drag with auto-axis detection
+            let scrubDragging = false;
+            let scrubStartVal = 0;
+            let scrubAccum = 0;
+            let scrubLastX = 0;
+            let scrubLastY = 0;
+            let scrubAxis = null;      // null = undecided, 'h' = horizontal, 'v' = vertical
+            let scrubOriginX = 0;      // mousedown position for axis detection
+            let scrubOriginY = 0;
+            const SCRUB_AXIS_THRESHOLD = 3; // px before locking axis
+
+            const onScrubMove = (e) => {
+              if (!scrubDragging) return;
+
+              // Axis detection phase: accumulate movement until threshold
+              if (!scrubAxis) {
+                const totalDx = Math.abs(e.clientX - scrubOriginX);
+                const totalDy = Math.abs(e.clientY - scrubOriginY);
+                if (totalDx < SCRUB_AXIS_THRESHOLD && totalDy < SCRUB_AXIS_THRESHOLD) return;
+                scrubAxis = totalDx >= totalDy ? 'h' : 'v';
+                document.documentElement.style.cursor = scrubAxis === 'h' ? 'ew-resize' : 'ns-resize';
+                // Reset last position to current so first delta after lock is zero
+                scrubLastX = e.clientX;
+                scrubLastY = e.clientY;
+                return;
+              }
+
+              // Locked axis: compute delta
+              let delta;
+              if (scrubAxis === 'h') {
+                delta = e.clientX - scrubLastX;
+                scrubLastX = e.clientX;
+              } else {
+                delta = -(e.clientY - scrubLastY); // up = increase
+                scrubLastY = e.clientY;
+              }
+
+              const step = parseFloat(input.step) || 1;
+              const sensitivity = step / 4; // 4px per step → 40px = 10 steps
+
+              let mult = 1;
+              if (e.shiftKey) mult = 10;
+              else if (e.altKey) mult = 0.1;
+
+              scrubAccum += delta * sensitivity * mult;
+
+              const min = input.min !== '' ? parseFloat(input.min) : -Infinity;
+              const max = input.max !== '' ? parseFloat(input.max) : Infinity;
+              let newVal = scrubStartVal + scrubAccum;
+              newVal = Math.round(newVal * 1e9) / 1e9;
+              newVal = Math.max(min, Math.min(max, newVal));
+
+              input.value = newVal;
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+            };
+
+            const onScrubUp = () => {
+              if (!scrubDragging) return;
+              scrubDragging = false;
+              scrubAxis = null;
+              scrub.classList.remove('scrubbing');
+              document.documentElement.style.cursor = '';
+              document.removeEventListener('mousemove', onScrubMove);
+              document.removeEventListener('mouseup', onScrubUp);
+              document.removeEventListener('keydown', onScrubKey);
+              document.body.style.userSelect = '';
+            };
+
+            const onScrubKey = (e) => {
+              if (e.key === 'Escape' && scrubDragging) {
+                input.value = scrubStartVal;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                onScrubUp();
+              }
+            };
+
+            scrub.addEventListener('mousedown', (e) => {
+              e.preventDefault();
+              scrubDragging = true;
+              scrubAxis = null;
+              scrubStartVal = parseFloat(input.value) || 0;
+              scrubAccum = 0;
+              scrubOriginX = e.clientX;
+              scrubOriginY = e.clientY;
+              scrubLastX = e.clientX;
+              scrubLastY = e.clientY;
+              scrub.classList.add('scrubbing');
+              document.body.style.userSelect = 'none';
+              document.addEventListener('mousemove', onScrubMove);
+              document.addEventListener('mouseup', onScrubUp);
+              document.addEventListener('keydown', onScrubKey);
+            });
+          }
         });
       };
       initCustomSpinners();

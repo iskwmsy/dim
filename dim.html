@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260522a -->
+<!-- dim v20260607a -->
 <!--
   MIT License
 
@@ -4480,6 +4480,22 @@
                 <input type="number" id="lisHeight" value="0" step="0.1" />
               </div>
             </div>
+            <div class="prop-row prop-inline">
+              <label for="lisLinearHeight">Linear Height</label>
+              <input type="checkbox" id="lisLinearHeight" class="ui-checkbox" />
+            </div>
+            <div class="xyz-row">
+              <label for="lisFreqC">Freq C</label>
+              <div class="xyz-inputs">
+                <input type="number" id="lisFreqC" value="1" step="0.1" min="0.1" max="50" />
+              </div>
+            </div>
+            <div class="xyz-row">
+              <label for="lisPhaseC">Phase C</label>
+              <div class="xyz-inputs">
+                <input type="number" id="lisPhaseC" value="0" step="0.1" />
+              </div>
+            </div>
             <div class="xyz-row">
               <label for="lisPreset">Preset</label>
               <div class="xyz-inputs">
@@ -8003,6 +8019,9 @@
           document.getElementById('lisCount').value = 500;
           document.getElementById('lisLoop').value = 1;
           document.getElementById('lisHeight').value = 0;
+          document.getElementById('lisLinearHeight').checked = false;
+          document.getElementById('lisFreqC').value = 1;
+          document.getElementById('lisPhaseC').value = 0;
           const presetEl = document.getElementById('lisPreset');
           if (presetEl) presetEl.value = 'classic';
           // Sync stroke from currentStyle
@@ -9980,6 +9999,9 @@
         base.height = fromDisplay(parseFloat(document.getElementById('lisHeight').value) || 0);
         base.algorithm = document.getElementById('lisAlgorithm').value || 'linear';
         base.closePath = document.getElementById('lisClosePath').checked;
+        base.linearHeight = document.getElementById('lisLinearHeight').checked;
+        base.freqC = parseFloat(document.getElementById('lisFreqC').value) || 1;
+        base.phaseC = parseFloat(document.getElementById('lisPhaseC').value) || 0;
       }
       return base;
     };
@@ -10353,6 +10375,11 @@
         document.getElementById('lisHeight').value = toDisplay(pd.height || 0).toFixed(2);
         document.getElementById('lisAlgorithm').value = pd.algorithm || 'linear';
         document.getElementById('lisClosePath').checked = pd.closePath || false;
+        // Backward compat: old autoHeight:true → linearHeight:false (sinusoidal, now default)
+        const isLinear = pd.linearHeight != null ? pd.linearHeight : (pd.autoHeight ? false : (pd.height ? true : false));
+        document.getElementById('lisLinearHeight').checked = isLinear;
+        document.getElementById('lisFreqC').value = pd.freqC != null ? pd.freqC : 1;
+        document.getElementById('lisPhaseC').value = pd.phaseC != null ? pd.phaseC : 0;
 
         // Center at 0,0 for re-editing
         document.getElementById('polyCenterX').value = '0.00';
@@ -11048,6 +11075,9 @@
       const lisHeight = fromDisplay(parseFloat(document.getElementById('lisHeight').value) || 0);
       const algo = document.getElementById('lisAlgorithm').value || 'linear';
       const close = document.getElementById('lisClosePath').checked;
+      const linearHeight = document.getElementById('lisLinearHeight').checked;
+      let freqC = parseFloat(document.getElementById('lisFreqC').value) || 1;
+      const phaseC = parseFloat(document.getElementById('lisPhaseC').value) || 0;
 
       const uVal = fromDisplay(parseFloat(document.getElementById('polyCenterX').value) || 0);
       const vVal = fromDisplay(parseFloat(document.getElementById('polyCenterY').value) || 0);
@@ -11057,7 +11087,7 @@
       const planeOrigin = workingPlane.point;
       const center = vectorAdd(planeOrigin, vectorAdd(vectorScale(basis.u, uVal), vectorScale(basis.v, -vVal)));
 
-      const localOffsets = generateLissajousVertices(center, freqA, freqB, delta, ampA, ampB, count, basis, loop, lisHeight, workingPlane.normal);
+      const localOffsets = generateLissajousVertices(center, freqA, freqB, delta, ampA, ampB, count, basis, loop, lisHeight, workingPlane.normal, linearHeight, freqC, phaseC);
 
       if (!pendingPolygon._isReEditing) {
         pendingPolygon.position = center;
@@ -11083,7 +11113,7 @@
     };
 
     // Bind lissajous settings inputs for live update
-    ['lisFreqA', 'lisFreqB', 'lisDelta', 'lisAmpA', 'lisAmpB', 'lisCount', 'lisLoop', 'lisHeight', 'lisAlgorithm', 'lisClosePath', 'lisStrokeWidth', 'lisStrokeColor', 'lisStrokeColorHex'].forEach(id => {
+    ['lisFreqA', 'lisFreqB', 'lisDelta', 'lisAmpA', 'lisAmpB', 'lisCount', 'lisLoop', 'lisHeight', 'lisLinearHeight', 'lisFreqC', 'lisPhaseC', 'lisAlgorithm', 'lisClosePath', 'lisStrokeWidth', 'lisStrokeColor', 'lisStrokeColorHex'].forEach(id => {
       const el = document.getElementById(id);
       if (el) {
         el.addEventListener('input', updateLissajousGeometry);
@@ -11144,20 +11174,29 @@
     });
 
     // ==================== LISSAJOUS TOOL ====================
-    function generateLissajousVertices(centerWorld, freqA, freqB, delta, ampA, ampB, count, basis, loop, height, normal) {
+    function generateLissajousVertices(centerWorld, freqA, freqB, delta, ampA, ampB, count, basis, loop, height, normal, linearHeight, freqC, phaseC) {
       const localOffsets = [];
       loop = loop || 1;
       height = height || 0;
+      linearHeight = linearHeight || false;
+      freqC = freqC || 1;
+      phaseC = phaseC || 0;
       const totalT = 2 * Math.PI * loop;
       const totalVerts = count * loop;
-      const stepHeight = (height !== 0 && normal) ? height / totalVerts : 0;
+      // Linear ramp step (used when linearHeight is checked)
+      const stepHeight = (linearHeight && height !== 0 && normal) ? height / totalVerts : 0;
 
       for (let i = 0; i <= totalVerts; i++) {
         const t = (i / totalVerts) * totalT;
         const x = ampA * Math.sin(freqA * t + delta);
         const y = ampB * Math.sin(freqB * t);
         let offset = vectorAdd(vectorScale(basis.u, x), vectorScale(basis.v, -y));
-        if (stepHeight !== 0) {
+        if (!linearHeight && height !== 0 && normal) {
+          // Sinusoidal Z — true 3D Lissajous (default)
+          const z = height * Math.sin(freqC * t + phaseC);
+          offset = vectorAdd(offset, vectorScale(normal, z));
+        } else if (stepHeight !== 0) {
+          // Linear Z ramp
           offset = vectorAdd(offset, vectorScale(normal, stepHeight * i));
         }
         localOffsets.push(offset);
@@ -11167,13 +11206,13 @@
 
     // Lissajous Preset dropdown
     const lissajousPresets = {
-      classic: { freqA: 3, freqB: 2, delta: Math.PI / 2, ampA: 1, ampB: 1, count: 500, loop: 1, height: 0 },
-      bowtie: { freqA: 1, freqB: 2, delta: Math.PI / 2, ampA: 1, ampB: 1, count: 500, loop: 1, height: 0 },
-      pentagonal: { freqA: 5, freqB: 4, delta: Math.PI / 2, ampA: 1, ampB: 1, count: 500, loop: 1, height: 0 },
-      star: { freqA: 3, freqB: 4, delta: Math.PI / 2, ampA: 1, ampB: 1, count: 500, loop: 1, height: 0 },
-      circle: { freqA: 1, freqB: 1, delta: Math.PI / 2, ampA: 1, ampB: 1, count: 500, loop: 1, height: 0 },
-      delta30: { freqA: 3, freqB: 2, delta: Math.PI / 6, ampA: 1, ampB: 1, count: 500, loop: 1, height: 0 },
-      delta45: { freqA: 3, freqB: 2, delta: Math.PI / 4, ampA: 1, ampB: 1, count: 500, loop: 1, height: 0 },
+      classic: { freqA: 3, freqB: 2, delta: Math.PI / 2, ampA: 1, ampB: 1, count: 500, loop: 1, height: 0, linearHeight: false, freqC: 1, phaseC: 0 },
+      bowtie: { freqA: 1, freqB: 2, delta: Math.PI / 2, ampA: 1, ampB: 1, count: 500, loop: 1, height: 0, linearHeight: false, freqC: 1, phaseC: 0 },
+      pentagonal: { freqA: 5, freqB: 4, delta: Math.PI / 2, ampA: 1, ampB: 1, count: 500, loop: 1, height: 0, linearHeight: false, freqC: 1, phaseC: 0 },
+      star: { freqA: 3, freqB: 4, delta: Math.PI / 2, ampA: 1, ampB: 1, count: 500, loop: 1, height: 0, linearHeight: false, freqC: 1, phaseC: 0 },
+      circle: { freqA: 1, freqB: 1, delta: Math.PI / 2, ampA: 1, ampB: 1, count: 500, loop: 1, height: 0, linearHeight: false, freqC: 1, phaseC: 0 },
+      delta30: { freqA: 3, freqB: 2, delta: Math.PI / 6, ampA: 1, ampB: 1, count: 500, loop: 1, height: 0, linearHeight: false, freqC: 1, phaseC: 0 },
+      delta45: { freqA: 3, freqB: 2, delta: Math.PI / 4, ampA: 1, ampB: 1, count: 500, loop: 1, height: 0, linearHeight: false, freqC: 1, phaseC: 0 },
     };
     const lisPresetEl = document.getElementById('lisPreset');
     if (lisPresetEl) {
@@ -11188,6 +11227,9 @@
           document.getElementById('lisCount').value = preset.count;
           document.getElementById('lisLoop').value = preset.loop;
           document.getElementById('lisHeight').value = preset.height;
+          document.getElementById('lisLinearHeight').checked = preset.linearHeight || false;
+          document.getElementById('lisFreqC').value = preset.freqC != null ? preset.freqC : 1;
+          document.getElementById('lisPhaseC').value = preset.phaseC != null ? preset.phaseC.toFixed(3) : 0;
           updateLissajousGeometry();
         }
       });

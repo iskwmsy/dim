@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260611a -->
+<!-- dim v20260612d -->
 <!--
   MIT License
 
@@ -4954,8 +4954,8 @@
 
                   <div class="prop-row prop-inline slider-fill" id="fillOpacityRow" style="--fill: 100%">
                     <label for="fillOpacityInput">Opacity</label>
-                    <input type="range" id="fillOpacityInput" min="0" max="1" step="0.1" />
-                    <input type="number" id="fillOpacityValue" class="slider-fill-value" min="0" max="1" step="0.1"
+                    <input type="range" id="fillOpacityInput" min="0" max="1" step="0.01" />
+                    <input type="number" id="fillOpacityValue" class="slider-fill-value" min="0" max="1" step="0.01"
                       value="1.0" />
                   </div>
 
@@ -4965,6 +4965,30 @@
                       <select id="fillRuleInput">
                         <option value="evenodd">Even-Odd</option>
                         <option value="nonzero">Non-Zero</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="xyz-row" id="blendModeRow">
+                    <label for="blendModeInput">Blend</label>
+                    <div class="xyz-inputs">
+                      <select id="blendModeInput">
+                        <option value="normal">Normal</option>
+                        <option value="multiply">Multiply</option>
+                        <option value="screen">Screen</option>
+                        <option value="overlay">Overlay</option>
+                        <option value="darken">Darken</option>
+                        <option value="lighten">Lighten</option>
+                        <option value="color-dodge">Color Dodge</option>
+                        <option value="color-burn">Color Burn</option>
+                        <option value="hard-light">Hard Light</option>
+                        <option value="soft-light">Soft Light</option>
+                        <option value="difference">Difference</option>
+                        <option value="exclusion">Exclusion</option>
+                        <option value="hue">Hue</option>
+                        <option value="saturation">Saturation</option>
+                        <option value="color">Color</option>
+                        <option value="luminosity">Luminosity</option>
                       </select>
                     </div>
                   </div>
@@ -5019,8 +5043,8 @@
 
                   <div class="prop-row prop-inline slider-fill" id="strokeOpacityRow" style="--fill: 100%">
                     <label for="strokeOpacityInput">Opacity</label>
-                    <input type="range" id="strokeOpacityInput" min="0" max="1" step="0.1" />
-                    <input type="number" id="strokeOpacityValue" class="slider-fill-value" min="0" max="1" step="0.1"
+                    <input type="range" id="strokeOpacityInput" min="0" max="1" step="0.01" />
+                    <input type="number" id="strokeOpacityValue" class="slider-fill-value" min="0" max="1" step="0.01"
                       value="1.0" />
                   </div>
 
@@ -10008,7 +10032,8 @@
 
     // --- App Modal (custom confirm dialog) ---
     // Returns a Promise<boolean>. Usage: const ok = await showAppConfirm(title, msg);
-    const showAppConfirm = (title, message) => {
+    // Optional opts: { okLabel: 'OK', cancelLabel: 'Cancel' }
+    const showAppConfirm = (title, message, opts) => {
       return new Promise((resolve) => {
         const overlay = document.getElementById('appModalOverlay');
         const titleEl = document.getElementById('appModalTitle');
@@ -10017,9 +10042,13 @@
         const cancelBtn = document.getElementById('appModalCancel');
         titleEl.textContent = title;
         msgEl.textContent = message;
+        okBtn.textContent = (opts && opts.okLabel) || 'OK';
+        cancelBtn.textContent = (opts && opts.cancelLabel) || 'Cancel';
         overlay.classList.add('visible');
         const cleanup = (result) => {
           overlay.classList.remove('visible');
+          okBtn.textContent = 'OK';
+          cancelBtn.textContent = 'Cancel';
           okBtn.removeEventListener('click', onOk);
           cancelBtn.removeEventListener('click', onCancel);
           overlay.removeEventListener('click', onOverlay);
@@ -12268,6 +12297,9 @@
       for (const [key, value] of Object.entries(style)) {
         if (key === 'fill' || key === 'stroke') {
           setSvgColor(element, key, value);
+        } else if (key === 'mix-blend-mode') {
+          // mix-blend-mode is a CSS property, not an SVG attribute
+          element.style.mixBlendMode = value && value !== 'normal' ? value : '';
         } else {
           element.setAttribute(key, value);
         }
@@ -25536,8 +25568,241 @@
       }
     }
 
+    // --- SVG Clip-Path Geometric Utilities ---
+
+    /**
+     * Convert child shapes inside a <clipPath> element to a 2D polygon (array of [x,y] points).
+     * Supports <rect>, <circle>, <ellipse>, <polygon>, <path>.
+     * For compound clip paths (multiple shapes), returns the union approximated as the
+     * first shape's polygon (most SVGs use a single shape per clipPath).
+     */
+    const clipPathShapeToPolygon = (clipPathEl) => {
+      const shapes = clipPathEl.querySelectorAll('rect, circle, ellipse, polygon, path, polyline');
+      if (shapes.length === 0) return null;
+
+      // Use the first shape (most common case; compound clips are rare)
+      const shape = shapes[0];
+      const tag = shape.tagName.toLowerCase();
+
+      if (tag === 'rect') {
+        const x = parseFloat(shape.getAttribute('x') || 0);
+        const y = parseFloat(shape.getAttribute('y') || 0);
+        const w = parseFloat(shape.getAttribute('width') || 0);
+        const h = parseFloat(shape.getAttribute('height') || 0);
+        if (w <= 0 || h <= 0) return null;
+        return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+
+      } else if (tag === 'circle') {
+        const cx = parseFloat(shape.getAttribute('cx') || 0);
+        const cy = parseFloat(shape.getAttribute('cy') || 0);
+        const r = parseFloat(shape.getAttribute('r') || 0);
+        if (r <= 0) return null;
+        const segments = 64;
+        const poly = [];
+        for (let i = 0; i < segments; i++) {
+          const angle = (2 * Math.PI * i) / segments;
+          poly.push([cx + r * Math.cos(angle), cy + r * Math.sin(angle)]);
+        }
+        return poly;
+
+      } else if (tag === 'ellipse') {
+        const cx = parseFloat(shape.getAttribute('cx') || 0);
+        const cy = parseFloat(shape.getAttribute('cy') || 0);
+        const rx = parseFloat(shape.getAttribute('rx') || 0);
+        const ry = parseFloat(shape.getAttribute('ry') || 0);
+        if (rx <= 0 || ry <= 0) return null;
+        const segments = 64;
+        const poly = [];
+        for (let i = 0; i < segments; i++) {
+          const angle = (2 * Math.PI * i) / segments;
+          poly.push([cx + rx * Math.cos(angle), cy + ry * Math.sin(angle)]);
+        }
+        return poly;
+
+      } else if (tag === 'polygon' || tag === 'polyline') {
+        const pointsStr = shape.getAttribute('points');
+        if (!pointsStr) return null;
+        const nums = pointsStr.trim().split(/[\s,]+/).map(parseFloat).filter(n => !isNaN(n));
+        if (nums.length < 6) return null; // Need at least 3 points
+        const poly = [];
+        for (let i = 0; i < nums.length; i += 2) {
+          poly.push([nums[i], nums[i + 1]]);
+        }
+        return poly;
+
+      } else if (tag === 'path') {
+        // Flatten the path to a polyline using SVGParser
+        const d = shape.getAttribute('d');
+        if (!d) return null;
+        const svgp = new SVGParser();
+        const subpaths = svgp.parsePath(d);
+        if (subpaths.length === 0 || subpaths[0].vertices.length < 3) return null;
+        // SVGParser returns vertices in app space (scaled and Y-flipped).
+        // For clip polygon comparison we need raw SVG coordinates,
+        // so we reverse the transform: x_svg = v[0] / S, y_svg = -v[1] / S
+        const S = getImportScale();
+        return subpaths[0].vertices.map(v => [v[0] / S, -v[1] / S]);
+      }
+
+      return null;
+    };
+
+    /**
+     * Sutherland-Hodgman polygon clipping.
+     * Clips subjectPoly against clipPoly (must be convex for correct results,
+     * but works acceptably for mildly concave clips too).
+     * Both inputs are arrays of [x, y] points.
+     * Returns the clipped polygon as an array of [x, y] points, or [] if fully clipped.
+     */
+    const sutherlandHodgmanClip = (subjectPoly, clipPoly) => {
+      if (!subjectPoly || subjectPoly.length < 3) return [];
+      if (!clipPoly || clipPoly.length < 3) return [];
+
+      let output = [...subjectPoly];
+      const clipLen = clipPoly.length;
+
+      for (let i = 0; i < clipLen; i++) {
+        if (output.length === 0) return [];
+
+        const input = output;
+        output = [];
+
+        const edgeStart = clipPoly[i];
+        const edgeEnd = clipPoly[(i + 1) % clipLen];
+
+        // Edge normal direction: inside is to the left of edgeStart→edgeEnd
+        const edgeDx = edgeEnd[0] - edgeStart[0];
+        const edgeDy = edgeEnd[1] - edgeStart[1];
+
+        const isInside = (p) => {
+          // Cross product: (edgeEnd - edgeStart) × (p - edgeStart)
+          return (edgeDx * (p[1] - edgeStart[1]) - edgeDy * (p[0] - edgeStart[0])) >= 0;
+        };
+
+        const intersect = (a, b) => {
+          const ax = a[0], ay = a[1], bx = b[0], by = b[1];
+          const ex = edgeStart[0], ey = edgeStart[1];
+          const dx1 = bx - ax, dy1 = by - ay;
+          const dx2 = edgeDx, dy2 = edgeDy;
+          const denom = dx1 * dy2 - dy1 * dx2;
+          if (Math.abs(denom) < 1e-12) return a; // Parallel — fallback
+          const t = ((ex - ax) * dy2 - (ey - ay) * dx2) / denom;
+          return [ax + t * dx1, ay + t * dy1];
+        };
+
+        for (let j = 0; j < input.length; j++) {
+          const current = input[j];
+          const previous = input[(j + input.length - 1) % input.length];
+          const currInside = isInside(current);
+          const prevInside = isInside(previous);
+
+          if (currInside) {
+            if (!prevInside) {
+              output.push(intersect(previous, current));
+            }
+            output.push(current);
+          } else if (prevInside) {
+            output.push(intersect(previous, current));
+          }
+        }
+      }
+
+      return output;
+    };
+
+    /**
+     * Flatten a single bezier subpath's vertices into a dense polyline in SVG space.
+     * Input: vertices array (app-space: scaled, Y-flipped), algorithm type.
+     * Output: array of [x_svg, y_svg] points.
+     */
+    const flattenBezierSubpathToPolyline = (vertices, start, count, algorithm, S) => {
+      const pts = [];
+
+      if (algorithm === 'bezier') {
+        // Anchor-CP1-CP2-Anchor-CP1-CP2-... pattern (every 3rd is anchor, starting at 0)
+        for (let i = 0; i < count; i += 3) {
+          const p0 = vertices[start + i];
+          if (i + 3 < count) {
+            const p1 = vertices[start + i + 1]; // CP forward
+            const p2 = vertices[start + i + 2]; // CP backward of next
+            const p3 = vertices[start + i + 3]; // Next anchor
+            // Subdivide cubic Bézier into line segments
+            const steps = 16;
+            for (let s = 0; s <= steps; s++) {
+              const t = s / steps;
+              const mt = 1 - t;
+              const x = mt * mt * mt * p0[0] + 3 * mt * mt * t * p1[0] + 3 * mt * t * t * p2[0] + t * t * t * p3[0];
+              const y = mt * mt * mt * p0[1] + 3 * mt * mt * t * p1[1] + 3 * mt * t * t * p2[1] + t * t * t * p3[1];
+              // Convert back to SVG space
+              pts.push([x / S, -y / S]);
+            }
+          } else {
+            // Last anchor (no more segments)
+            pts.push([p0[0] / S, -p0[1] / S]);
+          }
+        }
+      } else {
+        // Linear — just convert each vertex
+        for (let i = 0; i < count; i++) {
+          const v = vertices[start + i];
+          pts.push([v[0] / S, -v[1] / S]);
+        }
+      }
+
+      return pts;
+    };
+
+    /**
+     * Clip parsed SVG path vertices against a 2D clip polygon.
+     * Returns { vertices: [...], subPathData: [...] } with clipped geometry,
+     * or null if nothing remains after clipping.
+     * The output is always algorithm:'linear' since clipping breaks bezier continuity.
+     */
+    const clipParsedVerticesByPolygon = (allVertices, subPathData, algorithm, clipPoly, S) => {
+      const newVertices = [];
+      const newSubPathData = [];
+      let currentStart = 0;
+
+      subPathData.forEach(sp => {
+        // Flatten this subpath to a polyline in SVG space
+        const polyline = flattenBezierSubpathToPolyline(allVertices, sp.start, sp.count, algorithm, S);
+
+        if (polyline.length < 2) return;
+
+        // Close the polyline if the subpath is closed
+        const isClosed = sp.closed;
+
+        // Clip the polyline polygon against the clip polygon
+        let clipped;
+        if (isClosed && polyline.length >= 3) {
+          clipped = sutherlandHodgmanClip(polyline, clipPoly);
+        } else {
+          // For open paths, clip as a thin polygon (duplicate points in reverse)
+          // This is a simplification — true line clipping would use Cohen-Sutherland
+          // but for SVG import the shapes are typically closed
+          clipped = sutherlandHodgmanClip(polyline, clipPoly);
+        }
+
+        if (clipped && clipped.length >= 2) {
+          // Convert back to app space and add to output
+          const startIdx = newVertices.length;
+          clipped.forEach(p => {
+            newVertices.push([p[0] * S, -p[1] * S, 0]);
+          });
+          newSubPathData.push({
+            start: startIdx,
+            count: clipped.length,
+            closed: isClosed
+          });
+        }
+      });
+
+      if (newVertices.length === 0) return null;
+      return { vertices: newVertices, subPathData: newSubPathData };
+    };
+
     // --- Clipboard Paste Helper ---
-    const handleSVGPaste = (text) => {
+    const handleSVGPaste = async (text) => {
       pushUndoState(); // Flush any outstanding diffs
       const _svgPreImportState = _lastSceneState ? deepClone(_lastSceneState) : null;
       const svgp = new SVGParser();
@@ -25567,6 +25832,62 @@
           processed = true;
           const rootGroup = new Group("Imported_SVG");
 
+          // --- Parse <clipPath> definitions from <defs> ---
+          const clipPathMap = new Map(); // id → [[x,y], ...] polygon in SVG coords
+          const defsEl = svgRoot.querySelector('defs');
+          if (defsEl) {
+            defsEl.querySelectorAll('clipPath').forEach(cp => {
+              const id = cp.getAttribute('id');
+              if (!id) return;
+              const polygon = clipPathShapeToPolygon(cp);
+              if (polygon && polygon.length >= 3) {
+                clipPathMap.set(id, polygon);
+                console.log(`[SVG Import] Found clipPath #${id} with ${polygon.length} points`);
+              }
+            });
+          }
+
+          // If clip-paths were found, ask the user what to do
+          let applyClipping = false;
+          if (clipPathMap.size > 0) {
+            applyClipping = await showAppConfirm(
+              'Clip Path Detected',
+              `This SVG contains ${clipPathMap.size} clip-path definition${clipPathMap.size > 1 ? 's' : ''}. Do you want to permanently clip the shapes to their clip boundaries, or ignore the clip-paths and import the full shapes?`,
+              { okLabel: 'Clip', cancelLabel: 'Ignore' }
+            );
+            console.log(`[SVG Import] User chose: ${applyClipping ? 'Clip' : 'Ignore'}`);
+          }
+
+          /**
+           * Resolve the clip polygon for a given DOM node.
+           * Checks both CSS clip-path and HTML attribute.
+           * Returns a polygon array or null.
+           */
+          const resolveClipPoly = (node) => {
+            if (!applyClipping || clipPathMap.size === 0) return null;
+
+            // Check computed style
+            let clipRef = null;
+            try {
+              const comp = window.getComputedStyle(node);
+              const cpVal = comp.clipPath || comp.getPropertyValue('clip-path');
+              if (cpVal && cpVal !== 'none') clipRef = cpVal;
+            } catch (e) { /* ignore */ }
+
+            // Fallback: check attribute directly
+            if (!clipRef) {
+              clipRef = node.getAttribute('clip-path');
+            }
+
+            if (!clipRef) return null;
+
+            // Extract id from url(#id)
+            const match = clipRef.match(/url\(["']?#([^"')]+)["']?\)/);
+            if (!match) return null;
+
+            return clipPathMap.get(match[1]) || null;
+          };
+
           // Helper using getComputedStyle
           const getComputedSVGStyle = (el) => {
             const comp = window.getComputedStyle(el);
@@ -25575,20 +25896,36 @@
 
             let dashArray = comp.strokeDasharray !== 'none' ? comp.strokeDasharray : undefined;
 
-            return {
+            // Decompose element-level CSS opacity into fill/stroke opacities.
+            // SVG's `opacity` property affects the entire element (fill + stroke)
+            // as a compositing operation. We fold it into the per-channel opacities
+            // so imported shapes render correctly without adding a new data model field.
+            const elementOpacity = parseFloat(comp.opacity) || 1;
+
+            // Read mix-blend-mode (CSS property, not SVG attribute)
+            const blendMode = comp.mixBlendMode || 'normal';
+
+            const result = {
               stroke: comp.stroke !== 'none' ? comp.stroke : 'none',
               fill: comp.fill !== 'none' ? comp.fill : 'none',
               'stroke-width': sw,
-              'stroke-opacity': comp.strokeOpacity,
-              'fill-opacity': comp.fillOpacity,
+              'stroke-opacity': parseFloat(comp.strokeOpacity) * elementOpacity,
+              'fill-opacity': parseFloat(comp.fillOpacity) * elementOpacity,
               'stroke-linejoin': comp.strokeLinejoin,
               'stroke-linecap': comp.strokeLinecap,
               'stroke-dasharray': dashArray,
               display: comp.display
             };
+
+            // Only store non-default blend mode to keep style dict clean
+            if (blendMode && blendMode !== 'normal') {
+              result['mix-blend-mode'] = blendMode;
+            }
+
+            return result;
           };
 
-          const traverseSVG = (node, parentGroup) => {
+          const traverseSVG = (node, parentGroup, inheritedClipPoly) => {
             if (node.nodeType !== 1) return; // Element Node only
 
             // Skip hidden elements or non-graphic elements
@@ -25597,6 +25934,11 @@
 
             const style = getComputedSVGStyle(node);
             if (style.display === 'none') return;
+
+            // Resolve clip-path for this element (own or inherited)
+            let activeClipPoly = inheritedClipPoly || null;
+            const ownClipPoly = resolveClipPoly(node);
+            if (ownClipPoly) activeClipPoly = ownClipPoly;
 
             let currentContainer = parentGroup;
 
@@ -25612,7 +25954,7 @@
               }
 
               Array.from(node.children).forEach(child => {
-                traverseSVG(child, currentContainer);
+                traverseSVG(child, currentContainer, activeClipPoly);
               });
 
             } else {
@@ -25767,17 +26109,37 @@
                   });
 
                   if (allVertices.length > 0) {
+                    // --- Apply clip-path geometric clipping ---
+                    let finalVertices = allVertices;
+                    let finalSubPathData = subPathData;
+                    let finalAlgorithm = 'bezier';
+
+                    if (activeClipPoly) {
+                      const S = getImportScale();
+                      const clipped = clipParsedVerticesByPolygon(allVertices, subPathData, 'bezier', activeClipPoly, S);
+                      if (clipped) {
+                        finalVertices = clipped.vertices;
+                        finalSubPathData = clipped.subPathData;
+                        finalAlgorithm = 'linear'; // Clipping breaks bezier continuity
+                        console.log(`[SVG Import] Clipped ${tagName}: ${allVertices.length} → ${finalVertices.length} vertices`);
+                      } else {
+                        // Fully clipped — skip this shape
+                        console.log(`[SVG Import] Shape ${tagName} fully clipped — skipping`);
+                        return;
+                      }
+                    }
+
                     const pathName = `${tagName}_${Math.floor(Math.random() * 100)}`;
                     const compoundPath = new Path(
                       pathName,
                       [0, 0, 0],
                       [0, 0, 0],
-                      allVertices,
-                      'bezier',
+                      finalVertices,
+                      finalAlgorithm,
                       closed, // Main loop property
                       style,
                       [1, 1, 1],
-                      subPathData
+                      finalSubPathData
                     );
                     parentGroup.add(compoundPath);
                   }
@@ -25787,6 +26149,42 @@
           };
 
           traverseSVG(svgRoot, rootGroup);
+
+          // --- Import clip-path shapes as visible paths when user chose "Ignore" ---
+          // This gives the user the clip boundary as a separate path they can use
+          // in other apps or apply manually later.
+          if (!applyClipping && clipPathMap.size > 0) {
+            const S = getImportScale();
+            clipPathMap.forEach((polygon, clipId) => {
+              // Convert polygon from SVG coords to app-space vertices
+              const clipVertices = polygon.map(p => [p[0] * S, -p[1] * S, 0]);
+              if (clipVertices.length >= 3) {
+                const clipPathStyle = {
+                  stroke: '#888888',
+                  fill: 'none',
+                  'stroke-width': 1,
+                  'stroke-opacity': '0.6',
+                  'fill-opacity': '0',
+                  'stroke-linejoin': 'miter',
+                  'stroke-linecap': 'butt',
+                  'stroke-dasharray': '6 3'
+                };
+                const clipPath = new Path(
+                  clipId,
+                  [0, 0, 0],
+                  [0, 0, 0],
+                  clipVertices,
+                  'linear',
+                  true, // closed
+                  clipPathStyle,
+                  [1, 1, 1],
+                  [{ start: 0, count: clipVertices.length, closed: true }]
+                );
+                rootGroup.add(clipPath);
+                console.log(`[SVG Import] Imported clip boundary as path: ${clipId} (${clipVertices.length} vertices)`);
+              }
+            });
+          }
 
           // --- Per-Object Center Anchoring ---
           // Each path gets its own bbox center as position; vertices are stored
@@ -26598,7 +26996,8 @@
         'stroke-opacity': parseFloat(document.getElementById('strokeOpacityInput').value),
         fill: document.getElementById('fillEnabledInput').checked ? document.getElementById('fillColorInput').value : 'none',
         'fill-opacity': parseFloat(document.getElementById('fillOpacityInput').value),
-        'fill-rule': document.getElementById('fillRuleInput').value
+        'fill-rule': document.getElementById('fillRuleInput').value,
+        'mix-blend-mode': document.getElementById('blendModeInput').value
       };
     };
 
@@ -27047,7 +27446,7 @@
 
       const strokeOpacity = styleSource['stroke-opacity'] !== undefined ? styleSource['stroke-opacity'] : 1;
       if (document.activeElement !== strokeOpacityInput) strokeOpacityInput.value = strokeOpacity;
-      strokeOpacityValue.value = parseFloat(strokeOpacity).toFixed(1);
+      strokeOpacityValue.value = parseFloat(strokeOpacity).toFixed(2);
       strokeOpacityInput.disabled = !hasStroke;
       document.getElementById('strokeOpacityRow').style.setProperty('--fill', (parseFloat(strokeOpacity) * 100) + '%');
 
@@ -27065,7 +27464,7 @@
 
       const fillOpacityVal = styleSource['fill-opacity'] !== undefined ? styleSource['fill-opacity'] : 1;
       if (document.activeElement !== fillOpacityInput) fillOpacityInput.value = fillOpacityVal;
-      fillOpacityValue.value = parseFloat(fillOpacityVal).toFixed(1);
+      fillOpacityValue.value = parseFloat(fillOpacityVal).toFixed(2);
       fillOpacityInput.disabled = !hasFill;
       document.getElementById('fillOpacityRow').style.setProperty('--fill', (parseFloat(fillOpacityVal) * 100) + '%');
 
@@ -27075,6 +27474,11 @@
       const currentFillRule = styleSource['fill-rule'] || 'evenodd';
       if (document.activeElement !== fillRuleInput) fillRuleInput.value = currentFillRule;
       fillRuleInput.disabled = !hasFill;
+
+      // Blend Mode
+      const blendModeInput = document.getElementById('blendModeInput');
+      const currentBlendMode = styleSource['mix-blend-mode'] || 'normal';
+      if (document.activeElement !== blendModeInput) blendModeInput.value = currentBlendMode;
 
       // Loop
       if (document.activeElement !== loopPathInput) loopPathInput.checked = selectedObject ? selectedObject.loop : false;
@@ -27898,6 +28302,8 @@
       const isGroupSelected = selectedObject && selectedObject.isGroup;
       if (algorithmRow) algorithmRow.style.display = isGroupSelected ? 'none' : '';
       if (fillRuleRow) fillRuleRow.style.display = isGroupSelected ? 'none' : '';
+      const blendModeRow = document.getElementById('blendModeRow');
+      if (blendModeRow) blendModeRow.style.display = isGroupSelected ? 'none' : '';
       if (closePathRow) closePathRow.style.display = isGroupSelected ? 'none' : '';
       if (document.activeElement !== algorithmInput) {
         if (selectedObject && selectedObject instanceof Path) {
@@ -29557,6 +29963,7 @@
       const fillColor = document.getElementById('fillColorInput').value;
       const fillOpacity = document.getElementById('fillOpacityInput').value;
       const fillRule = document.getElementById('fillRuleInput').value;
+      const blendMode = document.getElementById('blendModeInput').value;
 
       const extrudeEnabledInput = document.getElementById('extrudeEnabledInput');
       const extrudeDepthInput = document.getElementById('extrudeDepthInput');
@@ -29678,7 +30085,7 @@
       const revolveRibbonColor = document.getElementById('revolveRibbonColorInput').value;
 
 
-      document.getElementById('strokeOpacityValue').value = parseFloat(opacity).toFixed(1);
+      document.getElementById('strokeOpacityValue').value = parseFloat(opacity).toFixed(2);
 
       // Always sync currentStyle for new objects
       if (hasStroke) {
@@ -29702,6 +30109,13 @@
         currentStyle['fill-rule'] = fillRule;
       } else {
         currentStyle.fill = 'none';
+      }
+
+      // Blend mode is independent of fill/stroke
+      if (blendMode && blendMode !== 'normal') {
+        currentStyle['mix-blend-mode'] = blendMode;
+      } else {
+        delete currentStyle['mix-blend-mode'];
       }
 
       // Update Selected Objects
@@ -29754,6 +30168,14 @@
 
         if ((forceAll || targetId === 'fillOpacityInput') && hasFill) s['fill-opacity'] = fillOpacity;
         if ((forceAll || targetId === 'fillRuleInput') && hasFill) s['fill-rule'] = fillRule;
+
+        if (forceAll || targetId === 'blendModeInput') {
+          if (blendMode && blendMode !== 'normal') {
+            s['mix-blend-mode'] = blendMode;
+          } else {
+            delete s['mix-blend-mode'];
+          }
+        }
 
         if (!obj.isGroup && (forceAll || targetId === 'loopPathInput')) {
           obj.loop = loopPath;
@@ -30059,6 +30481,7 @@
     });
     document.getElementById('fillOpacityInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('fillRuleInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('blendModeInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('loopPathInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('extrudeEnabledInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('extrudeDepthInput').addEventListener('input', updateStyleFromInput);
@@ -36479,46 +36902,67 @@
         return vectorSubtract(p, vectorScale(pn, dist));
       };
 
-      const newSelection = [];
+      // Helper: Recursively collect all Path objects from an object tree
+      const collectDescendantPaths = (obj) => {
+        if (obj.localVertices) return [obj]; // Path
+        if (obj.isGroup && obj.children) {
+          const paths = [];
+          obj.children.forEach(child => {
+            paths.push(...collectDescendantPaths(child));
+          });
+          return paths;
+        }
+        return [];
+      };
+
+      // Collect all Paths to flatten (handles both Paths and Groups)
+      const flattenTargets = [];
+      selectedObjects.forEach(obj => {
+        flattenTargets.push(...collectDescendantPaths(obj));
+      });
+
+      if (flattenTargets.length === 0) return;
+
+      // Create invisible backup copies of the selected objects before flattening
+      selectedObjects.forEach(obj => {
+        const backup = duplicateObject(obj);
+        if (backup) {
+          backup.name = obj.name + ' Copy';
+          backup.visible = false;
+          if (obj.parent) {
+            obj.parent.add(backup);
+          } else {
+            sceneObjects.push(backup);
+          }
+        }
+      });
+
+      // Flatten each Path's vertices in-place
       let modified = false;
 
-      selectedObjects.forEach(obj => {
-        // Flattening only makes sense for Path objects with vertices
-        if (!obj.localVertices) return;
+      flattenTargets.forEach(obj => {
+        // Use getWorldMatrix() for correct transforms through nested groups
+        const worldMatrix = obj.getWorldMatrix();
+        const invWorldMatrix = matrixInverse(worldMatrix);
+        if (!invWorldMatrix) return;
 
-        // Prepare Inverse Transform to convert back to Local Space
-        const worldMatrix = obj.getWorldMatrix ? obj.getWorldMatrix() : null;
-        // Fallback for simple objects (no parent)
-        const rotationMatrix = obj.rotationMatrix;
-        const position = obj.position;
-        const scale = obj.scale;
-
-        const invRot = matrixInverse(rotationMatrix);
-        if (!invRot) return;
-
-        // Create new vertices array
-        const newVertices = [];
         let hasValidProjection = false;
 
         obj.localVertices.forEach((v, index) => {
-          // 1. Calculate World Position
-          const scaledV = [v[0] * scale[0], v[1] * scale[1], v[2] * scale[2]];
-          let worldPos = vectorAdd(position, vectorApplyMatrix(scaledV, rotationMatrix));
+          // 1. Transform local vertex to world space using full world matrix
+          const worldPos = pointApplyMatrix(v, worldMatrix);
 
-          // 2. Calculate New World Position
+          // 2. Project to workplane
           let newWorldPos;
 
           if (mode === 'normal') {
-            // Project along plane normal
             newWorldPos = projectToPlane(worldPos, planePoint, planeNormal);
           } else if (mode === 'camera') {
-            // Project from Camera
             const camPos = activeCamera.position;
             let rayDir;
             if (projectionType === 'perspective') {
               rayDir = vectorNormalize(vectorSubtract(worldPos, camPos));
             } else {
-              // Ortho projection direction is Camera Forward
               rayDir = vectorNormalize(vectorSubtract(activeCamera.target, activeCamera.position));
             }
             newWorldPos = intersectPlane(camPos, rayDir, planePoint, planeNormal);
@@ -36526,84 +36970,18 @@
 
           if (newWorldPos) {
             hasValidProjection = true;
-            // 3. Convert back to Local Space (of the original object's transform logic)
-            // Ideally we want the new object to match the original's transform, just with flattened vertices.
-            // Local = InvScale * InvRot * (World - Position)
-            const relPos = vectorSubtract(newWorldPos, position);
-            const unRotated = vectorApplyMatrix(relPos, invRot);
-            const newLocal = [
-              unRotated[0] / scale[0],
-              unRotated[1] / scale[1],
-              unRotated[2] / scale[2]
-            ];
-            newVertices.push(newLocal);
-          } else {
-            // If projection fails (e.g. parallel to plane in camera mode), keep original? 
-            // Or maybe degenerate? Let's keep original to avoid breaking topology?
-            // Or pushing null will break path.
-            // Let's fallback to original local V if calculation failed, assuming object is largely visible.
-            newVertices.push([...v]);
+            // 3. Convert projected world position back to local space
+            const newLocal = pointApplyMatrix(newWorldPos, invWorldMatrix);
+            obj.localVertices[index] = newLocal;
           }
+          // If projection fails, keep original vertex unchanged
         });
 
-        if (hasValidProjection) {
-          // Create New Path Object
-          const newName = obj.name + " flat";
-
-          // Deep copy specific to Path class constructor expectation or manual property copy
-          // constructor(name, position, rotation, vertices, algorithm, loop, style, scale, subPathData)
-          // Note: rotation coming from obj is Matrix usually in memory, but constructor expects Euler if passed?
-          // Actually Path constructor takes rotation as Euler if argument 3 is array, or we can check.
-          // Wait, existing Path constructor parses rotation. 
-          // Better to instantiate and then copy properties to be safe/exact.
-
-          // We need Euler for constructor? Or we can just set matrices manually after.
-          // Let's assume we can pass [0,0,0] and then copy the matrix.
-
-          const newPath = new Path(
-            newName,
-            [obj.position[0], obj.position[1], obj.position[2]], // Pos
-            [0, 0, 0], // Rotation placeholder
-            newVertices, // New Verts
-            obj.algorithm,
-            obj.loop,
-            { ...obj.style }, // Deep copy style?
-            [obj.scale[0], obj.scale[1], obj.scale[2]], // Scale
-            JSON.parse(JSON.stringify(obj.subPathData || [])) // Subpaths
-          );
-
-          // Sync Matrices
-          newPath.rotationMatrix = [...obj.rotationMatrix.map(row => [...row])];
-          newPath.rotationEuler = [...(obj.rotationEuler || [0, 0, 0])]; // If available
-          newPath.pivot = [...obj.pivot];
-          newPath.pivotRotation = [...obj.pivotRotation];
-          newPath.visible = obj.visible;
-          newPath.lock = obj.lock;
-
-          // Parent
-          if (obj.parent) {
-            obj.parent.add(newPath);
-          } else {
-            sceneObjects.push(newPath);
-          }
-
-          newSelection.push(newPath);
-          modified = true;
-        }
+        if (hasValidProjection) modified = true;
       });
 
       if (modified) {
-        // Update Selection to the new objects
-        selectedObjects = newSelection;
-        if (newSelection.length === 1) {
-          selectedObject = newSelection[0];
-          // Update Gizmo target (Automatic via selectedObject in render loop)
-        } else {
-          selectedObject = newSelection[0]; // Primary
-          // Multi-select logic handles the rest usually
-        }
-
-        // Refresh UI
+        // Refresh UI — selection stays the same (in-place modification)
         updateTreeView();
         updatePropertiesPanel();
         requestRender();

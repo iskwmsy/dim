@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260612d -->
+<!-- dim v20260614a -->
 <!--
   MIT License
 
@@ -3119,7 +3119,7 @@
     <span class="hud-value" id="hudElevationValue">0.0°</span>
   </div>
   <!-- Canvas HUD — Dist/Size Bar (bottom-right corner) -->
-  <div id="hudDistBar" class="canvas-hud-bar canvas-hud-bar-br" title="Drag left/right to adjust Distance / Size">
+  <div id="hudDistBar" class="canvas-hud-bar canvas-hud-bar-br" title="Drag: adjust Distance / Size — Click: reset zoom">
     <!-- Distance icon: depth arrow with perspective lines (perspective mode) -->
     <svg id="hudDistIcon" class="hud-bar-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
       <line x1="10" y1="5" x2="10" y2="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
@@ -3150,7 +3150,7 @@
     <span class="hud-value" id="hudDistValue">10.0</span>
   </div>
   <!-- Canvas HUD — FOV Zoom Bar (bottom-right, between Dist and FOV keep-size — hidden in ortho/oblique) -->
-  <div id="hudFovZoomBar" class="canvas-hud-bar canvas-hud-bar-br" title="Drag left/right to adjust FOV (zoom)">
+  <div id="hudFovZoomBar" class="canvas-hud-bar canvas-hud-bar-br" title="Drag: adjust FOV (zoom) — Click: reset zoom">
     <!-- FOV Zoom icon: V-shape with lens curve -->
     <svg class="hud-bar-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
       <polyline points="3 5 10 17 17 5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
@@ -3169,7 +3169,7 @@
     <span class="hud-value" id="hudFovZoomValue">60°</span>
   </div>
   <!-- Canvas HUD — FOV Bar (bottom-right, above FOV Zoom — hidden in ortho/oblique) -->
-  <div id="hudFovBar" class="canvas-hud-bar canvas-hud-bar-br" title="Drag left/right to adjust FOV (keep size on)">
+  <div id="hudFovBar" class="canvas-hud-bar canvas-hud-bar-br" title="Drag: adjust FOV (keep size on) — Click: reset zoom">
     <!-- FOV icon: frustum trapezoid -->
     <svg class="hud-bar-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
       <polygon points="18 14 14 6 6 6 2 14 18 14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
@@ -3459,6 +3459,10 @@
       <div class="collapsible-body" id="cb-camera-settings">
         <div class="tool-panel-label">Camera</div>
         <div class="prop-row prop-inline">
+          <label for="scaleStrokeZoomCheckbox" class="ui-checkbox-label">Scale Stroke with Zoom</label>
+          <input type="checkbox" id="scaleStrokeZoomCheckbox" class="ui-checkbox" />
+        </div>
+        <div class="prop-row prop-inline">
           <label for="camShowHudCheckbox" class="ui-checkbox-label">Show Camera HUD</label>
           <input type="checkbox" id="camShowHudCheckbox" class="ui-checkbox" checked />
         </div>
@@ -3474,6 +3478,13 @@
               <option value="fov">FOV</option>
               <option value="truck">Truck &amp; Pedestal</option>
             </select>
+          </div>
+        </div>
+
+        <div class="xyz-row">
+          <label>Background</label>
+          <div class="xyz-inputs">
+            <input type="color" id="bgColorInput" value="#ffffff" class="color-fill" />
           </div>
         </div>
 
@@ -3650,6 +3661,9 @@
         <div class="prop-row prop-row-plain">
           <button id="faceWorkplaneBtn" class="ui-btn" style="width: 100%;">Face Workplane</button>
         </div>
+        <div class="prop-row prop-row-plain">
+          <button id="resetZoomBtn" class="ui-btn" style="width: 100%;">Reset Zoom</button>
+        </div>
         <!-- Oblique Settings (Hidden by default) -->
         <div class="hidden" id="obliqueSettingsContainer">
           <div class="xyz-row">
@@ -3667,12 +3681,6 @@
           </div>
         </div>
 
-        <div class="xyz-row">
-          <label>Background</label>
-          <div class="xyz-inputs">
-            <input type="color" id="bgColorInput" value="#ffffff" class="color-fill" />
-          </div>
-        </div>
       </div>
     </div>
     <!-- Workplane Settings -->
@@ -6716,6 +6724,30 @@
       });
     }
 
+    const resetZoomBtn = document.getElementById('resetZoomBtn');
+    if (resetZoomBtn) {
+      resetZoomBtn.addEventListener('click', () => {
+        pushCameraUndoState();
+        activeCamera.orthoZoom = REFERENCE_ORTHO_ZOOM;
+        // For perspective, move camera to reference distance
+        const refDist = REFERENCE_ORTHO_ZOOM / Math.tan(activeCamera.fovRadians / 2);
+        const dir = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
+        activeCamera.position = vectorAdd(activeCamera.target, vectorScale(dir, refDist));
+        updateCameraUI();
+        requestRender();
+      });
+    }
+
+    const scaleStrokeZoomCheckbox = document.getElementById('scaleStrokeZoomCheckbox');
+    if (scaleStrokeZoomCheckbox) {
+      scaleStrokeZoomCheckbox.addEventListener('change', (e) => {
+        scaleStrokeWithZoom = e.target.checked;
+        // Re-apply stroke-width to all objects for immediate visual feedback
+        sceneObjects.forEach(obj => updateVisualsRecursive(obj));
+        requestRender();
+      });
+    }
+
     // Background Color Logic
     document.getElementById('bgColorInput').addEventListener('input', (e) => {
       const frameRect = document.getElementById('frameRect');
@@ -7164,6 +7196,7 @@
 
     // --- Global State Variables ---
     let showGuides = true;
+    let scaleStrokeWithZoom = false;
     let width, height;
     let dragMode = 'none'; // none, truck, orbit, translate, translate-local, rotate-screen, rotate-local, scale, draw-polygon
     let previousMousePosition = { x: 0, y: 0 };
@@ -11530,6 +11563,24 @@
         return 2 * activeCamera.orthoZoom / viewportPixels;
       }
     };
+    // Zoom factor for "Scale Stroke with Zoom" feature
+    // Reference = initial orthoZoom of default camera at [10,10,10] with FOV 32.2°
+    const REFERENCE_ORTHO_ZOOM = Math.tan((32.2 * Math.PI / 180) / 2) * Math.sqrt(300); // ≈ 4.96
+    const getZoomFactor = () => {
+      const pt = activeCamera.projectionType || projectionType;
+      if (pt === 'perspective') {
+        const dist = vectorLength(vectorSubtract(activeCamera.position, activeCamera.target));
+        const refDist = REFERENCE_ORTHO_ZOOM / Math.tan(activeCamera.fovRadians / 2);
+        return refDist / Math.max(dist, 0.01);
+      } else {
+        return REFERENCE_ORTHO_ZOOM / Math.max(activeCamera.orthoZoom, 0.01);
+      }
+    };
+    const getEffectiveStrokeWidth = (baseWidth) => {
+      if (!scaleStrokeWithZoom) return baseWidth;
+      return (parseFloat(baseWidth) * getZoomFactor()).toString();
+    };
+
     const DOLLY_SPEED = 0.03;
     const ROTATION_SPEED = 0.5;
     const SCREEN_ROTATION_SPEED = 0.01;
@@ -12300,6 +12351,8 @@
         } else if (key === 'mix-blend-mode') {
           // mix-blend-mode is a CSS property, not an SVG attribute
           element.style.mixBlendMode = value && value !== 'normal' ? value : '';
+        } else if (key === 'stroke-width') {
+          element.setAttribute(key, getEffectiveStrokeWidth(value));
         } else {
           element.setAttribute(key, value);
         }
@@ -18072,7 +18125,7 @@
                   }
 
                   if (this.style.stroke && this.style.stroke !== 'none') {
-                    const strokeWidth = this.style['stroke-width'] || (2 / FRAME_SIZE).toString();
+                    const strokeWidth = getEffectiveStrokeWidth(this.style['stroke-width'] || (2 / FRAME_SIZE).toString());
                     if (frag.strokes && frag.strokes.length > 0) {
                       frag.strokes.forEach(sD => {
                         const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -18219,7 +18272,7 @@
 
                   // Draw strokes (open paths for correct silhouette-edge visibility)
                   if (this.style.stroke && this.style.stroke !== 'none' && frag.strokes) {
-                    const strokeWidth = this.style['stroke-width'] || (2 / FRAME_SIZE).toString();
+                    const strokeWidth = getEffectiveStrokeWidth(this.style['stroke-width'] || (2 / FRAME_SIZE).toString());
                     // Merge consecutive stroke fragments into continuous paths to
                     // eliminate gaps at silhouette split boundaries.
                     // Strokes that share endpoints (or are within a small threshold) are
@@ -18543,6 +18596,13 @@
           // Deferred z-sort registration: if this 2D path is in a z-sorted group,
           // push its svgElement as a single face entry now that rendering is complete.
           if (typeof _deferZSortPush === 'function') _deferZSortPush();
+
+          // Scale Stroke with Zoom: update stroke-width on each 2D render frame
+          if (scaleStrokeWithZoom) {
+            const effectiveStyle = getEffectiveStyle(this);
+            const baseStrokeWidth = effectiveStyle['stroke-width'] || (2 / FRAME_SIZE).toString();
+            this.svgElement.setAttribute('stroke-width', getEffectiveStrokeWidth(baseStrokeWidth));
+          }
         }
       }
 
@@ -19776,7 +19836,7 @@
               sidePath.setAttribute('fill', ribbonColor || resolvedFill);
               sidePath.setAttribute('fill-opacity', this.style['fill-opacity']);
               sidePath.setAttribute('stroke', resolvedStroke);
-              sidePath.setAttribute('stroke-width', this.style['stroke-width']);
+              sidePath.setAttribute('stroke-width', getEffectiveStrokeWidth(this.style['stroke-width']));
               if (this.style['stroke-opacity'] !== undefined) {
                 sidePath.setAttribute('stroke-opacity', this.style['stroke-opacity']);
               }
@@ -19900,7 +19960,7 @@
               p.setAttribute('fill-opacity', this.style['fill-opacity']);
               if (this.style.stroke && this.style.stroke !== 'none') {
                 p.setAttribute('stroke', resolvedStroke);
-                p.setAttribute('stroke-width', this.style['stroke-width']);
+                p.setAttribute('stroke-width', getEffectiveStrokeWidth(this.style['stroke-width']));
                 if (this.style['stroke-opacity'] !== undefined) {
                   p.setAttribute('stroke-opacity', this.style['stroke-opacity']);
                 }
@@ -20528,7 +20588,7 @@
           sidePath.setAttribute('fill', resolvedFill);
           sidePath.setAttribute('fill-opacity', this.style['fill-opacity']);
           sidePath.setAttribute('stroke', resolvedStroke);
-          sidePath.setAttribute('stroke-width', this.style['stroke-width']);
+          sidePath.setAttribute('stroke-width', getEffectiveStrokeWidth(this.style['stroke-width']));
           if (this.style['stroke-opacity'] !== undefined) {
             sidePath.setAttribute('stroke-opacity', this.style['stroke-opacity']);
           }
@@ -20777,7 +20837,7 @@
         // Cap fill uses the path's own fill
         const capFillColor = resolvedFill;
         const strokeColor = (this.style.stroke && this.style.stroke !== 'none') ? rgbToHex(this.style.stroke) : null;
-        const strokeWidth = this.style['stroke-width'] || (2 / FRAME_SIZE).toString();
+        const strokeWidth = getEffectiveStrokeWidth(this.style['stroke-width'] || (2 / FRAME_SIZE).toString());
 
         const mvp = vpMatrix;
         const toScreen = (pt3d) => {
@@ -22522,7 +22582,7 @@
         const resolvedFill = (this.style.fill && this.style.fill !== 'none') ? rgbToHex(this.style.fill) : this.style.fill;
         const fillColor = (ls.useSurfaceColor && ls.surfaceColor) ? ls.surfaceColor : resolvedFill;
         const strokeColor = (this.style.stroke && this.style.stroke !== 'none') ? rgbToHex(this.style.stroke) : null;
-        const strokeWidth = this.style['stroke-width'] || (2 / FRAME_SIZE).toString();
+        const strokeWidth = getEffectiveStrokeWidth(this.style['stroke-width'] || (2 / FRAME_SIZE).toString());
         const renderMode = ls.renderMode || 'mesh';
 
         // ========== LAYER RENDER MODE ==========
@@ -31911,6 +31971,7 @@
       let _hudFovStartX = 0;
       let _hudFovStartFov = 0;
       let _hudFovSavedKeepSize = false;
+      let _hudFovDidDrag = false;
 
       _hudFovBar.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
@@ -31927,10 +31988,12 @@
         _hudFovSavedKeepSize = keepSizeCb ? keepSizeCb.checked : false;
         if (keepSizeCb) keepSizeCb.checked = true;
         pushCameraUndoStateCoalesced();
+        _hudFovDidDrag = false;
       });
 
       _hudFovBar.addEventListener('pointermove', (e) => {
         if (!_hudFovDragging) return;
+        _hudFovDidDrag = true;
         e.preventDefault();
         e.stopPropagation();
         const dx = e.clientX - _hudFovStartX;
@@ -31948,6 +32011,18 @@
         // Restore keep-size checkbox to its original state
         const keepSizeCb = document.getElementById('camFovCompensateCheckbox');
         if (keepSizeCb) keepSizeCb.checked = _hudFovSavedKeepSize;
+
+        // Single-click (no drag) = reset zoom to default
+        if (!_hudFovDidDrag) {
+          pushCameraUndoState();
+          const cam = selectedCamera || activeCamera;
+          cam.orthoZoom = REFERENCE_ORTHO_ZOOM;
+          const refDist = REFERENCE_ORTHO_ZOOM / Math.tan(cam.fovRadians / 2);
+          const dir = vectorNormalize(vectorSubtract(cam.position, cam.target));
+          cam.position = vectorAdd(cam.target, vectorScale(dir, refDist));
+          updateCameraUI();
+          requestRender();
+        }
       };
 
       _hudFovBar.addEventListener('pointerup', _hudFovEnd);
@@ -31960,6 +32035,7 @@
       let _hudFovZoomStartX = 0;
       let _hudFovZoomStartFov = 0;
       let _hudFovZoomSavedKeepSize = false;
+      let _hudFovZoomDidDrag = false;
 
       _hudFovZoomBar.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
@@ -31976,10 +32052,12 @@
         _hudFovZoomSavedKeepSize = keepSizeCb ? keepSizeCb.checked : false;
         if (keepSizeCb) keepSizeCb.checked = false;
         pushCameraUndoStateCoalesced();
+        _hudFovZoomDidDrag = false;
       });
 
       _hudFovZoomBar.addEventListener('pointermove', (e) => {
         if (!_hudFovZoomDragging) return;
+        _hudFovZoomDidDrag = true;
         e.preventDefault();
         e.stopPropagation();
         const dx = e.clientX - _hudFovZoomStartX;
@@ -31997,6 +32075,18 @@
         // Restore keep-size checkbox to its original state
         const keepSizeCb = document.getElementById('camFovCompensateCheckbox');
         if (keepSizeCb) keepSizeCb.checked = _hudFovZoomSavedKeepSize;
+
+        // Single-click (no drag) = reset zoom to default
+        if (!_hudFovZoomDidDrag) {
+          pushCameraUndoState();
+          const cam = selectedCamera || activeCamera;
+          cam.orthoZoom = REFERENCE_ORTHO_ZOOM;
+          const refDist = REFERENCE_ORTHO_ZOOM / Math.tan(cam.fovRadians / 2);
+          const dir = vectorNormalize(vectorSubtract(cam.position, cam.target));
+          cam.position = vectorAdd(cam.target, vectorScale(dir, refDist));
+          updateCameraUI();
+          requestRender();
+        }
       };
 
       _hudFovZoomBar.addEventListener('pointerup', _hudFovZoomEnd);
@@ -32009,6 +32099,7 @@
       let _hudDistStartX = 0;
       let _hudDistStartVal = 0;
       let _hudDistSavedKeepSize = false;
+      let _hudDistDidDrag = false;
 
       _hudDistBar.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
@@ -32029,10 +32120,12 @@
         _hudDistSavedKeepSize = keepSizeCb ? keepSizeCb.checked : false;
         if (keepSizeCb) keepSizeCb.checked = false;
         pushCameraUndoStateCoalesced();
+        _hudDistDidDrag = false;
       });
 
       _hudDistBar.addEventListener('pointermove', (e) => {
         if (!_hudDistDragging) return;
+        _hudDistDidDrag = true;
         e.preventDefault();
         e.stopPropagation();
         const dx = e.clientX - _hudDistStartX;
@@ -32058,6 +32151,19 @@
         // Restore keep-size checkbox to its original state
         const keepSizeCb = document.getElementById('camFovCompensateCheckbox');
         if (keepSizeCb) keepSizeCb.checked = _hudDistSavedKeepSize;
+
+        // Single-click (no drag) = reset zoom to default
+        if (!_hudDistDidDrag) {
+          pushCameraUndoState();
+          const cam = selectedCamera || activeCamera;
+          cam.orthoZoom = REFERENCE_ORTHO_ZOOM;
+          // For perspective, move camera to reference distance
+          const refDist = REFERENCE_ORTHO_ZOOM / Math.tan(cam.fovRadians / 2);
+          const dir = vectorNormalize(vectorSubtract(cam.position, cam.target));
+          cam.position = vectorAdd(cam.target, vectorScale(dir, refDist));
+          updateCameraUI();
+          requestRender();
+        }
       };
 
       _hudDistBar.addEventListener('pointerup', _hudDistEnd);
@@ -38609,6 +38715,7 @@
         version: '1.0',
         timestamp: Date.now(),
         backgroundColor: _currentBackgroundColor,
+        scaleStrokeWithZoom: scaleStrokeWithZoom,
         camera: {
           position: activeCamera.position,
           target: activeCamera.target,
@@ -38783,6 +38890,13 @@
         if (bgInput) bgInput.value = data.backgroundColor;
         if (frameRect) frameRect.setAttribute('fill', data.backgroundColor);
         _currentBackgroundColor = data.backgroundColor;
+      }
+
+      // Restore Scale Stroke with Zoom
+      if (data.scaleStrokeWithZoom !== undefined) {
+        scaleStrokeWithZoom = data.scaleStrokeWithZoom;
+        const cb = document.getElementById('scaleStrokeZoomCheckbox');
+        if (cb) cb.checked = scaleStrokeWithZoom;
       }
 
       // Update diff tracking state after import

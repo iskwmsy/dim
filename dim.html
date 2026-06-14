@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260614b -->
+<!-- dim v20260614g -->
 <!--
   MIT License
 
@@ -12929,7 +12929,7 @@
         }
       }
 
-      static computeGroupLocalBounds(group, parentMatrix = createIdentityMatrix()) {
+      static computeGroupLocalBounds(group, parentMatrix = createIdentityMatrix(), axisU = 'X', axisV = 'Y') {
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 
         const traverse = (obj, inheritedMatrix) => {
@@ -12946,10 +12946,12 @@
                 ['p0', 'p1', 'p2', 'p3'].forEach(k => {
                   if (seg[k]) {
                     const tx = transformVertex(seg[k], currentM);
-                    if (tx[0] < minX) minX = tx[0];
-                    if (tx[0] > maxX) maxX = tx[0];
-                    if (tx[1] < minY) minY = tx[1];
-                    if (tx[1] > maxY) maxY = tx[1];
+                    const pu = SurfaceMapper.getAxisValue(tx, axisU);
+                    const pv = SurfaceMapper.getAxisValue(tx, axisV);
+                    if (pu < minX) minX = pu;
+                    if (pu > maxX) maxX = pu;
+                    if (pv < minY) minY = pv;
+                    if (pv > maxY) maxY = pv;
                   }
                 });
               });
@@ -13124,12 +13126,20 @@
           beta = alpha;
         }
 
-        // Sanity Check: If solver produces negative handles (loops/cusps),
-        // fallback to standard "1/3 Chord Length" heuristic for smooth curves.
-        if (alpha < 0 || beta < 0) {
-          const chordLen = vectorLength(vectorSubtract(p3, p0));
-          alpha = chordLen / 3;
-          beta = alpha;
+        // Sanity Check: clamp to reasonable bounds.
+        // Near horizon crossings the solver can produce huge positive alpha/beta
+        // (fold singularity in screen space), causing triangular spike artifacts.
+        const chordLen = vectorLength(vectorSubtract(p3, p0));
+        const maxArm = Math.max(chordLen * 2.0, 0.001);
+
+        if (alpha < 0 || beta < 0 || alpha > maxArm || beta > maxArm) {
+          alpha = Math.max(0, Math.min(alpha, maxArm));
+          beta = Math.max(0, Math.min(beta, maxArm));
+          // If both were negative, fallback to standard heuristic
+          if (alpha <= 0 && beta <= 0) {
+            alpha = chordLen / 3;
+            beta = chordLen / 3;
+          }
         }
 
         return [
@@ -13139,59 +13149,87 @@
       }
 
       // v20260207: Smooth Mapping Segment Function
-      static mapBezierSegment(seg, projectFn, depth = 0, options = {}) {
+      static mapBezierSegment(seg, projectFn, depth = 0, options = {}, minSubdiv = 0) {
         // v20260207b: Horizon Splitting (Phase 4)
+        // v20260614f: Multi-sample horizon scan — detects ALL sign changes,
+        // not just endpoint pairs. Fixes collapse on S-curved splines where
+        // dot(t) goes + → − → + within a single segment.
         const doSplit = options.silhouetteSplit;
 
-        if (doSplit && depth < 4) { // Limit split depth for horizon finding
-          // Check signs
-          // Note: projectFn has side-effect on currentDot
-          const pStart = SurfaceMapper.evaluateCurvePoint(seg, 0);
-          const projStart = projectFn(pStart);
-          if (!projStart) return []; // Clip
-          const dotStart = projStart.dot;
-
-          const pEnd = SurfaceMapper.evaluateCurvePoint(seg, 1);
-          const projEnd = projectFn(pEnd);
-          if (!projEnd) return []; // Clip
-          const dotEnd = projEnd.dot;
-
-          if (dotStart * dotEnd < 0) {
-            // Sign change! Find root t where dot(t) = 0.
-            // Binary Search
-            let tMin = 0, tMax = 1;
-            let tCross = 0.5;
-
-            for (let i = 0; i < 8; i++) {
-              const tMid = (tMin + tMax) / 2;
-              const pMid = SurfaceMapper.evaluateCurvePoint(seg, tMid);
-              const projMid = projectFn(pMid);
-              const dotMid = projMid ? projMid.dot : dotStart; // Fallback?
-
-              if (dotStart * dotMid < 0) {
-                tMax = tMid;
-              } else {
-                tMin = tMid;
-              }
-              tCross = tMid;
-            }
-
-            // Split at tCross
-            let leftSeg, rightSeg;
-            if (seg.type === 'L') {
-              const mid = SurfaceMapper.evaluateCurvePoint(seg, tCross);
-              leftSeg = { type: 'L', pStart: seg.pStart, pEnd: mid };
-              rightSeg = { type: 'L', pStart: mid, pEnd: seg.pEnd };
-            } else {
-              const split = splitCubicBezier(seg.p0, seg.p1, seg.p2, seg.p3, tCross);
-              leftSeg = { type: 'C', p0: split[0][0], p1: split[0][1], p2: split[0][2], p3: split[0][3] };
-              rightSeg = { type: 'C', p0: split[1][0], p1: split[1][1], p2: split[1][2], p3: split[1][3] };
-            }
-
-            const leftRes = SurfaceMapper.mapBezierSegment(leftSeg, projectFn, depth + 1, options);
-            const rightRes = SurfaceMapper.mapBezierSegment(rightSeg, projectFn, depth + 1, options);
-            return [...leftRes, ...rightRes];
+        if (doSplit && depth < 8) {
+          // Sample dot product at multiple points to find ALL horizon crossings.
+          // 16 samples at top levels; 8 at deeper levels (sub-segments are smaller
+          // after prior splits but may still contain multiple crossings on tight S-curves).
+          const numSamples = depth < 2 ? 16 : 8;
+          const samples = [];
+          for (let i = 0; i <= numSamples; i++) {
+            const t = i / numSamples;
+            const pt = SurfaceMapper.evaluateCurvePoint(seg, t);
+            const proj = projectFn(pt);
+            if (!proj) return []; // Clip
+            samples.push({ t, dot: proj.dot });
           }
+
+          // Find the FIRST sign change among consecutive samples
+          for (let i = 0; i < samples.length - 1; i++) {
+            if (samples[i].dot * samples[i + 1].dot < 0) {
+              // Sign change between samples[i].t and samples[i+1].t
+              // Binary search to refine the crossing point
+              let tMin = samples[i].t, tMax = samples[i + 1].t;
+              let dotMin = samples[i].dot;
+
+              for (let j = 0; j < 8; j++) {
+                const tMid = (tMin + tMax) / 2;
+                const pMid = SurfaceMapper.evaluateCurvePoint(seg, tMid);
+                const projMid = projectFn(pMid);
+                const dotMid = projMid ? projMid.dot : dotMin;
+
+                if (dotMin * dotMid < 0) {
+                  tMax = tMid;
+                } else {
+                  tMin = tMid;
+                  dotMin = dotMid;
+                }
+              }
+
+              const tCross = (tMin + tMax) / 2;
+              // v20260615: Record source-space crossing position for contour tracing
+              const ptCross = SurfaceMapper.evaluateCurvePoint(seg, tCross);
+
+              // Split at crossing
+              let leftSeg, rightSeg;
+              if (seg.type === 'L') {
+                const mid = SurfaceMapper.evaluateCurvePoint(seg, tCross);
+                leftSeg = { type: 'L', pStart: seg.pStart, pEnd: mid };
+                rightSeg = { type: 'L', pStart: mid, pEnd: seg.pEnd };
+              } else {
+                const split = splitCubicBezier(seg.p0, seg.p1, seg.p2, seg.p3, tCross);
+                leftSeg = { type: 'C', p0: split[0][0], p1: split[0][1], p2: split[0][2], p3: split[0][3] };
+                rightSeg = { type: 'C', p0: split[1][0], p1: split[1][1], p2: split[1][2], p3: split[1][3] };
+              }
+
+              // Recurse: left half may have earlier crossings,
+              // right half may have later crossings — both will be scanned again
+              // v20260614g: Force extra subdivisions on segments adjacent to horizon crossings.
+              // This makes curve segments shorter near the crossing, reducing Z-close
+              // triangular fin artifacts (top/bottom edges cross horizon at different positions).
+              // 2 forced levels → 4× shorter segments near the crossing.
+              const leftRes = SurfaceMapper.mapBezierSegment(leftSeg, projectFn, depth + 1, options, 2);
+              const rightRes = SurfaceMapper.mapBezierSegment(rightSeg, projectFn, depth + 1, options, 2);
+
+              // v20260615: Tag boundary segments with source-space crossing position
+              // The last segment in leftRes ends at the crossing; first in rightRes starts there.
+              if (leftRes.length > 0) {
+                leftRes[leftRes.length - 1].crossingEndSrc = [...ptCross];
+              }
+              if (rightRes.length > 0) {
+                rightRes[0].crossingStartSrc = [...ptCross];
+              }
+
+              return [...leftRes, ...rightRes];
+            }
+          }
+          // No sign change found among all samples → fall through to curve fitting
         }
 
         // 1. Sample 4 points on Source Curve (t = 0, 1/3, 2/3, 1)
@@ -13269,7 +13307,7 @@
         if (midProj) {
           const dist = vectorLength(vectorSubtract(midProj, midFit));
           // Tolerance: 0.005 (approx 2.5 pixels if NDC is -1..1)
-          if (dist > 0.005 && depth < 5) { // Increased max depth to 5
+          if ((dist > 0.005 || minSubdiv > 0) && depth < 8) { // Force subdiv near horizon crossings
             let leftSeg, rightSeg;
 
             if (seg.type === 'L') {
@@ -13284,8 +13322,9 @@
               rightSeg = { type: 'C', p0: split[1][0], p1: split[1][1], p2: split[1][2], p3: split[1][3] };
             }
 
-            const leftRes = SurfaceMapper.mapBezierSegment(leftSeg, projectFn, depth + 1, options);
-            const rightRes = SurfaceMapper.mapBezierSegment(rightSeg, projectFn, depth + 1, options);
+            const nextMinSubdiv = Math.max(0, minSubdiv - 1);
+            const leftRes = SurfaceMapper.mapBezierSegment(leftSeg, projectFn, depth + 1, options, nextMinSubdiv);
+            const rightRes = SurfaceMapper.mapBezierSegment(rightSeg, projectFn, depth + 1, options, nextMinSubdiv);
             return [...leftRes, ...rightRes];
           }
         }
@@ -15943,6 +15982,12 @@
 
               // Remove Tail from list
               subpathFragments.pop();
+
+              // v20260614h: Preserve horizon crossing source positions after merge.
+              // Merged order is: tail_start → ... → head_end, so:
+              // - crossingStartSrc comes from tail (now the beginning)
+              // - crossingEndSrc comes from head (now the end, already on head)
+              if (tail.crossingStartSrc) head.crossingStartSrc = tail.crossingStartSrc;
             }
           }
 
@@ -15974,40 +16019,35 @@
               a.bounds.maxY = Math.max(a.bounds.maxY, b.bounds.maxY);
               a.zBounds.minZ = Math.min(a.zBounds.minZ, b.zBounds.minZ);
               a.zBounds.maxZ = Math.max(a.zBounds.maxZ, b.zBounds.maxZ);
+              // v20260615: Preserve crossing info — b is the new tail
+              if (b.crossingEndSrc) a.crossingEndSrc = b.crossingEndSrc;
+              if (!a.crossingStartSrc && b.crossingStartSrc) a.crossingStartSrc = b.crossingStartSrc;
               subpathFragments.splice(i + 1, 1);
               // Don't increment — check if merged result can merge with next
             }
           }
 
+
+
           subpathFragments.forEach(frag => {
             // No reversal needed for individual patches.
             // Just emit as candidates.
+
+            // v20260614h: Generate stroke d-string BEFORE closing ops (strokes should be open).
+            const strokeDStr = generateD(frag.ops);
+
+            // v20260615b: Contour closing edge — DISABLED.
+            // The linear-interpolation approach through the source rectangle's
+            // interior creates self-intersecting polygons in screen space,
+            // collapsing fills to zero visible area. The Z-close artifacts
+            // (small triangular fins at horizon crossings) are preferable to
+            // invisible ribbons. A proper fix would need to trace along the
+            // source rectangle's OPPOSITE EDGE (front edge for back fragments)
+            // rather than through the interior.
+            // TODO: Implement edge-following contour closure.
+
+            // Generate fill d-string (includes closing ops)
             const dStr = generateD(frag.ops);
-            // We want TWO things for a split fragment:
-            // 1. A Stroke (Open) -> Handled by 'split' type logic in Path.draw?
-            //    Wait, Path.draw iterates fragments.
-            //    If type is 'split', it strokes dOpen.
-            //    If type is 'fill', it fills dClosed.
-            //    We want BOTH for these body parts (Fill body, Stroke outline).
-            //    So we let resolveMerges decide?
-            //    resolveMerges separates 'split' (stroke only) vs 'mergeCandidates' (fill).
-            //    We want these to be Candidates (Fill) AND generate Strokes.
-            //    If we look at resolveMerges:
-            //    "if (f.type === 'split') splitFrags.push(f);"
-            //    If we leave type undefined, it goes to mergeCandidates.
-            //    Then it comes back in finalFragments.
-            //    Path.draw: "const isStandard = (!isSplit && !isFill);"
-            //    isStandard -> Fills dClosed, Strokes dClosed.
-            //    BUT we want Stroke dOpen (because it's a split strip)!
-            //    Stroke dClosed would draw the chord line, which looks bad.
-
-            // Solution: Emit TWO fragments for each split piece?
-            // 1. Type='fill' (Closed Frame for Fill).
-            // 2. Type='split' (Open Path for Stroke).
-
-            // Actually, we can just tag it so Path.draw knows?
-            // But Path.draw is generic.
-            // Let's emit two fragments. It's cleaner.
 
             // v20260201e: "Attached Strokes" Architecture.
             // Solve Z-Order by binding Stroke to Fill (Same Object = Same Sort).
@@ -16021,7 +16061,7 @@
               zBounds: frag.zBounds,
               layer: frag.layer,
               type: 'fill', // Treat as mergeable candidate.
-              strokes: [dStr] // Attach the Open Path as a stroke decoration.
+              strokes: [strokeDStr] // Attach the Open Path as a stroke decoration.
             });
           });
 
@@ -16210,10 +16250,8 @@
             let M = matrixMultiply(T, R);
             sourceMatrix = matrixMultiply(M, S);
           }
-          targetPos = targetPath.position; // Anchor
         }
 
-        // Calculate Target World Matrix
         // Calculate Target World Matrix
         let tgtWorldMatrix;
         if (targetPath.getWorldMatrix) {
@@ -16223,6 +16261,14 @@
           const tgtR = targetPath.rotationMatrix;
           const tgtS = createScaleMatrix(targetPath.scale[0], targetPath.scale[1], targetPath.scale[2]);
           tgtWorldMatrix = matrixMultiply(tgtT, matrixMultiply(tgtR, tgtS));
+        }
+
+        // Derive target's world-space origin for matchTarget=false anchor.
+        // Using tgtWorldMatrix instead of targetPath.position ensures correctness
+        // when the target spline is nested inside a group.
+        if (options.matchTarget === false) {
+          const tgtOrigin = transformVertex([0, 0, 0], tgtWorldMatrix);
+          targetPos = [tgtOrigin[0], tgtOrigin[1], tgtOrigin[2]];
         }
 
         // Pen states (tracked via currentFragment existence basically)
@@ -16561,21 +16607,36 @@
                   }
 
                   // Now add C commands
-                  smoothSegs.forEach(s => {
+                  smoothSegs.forEach((s, si) => {
                     const segLayer = s.layer || 'front';
 
                     // Force new fragment if layer changes
                     if (currentFragment && currentFragment.layer !== segLayer) {
+                      // v20260615: Transfer crossingEndSrc to the ending fragment
+                      if (s.crossingStartSrc && currentFragment) {
+                        currentFragment.crossingEndSrc = [...s.crossingStartSrc];
+                      }
                       // Layer changed. We need to start a new fragment.
                       // We use the start point of this segment.
                       if (s.start) {
                         addLine(s.start, segLayer); // Creates M and new fragment
+                      }
+                      // v20260615: Transfer crossingStartSrc to the new fragment
+                      if (s.crossingStartSrc && currentFragment) {
+                        currentFragment.crossingStartSrc = [...s.crossingStartSrc];
                       }
                     } else if (!currentFragment) {
                       // Should not happen if pStart logic above worked, but for safety
                       if (s.start) {
                         addLine(s.start, segLayer);
                       }
+                    }
+
+                    // v20260615: Transfer crossingEndSrc from segment to fragment
+                    // (for the last segment before a crossing that was found by a later
+                    // recursive split — the tag is on this segment itself)
+                    if (s.crossingEndSrc && currentFragment) {
+                      currentFragment.crossingEndSrc = [...s.crossingEndSrc];
                     }
 
                     const sx1 = (s.cp1[0] * FRAME_SIZE) / 2;
@@ -16675,13 +16736,27 @@
 
                   if (i > 0 && (dot * lastDot < 0)) {
                     // Crossing detected (Sign Change)
-                    // Interpolate t exactly at dot=0
-                    const absLast = Math.abs(lastDot);
-                    const absCurr = Math.abs(dot);
-                    const frac = absLast / (absLast + absCurr);
+                    // v20260614f: Binary search refinement (replaces linear interpolation
+                    // which assumed dot(t) is linear — inaccurate on curved splines)
                     const t_prev = (i - 1) / steps;
-                    const t_cross = t_prev + frac * (t - t_prev);
+                    let bsMin = t_prev, bsMax = t;
+                    let bsDotMin = lastDot;
 
+                    for (let bs = 0; bs < 8; bs++) {
+                      const bsMid = (bsMin + bsMax) / 2;
+                      const bsPt = SurfaceMapper.evaluateCurvePoint(seg, bsMid);
+                      const bsProj = project(bsPt);
+                      const bsDot = bsProj ? currentDot : bsDotMin;
+
+                      if (bsDotMin * bsDot < 0) {
+                        bsMax = bsMid;
+                      } else {
+                        bsMin = bsMid;
+                        bsDotMin = bsDot;
+                      }
+                    }
+
+                    const t_cross = (bsMin + bsMax) / 2;
                     const ptCross = SurfaceMapper.evaluateCurvePoint(seg, t_cross);
                     const tvCross = project(ptCross);
 
@@ -16689,16 +16764,24 @@
                       // VISIBLE (Front) -> INVISIBLE (Back)
                       // 1. Finish Front segment at Horizon
                       if (tvCross) addLine(tvCross, 'front');
+                      // v20260614h: Record source crossing point on ending fragment
+                      if (currentFragment) currentFragment.crossingEndSrc = [...ptCross];
 
                       // 2. Start Back segment at Horizon
                       if (tvCross) addLine(tvCross, 'back');
+                      // v20260614h: Record source crossing point on starting fragment
+                      if (currentFragment) currentFragment.crossingStartSrc = [...ptCross];
                     } else {
                       // INVISIBLE (Back) -> VISIBLE (Front)
                       // 1. Finish Back segment at Horizon
                       if (tvCross) addLine(tvCross, 'back');
+                      // v20260614h: Record source crossing point on ending fragment
+                      if (currentFragment) currentFragment.crossingEndSrc = [...ptCross];
 
                       // 2. Start Front segment at Horizon
                       if (tvCross) addLine(tvCross, 'front');
+                      // v20260614h: Record source crossing point on starting fragment
+                      if (currentFragment) currentFragment.crossingStartSrc = [...ptCross];
                     }
                   }
 
@@ -17329,7 +17412,19 @@
         return localMatrix;
       }
 
-      draw(parentMVP, inheritedMapping = null, inheritedRelativeMatrix = null, inheritedBounds = null, externalFaceList = null, deepZSort = false, cameraVP = null) {
+      draw(parentMVP, drawOptions = {}) {
+        const {
+          inheritedMapping = null,
+          inheritedRelativeMatrix = null,
+          inheritedBounds = null,
+          externalFaceList = null,
+          deepZSort = false,
+          cameraVP: cameraVPIn = null,
+          mappingAnchorWM: anchorWMIn = null,
+        } = drawOptions;
+        let cameraVP = cameraVPIn;
+        let mappingAnchorWM = anchorWMIn;
+
         // Guard: object may have been destroyed (e.g. scene import) while
         // a previous async render was still in progress.
         if (!this.svgElement) return;
@@ -17364,11 +17459,21 @@
           if (splineFlowActive || surfaceMappingActive) {
             activeMapping = this.surfaceConstraint;
             relativeMatrix = createIdentityMatrix(); // Group's internal map space starting identity
-            activeBounds = SurfaceMapper.computeGroupLocalBounds(this, relativeMatrix);
+            // Resolve axis mapping for bounds: surface mapping uses axisU/axisV,
+            // spline flow defaults to X/Y.
+            const smConf = this.surfaceConstraint.surfaceMapping;
+            const boundsAxisU = (surfaceMappingActive && smConf) ? (smConf.axisU || 'X') : 'X';
+            const boundsAxisV = (surfaceMappingActive && smConf) ? (smConf.axisV || 'Y') : 'Y';
+            activeBounds = SurfaceMapper.computeGroupLocalBounds(this, relativeMatrix, boundsAxisU, boundsAxisV);
             // Capture pure camera VP for mapping projection (strip group model transforms).
             // parentMVP at this level = cameraVP × ancestors; if no cameraVP was inherited,
             // parentMVP IS the camera VP (root-level group).
             if (!cameraVP) cameraVP = parentMVP;
+            // Pre-compute mapping anchor world matrix once for all children.
+            // Previously each child walked the parent chain to find this — O(N×depth).
+            if (activeMapping.matchTarget === false) {
+              mappingAnchorWM = this.getWorldMatrix();
+            }
           }
         } else {
           // Advance relative matrix through this group's transform
@@ -17378,6 +17483,15 @@
             relativeMatrix = createIdentityMatrix();
           }
         }
+
+        // Build child draw options (shared by all branches)
+        const childOpts = {
+          inheritedMapping: activeMapping,
+          inheritedRelativeMatrix: relativeMatrix,
+          inheritedBounds: activeBounds,
+          cameraVP,
+          mappingAnchorWM,
+        };
 
         if (this.zSortChildren) {
           // --- Z-Sort Children Mode ---
@@ -17390,7 +17504,7 @@
           const isDeep = (this.zSortMode === 'descendants') || deepZSort;
 
           for (const child of this.children) {
-            child.draw(currentMVP, activeMapping, relativeMatrix, activeBounds, sharedFaceList, isDeep, cameraVP);
+            child.draw(currentMVP, { ...childOpts, externalFaceList: sharedFaceList, deepZSort: isDeep });
           }
 
           if (!externalFaceList) {
@@ -17408,14 +17522,14 @@
             // --- "All Descendants" mode: flatten through this group ---
             // Pass the shared face list through to children recursively
             for (const child of this.children) {
-              child.draw(currentMVP, activeMapping, relativeMatrix, activeBounds, externalFaceList, true, cameraVP);
+              child.draw(currentMVP, { ...childOpts, externalFaceList, deepZSort: true });
             }
           } else {
             // --- "Children" mode: treat this group as an opaque block ---
             // Render children normally into this group's svgElement,
             // then push the whole group as a single face entry.
             for (const child of this.children) {
-              child.draw(currentMVP, activeMapping, relativeMatrix, activeBounds, null, false, cameraVP);
+              child.draw(currentMVP, childOpts);
             }
             // Compute z of group's position for sorting
             const groupWorldPos = transformVertex(this.position, parentMVP);
@@ -17425,7 +17539,7 @@
         } else {
           // --- Normal Mode (existing behavior) ---
           for (const child of this.children) {
-            child.draw(currentMVP, activeMapping, relativeMatrix, activeBounds, null, false, cameraVP);
+            child.draw(currentMVP, childOpts);
           }
         }
       }
@@ -17949,7 +18063,17 @@
         return flat;
       }
 
-      async draw(vpMatrix, inheritedMapping = null, inheritedRelativeMatrix = null, inheritedBounds = null, externalFaceList = null, _deepZSort = false, cameraVP = null) {
+      async draw(vpMatrix, drawOptions = {}) {
+        const {
+          inheritedMapping = null,
+          inheritedRelativeMatrix = null,
+          inheritedBounds = null,
+          externalFaceList = null,
+          deepZSort = false,
+          cameraVP = null,
+          mappingAnchorWM = null,
+        } = drawOptions;
+
         // Guard: object may have been destroyed (e.g. scene import) while
         // a previous async render was still in progress.
         if (!this.svgElement) return;
@@ -17966,19 +18090,9 @@
         const activeMapping = inheritedMapping || this.surfaceConstraint;
         const sourceMatrix = inheritedRelativeMatrix ? matrixMultiply(inheritedRelativeMatrix, modelMatrix) : null;
 
-        // For matchTarget=false in group mode, find the mapping group's world matrix.
-        // All children must share the same anchor so they don't separate.
-        let mappingAnchorWorldMatrix = null;
-        if (sourceMatrix && activeMapping && activeMapping.matchTarget === false) {
-          let p = this.parent;
-          while (p) {
-            if (p.surfaceConstraint === activeMapping) {
-              mappingAnchorWorldMatrix = p.getWorldMatrix();
-              break;
-            }
-            p = p.parent;
-          }
-        }
+        // For matchTarget=false in group mode, use the pre-computed anchor matrix
+        // from Group.draw() (computed once, shared by all children).
+        const mappingAnchorWorldMatrix = mappingAnchorWM;
 
         // Spline Flow active flag (used in 3D mode gate)
         const splineFlowActive = activeMapping && activeMapping.active && activeMapping.targetId;
@@ -31715,7 +31829,7 @@
         pathHighlightGroup.style.display = 'none';
       }
 
-      await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, null, null, null, null, false, vpMatrix)));
+      await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix })));
 
       const frameX = (width - FRAME_SIZE * scale) / 2 + CANVAS_OFFSET_X;
       const frameY = (height - FRAME_SIZE * scale) / 2;

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260614a -->
+<!-- dim v20260614b -->
 <!--
   MIT License
 
@@ -16197,12 +16197,19 @@
         let sourceMatrix = null;
         let targetPos = null;
         if (options.matchTarget === false) {
-          // T * R * S
-          const T = createTranslationMatrix(sourcePath.position[0], sourcePath.position[1], sourcePath.position[2]);
-          const R = sourcePath.rotationMatrix;
-          const S = createScaleMatrix(sourcePath.scale[0], sourcePath.scale[1], sourcePath.scale[2]);
-          let M = matrixMultiply(T, R);
-          sourceMatrix = matrixMultiply(M, S);
+          if (options.mappingAnchorWorldMatrix) {
+            // Group child: use the mapping group's world matrix so ALL children
+            // share the same rigid transform anchor. Per-child relative positioning
+            // is already encoded in the UV mapping step (via options.sourceMatrix).
+            sourceMatrix = options.mappingAnchorWorldMatrix;
+          } else {
+            // Standalone path: use its own T*R*S
+            const T = createTranslationMatrix(sourcePath.position[0], sourcePath.position[1], sourcePath.position[2]);
+            const R = sourcePath.rotationMatrix;
+            const S = createScaleMatrix(sourcePath.scale[0], sourcePath.scale[1], sourcePath.scale[2]);
+            let M = matrixMultiply(T, R);
+            sourceMatrix = matrixMultiply(M, S);
+          }
           targetPos = targetPath.position; // Anchor
         }
 
@@ -17322,7 +17329,7 @@
         return localMatrix;
       }
 
-      draw(parentMVP, inheritedMapping = null, inheritedRelativeMatrix = null, inheritedBounds = null, externalFaceList = null, deepZSort = false) {
+      draw(parentMVP, inheritedMapping = null, inheritedRelativeMatrix = null, inheritedBounds = null, externalFaceList = null, deepZSort = false, cameraVP = null) {
         // Guard: object may have been destroyed (e.g. scene import) while
         // a previous async render was still in progress.
         if (!this.svgElement) return;
@@ -17358,6 +17365,10 @@
             activeMapping = this.surfaceConstraint;
             relativeMatrix = createIdentityMatrix(); // Group's internal map space starting identity
             activeBounds = SurfaceMapper.computeGroupLocalBounds(this, relativeMatrix);
+            // Capture pure camera VP for mapping projection (strip group model transforms).
+            // parentMVP at this level = cameraVP × ancestors; if no cameraVP was inherited,
+            // parentMVP IS the camera VP (root-level group).
+            if (!cameraVP) cameraVP = parentMVP;
           }
         } else {
           // Advance relative matrix through this group's transform
@@ -17379,7 +17390,7 @@
           const isDeep = (this.zSortMode === 'descendants') || deepZSort;
 
           for (const child of this.children) {
-            child.draw(currentMVP, activeMapping, relativeMatrix, activeBounds, sharedFaceList, isDeep);
+            child.draw(currentMVP, activeMapping, relativeMatrix, activeBounds, sharedFaceList, isDeep, cameraVP);
           }
 
           if (!externalFaceList) {
@@ -17397,14 +17408,14 @@
             // --- "All Descendants" mode: flatten through this group ---
             // Pass the shared face list through to children recursively
             for (const child of this.children) {
-              child.draw(currentMVP, activeMapping, relativeMatrix, activeBounds, externalFaceList, true);
+              child.draw(currentMVP, activeMapping, relativeMatrix, activeBounds, externalFaceList, true, cameraVP);
             }
           } else {
             // --- "Children" mode: treat this group as an opaque block ---
             // Render children normally into this group's svgElement,
             // then push the whole group as a single face entry.
             for (const child of this.children) {
-              child.draw(currentMVP, activeMapping, relativeMatrix, activeBounds);
+              child.draw(currentMVP, activeMapping, relativeMatrix, activeBounds, null, false, cameraVP);
             }
             // Compute z of group's position for sorting
             const groupWorldPos = transformVertex(this.position, parentMVP);
@@ -17414,7 +17425,7 @@
         } else {
           // --- Normal Mode (existing behavior) ---
           for (const child of this.children) {
-            child.draw(currentMVP, activeMapping, relativeMatrix, activeBounds);
+            child.draw(currentMVP, activeMapping, relativeMatrix, activeBounds, null, false, cameraVP);
           }
         }
       }
@@ -17938,7 +17949,7 @@
         return flat;
       }
 
-      async draw(vpMatrix, inheritedMapping = null, inheritedRelativeMatrix = null, inheritedBounds = null, externalFaceList = null) {
+      async draw(vpMatrix, inheritedMapping = null, inheritedRelativeMatrix = null, inheritedBounds = null, externalFaceList = null, _deepZSort = false, cameraVP = null) {
         // Guard: object may have been destroyed (e.g. scene import) while
         // a previous async render was still in progress.
         if (!this.svgElement) return;
@@ -17954,6 +17965,20 @@
 
         const activeMapping = inheritedMapping || this.surfaceConstraint;
         const sourceMatrix = inheritedRelativeMatrix ? matrixMultiply(inheritedRelativeMatrix, modelMatrix) : null;
+
+        // For matchTarget=false in group mode, find the mapping group's world matrix.
+        // All children must share the same anchor so they don't separate.
+        let mappingAnchorWorldMatrix = null;
+        if (sourceMatrix && activeMapping && activeMapping.matchTarget === false) {
+          let p = this.parent;
+          while (p) {
+            if (p.surfaceConstraint === activeMapping) {
+              mappingAnchorWorldMatrix = p.getWorldMatrix();
+              break;
+            }
+            p = p.parent;
+          }
+        }
 
         // Spline Flow active flag (used in 3D mode gate)
         const splineFlowActive = activeMapping && activeMapping.active && activeMapping.targetId;
@@ -18048,8 +18073,9 @@
               const sfEffectiveOverflow = sfIsClipWarp ? 'clip' : sfRawOverflow;
 
               const sfBaseOptions = {
-                vpMatrix: vpMatrix,
+                vpMatrix: cameraVP || vpMatrix,
                 sourceMatrix: sourceMatrix,
+                mappingAnchorWorldMatrix: mappingAnchorWorldMatrix,
                 offset: 0,
                 matchTarget: activeMapping.matchTarget,
                 targetOffset: activeMapping.offset || 0,
@@ -18207,7 +18233,7 @@
               // When both axes are clipwarp, up to 3×3=9 passes are rendered;
               // empty passes (fully outside [0,1]) return empty fragments cheaply.
               const smBaseOptions = {
-                vpMatrix: vpMatrix,
+                vpMatrix: cameraVP || vpMatrix,
                 sourceMatrix: effectiveSourceMatrix,
                 offsetU: sm.offsetU || 0,
                 offsetV: sm.offsetV || 0,
@@ -31689,7 +31715,7 @@
         pathHighlightGroup.style.display = 'none';
       }
 
-      await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix)));
+      await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, null, null, null, null, false, vpMatrix)));
 
       const frameX = (width - FRAME_SIZE * scale) / 2 + CANVAS_OFFSET_X;
       const frameY = (height - FRAME_SIZE * scale) / 2;

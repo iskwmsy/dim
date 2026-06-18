@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260618b -->
+<!-- dim v20260618d -->
 <!--
   MIT License
 
@@ -5131,16 +5131,35 @@
                       </div>
                     </div>
 
+                    <div class="style-row">
+                      <label class="ui-checkbox-label">Link Taper</label>
+                      <input type="checkbox" id="extrudeTaperLinkedInput" class="ui-checkbox" checked />
+                    </div>
+
                     <div class="xyz-row">
-                      <label>Taper</label>
+                      <label>Front</label>
                       <div class="xyz-inputs">
                         <div class="xyz-field">
-                          <span class="xyz-col-label">Front Scale</span>
-                          <input type="number" id="extrudeScaleFrontInput" value="1.0" step="0.1" />
+                          <span class="xyz-col-label">U</span>
+                          <input type="number" id="extrudeScaleFrontUInput" value="1.0" step="0.1" />
                         </div>
                         <div class="xyz-field">
-                          <span class="xyz-col-label">Back Scale</span>
-                          <input type="number" id="extrudeScaleBackInput" value="1.0" step="0.1" />
+                          <span class="xyz-col-label">V</span>
+                          <input type="number" id="extrudeScaleFrontVInput" value="1.0" step="0.1" />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="xyz-row">
+                      <label>Back</label>
+                      <div class="xyz-inputs">
+                        <div class="xyz-field">
+                          <span class="xyz-col-label">U</span>
+                          <input type="number" id="extrudeScaleBackUInput" value="1.0" step="0.1" />
+                        </div>
+                        <div class="xyz-field">
+                          <span class="xyz-col-label">V</span>
+                          <input type="number" id="extrudeScaleBackVInput" value="1.0" step="0.1" />
                         </div>
                       </div>
                     </div>
@@ -13702,8 +13721,8 @@
         const f0 = frames[low];
         const f1 = frames[high];
 
-        if (f0.u === f1.u || clampedU <= f0.u) return { pos: f0.pos, side: f0.side, normal: f0.normal, scale: f0.scale };
-        if (clampedU >= f1.u) return { pos: f1.pos, side: f1.side, normal: f1.normal, scale: f1.scale };
+        if (f0.u === f1.u || clampedU <= f0.u) return { pos: f0.pos, side: f0.side, normal: f0.normal, scale: f0.scale, scaleU: f0.scaleU, scaleV: f0.scaleV };
+        if (clampedU >= f1.u) return { pos: f1.pos, side: f1.side, normal: f1.normal, scale: f1.scale, scaleU: f1.scaleU, scaleV: f1.scaleV };
 
         const alpha = (clampedU - f0.u) / (f1.u - f0.u);
         const pos = vectorAdd(vectorScale(f0.pos, 1 - alpha), vectorScale(f1.pos, alpha));
@@ -13714,8 +13733,15 @@
         const scale = (f0.scale !== undefined && f1.scale !== undefined)
           ? f0.scale * (1 - alpha) + f1.scale * alpha
           : (f0.scale !== undefined ? f0.scale : f1.scale);
+        // Per-axis taper (extrude only)
+        const scaleU = (f0.scaleU !== undefined && f1.scaleU !== undefined)
+          ? f0.scaleU * (1 - alpha) + f1.scaleU * alpha
+          : (f0.scaleU !== undefined ? f0.scaleU : f1.scaleU);
+        const scaleV = (f0.scaleV !== undefined && f1.scaleV !== undefined)
+          ? f0.scaleV * (1 - alpha) + f1.scaleV * alpha
+          : (f0.scaleV !== undefined ? f0.scaleV : f1.scaleV);
 
-        return { pos, side, normal, scale };
+        return { pos, side, normal, scale, scaleU, scaleV };
 
       }
 
@@ -13807,30 +13833,37 @@
       // Side=[1,0,0], Normal=[0,1,0] so profile (x,y) coords map directly to world X,Y.
       // Surface point: S(u,v) = [profile_x(v), profile_y(v), 0] + depth_offset(u) * extVec
       // symmetric: when true frames span -depth/2 → +depth/2 (instead of 0 → depth)
-      static generateLinearRail(vector, depth, symmetric = false, scaleFront = 1.0, scaleBack = 1.0) {
+      static generateLinearRail(vector, depth, symmetric = false, scaleFront = 1.0, scaleBack = 1.0, scaleFrontU, scaleFrontV, scaleBackU, scaleBackV) {
         const len = Math.sqrt(vector.x ** 2 + vector.y ** 2 + vector.z ** 2) || 1;
         const ex = vector.x / len, ey = vector.y / len, ez = vector.z / len;
         const totalLen = depth; // arc length equals depth
         const NFRAMES = 128;
         const frames = [];
         const depthStart = symmetric ? -depth / 2 : 0;
+        // Resolve per-axis scales (fall back to uniform scalar)
+        const sfU = scaleFrontU !== undefined ? scaleFrontU : scaleFront;
+        const sfV = scaleFrontV !== undefined ? scaleFrontV : scaleFront;
+        const sbU = scaleBackU !== undefined ? scaleBackU : scaleBack;
+        const sbV = scaleBackV !== undefined ? scaleBackV : scaleBack;
         for (let i = 0; i <= NFRAMES; i++) {
           const u = i / NFRAMES;
           const d = depthStart + u * depth;  // for symmetric: -depth/2 to +depth/2
-          // Linear taper: u=0 → scaleFront (front cap), u=1 → scaleBack (back cap)
-          const frameScale = scaleFront + (scaleBack - scaleFront) * u;
+          // Linear taper: u=0 → front scale, u=1 → back scale
+          const frameScaleU = sfU + (sbU - sfU) * u;
+          const frameScaleV = sfV + (sbV - sfV) * u;
           frames.push({
             u,                              // CRITICAL: required by getFrameAtU binary search
             pos: [ex * d, ey * d, ez * d],
             side: [1, 0, 0],
             normal: [0, 1, 0],
-            scale: frameScale             // Per-frame taper scale for sweepPoint
+            scaleU: frameScaleU,           // Per-frame taper: side axis
+            scaleV: frameScaleV            // Per-frame taper: normal axis
           });
         }
         return {
           id: '__extrudeRail__',
           _frameData: frames,
-          _frameKey: `extrude_${vector.x}_${vector.y}_${vector.z}_${depth}_${symmetric}_${scaleFront}_${scaleBack}`,
+          _frameKey: `extrude_${vector.x}_${vector.y}_${vector.z}_${depth}_${symmetric}_${sfU}_${sfV}_${sbU}_${sbV}`,
           _arcLengthData: { totalLength: totalLen },
           getWorldMatrix: null,
           position: [0, 0, 0],
@@ -14032,14 +14065,15 @@
           // Extrude path used as surface mapping target.
           // Generate/cache the synthetic linear rail (depth direction = U axis, profile = V).
           const es = surfacePath.extrudeSettings;
-          const railKey = `ext_${es.vector?.x}_${es.vector?.y}_${es.vector?.z}_${es.depth}_${es.symmetric}_${es.scaleFront || 1}_${es.scaleBack || 1}`;
+          const railKey = `ext_${es.vector?.x}_${es.vector?.y}_${es.vector?.z}_${es.depth}_${es.symmetric}_${es.scaleFront || 1}_${es.scaleBack || 1}_${es.scaleFrontU}_${es.scaleFrontV}_${es.scaleBackU}_${es.scaleBackV}`;
           if (!surfacePath._extrudeRail || surfacePath._extrudeRailKey !== railKey) {
             surfacePath._extrudeRail = SurfaceMapper.generateLinearRail(
               es.vector || { x: 0, y: 0, z: -1 },
               es.depth || 1,
               es.symmetric || false,
               es.scaleFront !== undefined ? es.scaleFront : 1.0,
-              es.scaleBack !== undefined ? es.scaleBack : 1.0
+              es.scaleBack !== undefined ? es.scaleBack : 1.0,
+              es.scaleFrontU, es.scaleFrontV, es.scaleBackU, es.scaleBackV
             );
             surfacePath._extrudeRailKey = railKey;
           }
@@ -18496,19 +18530,47 @@
 
             const v = this.extrudeSettings.vector || { x: 0, y: 0, z: -1 };
 
-            // Get Scales
-            const sf = this.extrudeSettings.scaleFront !== undefined ? this.extrudeSettings.scaleFront : 1.0;
-            const sb = this.extrudeSettings.scaleBack !== undefined ? this.extrudeSettings.scaleBack : 1.0;
-
-            const matSf = createScaleMatrix(sf, sf, 1);
-            const matSb = createScaleMatrix(sb, sb, 1);
-
-            // Normalize vector...
+            // Normalize vector first (needed by taper matrix below)
             const len = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
             const invLen = len > 0 ? 1 / len : 0;
             const nx = v.x * invLen;
             const ny = v.y * invLen;
             const nz = v.z * invLen;
+
+            // Get Scales — per-axis, falling back to uniform scalar
+            const sfUniform = this.extrudeSettings.scaleFront !== undefined ? this.extrudeSettings.scaleFront : 1.0;
+            const sbUniform = this.extrudeSettings.scaleBack !== undefined ? this.extrudeSettings.scaleBack : 1.0;
+            const sfU = this.extrudeSettings.scaleFrontU !== undefined ? this.extrudeSettings.scaleFrontU : sfUniform;
+            const sfV = this.extrudeSettings.scaleFrontV !== undefined ? this.extrudeSettings.scaleFrontV : sfUniform;
+            const sbU = this.extrudeSettings.scaleBackU !== undefined ? this.extrudeSettings.scaleBackU : sbUniform;
+            const sbV = this.extrudeSettings.scaleBackV !== undefined ? this.extrudeSettings.scaleBackV : sbUniform;
+
+            // Build direction-aware taper scale matrices.
+            // The scale must apply in the plane perpendicular to the extrude direction.
+            // We construct an orthonormal basis {u, vv} in that plane and build:
+            //   M = sU * (u⊗u) + sV * (vv⊗vv) + 1 * (n⊗n)
+            const buildTaperMatrix = (sU, sV) => {
+              if (sU === 1.0 && sV === 1.0) return createIdentityMatrix();
+              // Build orthonormal basis perpendicular to n = (nx, ny, nz)
+              const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+              let ref;
+              if (ax <= ay && ax <= az) ref = [1, 0, 0];
+              else if (ay <= ax && ay <= az) ref = [0, 1, 0];
+              else ref = [0, 0, 1];
+              const u = vectorNormalize(vectorCross(ref, [nx, ny, nz]));
+              const vv = vectorCross([nx, ny, nz], u);
+              const n = [nx, ny, nz];
+              // M_ij = sU * u_i*u_j + sV * vv_i*vv_j + n_i*n_j
+              const m = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,1]];
+              for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 3; j++) {
+                  m[i][j] = sU * u[i] * u[j] + sV * vv[i] * vv[j] + n[i] * n[j];
+                }
+              }
+              return m;
+            };
+            const matSf = buildTaperMatrix(sfU, sfV);
+            const matSb = buildTaperMatrix(sbU, sbV);
 
             const d = this.extrudeSettings.depth;
 
@@ -19139,7 +19201,7 @@
         return faces;
       }
 
-      processSilhouetteSegments(segments, eyeLocal, extrudeVector) {
+      processSilhouetteSegments(segments, eyeLocal, extrudeVector, taperInfo = null) {
         if (!eyeLocal || !extrudeVector) return segments;
 
         const processedSegments = [];
@@ -19173,10 +19235,21 @@
             const ty = 3 * mt2 * d0[1] + 6 * mt * t * d1[1] + 3 * t2 * d2[1];
             const tz = 3 * mt2 * d0[2] + 6 * mt * t * d1[2] + 3 * t2 * d2[2];
 
-            // 3. Normal = Tangent x ExtrudeVector
-            const nx = ty * E[2] - tz * E[1];
-            const ny = tz * E[0] - tx * E[2];
-            const nz = tx * E[1] - ty * E[0];
+            // 3. Sweep direction (accounts for taper: cone/frustum surfaces)
+            let sx, sy, sz;
+            if (taperInfo) {
+              const pu = taperInfo.u[0] * px + taperInfo.u[1] * py + taperInfo.u[2] * pz;
+              const pv = taperInfo.vv[0] * px + taperInfo.vv[1] * py + taperInfo.vv[2] * pz;
+              sx = taperInfo.depthVec[0] + taperInfo.deltaU * pu * taperInfo.u[0] + taperInfo.deltaV * pv * taperInfo.vv[0];
+              sy = taperInfo.depthVec[1] + taperInfo.deltaU * pu * taperInfo.u[1] + taperInfo.deltaV * pv * taperInfo.vv[1];
+              sz = taperInfo.depthVec[2] + taperInfo.deltaU * pu * taperInfo.u[2] + taperInfo.deltaV * pv * taperInfo.vv[2];
+            } else {
+              sx = E[0]; sy = E[1]; sz = E[2];
+            }
+            // Normal = Tangent x SweepDir
+            const nx = ty * sz - tz * sy;
+            const ny = tz * sx - tx * sz;
+            const nz = tx * sy - ty * sx;
 
             // 4. View Vector = Eye - P
             const vx = eyeLocal[0] - px;
@@ -20810,12 +20883,13 @@
         }
 
         // Cache / invalidate linear rail
-        const railKey = `ext_${vec.x}_${vec.y}_${vec.z}_${depth}_${es.symmetric}_${es.scaleFront || 1}_${es.scaleBack || 1}`;
+        const railKey = `ext_${vec.x}_${vec.y}_${vec.z}_${depth}_${es.symmetric}_${es.scaleFront || 1}_${es.scaleBack || 1}_${es.scaleFrontU}_${es.scaleFrontV}_${es.scaleBackU}_${es.scaleBackV}`;
         if (!this._extrudeRail || this._extrudeRailKey !== railKey) {
           this._extrudeRail = SurfaceMapper.generateLinearRail(
             vec, depth, es.symmetric || false,
             es.scaleFront !== undefined ? es.scaleFront : 1.0,
-            es.scaleBack !== undefined ? es.scaleBack : 1.0
+            es.scaleBack !== undefined ? es.scaleBack : 1.0,
+            es.scaleFrontU, es.scaleFrontV, es.scaleBackU, es.scaleBackV
           );
           this._extrudeRailKey = railKey;
         }
@@ -20950,10 +21024,13 @@
         const isExtrudeSurface = (railPath.id === '__extrudeRail__');
         const sweepPoint = (frame, pp) => {
           // Apply per-frame taper scale (used by extrude front/back scale).
-          // Other surface types don't set frame.scale, so this defaults to 1.0 (no change).
-          const frameScale = frame.scale !== undefined ? frame.scale : 1.0;
-          const sideScale = ((isRevolveSurface || isExtrudeSurface) ? pp[0] : -pp[0]) * frameScale;
-          const normalScale = pp[1] * frameScale;
+          // Per-axis: scaleU (side axis) and scaleV (normal axis) for independent taper.
+          // Falls back to uniform frame.scale for backward compat (revolve, regular sweep).
+          const defaultScale = frame.scale !== undefined ? frame.scale : 1.0;
+          const frameScaleU = frame.scaleU !== undefined ? frame.scaleU : defaultScale;
+          const frameScaleV = frame.scaleV !== undefined ? frame.scaleV : defaultScale;
+          const sideScale = ((isRevolveSurface || isExtrudeSurface) ? pp[0] : -pp[0]) * frameScaleU;
+          const normalScale = pp[1] * frameScaleV;
           const localPos = vectorAdd(
             frame.pos,
             vectorAdd(
@@ -23214,14 +23291,48 @@
         // 3. Extrude Vector
         const E = [this.extrudeSettings.vector.x, this.extrudeSettings.vector.y, this.extrudeSettings.vector.z];
 
+        // 4. Taper info for silhouette correction (cone/frustum shapes)
+        //    When front and back scales differ, the side surface is NOT parallel to E.
+        //    SweepDir(P) = depthVec + (M_back - M_front) * P, where the delta matrix
+        //    decomposes to deltaU*(u·P)*u + deltaV*(vv·P)*vv in the perpendicular plane.
+        let taperInfo = null;
+        {
+          const es = this.extrudeSettings;
+          const sfUniform = es.scaleFront !== undefined ? es.scaleFront : 1.0;
+          const sbUniform = es.scaleBack !== undefined ? es.scaleBack : 1.0;
+          const sfU = es.scaleFrontU !== undefined ? es.scaleFrontU : sfUniform;
+          const sfV = es.scaleFrontV !== undefined ? es.scaleFrontV : sfUniform;
+          const sbU = es.scaleBackU !== undefined ? es.scaleBackU : sbUniform;
+          const sbV = es.scaleBackV !== undefined ? es.scaleBackV : sbUniform;
+          if (sfU !== sbU || sfV !== sbV) {
+            const eLen = Math.sqrt(E[0]*E[0] + E[1]*E[1] + E[2]*E[2]) || 1;
+            const n = [E[0]/eLen, E[1]/eLen, E[2]/eLen];
+            const depth = es.depth || 1;
+            // Orthonormal basis perpendicular to n (same convention as buildTaperMatrix)
+            const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
+            let ref;
+            if (ax <= ay && ax <= az) ref = [1, 0, 0];
+            else if (ay <= ax && ay <= az) ref = [0, 1, 0];
+            else ref = [0, 0, 1];
+            const basisU = vectorNormalize(vectorCross(ref, n));
+            const basisV = vectorCross(n, basisU);
+            taperInfo = {
+              depthVec: [n[0]*depth, n[1]*depth, n[2]*depth],
+              u: basisU, vv: basisV,
+              deltaU: sbU - sfU, deltaV: sbV - sfV
+            };
+          }
+        }
+
         // Process Segments (Perspective Correct Silhouette)
-        // We pass 'eyeLocal' and 'extrudeVector' so the solver can compute (Tangent x Extrude) . (Eye - Point) dynamically.
-        const processedSegments = this.processSilhouetteSegments(segments, eyeLocal, E);
+        // We pass 'eyeLocal', 'extrudeVector', and taperInfo so the solver can compute
+        // (Tangent x SweepDir) . (Eye - Point) dynamically per profile point.
+        const processedSegments = this.processSilhouetteSegments(segments, eyeLocal, E, taperInfo);
 
         if (this.extrudeSettings.simpleSides) {
           // merged side faces
-          // v20260208_simpleSides: Pass eyeLocal and E for visibility split
-          const ribbons = this.generateSimpleSideRibbon(processedSegments, mvpFront, mvpBack, eyeLocal, E);
+          // v20260208_simpleSides: Pass eyeLocal, E, and taperInfo for visibility split
+          const ribbons = this.generateSimpleSideRibbon(processedSegments, mvpFront, mvpBack, eyeLocal, E, taperInfo);
           if (ribbons) {
             ribbons.forEach(ribbon => {
               const sidePath = createPath(ribbon.d);
@@ -23239,7 +23350,7 @@
       }
 
       // v20260208_simpleSides: Generate continuous ribbon paths, split by visibility horizons AND sharp corners
-      generateSimpleSideRibbon(segments, mvpFront, mvpBack, eyeLocal, extrudeVector) {
+      generateSimpleSideRibbon(segments, mvpFront, mvpBack, eyeLocal, extrudeVector, taperInfo = null) {
         if (!segments || segments.length === 0) return null;
 
         // We MUST NOT filter out degenerate segments here because it breaks the 1:1 topological
@@ -23351,10 +23462,19 @@
             const tx = p3[0] - p0[0]; const ty = p3[1] - p0[1]; const tz = (p3[2] || 0) - (p0[2] || 0);
             const px = (p0[0] + p3[0]) * 0.5; const py = (p0[1] + p3[1]) * 0.5; const pz = ((p0[2] || 0) + (p3[2] || 0)) * 0.5;
 
-            const E = extrudeVector;
-            const nx = ty * E[2] - tz * E[1];
-            const ny = tz * E[0] - tx * E[2];
-            const nz = tx * E[1] - ty * E[0];
+            let sx, sy, sz;
+            if (taperInfo) {
+              const pu = taperInfo.u[0] * px + taperInfo.u[1] * py + taperInfo.u[2] * pz;
+              const pv = taperInfo.vv[0] * px + taperInfo.vv[1] * py + taperInfo.vv[2] * pz;
+              sx = taperInfo.depthVec[0] + taperInfo.deltaU * pu * taperInfo.u[0] + taperInfo.deltaV * pv * taperInfo.vv[0];
+              sy = taperInfo.depthVec[1] + taperInfo.deltaU * pu * taperInfo.u[1] + taperInfo.deltaV * pv * taperInfo.vv[1];
+              sz = taperInfo.depthVec[2] + taperInfo.deltaU * pu * taperInfo.u[2] + taperInfo.deltaV * pv * taperInfo.vv[2];
+            } else {
+              sx = extrudeVector[0]; sy = extrudeVector[1]; sz = extrudeVector[2];
+            }
+            const nx = ty * sz - tz * sy;
+            const ny = tz * sx - tx * sz;
+            const nz = tx * sy - ty * sx;
 
             const vx = eyeLocal[0] - px;
             const vy = eyeLocal[1] - py;
@@ -23383,10 +23503,19 @@
             const py = 0.125 * (p0[1] + p3[1]) + 0.375 * (p1[1] + p2[1]);
             const pz = 0.125 * ((p0[2] || 0) + (p3[2] || 0)) + 0.375 * ((p1[2] || 0) + (p2[2] || 0));
 
-            const E = extrudeVector;
-            const nx = ty * E[2] - tz * E[1];
-            const ny = tz * E[0] - tx * E[2];
-            const nz = tx * E[1] - ty * E[0];
+            let sx2, sy2, sz2;
+            if (taperInfo) {
+              const pu = taperInfo.u[0] * px + taperInfo.u[1] * py + taperInfo.u[2] * pz;
+              const pv = taperInfo.vv[0] * px + taperInfo.vv[1] * py + taperInfo.vv[2] * pz;
+              sx2 = taperInfo.depthVec[0] + taperInfo.deltaU * pu * taperInfo.u[0] + taperInfo.deltaV * pv * taperInfo.vv[0];
+              sy2 = taperInfo.depthVec[1] + taperInfo.deltaU * pu * taperInfo.u[1] + taperInfo.deltaV * pv * taperInfo.vv[1];
+              sz2 = taperInfo.depthVec[2] + taperInfo.deltaU * pu * taperInfo.u[2] + taperInfo.deltaV * pv * taperInfo.vv[2];
+            } else {
+              sx2 = extrudeVector[0]; sy2 = extrudeVector[1]; sz2 = extrudeVector[2];
+            }
+            const nx = ty * sz2 - tz * sy2;
+            const ny = tz * sx2 - tx * sz2;
+            const nz = tx * sy2 - ty * sx2;
 
             const vx = eyeLocal[0] - px;
             const vy = eyeLocal[1] - py;
@@ -27860,16 +27989,41 @@
         vecZ.disabled = !isPath || !extrudeEnabledInput.checked;
       }
 
-      const scaleFrontInput = document.getElementById('extrudeScaleFrontInput');
-      const scaleBackInput = document.getElementById('extrudeScaleBackInput');
+      const scaleFrontUInput = document.getElementById('extrudeScaleFrontUInput');
+      const scaleFrontVInput = document.getElementById('extrudeScaleFrontVInput');
+      const scaleBackUInput = document.getElementById('extrudeScaleBackUInput');
+      const scaleBackVInput = document.getElementById('extrudeScaleBackVInput');
+      const taperLinkedInput = document.getElementById('extrudeTaperLinkedInput');
 
-      if (document.activeElement !== scaleFrontInput) {
-        scaleFrontInput.value = isPath && selectedObject.extrudeSettings?.scaleFront !== undefined ? selectedObject.extrudeSettings.scaleFront : 1.0;
-        scaleFrontInput.disabled = !isPath || !extrudeEnabledInput.checked;
+      const es = isPath ? selectedObject.extrudeSettings : null;
+      const extEnabled = isPath && extrudeEnabledInput.checked;
+      // Resolve displayed values: per-axis overrides uniform scalar
+      const sfUniform = es?.scaleFront !== undefined ? es.scaleFront : 1.0;
+      const sbUniform = es?.scaleBack !== undefined ? es.scaleBack : 1.0;
+      const displaySfU = es?.scaleFrontU !== undefined ? es.scaleFrontU : sfUniform;
+      const displaySfV = es?.scaleFrontV !== undefined ? es.scaleFrontV : sfUniform;
+      const displaySbU = es?.scaleBackU !== undefined ? es.scaleBackU : sbUniform;
+      const displaySbV = es?.scaleBackV !== undefined ? es.scaleBackV : sbUniform;
+
+      if (document.activeElement !== taperLinkedInput) {
+        taperLinkedInput.checked = es?.taperLinked !== false; // default to linked
+        taperLinkedInput.disabled = !extEnabled;
       }
-      if (document.activeElement !== scaleBackInput) {
-        scaleBackInput.value = isPath && selectedObject.extrudeSettings?.scaleBack !== undefined ? selectedObject.extrudeSettings.scaleBack : 1.0;
-        scaleBackInput.disabled = !isPath || !extrudeEnabledInput.checked;
+      if (document.activeElement !== scaleFrontUInput) {
+        scaleFrontUInput.value = displaySfU;
+        scaleFrontUInput.disabled = !extEnabled;
+      }
+      if (document.activeElement !== scaleFrontVInput) {
+        scaleFrontVInput.value = displaySfV;
+        scaleFrontVInput.disabled = !extEnabled;
+      }
+      if (document.activeElement !== scaleBackUInput) {
+        scaleBackUInput.value = displaySbU;
+        scaleBackUInput.disabled = !extEnabled;
+      }
+      if (document.activeElement !== scaleBackVInput) {
+        scaleBackVInput.value = displaySbV;
+        scaleBackVInput.disabled = !extEnabled;
       }
 
       const simpleSidesInput = document.getElementById('extrudeSimpleSidesInput');
@@ -30149,6 +30303,7 @@
     const updateStyleFromInput = (event) => {
       // Coalesced undo snapshot for style/settings changes
       if (event && selectedObjects.length > 0) pushUndoStateCoalesced();
+      const targetId = event && event.target ? event.target.id : null;
       /*
         Style Updating Logic:
         1. Gather values from DOM inputs.
@@ -30178,8 +30333,11 @@
       const vecXInput = document.getElementById('extrudeVecXInput');
       const vecYInput = document.getElementById('extrudeVecYInput');
       const vecZInput = document.getElementById('extrudeVecZInput');
-      const scaleFrontInput = document.getElementById('extrudeScaleFrontInput');
-      const scaleBackInput = document.getElementById('extrudeScaleBackInput');
+      const scaleFrontUInput = document.getElementById('extrudeScaleFrontUInput');
+      const scaleFrontVInput = document.getElementById('extrudeScaleFrontVInput');
+      const scaleBackUInput = document.getElementById('extrudeScaleBackUInput');
+      const scaleBackVInput = document.getElementById('extrudeScaleBackVInput');
+      const taperLinkedInput = document.getElementById('extrudeTaperLinkedInput');
       const simpleSidesInput = document.getElementById('extrudeSimpleSidesInput');
       const sideColorEnabledInput = document.getElementById('extrudeSideColorEnabledInput');
       const sideColorInput = document.getElementById('extrudeSideColorInput');
@@ -30198,8 +30356,25 @@
       const extrudeCapFront = extrudeCapFrontInput.checked;
       const extrudeCapBack = extrudeCapBackInput.checked;
       const simpleSides = simpleSidesInput.checked;
-      const scaleFront = parseFloat(scaleFrontInput.value) || 1.0;
-      const scaleBack = parseFloat(scaleBackInput.value) || 1.0;
+      const taperLinked = taperLinkedInput.checked;
+      let scaleFrontU = parseFloat(scaleFrontUInput.value);
+      let scaleFrontV = parseFloat(scaleFrontVInput.value);
+      let scaleBackU = parseFloat(scaleBackUInput.value);
+      let scaleBackV = parseFloat(scaleBackVInput.value);
+      if (isNaN(scaleFrontU)) scaleFrontU = 1.0;
+      if (isNaN(scaleFrontV)) scaleFrontV = 1.0;
+      if (isNaN(scaleBackU)) scaleBackU = 1.0;
+      if (isNaN(scaleBackV)) scaleBackV = 1.0;
+      // When linked, sync U↔V based on which input was just changed
+      if (taperLinked && targetId) {
+        if (targetId === 'extrudeScaleFrontUInput') { scaleFrontV = scaleFrontU; scaleFrontVInput.value = scaleFrontU; }
+        else if (targetId === 'extrudeScaleFrontVInput') { scaleFrontU = scaleFrontV; scaleFrontUInput.value = scaleFrontV; }
+        else if (targetId === 'extrudeScaleBackUInput') { scaleBackV = scaleBackU; scaleBackVInput.value = scaleBackU; }
+        else if (targetId === 'extrudeScaleBackVInput') { scaleBackU = scaleBackV; scaleBackUInput.value = scaleBackV; }
+      }
+      // Uniform scalars (backward compat): when linked, both axes are the same
+      const scaleFront = taperLinked ? scaleFrontU : 1.0;
+      const scaleBack = taperLinked ? scaleBackU : 1.0;
       const useSideColor = sideColorEnabledInput.checked;
       const sideColor = sideColorInput.value;
 
@@ -30250,7 +30425,6 @@
       let vecY = parseFloat(vecYInput.value) || 0;
       let vecZ = parseFloat(vecZInput.value) || 0;
 
-      const targetId = event && event.target ? event.target.id : null;
 
       // Auto-set vector to workplane normal when enabling
       if (targetId === 'extrudeEnabledInput' && extrudeEnabled) {
@@ -30408,6 +30582,11 @@
           obj.extrudeSettings.vector = { x: vecX, y: vecY, z: vecZ };
           obj.extrudeSettings.scaleFront = scaleFront;
           obj.extrudeSettings.scaleBack = scaleBack;
+          obj.extrudeSettings.scaleFrontU = scaleFrontU;
+          obj.extrudeSettings.scaleFrontV = scaleFrontV;
+          obj.extrudeSettings.scaleBackU = scaleBackU;
+          obj.extrudeSettings.scaleBackV = scaleBackV;
+          obj.extrudeSettings.taperLinked = taperLinked;
           obj.extrudeSettings.useSideColor = useSideColor;
           obj.extrudeSettings.sideColor = sideColor;
           // Render mode (replaces old cleanRender checkbox)
@@ -30697,8 +30876,11 @@
     document.getElementById('extrudeVecXInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('extrudeVecYInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('extrudeVecZInput').addEventListener('input', updateStyleFromInput);
-    document.getElementById('extrudeScaleFrontInput').addEventListener('input', updateStyleFromInput);
-    document.getElementById('extrudeScaleBackInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('extrudeScaleFrontUInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('extrudeScaleFrontVInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('extrudeScaleBackUInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('extrudeScaleBackVInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('extrudeTaperLinkedInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('extrudeSideColorEnabledInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('extrudeSideColorInput').addEventListener('input', function (e) {
       document.getElementById('extrudeSideColorHexInput').value = this.value.slice(1).toUpperCase();

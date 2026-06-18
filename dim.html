@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260618a -->
+<!-- dim v20260618b -->
 <!--
   MIT License
 
@@ -27099,14 +27099,17 @@
     };
 
     const setSelectedObject = (obj, multiSelect = false) => {
-      // Logic: If deselecting or switching unique selection, save the current object's style
-      // Logic: If deselecting or switching unique selection, save the current object's style
+      // Logic: If deselecting or switching unique selection, save the current object's style.
+      // EXCEPTION: When a drawing tool is active, currentStyle is managed by the tool's own
+      // panel sync (doodle stroke color, spiral settings, etc.). Overwriting it here with the
+      // departing object's style would cause the next drawn object to use the wrong style.
+      const _isDrawingTool = currentTool && ['pen', 'polygon', 'star', 'ellipse', 'doodle', 'pixelArt', 'spiral', 'cycloid', 'lissajous'].includes(currentTool);
       if (selectedObject && (!obj || (obj !== selectedObject && !multiSelect))) {
-        if (selectedObject.style) {
+        if (!_isDrawingTool && selectedObject.style) {
           currentStyle = JSON.parse(JSON.stringify(selectedObject.style)); // Deep copy style
         }
         // If no style (e.g. Group), keep previous currentStyle or do nothing.
-        if (selectedObject instanceof Path && selectedObject.algorithm) {
+        if (!_isDrawingTool && selectedObject instanceof Path && selectedObject.algorithm) {
           currentAlgorithm = selectedObject.algorithm;
         }
 

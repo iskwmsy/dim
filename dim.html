@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260621a -->
+<!-- dim v20260624e -->
 <!--
   MIT License
 
@@ -121,9 +121,9 @@
       /* Typography — Three-tier hierarchy */
       --font-family-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       --font-size-panel-title: 14px;
-      --font-size-section: 13px;
+      --font-size-section: 14px;
       /* Section titles: Transform, Style, 3D Settings */
-      --font-size-subsection: 12px;
+      --font-size-subsection: 11px;
       /* Subsection: Pivot, Face Camera, Move Delta */
       --font-size-field: 11px;
       /* Field labels, input text, toggles */
@@ -160,11 +160,13 @@
 
       /* Layout */
       --toolbar-width: 48px;
+      --timeline-height: 0px;
 
       /* Dimensions */
-      --radius-sm: 8px;
-      --radius-md: 6px;
-      --radius-lg: 8px;
+      --radius-sm: 2px;
+      --radius-md: 2px;
+      --radius-lg: 2px;
+      --radius-btn: 8px;
       --panel-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
       --row-bg: transparent;
 
@@ -449,7 +451,7 @@
     #selectedObjectContent>.obj-tab-content>.tool-panel-label {
       display: block;
       font-size: var(--font-size-section);
-      font-weight: 400;
+      font-weight: 500;
       text-transform: none;
       letter-spacing: 0;
       color: var(--accent-color);
@@ -467,7 +469,7 @@
       color: var(--text-main);
       font-size: var(--font-size-label);
       pointer-events: none;
-      max-height: 100vh;
+      max-height: calc(100vh - var(--timeline-height));
       overflow-y: auto;
       margin: 0;
       z-index: 11;
@@ -480,7 +482,7 @@
     /* Tool Drawer — bottom-pinned collapsible panel */
     #toolDrawer {
       position: absolute;
-      bottom: 0;
+      bottom: var(--timeline-height);
       left: calc(var(--toolbar-width) + 70px);
       width: 280px;
       background-color: var(--bg-panel);
@@ -644,7 +646,7 @@
       color: var(--text-main);
       font-size: var(--font-size-label);
       pointer-events: none;
-      max-height: 100vh;
+      max-height: calc(100vh - var(--timeline-height));
       overflow-y: scroll;
       margin: 0;
     }
@@ -1015,11 +1017,11 @@
     /* Selected Object Tab Bar — pinned at top of section */
     #selectedObjectTabBar {
       display: flex;
-      border-top: none;
-      border-bottom: 1px solid var(--border-light);
+      gap: 0;
       padding: 0;
-      margin: 0 -10px;
-      /* Negative margin to span full width despite parent padding */
+      margin: 0;
+      border-bottom: 1px solid var(--border-light);
+      flex-shrink: 0;
     }
 
     .obj-tab {
@@ -1031,17 +1033,23 @@
       border: none;
       background: transparent;
       cursor: pointer;
-      color: #999;
-      transition: color 0.15s;
+      color: var(--text-muted);
+      transition: color 0.15s, background 0.15s;
       padding: 0;
     }
 
     .obj-tab:hover {
       color: var(--text-main);
+      background: rgba(0, 0, 0, 0.04);
     }
 
     .obj-tab.active {
       color: var(--accent-color);
+    }
+
+    .obj-tab svg {
+      width: 20px;
+      height: 20px;
     }
 
     /* Tool drawer collapse chevron — white, right-aligned */
@@ -1064,11 +1072,6 @@
       background: rgba(255, 255, 255, 0.15);
     }
 
-    .obj-tab svg {
-      width: 20px;
-      height: 20px;
-    }
-
     .obj-tab-content {
       display: none;
     }
@@ -1089,6 +1092,48 @@
     /* Progressive disclosure for 3D feature toggles */
     .feature-params.collapsed {
       display: none;
+    }
+
+    /* Two-tier disclosure for advanced params */
+    .feature-disclosure {
+      margin-top: 6px;
+      border-top: 1px solid var(--border-light);
+      padding-top: 6px;
+    }
+
+    .feature-disclosure > summary {
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 0;
+      margin-top: 0;
+      padding-top: 0;
+      border-top: none;
+      user-select: none;
+    }
+
+    .feature-disclosure > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .feature-disclosure > summary::before {
+      content: '▸';
+      display: inline-block;
+      font-size: 10px;
+      color: var(--text-secondary);
+      transition: transform 0.15s ease;
+      flex-shrink: 0;
+      width: 10px;
+    }
+
+    .feature-disclosure[open] > summary::before {
+      transform: rotate(90deg);
+    }
+
+    .feature-disclosure[open] > summary {
+      margin-bottom: var(--row-gap);
     }
 
     /* Integrated feature toggle header */
@@ -1169,16 +1214,27 @@
     .prop-inline {
       display: flex;
       align-items: center;
-      justify-content: space-between;
     }
 
     .prop-inline>label {
-      flex-shrink: 0;
-      min-width: 56px;
+      flex: 1;
       color: var(--text-muted);
       font-weight: 500;
       font-size: var(--font-size-field);
       margin: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* When paired with an input/select/color, fix label to 68px column */
+    .prop-inline:has(> .ui-input, > .ui-select, > .ui-input-color, > .num-spin-wrap)>label {
+      flex: 0 0 68px;
+    }
+
+    .prop-inline>.ui-checkbox,
+    .prop-inline>.ui-label-switch {
+      margin-left: auto;
     }
 
     .prop-inline>.ui-input,
@@ -1301,6 +1357,7 @@
     }
 
     .num-spin-wrap>input[type="number"]:focus {
+      outline: none;
       background: rgba(255, 255, 255, 1);
       position: relative;
       z-index: 1;
@@ -1496,6 +1553,13 @@
       z-index: 1;
     }
 
+    .slider-fill>label {
+      flex: 0 0 68px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     .slider-fill input[type="range"] {
       display: none;
     }
@@ -1536,7 +1600,7 @@
       width: 28px;
       height: 28px;
       border: 1px solid var(--border-light);
-      border-radius: 6px;
+      border-radius: 2px;
       padding: 2px;
       background: none;
       cursor: pointer;
@@ -1545,17 +1609,17 @@
 
     input[type="color"]::-webkit-color-swatch-wrapper {
       padding: 0;
-      border-radius: 4px;
+      border-radius: 2px;
     }
 
     input[type="color"]::-webkit-color-swatch {
       border: none;
-      border-radius: 4px;
+      border-radius: 2px;
     }
 
     input[type="color"]::-moz-color-swatch {
       border: none;
-      border-radius: 4px;
+      border-radius: 2px;
     }
 
     /* SEGMENTED OFF/ON TOGGLE (DialKit-style) */
@@ -1653,7 +1717,7 @@
       padding: var(--row-padding-v) 12px;
       color: var(--btn-text);
       border: none;
-      border-radius: var(--radius-sm);
+      border-radius: var(--radius-btn);
       cursor: pointer;
       font-size: var(--font-size-btn);
       font-weight: 500;
@@ -2088,12 +2152,18 @@
     }
 
     .style-row>label {
-      flex: 0 0 auto;
-      min-width: 56px;
+      flex: 1;
       color: var(--text-muted);
       font-size: var(--font-size-field);
       font-weight: 500;
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Pin label to fixed column when row has multiple inputs (number, color, hex) */
+    .style-row:has(> input[type="number"], > .num-spin-wrap, > .color-hex-input, > input[type="color"])>label {
+      flex: 0 0 68px;
     }
 
     .style-row .ui-checkbox {
@@ -2119,15 +2189,14 @@
       margin-left: auto;
     }
 
-    .style-row>label+input[type="number"] {
-      margin-left: auto;
-    }
+    /* .style-row > label + .num-spin-wrap handled at line ~1389 */
 
-    .style-row input[type="number"]+.axis-label {
+    .style-row .num-spin-wrap+.axis-label {
       margin-left: 6px;
     }
 
-    .style-row input[type="number"],
+    /* Number inputs: styled by .num-spin-wrap > input (init wraps all).
+       Wrapper sizing at .style-row .num-spin-wrap (line ~1383). */
     .style-row .color-hex-input {
       border: none;
       border-radius: 0;
@@ -2145,17 +2214,10 @@
       font-family: var(--font-family-sans);
     }
 
-    .style-row input[type="number"] {
-      width: 50px;
-      flex-shrink: 0;
-    }
-
-    .style-row input[type="number"]:hover,
     .style-row .color-hex-input:hover {
       background: rgba(255, 255, 255, 0.95);
     }
 
-    .style-row input[type="number"]:focus,
     .style-row .color-hex-input:focus {
       outline: none;
       background: rgba(255, 255, 255, 1);
@@ -2244,12 +2306,13 @@
     }
 
     .xyz-row>label {
-      flex: 0 0 auto;
-      min-width: 56px;
+      flex: 0 0 68px;
       color: var(--text-muted);
       font-size: var(--font-size-field);
       font-weight: 500;
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .xyz-row>.xyz-inputs {
@@ -2471,7 +2534,7 @@
 
     .xyz-row>.xyz-inputs>input[type="color"]::-webkit-color-swatch {
       border: none;
-      border-radius: 4px;
+      border-radius: 2px;
     }
 
     /* ── Color input inside xyz-field ── */
@@ -2491,7 +2554,7 @@
 
     .xyz-row>.xyz-inputs>.xyz-field>input[type="color"]::-webkit-color-swatch {
       border: none;
-      border-radius: 3px;
+      border-radius: 2px;
     }
 
     /* ── Semantic color swatch variants ── */
@@ -2733,7 +2796,7 @@
       margin-bottom: var(--space-md);
       padding: var(--space-md);
       background: var(--bg-panel-inner, rgba(0, 0, 0, 0.5));
-      border-radius: 4px;
+      border-radius: 2px;
       pointer-events: auto;
     }
 
@@ -3022,8 +3085,7 @@
 
     #vertexGizmoGroup circle.draw-point {
       stroke-width: 1px;
-      stroke: black;
-      stroke-opacity: 0.5;
+      stroke: rgba(0, 0, 0, 0.5);
     }
 
     #vertexGizmoGroup text.vertex-index-label {
@@ -3085,6 +3147,560 @@
 
     .remove-btn:hover {
       background: #663333 !important;
+    }
+
+    /* ═══════════════════════════════════════════
+       ANIMATION TIMELINE PANEL
+       ═══════════════════════════════════════════ */
+    #timelinePanel {
+      position: fixed;
+      bottom: 0;
+      left: var(--toolbar-width);
+      right: 0;
+      z-index: 500;
+      font-family: var(--font-family-sans);
+      font-size: var(--font-size-field);
+      color: var(--text-main);
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border-light);
+      transition: height 0.2s ease;
+      display: none;
+      /* Hidden by default; enabled via Settings > Animation */
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #timelinePanel.collapsed {
+      height: 32px;
+    }
+
+    #timelinePanel.expanded {
+      height: 176px;
+    }
+
+    /* --- Header Bar --- */
+    .tl-header {
+      display: flex;
+      align-items: center;
+      height: 32px;
+      min-height: 32px;
+      padding: 0 8px;
+      gap: 4px;
+      border-bottom: 1px solid var(--border-light);
+      cursor: pointer;
+      user-select: none;
+      background: var(--bg-panel);
+    }
+
+    .tl-header-title {
+      font-size: var(--font-size-section);
+      font-weight: 500;
+      color: var(--accent-color);
+      margin-right: 8px;
+      pointer-events: none;
+    }
+
+    .tl-transport-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border: none;
+      background: transparent;
+      color: var(--text-main);
+      border-radius: var(--radius-btn);
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .tl-transport-btn:hover {
+      background: var(--border-light);
+    }
+
+    .tl-transport-btn.active {
+      background: var(--accent-color);
+      color: white;
+    }
+
+    .tl-transport-btn svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .tl-separator {
+      width: 1px;
+      height: 18px;
+      background: var(--border-light);
+      margin: 0 6px;
+    }
+
+    .tl-frame-display {
+      font-size: var(--font-size-field);
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-left: auto;
+      font-variant-numeric: tabular-nums;
+      font-family: var(--font-family-sans);
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Stale bare-input rules removed — .num-spin-wrap overrides below handle all timeline inputs */
+
+    /* Override global .num-spin-wrap styles for timeline header inputs */
+    .tl-frame-display .num-spin-wrap {
+      display: inline-flex;
+      width: auto;
+    }
+
+    .tl-frame-display .num-spin-wrap>input[type="number"] {
+      width: 48px;
+      height: 21px;
+      padding: 0 12px 0 4px;
+      border: none;
+      background: var(--bg-input);
+      border-radius: 0;
+      font-size: var(--font-size-field);
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      font-family: var(--font-family-sans);
+      text-align: right;
+      color: var(--text-main);
+      box-sizing: border-box;
+      line-height: 1;
+    }
+
+    .tl-frame-display .num-spin-wrap>input[type="number"]#tlPlaybackRange,
+    .tl-frame-display .num-spin-wrap>input[type="number"]#tlFpsInput {
+      width: 44px;
+    }
+
+    .tl-frame-display .num-spin-wrap>input[type="number"]:hover {
+      background: rgba(255, 255, 255, 0.95);
+    }
+
+    .tl-frame-display .num-spin-wrap>input[type="number"]:focus {
+      outline: none;
+      background: rgba(255, 255, 255, 1);
+      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+    }
+
+    .tl-checkbox-label {
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+      margin-left: 8px;
+      font-size: var(--font-size-field);
+      color: var(--text-secondary);
+    }
+
+    .tl-checkbox-label .ui-checkbox {
+      width: 14px;
+      height: 14px;
+    }
+
+    .tl-out-of-range {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.08);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* --- Body (ruler + tracks) --- */
+    .tl-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* --- Ruler --- */
+    .tl-ruler-row {
+      display: flex;
+      height: 20px;
+      min-height: 20px;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .tl-track-label-spacer {
+      width: 160px;
+      min-width: 160px;
+      border-right: 1px solid var(--border-light);
+    }
+
+    .tl-ruler {
+      flex: 1;
+      position: relative;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .tl-ruler canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* --- Track Area --- */
+    .tl-tracks-container {
+      display: flex;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .tl-track-labels {
+      width: 160px;
+      min-width: 160px;
+      border-right: 1px solid var(--border-light);
+    }
+
+    .tl-track-label {
+      height: var(--row-height);
+      line-height: var(--row-height);
+      padding: 0 8px;
+      font-size: var(--font-size-small);
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: visible;
+      text-overflow: ellipsis;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+      cursor: default;
+    }
+
+    .tl-track-label.selected {
+      color: var(--accent-color);
+      font-weight: 600;
+    }
+
+    /* Group header (Camera / Object name) — collapsible */
+    .tl-group-header {
+      height: var(--row-height);
+      line-height: var(--row-height);
+      padding: 0 4px 0 8px;
+      font-size: var(--font-size-field);
+      color: var(--text-main);
+      font-weight: 600;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      user-select: none;
+    }
+
+    .tl-group-header:hover {
+      background: rgba(0, 0, 0, 0.03);
+    }
+
+    .tl-group-header.selected {
+      color: var(--accent-color);
+    }
+
+    .tl-group-toggle {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+      transition: transform 0.15s;
+      color: var(--text-muted);
+    }
+
+    .tl-group-toggle svg {
+      width: 12px;
+      height: 12px;
+      display: block;
+    }
+
+    .tl-group-header.collapsed .tl-group-toggle {
+      transform: rotate(-90deg);
+    }
+
+    /* Sub-group header (Transform / Spiral / Cycloid / Lissajous) */
+    .tl-subgroup-header {
+      height: 22px;
+      line-height: 22px;
+      padding: 0 4px 0 20px;
+      font-size: 10px;
+      color: var(--text-secondary);
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      user-select: none;
+    }
+
+    .tl-subgroup-header:hover {
+      background: rgba(0, 0, 0, 0.02);
+    }
+
+    .tl-subgroup-header.collapsed .tl-group-toggle {
+      transform: rotate(-90deg);
+    }
+
+    .tl-group-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .tl-key-all-btn {
+      width: 14px;
+      height: 14px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      padding: 0;
+      font-size: 10px;
+      line-height: 14px;
+      color: var(--text-secondary);
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .tl-key-all-btn:hover {
+      background: rgba(0, 0, 0, 0.08);
+      color: var(--accent-color);
+    }
+
+    .tl-key-single-btn {
+      width: 14px;
+      height: 14px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      padding: 0;
+      color: var(--text-muted);
+      border-radius: 2px;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: auto;
+    }
+
+    .tl-key-single-btn svg {
+      width: 10px;
+      height: 10px;
+    }
+
+    .tl-key-single-btn:hover {
+      background: rgba(0, 0, 0, 0.08);
+      color: var(--accent-color);
+    }
+
+    /* Sub-track label */
+    .tl-sub-track {
+      padding-left: 20px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .tl-sub-track .tl-track-name {
+      width: 36px;
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Timeline num-spin-wrap sizing — inherits global input/overlay styles */
+    .tl-sub-track .num-spin-wrap {
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* Collapsed sub-tracks hidden */
+    .tl-sub-track.tl-collapsed,
+    .tl-track-row.tl-collapsed,
+    .tl-subgroup-header.tl-collapsed {
+      display: none;
+    }
+
+    .tl-tracks-area {
+      flex: 1;
+      position: relative;
+      overflow: visible;
+    }
+
+    .tl-track-row {
+      height: var(--row-height);
+      position: relative;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+    }
+
+    /* --- Keyframe Diamond --- */
+    .tl-keyframe {
+      position: absolute;
+      top: 50%;
+      width: 8px;
+      height: 8px;
+      background: #999;
+      transform: translate(-50%, -50%) rotate(45deg);
+      cursor: grab;
+      border-radius: 1px;
+      z-index: 1;
+      transition: transform 0.1s, box-shadow 0.1s, background 0.1s;
+    }
+
+    .tl-keyframe:hover {
+      background: #777;
+      transform: translate(-50%, -50%) rotate(45deg) scale(1.3);
+    }
+
+    .tl-keyframe.selected {
+      background: var(--accent-color);
+    }
+
+    .tl-keyframe.selected:hover {
+      background: var(--accent-color-hover);
+    }
+
+    .tl-keyframe.dragging {
+      cursor: grabbing;
+      z-index: 10;
+      transform: translate(-50%, -50%) rotate(45deg) scale(1.4);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+      transition: none;
+    }
+
+    .tl-keyframe-ghost {
+      position: absolute;
+      top: 50%;
+      width: 8px;
+      height: 8px;
+      background: #999;
+      transform: translate(-50%, -50%) rotate(45deg);
+      border-radius: 1px;
+      opacity: 0.25;
+      pointer-events: none;
+    }
+
+    /* Step keyframe — square (no rotation) */
+    .tl-keyframe.step {
+      transform: translate(-50%, -50%);
+      width: 7px;
+      height: 7px;
+      border-radius: 1px;
+    }
+
+    .tl-keyframe.step:hover {
+      transform: translate(-50%, -50%) scale(1.3);
+    }
+
+    .tl-keyframe.step.dragging {
+      transform: translate(-50%, -50%) scale(1.4);
+    }
+
+    .tl-keyframe-ghost.step {
+      transform: translate(-50%, -50%);
+      width: 7px;
+      height: 7px;
+    }
+
+    /* --- Keyframe Context Menu (Popover + Anchor Positioning) --- */
+    #tlKeyframeMenu {
+      position: fixed;
+      position-anchor: --tl-kf-anchor;
+      position-area: bottom;
+      position-try-fallbacks: flip-block;
+      margin: 4px 0 0 0;
+      padding: 4px;
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      background: var(--bg-panel);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      min-width: 120px;
+      z-index: 100;
+    }
+
+    #tlKeyframeMenu::backdrop {
+      background: transparent;
+    }
+
+    #tlKeyframeMenu button {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      padding: 5px 10px;
+      border: none;
+      background: none;
+      border-radius: var(--radius-sm);
+      font-size: var(--font-size-small);
+      font-family: var(--font-family-sans);
+      color: var(--text-main);
+      cursor: pointer;
+      text-align: left;
+    }
+
+    #tlKeyframeMenu button:hover {
+      background: rgba(0, 0, 0, 0.06);
+    }
+
+    #tlKeyframeMenu button.active {
+      color: var(--accent-color);
+      font-weight: 600;
+    }
+
+    /* --- Playhead --- */
+    .tl-playhead {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: var(--accent-color);
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .tl-playhead::before {
+      content: '';
+      position: absolute;
+      top: -1px;
+      left: -5px;
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 6px solid var(--accent-color);
+    }
+
+    /* Ruler playhead (in ruler area) */
+    .tl-ruler-playhead {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: var(--accent-color);
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .tl-ruler-playhead::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -4px;
+      width: 0;
+      height: 0;
+      border-left: 4px solid transparent;
+      border-right: 4px solid transparent;
+      border-top: 5px solid var(--accent-color);
+    }
+
+    .tl-key-single-btn.has-keyframe svg {
+      fill: var(--accent-color);
+      stroke: var(--accent-color);
     }
   </style>
 </head>
@@ -3934,6 +4550,12 @@
           <span id="webgpuStatus"
             style="font-size:10px; color:var(--text-muted); margin-left:auto; margin-right:6px;">Checking…</span>
           <input type="checkbox" id="webgpuEnabledCb" class="ui-checkbox" disabled />
+        </div>
+
+        <div class="prop-row prop-inline">
+          <label for="animationEnabledCb" class="ui-checkbox-label">Animation <span
+              style="font-size:10px; color:var(--text-muted);">(experimental)</span></label>
+          <input type="checkbox" id="animationEnabledCb" class="ui-checkbox" />
         </div>
 
         <div class="prop-row prop-row-plain" style="margin-top: 8px;">
@@ -4817,8 +5439,9 @@
           <polyline points="4.5 8.5 10 14.5 15.5 8.5" />
         </svg></div>
       <div class="collapsible-body" id="cb-selected-object">
-        <!-- Selected Object Tab Bar — pinned at top of section -->
-        <div id="selectedObjectTabBar" style="display: none;">
+        <div id="selectedObjectPanel" class="ui-panel">
+          <div id="selectedObjectBody">
+            <div id="selectedObjectTabBar" style="display: none;">
           <button class="obj-tab active" data-obj-panel="sub-transform" title="Transform">
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="7.5 4.5 10 2 12.5 4.5" />
@@ -4831,7 +5454,7 @@
           </button>
           <button class="obj-tab" data-obj-panel="sub-style" title="Style">
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-miterlimit="10">
-              <polygon fill="currentColor" stroke="currentColor" points="7 7 7 13 3 13 3 3 13 3 13 7 7 7" />
+              <rect x="3" y="3" width="10" height="10" />
               <rect x="7" y="7" width="10" height="10" />
             </svg>
           </button>
@@ -4843,22 +5466,17 @@
             </svg>
           </button>
           <button class="obj-tab" data-obj-panel="sub-3d-mapping" title="3D Mapping">
-            <svg viewBox="0 0 20 20" fill="currentColor" stroke="currentColor" stroke-linecap="round"
-              stroke-miterlimit="10">
-              <rect fill="currentColor" stroke="none" x="6.5" y="6.5" width="3.5" height="3.5" />
-              <rect fill="currentColor" stroke="none" x="3" y="3" width="3.5" height="3.5" />
-              <rect fill="currentColor" stroke="none" x="10" y="3" width="3.5" height="3.5" />
-              <rect fill="currentColor" stroke="none" x="10" y="10" width="3.5" height="3.5" />
-              <rect fill="currentColor" stroke="none" x="13.5" y="6.5" width="3.5" height="3.5" />
-              <rect fill="currentColor" stroke="none" x="3" y="10" width="3.5" height="3.5" />
-              <rect fill="currentColor" stroke="none" x="13.5" y="13.5" width="3.5" height="3.5" />
-              <rect fill="currentColor" stroke="none" x="6.5" y="13.5" width="3.5" height="3.5" />
-              <rect fill="none" stroke="currentColor" x="3" y="3" width="14" height="14" />
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-miterlimit="10">
+              <rect x="3" y="3" width="14" height="14" />
+              <line x1="3" y1="10" x2="17" y2="10" />
+              <line x1="10" y1="3" x2="10" y2="17" />
+              <line x1="3" y1="6.5" x2="17" y2="6.5" />
+              <line x1="3" y1="13.5" x2="17" y2="13.5" />
+              <line x1="6.5" y1="3" x2="6.5" y2="17" />
+              <line x1="13.5" y1="3" x2="13.5" y2="17" />
             </svg>
           </button>
         </div>
-        <div id="selectedObjectPanel" class="ui-panel">
-          <div id="selectedObjectBody">
 
             <div id="selectedObjectContent" style="display:none;">
 
@@ -5018,43 +5636,39 @@
                       value="1.0" />
                   </div>
 
-                  <div class="xyz-row" id="fillRuleRow">
-                    <label for="fillRuleInput">Rule</label>
+                  <div class="xyz-row" id="ruleBlendCloseRow">
+                    <label>Rule</label>
                     <div class="xyz-inputs">
                       <select id="fillRuleInput">
                         <option value="evenodd">Even-Odd</option>
                         <option value="nonzero">Non-Zero</option>
                       </select>
+                      <div class="xyz-field">
+                        <span class="xyz-col-label">Blend</span>
+                        <select id="blendModeInput">
+                          <option value="normal">Normal</option>
+                          <option value="multiply">Multiply</option>
+                          <option value="screen">Screen</option>
+                          <option value="overlay">Overlay</option>
+                          <option value="darken">Darken</option>
+                          <option value="lighten">Lighten</option>
+                          <option value="color-dodge">Color Dodge</option>
+                          <option value="color-burn">Color Burn</option>
+                          <option value="hard-light">Hard Light</option>
+                          <option value="soft-light">Soft Light</option>
+                          <option value="difference">Difference</option>
+                          <option value="exclusion">Exclusion</option>
+                          <option value="hue">Hue</option>
+                          <option value="saturation">Saturation</option>
+                          <option value="color">Color</option>
+                          <option value="luminosity">Luminosity</option>
+                        </select>
+                      </div>
+                      <div class="xyz-field" style="flex:0 0 auto; gap:4px;">
+                        <span class="xyz-col-label">Close</span>
+                        <input type="checkbox" id="loopPathInput" class="ui-checkbox" />
+                      </div>
                     </div>
-                  </div>
-
-                  <div class="xyz-row" id="blendModeRow">
-                    <label for="blendModeInput">Blend</label>
-                    <div class="xyz-inputs">
-                      <select id="blendModeInput">
-                        <option value="normal">Normal</option>
-                        <option value="multiply">Multiply</option>
-                        <option value="screen">Screen</option>
-                        <option value="overlay">Overlay</option>
-                        <option value="darken">Darken</option>
-                        <option value="lighten">Lighten</option>
-                        <option value="color-dodge">Color Dodge</option>
-                        <option value="color-burn">Color Burn</option>
-                        <option value="hard-light">Hard Light</option>
-                        <option value="soft-light">Soft Light</option>
-                        <option value="difference">Difference</option>
-                        <option value="exclusion">Exclusion</option>
-                        <option value="hue">Hue</option>
-                        <option value="saturation">Saturation</option>
-                        <option value="color">Color</option>
-                        <option value="luminosity">Luminosity</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div class="prop-row prop-inline" id="closePathRow">
-                    <label for="loopPathInput" class="ui-checkbox-label">Close Path</label>
-                    <input type="checkbox" id="loopPathInput" class="ui-checkbox" />
                   </div>
 
                   <hr class="ui-separator" />
@@ -5179,6 +5793,8 @@
                         <input type="number" id="extrudeVecZInput" value="1" step="0.1">
                       </div>
                     </div>
+
+                    <div class="ui-header-small">Taper</div>
 
                     <div class="style-row">
                       <label class="ui-checkbox-label">Link Taper</label>
@@ -5686,6 +6302,10 @@
                     <div class="ui-header-small">Spline Flow</div>
                   </div>
                   <div id="splineFlowParams" class="feature-params collapsed">
+                    <div class="style-row">
+                      <label class="ui-checkbox-label">Bend Along</label>
+                      <input type="checkbox" id="splineFlowBendAlong" class="ui-checkbox" checked>
+                    </div>
                     <div class="xyz-row">
                       <label for="splineFlowTargetSelect">Target Path</label>
                       <div class="xyz-inputs">
@@ -5960,6 +6580,89 @@
       </div>
     </div>
   </div>
+  <!-- ═══════════════════════════════════════════
+       ANIMATION TIMELINE PANEL
+       ═══════════════════════════════════════════ -->
+  <div id="timelinePanel" class="collapsed">
+    <!-- Header / Transport Bar -->
+    <div class="tl-header" id="tlHeader">
+      <span class="tl-header-title">Timeline</span>
+      <!-- Go to Start -->
+      <button class="tl-transport-btn" id="tlGoStart" title="Go to Start">
+        <svg viewBox="0 0 14 14" fill="currentColor" stroke="none">
+          <rect x="2" y="3" width="1.5" height="8" />
+          <polygon points="12,3 5,7 12,11" />
+        </svg>
+      </button>
+      <!-- Play / Pause -->
+      <button class="tl-transport-btn" id="tlPlayPause" title="Play / Pause">
+        <svg id="tlPlayIcon" viewBox="0 0 14 14" fill="currentColor" stroke="none">
+          <polygon points="3,2 12,7 3,12" />
+        </svg>
+        <svg id="tlPauseIcon" viewBox="0 0 14 14" fill="currentColor" stroke="none" style="display:none">
+          <rect x="3" y="2" width="3" height="10" />
+          <rect x="8" y="2" width="3" height="10" />
+        </svg>
+      </button>
+      <!-- Go to End -->
+      <button class="tl-transport-btn" id="tlGoEnd" title="Go to End">
+        <svg viewBox="0 0 14 14" fill="currentColor" stroke="none">
+          <polygon points="2,3 9,7 2,11" />
+          <rect x="10.5" y="3" width="1.5" height="8" />
+        </svg>
+      </button>
+      <div class="tl-separator"></div>
+      <!-- Clear Animation -->
+      <button class="tl-transport-btn" id="tlClearAnimation" title="Clear Animation">
+        <svg viewBox="0 0 14 14" fill="currentColor" stroke="none">
+          <rect x="3" y="3.5" width="8" height="8.5" rx="1" />
+          <rect x="2" y="2" width="10" height="1.5" rx="0.5" />
+          <rect x="5.5" y="1" width="3" height="1.5" rx="0.5" />
+          <rect x="5" y="5.5" width="1" height="4.5" rx="0.3" fill="var(--tl-bg, #2a2a2a)" />
+          <rect x="8" y="5.5" width="1" height="4.5" rx="0.3" fill="var(--tl-bg, #2a2a2a)" />
+        </svg>
+      </button>
+      <div class="tl-separator"></div>
+
+      <!-- Frame Display -->
+      <div class="tl-frame-display">
+        <input type="number" id="tlFrameInput" value="0" min="0" max="359" step="1" title="Current Frame">
+        / <input type="number" id="tlPlaybackRange" value="360" min="1" max="360" step="1" title="Playback Range">
+        &nbsp;
+        <input type="number" id="tlFpsInput" value="24" min="1" max="120" step="1" title="FPS"> fps
+        &nbsp;
+        <label class="tl-checkbox-label" title="Play back and forth (ping-pong)">
+          <input type="checkbox" id="tlPingPong" class="ui-checkbox"> B&amp;F
+        </label>
+      </div>
+    </div>
+    <!-- Body: Ruler + Tracks (only visible when expanded) -->
+    <div class="tl-body">
+      <!-- Ruler Row -->
+      <div class="tl-ruler-row">
+        <div class="tl-track-label-spacer"></div>
+        <div class="tl-ruler" id="tlRuler">
+          <canvas id="tlRulerCanvas"></canvas>
+          <div class="tl-ruler-playhead" id="tlRulerPlayhead"></div>
+        </div>
+      </div>
+      <!-- Track Rows -->
+      <div class="tl-tracks-container">
+        <div class="tl-track-labels" id="tlTrackLabels"></div>
+        <div class="tl-tracks-area" id="tlTracksArea">
+          <div class="tl-playhead" id="tlPlayhead"></div>
+          <!-- Track rows will be generated by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Keyframe context menu (shared popover) -->
+    <div id="tlKeyframeMenu" popover>
+      <button data-interp="linear">◆ Linear</button>
+      <button data-interp="step">■ Constant</button>
+    </div>
+  </div>
+
   <script>
     // --- DOM Element References ---
     const svg = document.getElementById('svgContainer');
@@ -7618,6 +8321,7 @@
 
     let selectedObject = null;
     let selectedObjects = [];
+    let _onSelectionChanged = null; // Timeline callback — set later
     let selectedVertices = [];
     let currentTool = null; // null = no tool, select, directSelect, rotate, scale, pen, polygon, star, doodle, pixelArt, spiral, cycloid, lissajous
     let activePixelGroup = null; // Current pixel art group being drawn into
@@ -10042,10 +10746,12 @@
 
         if (pendingPolygon) {
           pendingPolygon.algorithm = currentAlgorithm;
+          syncPrimitiveNonAnimatable(pendingPolygon);
           updateTreeView();
         }
         if (activePath) {
           activePath.algorithm = currentAlgorithm;
+          syncPrimitiveNonAnimatable(activePath);
           notifyPathUpdated(activePath); // Fix: Notify dependents
         }
         requestRender();
@@ -10096,6 +10802,16 @@
         centerV: fromDisplay(parseFloat(document.getElementById('polyCenterY').value) || 0),
       };
 
+      // Store workplane basis for animation rebuild (so we can regenerate
+      // geometry without depending on the current active workplane)
+      if (type === 'spiral' || type === 'cycloid' || type === 'lissajous') {
+        const basis = getGridBasis();
+        const wp = getWorkingPlane();
+        base._basisU = [...basis.u];
+        base._basisV = [...basis.v];
+        base._normal = [...wp.normal];
+      }
+
       if (type === 'polygon' || type === 'star' || type === 'ellipse') {
         base.sides = polygonSides;
         base.radiusX = fromDisplay(parseFloat(document.getElementById('polyWidth').value) || 0);
@@ -10141,6 +10857,19 @@
         base.phaseC = parseFloat(document.getElementById('lisPhaseC').value) || 0;
       }
       return base;
+    };
+
+    // Sync non-animatable properties (algorithm, closePath) from the live object
+    // back into primitiveData so rebuildPrimitiveGeometry reads the correct state.
+    const syncPrimitiveNonAnimatable = (obj) => {
+      if (!obj || !obj.primitiveData) return;
+      obj.primitiveData.algorithm = obj.algorithm || 'linear';
+      // closePath: derive from subPathData or obj.loop
+      if (obj.subPathData && obj.subPathData.length > 0) {
+        obj.primitiveData.closePath = obj.subPathData[0].closed || false;
+      } else {
+        obj.primitiveData.closePath = obj.loop || false;
+      }
     };
 
     // --- App Modal (custom confirm dialog) ---
@@ -10662,6 +11391,66 @@
       }
       return localOffsets;
     }
+
+    // --- Rebuild geometry from primitiveData (for animation playback) ---
+    // Regenerates localVertices and subPathData directly from obj.primitiveData,
+    // without needing pendingPolygon or DOM inputs.
+    const rebuildPrimitiveGeometry = (obj) => {
+      if (!obj || !obj.primitiveData) return;
+      const pd = obj.primitiveData;
+      const center = obj.position;
+
+      // Recover the basis vectors stored at capture time (fall back to current workplane)
+      let basis, normal;
+      if (pd._basisU && pd._basisV && pd._normal) {
+        basis = { u: pd._basisU, v: pd._basisV };
+        normal = pd._normal;
+      } else {
+        basis = getGridBasis();
+        const wp = getWorkingPlane();
+        normal = wp.normal;
+      }
+
+      let localOffsets;
+
+      if (pd.type === 'spiral') {
+        localOffsets = generateSpiralVertices(
+          center, pd.angle, pd.radius, pd.count, basis, pd.startRadius, pd.height, normal
+        );
+        obj.algorithm = pd.algorithm || 'linear';
+        obj.subPathData = [{ start: 0, count: localOffsets.length, closed: pd.closePath || false }];
+      } else if (pd.type === 'cycloid') {
+        const rail = pd.rail || 'circle';
+        if (rail === 'path') {
+          localOffsets = pd.pathTarget
+            ? generatePathCycloid(pd.pathTarget, pd.rollingR, pd.penD, pd.count, pd.loops, pd.height, pd.pathFace || 'Y')
+            : [];
+        } else if (rail === 'circle') {
+          localOffsets = generateCycloidVertices(
+            center, pd.mode || 'hypo', pd.fixedR, pd.rollingR, pd.penD, pd.count, basis, pd.loops, pd.height, normal
+          );
+        } else {
+          // Line rail
+          const { railDir, perpDir } = getCycloidRailFacing(rail, pd.facing || 'XZ', basis, normal);
+          localOffsets = generateLineCycloid(center, railDir, perpDir, pd.rollingR, pd.penD, pd.count, pd.loops, pd.height, normal);
+        }
+        obj.algorithm = pd.algorithm || 'linear';
+        obj.subPathData = [{ start: 0, count: localOffsets.length, closed: pd.closePath || false }];
+      } else if (pd.type === 'lissajous') {
+        const linearHeight = pd.linearHeight != null ? pd.linearHeight : false;
+        localOffsets = generateLissajousVertices(
+          center, pd.freqA, pd.freqB, pd.delta, pd.ampA, pd.ampB,
+          pd.count, basis, pd.loops, pd.height, normal,
+          linearHeight, pd.freqC || 1, pd.phaseC || 0
+        );
+        obj.algorithm = pd.algorithm || 'linear';
+        obj.subPathData = [{ start: 0, count: localOffsets.length, closed: pd.closePath || false }];
+      } else {
+        return; // Unsupported type
+      }
+
+      obj.localVertices = localOffsets;
+    };
 
     const updateSpiralGeometry = () => {
       if (!pendingPolygon || !pendingPolygon.name.startsWith('Spl_')) return;
@@ -16407,6 +17196,23 @@
         const cRy = Math.cos(sfRotYRad), sRy = Math.sin(sfRotYRad);
         const cRz = Math.cos(sfRotZRad), sRz = Math.sin(sfRotZRad);
 
+        // Rigid placement mode (bendAlong=false): pre-compute anchor frame once
+        const rigidMode = (options.bendAlong === false);
+        let rigidFrame = null;
+        let rigidTangent = null;
+        if (rigidMode) {
+          const anchorU = Math.max(0, Math.min(0.5 + hOffset + tgtOff, 1));
+          rigidFrame = SurfaceMapper.getPointOnPath(targetPath, anchorU);
+          // Apply shiftVector for target offset consistency
+          rigidFrame = {
+            pos: vectorSubtract(rigidFrame.pos, shiftVector),
+            side: rigidFrame.side,
+            normal: rigidFrame.normal
+          };
+          // Tangent = cross(side, normal) — the forward direction along the spline
+          rigidTangent = vectorNormalize(vectorCross(rigidFrame.side, rigidFrame.normal));
+        }
+
         const project = (rawLocalPt) => {
           let localPt = rawLocalPt;
           // Apply sourceMatrix (e.g. from Group inheritance) first
@@ -16436,57 +17242,67 @@
           const ry = x2 * sRz + y1 * cRz;
           const rz = z2;
 
-          // Map to U, V, Normal
-          // Always use Center Mapping for the base shape (0.5 center)
-          const u = 0.5 + (rx / totalLen) + hOffset;
-          const u_geo = u + tgtOff; // For Curvature/Orientation
-
           const v = ry;
           const w = rz;
 
-          // Anchored Scope Shift
-          let combinedFrame;
-          // Apply overflow mode to u_geo before frame lookup
-          let u_routing = u_geo;
-          if (mapAround) {
-            u_routing = ((u_geo % 1) + 1) % 1;  // wrap into [0,1]
-          }
-          if (mappingOverflow && (u_routing < 0 || u_routing > 1)) {
-            // Extrapolate beyond spline endpoints
-            const edgeU = u_geo < 0 ? 0 : 1;
-            const eps = 0.001;
-            const nearU = u_geo < 0 ? eps : 1 - eps;
-            const edgeFrame = SurfaceMapper.getPointOnPath(targetPath, edgeU);
-            const nearFrame = SurfaceMapper.getPointOnPath(targetPath, nearU);
-            const tangent = vectorSubtract(edgeFrame.pos, nearFrame.pos);
-            const tangentLen = Math.sqrt(tangent[0] * tangent[0] + tangent[1] * tangent[1] + tangent[2] * tangent[2]) || 1;
-            const overflow = Math.abs(u_routing - edgeU) * totalLen;
-            const extraPos = [
-              edgeFrame.pos[0] + (tangent[0] / tangentLen) * overflow,
-              edgeFrame.pos[1] + (tangent[1] / tangentLen) * overflow,
-              edgeFrame.pos[2] + (tangent[2] / tangentLen) * overflow
+          let mappedLocalPos;
+          let currentFrame; // shared frame reference for silhouette calc
+
+          if (rigidMode) {
+            // Rigid placement: use pre-computed anchor frame, displace by (rx, v, w)
+            // using the frame's local coordinate system (tangent/normal/side)
+            currentFrame = rigidFrame;
+            mappedLocalPos = [
+              rigidFrame.pos[0] + rigidTangent[0] * rx + rigidFrame.normal[0] * v - rigidFrame.side[0] * w,
+              rigidFrame.pos[1] + rigidTangent[1] * rx + rigidFrame.normal[1] * v - rigidFrame.side[1] * w,
+              rigidFrame.pos[2] + rigidTangent[2] * rx + rigidFrame.normal[2] * v - rigidFrame.side[2] * w
             ];
-            const shiftedPos = vectorSubtract(extraPos, shiftVector);
-            combinedFrame = {
-              pos: shiftedPos,
-              side: edgeFrame.side,
-              normal: edgeFrame.normal
-            };
           } else {
-            const frameTarget = SurfaceMapper.getPointOnPath(targetPath, u_routing);
-            const shiftedPos = vectorSubtract(frameTarget.pos, shiftVector);
-            combinedFrame = {
-              pos: shiftedPos,
-              side: frameTarget.side,
-              normal: frameTarget.normal
-            };
-          }
+            // Bend mode: map each vertex's rx to a different u along the path
+            const u = 0.5 + (rx / totalLen) + hOffset;
+            const u_geo = u + tgtOff;
 
+            // Anchored Scope Shift
+            let combinedFrame;
+            let u_routing = u_geo;
+            if (mapAround) {
+              u_routing = ((u_geo % 1) + 1) % 1;
+            }
+            if (mappingOverflow && (u_routing < 0 || u_routing > 1)) {
+              const edgeU = u_geo < 0 ? 0 : 1;
+              const eps = 0.001;
+              const nearU = u_geo < 0 ? eps : 1 - eps;
+              const edgeFrame = SurfaceMapper.getPointOnPath(targetPath, edgeU);
+              const nearFrame = SurfaceMapper.getPointOnPath(targetPath, nearU);
+              const tangent = vectorSubtract(edgeFrame.pos, nearFrame.pos);
+              const tangentLen = Math.sqrt(tangent[0] * tangent[0] + tangent[1] * tangent[1] + tangent[2] * tangent[2]) || 1;
+              const overflow = Math.abs(u_routing - edgeU) * totalLen;
+              const extraPos = [
+                edgeFrame.pos[0] + (tangent[0] / tangentLen) * overflow,
+                edgeFrame.pos[1] + (tangent[1] / tangentLen) * overflow,
+                edgeFrame.pos[2] + (tangent[2] / tangentLen) * overflow
+              ];
+              const shiftedPos = vectorSubtract(extraPos, shiftVector);
+              combinedFrame = {
+                pos: shiftedPos,
+                side: edgeFrame.side,
+                normal: edgeFrame.normal
+              };
+            } else {
+              const frameTarget = SurfaceMapper.getPointOnPath(targetPath, u_routing);
+              const shiftedPos = vectorSubtract(frameTarget.pos, shiftVector);
+              combinedFrame = {
+                pos: shiftedPos,
+                side: frameTarget.side,
+                normal: frameTarget.normal
+              };
+            }
 
-
-          let mappedLocalPos = vectorAdd(combinedFrame.pos, vectorScale(combinedFrame.normal, v));
-          if (w !== 0) {
-            mappedLocalPos = vectorAdd(mappedLocalPos, vectorScale(combinedFrame.side, -w));
+            currentFrame = combinedFrame;
+            mappedLocalPos = vectorAdd(combinedFrame.pos, vectorScale(combinedFrame.normal, v));
+            if (w !== 0) {
+              mappedLocalPos = vectorAdd(mappedLocalPos, vectorScale(combinedFrame.side, -w));
+            }
           }
 
           // Apply Target World Transform
@@ -16520,8 +17336,8 @@
             // For pure v-displacement (2D XY source): nLocal = side (correct)
             // For pure w-displacement (2D XZ source): nLocal = normal (correct)
             // For mixed: smooth blend (correct)
-            const nN = combinedFrame.normal;
-            const nS = combinedFrame.side;
+            const nN = currentFrame.normal;
+            const nS = currentFrame.side;
             const av = Math.abs(v), aw = Math.abs(w);
             let nLocal;
             if (av + aw > 0.0001) {
@@ -17417,6 +18233,7 @@
           uRange: [0, 1], // Not used yet
           offset: 0, // Distance from surf (Vertical)
           hOffset: 0, // Distance along surf (Horizontal)
+          bendAlong: true,     // true = deform along path, false = rigid placement
           algorithm: 'smooth', // 'subdivision' | 'smooth'
           bankFactor: 1,
           upDir: 'Y',      // World-up direction: 'Y','Z','X','-Y','-Z','-X'
@@ -18301,6 +19118,7 @@
                 rotation: activeMapping.rotation || 0,
                 rotationX: activeMapping.rotationX || 0,
                 rotationY: activeMapping.rotationY || 0,
+                bendAlong: activeMapping.bendAlong !== false,
                 closureSteps: activeMapping.closureSteps || 8,
                 cameraPos: sfCamPos,
                 camDist: activeCamera.dist
@@ -18363,6 +19181,7 @@
                     const strokeWidth = getEffectiveStrokeWidth(this.style['stroke-width'] || (2 / FRAME_SIZE).toString());
                     if (frag.strokes && frag.strokes.length > 0) {
                       frag.strokes.forEach(sD => {
+                        if (!sD) return; // skip null sentinels
                         const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                         pathEl.setAttribute('fill', 'none');
                         pathEl.setAttribute('d', sD);
@@ -27397,6 +28216,9 @@
           enterPrimitiveEditMode(obj);
         }
       }
+
+      // Notify timeline of selection change
+      if (_onSelectionChanged) _onSelectionChanged();
     };
 
 
@@ -28738,14 +29560,10 @@
 
       // Algorithm (hide for Groups — Groups don't have path type)
       const algorithmRow = document.getElementById('algorithmRow');
-      const fillRuleRow = document.getElementById('fillRuleRow');
-      const closePathRow = document.getElementById('closePathRow');
+      const ruleBlendCloseRow = document.getElementById('ruleBlendCloseRow');
       const isGroupSelected = selectedObject && selectedObject.isGroup;
       if (algorithmRow) algorithmRow.style.display = isGroupSelected ? 'none' : '';
-      if (fillRuleRow) fillRuleRow.style.display = isGroupSelected ? 'none' : '';
-      const blendModeRow = document.getElementById('blendModeRow');
-      if (blendModeRow) blendModeRow.style.display = isGroupSelected ? 'none' : '';
-      if (closePathRow) closePathRow.style.display = isGroupSelected ? 'none' : '';
+      if (ruleBlendCloseRow) ruleBlendCloseRow.style.display = isGroupSelected ? 'none' : '';
       if (document.activeElement !== algorithmInput) {
         if (selectedObject && selectedObject instanceof Path) {
           algorithmInput.value = selectedObject.algorithm || 'linear';
@@ -28875,6 +29693,7 @@
         const sfRepeatCountInput = document.getElementById('splineFlowRepeatCount');
         const sfRepeatGapInput = document.getElementById('splineFlowRepeatGap');
         const sfRepeatFitInput = document.getElementById('splineFlowRepeatFit');
+        const sfBendAlongInput = document.getElementById('splineFlowBendAlong');
 
         if (sc) {
           if (offInput && document.activeElement !== offInput) offInput.value = sc.offset || 0;
@@ -28891,6 +29710,7 @@
           if (sfRotationYInput && document.activeElement !== sfRotationYInput) sfRotationYInput.value = sc.rotationY || 0;
 
           if (matchInput && document.activeElement !== matchInput) matchInput.checked = (sc.matchTarget !== false);
+          if (sfBendAlongInput && document.activeElement !== sfBendAlongInput) sfBendAlongInput.checked = (sc.bendAlong !== false);
           if (algoInput && document.activeElement !== algoInput) algoInput.value = sc.algorithm || 'smooth';
           const meshDivField = document.getElementById('meshDivisionsField');
           if (meshDivField) meshDivField.style.display = (sc.algorithm === 'subdivision') ? '' : 'none';
@@ -28922,6 +29742,7 @@
         if (sfRotationXInput) sfRotationXInput.disabled = ctrlDisabled;
         if (sfRotationYInput) sfRotationYInput.disabled = ctrlDisabled;
         if (matchInput) matchInput.disabled = ctrlDisabled;
+        if (sfBendAlongInput) sfBendAlongInput.disabled = ctrlDisabled;
         if (algoInput) algoInput.disabled = ctrlDisabled;
         const sfOverflowModeSelectEl = document.getElementById('splineFlowOverflowModeSelect');
         if (sfOverflowModeSelectEl) sfOverflowModeSelectEl.disabled = ctrlDisabled;
@@ -29447,6 +30268,7 @@
             'splineFlowRotation', 'splineFlowRotationX', 'splineFlowRotationY',
             'surfaceMatchTarget', 'surfaceAlgorithmSelect', 'splineFlowOverflowModeSelect',
             'splineFlowRepeatCount', 'splineFlowRepeatGap', 'splineFlowRepeatFit',
+            'splineFlowBendAlong',
           ];
           sfControlIds.forEach(id => {
             const el = document.getElementById(id);
@@ -29538,8 +30360,25 @@
         }
       });
     }
-
     const surfaceAlgorithmSelect = document.getElementById('surfaceAlgorithmSelect');
+
+    const splineFlowBendAlong = document.getElementById('splineFlowBendAlong');
+    if (splineFlowBendAlong) {
+      splineFlowBendAlong.addEventListener('change', (e) => {
+        pushUndoStateCoalesced();
+        const val = e.target.checked;
+        if (selectedObject && selectedObject.surfaceConstraint?.active) {
+          selectedObject.surfaceConstraint.bendAlong = val;
+          requestRender();
+        } else if (selectedObjects.length > 0) {
+          selectedObjects.forEach(obj => {
+            if (obj.surfaceConstraint) obj.surfaceConstraint.bendAlong = val;
+          });
+          requestRender();
+        }
+      });
+    }
+
     if (surfaceAlgorithmSelect) {
       surfaceAlgorithmSelect.addEventListener('change', (e) => {
         pushUndoStateCoalesced();
@@ -30644,6 +31483,7 @@
           if (obj.subPathData) {
             obj.subPathData.forEach(sp => sp.closed = loopPath);
           }
+          syncPrimitiveNonAnimatable(obj);
           // Sync Pen Tool drawer checkbox
           const penClosePathCb = document.getElementById('penClosePath');
           if (penClosePathCb) penClosePathCb.checked = loopPath;
@@ -31109,9 +31949,11 @@
       // Apply to active/selected object (mirrors the algorithmInput handler)
       if (activePath) {
         activePath.algorithm = val;
+        syncPrimitiveNonAnimatable(activePath);
         notifyPathUpdated(activePath);
       } else if (selectedObject && selectedObject instanceof Path) {
         selectedObject.algorithm = val;
+        syncPrimitiveNonAnimatable(selectedObject);
         notifyPathUpdated(selectedObject);
       }
       requestRender();
@@ -31308,9 +32150,11 @@
 
       if (activePath) {
         activePath.algorithm = val;
+        syncPrimitiveNonAnimatable(activePath);
         notifyPathUpdated(activePath); // Fix: Notify dependents
       } else if (selectedObject && selectedObject instanceof Path) {
         selectedObject.algorithm = val;
+        syncPrimitiveNonAnimatable(selectedObject);
         notifyPathUpdated(selectedObject); // Fix: Notify dependents
       }
       requestRender();
@@ -32183,11 +33027,18 @@
         : 'Drag left/right to adjust Distance';
 
       const hudInset = 40; // px inward from canvas edge
+
+      // Account for timeline panel covering the bottom of the viewport
+      const tlHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--timeline-height')) || 0;
+
       // --- Azimuth: bottom-center ---
       if (_hudAzBar) {
         const azW = 104, azH = 24;
         _hudAzBar.style.left = (frameX + (frameSizePx - azW) / 2) + 'px';
-        _hudAzBar.style.top = (frameY + frameSizePx - azH - hudInset) + 'px';
+        _hudAzBar.style.top = Math.min(
+          frameY + frameSizePx - azH - hudInset,
+          window.innerHeight - tlHeight - azH - 8
+        ) + 'px';
       }
       // --- Elevation: right-center ---
       if (_hudElBar) {
@@ -32200,21 +33051,32 @@
       // --- Dist: bottom-right corner ---
       if (_hudDistBar) {
         _hudDistBar.style.left = (frameX + frameSizePx - distW - hudInset) + 'px';
-        _hudDistBar.style.top = (frameY + frameSizePx - distH - hudInset) + 'px';
+        _hudDistBar.style.top = Math.min(
+          frameY + frameSizePx - distH - hudInset,
+          window.innerHeight - tlHeight - distH - 8
+        ) + 'px';
       }
       // --- FOV Zoom: bottom-right, stacked above Dist (perspective only) ---
       const fovBarGap = 30; // spacing between stacked bars (includes icon height)
       if (_hudFovZoomBar && !fovHidden) {
         const fzW = 104, fzH = 24;
+        const distBottom = Math.min(
+          frameY + frameSizePx - distH - hudInset,
+          window.innerHeight - tlHeight - distH - 8
+        );
         _hudFovZoomBar.style.left = (frameX + frameSizePx - fzW - hudInset) + 'px';
-        _hudFovZoomBar.style.top = (frameY + frameSizePx - distH - hudInset - fovBarGap - fzH) + 'px';
+        _hudFovZoomBar.style.top = (distBottom - fovBarGap - fzH) + 'px';
       }
       // --- FOV (keep size): bottom-right, stacked above FOV Zoom (perspective only) ---
       if (_hudFovBar && !fovHidden) {
         const fovW = 104, fovH = 24;
         const fzH = 24; // FOV Zoom bar height
+        const distBottom = Math.min(
+          frameY + frameSizePx - distH - hudInset,
+          window.innerHeight - tlHeight - distH - 8
+        );
         _hudFovBar.style.left = (frameX + frameSizePx - fovW - hudInset) + 'px';
-        _hudFovBar.style.top = (frameY + frameSizePx - distH - hudInset - fovBarGap - fzH - fovBarGap - fovH) + 'px';
+        _hudFovBar.style.top = (distBottom - fovBarGap - fzH - fovBarGap - fovH) + 'px';
       }
       // --- Reset button: top-right circle ---
       const resetBtnSize = 24;
@@ -32324,6 +33186,7 @@
         if (!_hudAzDragging) return;
         _hudAzDragging = false;
         _hudAzBar.classList.remove('dragging');
+        if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
       };
 
       _hudAzBar.addEventListener('pointerup', _hudAzEnd);
@@ -32368,6 +33231,7 @@
         if (!_hudElDragging) return;
         _hudElDragging = false;
         _hudElBar.classList.remove('dragging');
+        if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
       };
 
       _hudElBar.addEventListener('pointerup', _hudElEnd);
@@ -32432,6 +33296,7 @@
           updateCameraUI();
           requestRender();
         }
+        if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
       };
 
       _hudFovBar.addEventListener('pointerup', _hudFovEnd);
@@ -32496,6 +33361,7 @@
           updateCameraUI();
           requestRender();
         }
+        if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
       };
 
       _hudFovZoomBar.addEventListener('pointerup', _hudFovZoomEnd);
@@ -32573,6 +33439,7 @@
           updateCameraUI();
           requestRender();
         }
+        if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
       };
 
       _hudDistBar.addEventListener('pointerup', _hudDistEnd);
@@ -32619,6 +33486,7 @@
         if (!_hudTruckXDragging) return;
         _hudTruckXDragging = false;
         _hudTruckXBar.classList.remove('dragging');
+        if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
       };
 
       _hudTruckXBar.addEventListener('pointerup', _hudTruckXEnd);
@@ -32667,6 +33535,7 @@
         if (!_hudTruckYDragging) return;
         _hudTruckYDragging = false;
         _hudTruckYBar.classList.remove('dragging');
+        if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
       };
 
       _hudTruckYBar.addEventListener('pointerup', _hudTruckYEnd);
@@ -32733,6 +33602,7 @@
           cam.target = [...cam.initialTarget];
           requestRender();
         }
+        if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
       };
 
       _hudTruckResetBtn.addEventListener('pointerup', _hudResetEnd);
@@ -36219,6 +37089,8 @@
     };
 
     const onMouseUp = (event) => {
+      // Capture drag mode before it gets cleared for auto-keying
+      const _prevDragMode = dragMode;
       // Clear snap cache on drag end
       const _hadSnapIndicator = _snapIndicatorTarget !== null;
       _snapTargetCache = null;
@@ -36715,9 +37587,21 @@
 
       dragStartVertexPosition = null;
       dragStartWorldPosition = null;
+
+      // --- Auto-keying: record keyframes on drag end ---
+      if (typeof tlAutoKeyCamera === 'function' && typeof tlAutoKeyObject === 'function') {
+        const cameraModes = ['orbit', 'truck', 'zoom', 'fov'];
+        const objectModes = ['translate', 'translate-local', 'rotate-screen', 'rotate-local', 'scale'];
+        if (cameraModes.includes(_prevDragMode)) {
+          tlAutoKeyCamera();
+        } else if (objectModes.includes(_prevDragMode) && selectedObject) {
+          tlAutoKeyObject(selectedObject);
+        }
+      }
     };
 
 
+    let _autoKeyWheelTimer = null;
     const onWheel = (event) => {
       event.preventDefault();
       if (activeCamera.lock) return; // Prevent Zoom/FOV changes if locked
@@ -36726,6 +37610,11 @@
         activeCamera.adjustFov(event.deltaY);
       } else {
         activeCamera.zoom(event.deltaY);
+      }
+      // Debounced auto-key for wheel (fires 300ms after last scroll)
+      if (typeof tlAutoKeyCamera === 'function') {
+        clearTimeout(_autoKeyWheelTimer);
+        _autoKeyWheelTimer = setTimeout(() => tlAutoKeyCamera(), 300);
       }
     };
 
@@ -38417,6 +39306,21 @@
       // --- App Settings (localStorage) ---
       const SETTINGS_KEY = 'dim-settings';
 
+      let animationEnabled = false;
+
+      const setAnimationEnabled = (enabled) => {
+        animationEnabled = enabled;
+        const panel = document.getElementById('timelinePanel');
+        if (panel) panel.style.display = enabled ? 'flex' : 'none';
+        const cb = document.getElementById('animationEnabledCb');
+        if (cb) cb.checked = enabled;
+        // Stop playback when disabling
+        if (!enabled && typeof tlStopPlayback === 'function') {
+          try { tlStopPlayback(); } catch (_) { }
+        }
+        updateTimelineHeight();
+      };
+
       const loadSettings = () => {
         try {
           const saved = localStorage.getItem(SETTINGS_KEY);
@@ -38452,6 +39356,11 @@
                 if (ulInp) ulInp.value = val;
               }
             }
+            // Animation experiment toggle (default off)
+            setAnimationEnabled(!!settings.animationEnabled);
+          } else {
+            // No saved settings — ensure animation is off by default
+            setAnimationEnabled(false);
           }
         } catch (e) {
           console.warn('Failed to load settings:', e);
@@ -38572,6 +39481,15 @@
         });
       }
 
+      // Animation experiment checkbox
+      const animationCb = document.getElementById('animationEnabledCb');
+      if (animationCb) {
+        animationCb.addEventListener('change', (e) => {
+          setAnimationEnabled(e.target.checked);
+          saveSettings({ animationEnabled: e.target.checked });
+        });
+      }
+
       // Reset Settings button
       const resetSettingsBtn = document.getElementById('resetSettingsBtn');
       if (resetSettingsBtn) {
@@ -38623,6 +39541,10 @@
           HISTORY_MAX = 50;
           const ulInp = document.getElementById('undoLimitInput');
           if (ulInp) ulInp.value = 50;
+
+          // Reset animation to off
+          setAnimationEnabled(false);
+          saveSettings({ animationEnabled: false });
 
           console.log('Settings reset to defaults.');
         });
@@ -39052,7 +39974,8 @@
           workplane: {
             active: workplanes.indexOf(activeWorkplane),
             list: workplanes.map(wp => wp.serialize())
-          }
+          },
+          animation: (document.getElementById('animationEnabledCb')?.checked && typeof tlSerialize === 'function') ? tlSerialize() : undefined
         };
         localStorage.setItem(SCENE_KEY, JSON.stringify(sceneData));
         console.log('Scene saved to localStorage.');
@@ -39136,7 +40059,8 @@
         workplane: {
           active: workplanes.indexOf(activeWorkplane),
           list: workplanes.map(wp => wp.serialize())
-        }
+        },
+        animation: (document.getElementById('animationEnabledCb')?.checked && typeof tlSerialize === 'function') ? tlSerialize() : undefined
       };
 
       const jsonStr = JSON.stringify(sceneData, null, 2);
@@ -39312,12 +40236,1953 @@
       if (typeof captureSceneState === 'function') _lastSceneState = deepClone(captureSceneState());
       if (typeof captureCameraState === 'function') _lastCameraState = deepClone(captureCameraState());
 
+      // Restore Animation Timeline
+      if (data.animation && typeof tlDeserialize === 'function') {
+        tlDeserialize(data.animation);
+      } else if (typeof tlDeserialize === 'function') {
+        // No animation data — clear timeline
+        tlDeserialize(null);
+      }
+
       updateTreeView();
       _scheduleHistoryUpdate();
       requestRender();
     };
 
     let projectionType = 'perspective';
+
+    // --- Update --timeline-height CSS variable for panel layout ---
+    const updateTimelineHeight = () => {
+      const panel = document.getElementById('timelinePanel');
+      let h = 0;
+      if (panel && getComputedStyle(panel).display !== 'none') {
+        h = panel.classList.contains('expanded') ? 176 : 32;
+      }
+      document.documentElement.style.setProperty('--timeline-height', h + 'px');
+    };
+
+    // ═══════════════════════════════════════════════════════════
+    //  ANIMATION TIMELINE — Engine
+    // ═══════════════════════════════════════════════════════════
+
+    const animationTimeline = {
+      totalFrames: 360,
+      playbackRange: 360,
+      fps: 24,
+      currentFrame: 0,
+      isPlaying: false,
+      loop: true,
+      pingPong: false,
+      _playDirection: 1,
+      // Tracks: Map<objectName, Map<property, Array<{frame, value}>>>
+      tracks: new Map(),
+      _playInterval: null,
+    };
+
+    // --- DOM refs ---
+    const tlPanel = document.getElementById('timelinePanel');
+    const tlHeader = document.getElementById('tlHeader');
+    const tlPlayPause = document.getElementById('tlPlayPause');
+    const tlPlayIcon = document.getElementById('tlPlayIcon');
+    const tlPauseIcon = document.getElementById('tlPauseIcon');
+    const tlGoStart = document.getElementById('tlGoStart');
+    const tlGoEnd = document.getElementById('tlGoEnd');
+    const tlClearAnimation = document.getElementById('tlClearAnimation');
+    const tlFrameInput = document.getElementById('tlFrameInput');
+    const tlPlaybackRange = document.getElementById('tlPlaybackRange');
+    const tlFpsInput = document.getElementById('tlFpsInput');
+    const tlPingPong = document.getElementById('tlPingPong');
+    const tlRuler = document.getElementById('tlRuler');
+    const tlRulerCanvas = document.getElementById('tlRulerCanvas');
+    const tlRulerPlayhead = document.getElementById('tlRulerPlayhead');
+    const tlTrackLabels = document.getElementById('tlTrackLabels');
+    const tlTracksArea = document.getElementById('tlTracksArea');
+    const tlPlayhead = document.getElementById('tlPlayhead');
+
+    // --- Collapse / Expand ---
+    let tlExpanded = false;
+    tlHeader.addEventListener('click', (e) => {
+      // Don't toggle if user clicked a button inside the header
+      if (e.target.closest('.tl-transport-btn') || e.target.closest('.tl-frame-display')) return;
+      tlExpanded = !tlExpanded;
+      tlPanel.className = tlExpanded ? 'expanded' : 'collapsed';
+      updateTimelineHeight();
+      if (tlExpanded) {
+        setTimeout(() => {
+          tlDrawRuler();
+          tlRenderTracks();
+        }, 220); // Wait for CSS transition
+      }
+    });
+
+    // --- Keyframe Context Menu (popover) ---
+    const tlKfMenu = document.getElementById('tlKeyframeMenu');
+    tlKfMenu.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-interp]');
+      if (!btn || !tlKfMenu._kfRef) return;
+      const { kf } = tlKfMenu._kfRef;
+      const newInterp = btn.dataset.interp;
+      kf.interp = newInterp;
+      tlKfMenu.hidePopover();
+      tlRenderTracks();
+      tlUpdateTrackInputs();
+    });
+
+    // --- Keyframe CRUD ---
+    const tlAddKeyframe = (objectName, property, frame, value, interp) => {
+      if (!animationTimeline.tracks.has(objectName)) {
+        animationTimeline.tracks.set(objectName, new Map());
+      }
+      const objTracks = animationTimeline.tracks.get(objectName);
+      if (!objTracks.has(property)) {
+        objTracks.set(property, []);
+      }
+      const keyframes = objTracks.get(property);
+      // Replace if keyframe already exists at this frame
+      const existing = keyframes.findIndex(k => k.frame === frame);
+      const valueCopy = Array.isArray(value) ? [...value] : value;
+      if (existing >= 0) {
+        keyframes[existing].value = valueCopy;
+        // Preserve existing interp unless explicitly provided
+        if (interp !== undefined) keyframes[existing].interp = interp;
+      } else {
+        keyframes.push({ frame, value: valueCopy, interp: interp || 'linear' });
+        keyframes.sort((a, b) => a.frame - b.frame);
+      }
+    };
+
+    const tlRemoveKeyframe = (objectName, property, frame) => {
+      const objTracks = animationTimeline.tracks.get(objectName);
+      if (!objTracks) return;
+      const keyframes = objTracks.get(property);
+      if (!keyframes) return;
+      const idx = keyframes.findIndex(k => k.frame === frame);
+      if (idx >= 0) keyframes.splice(idx, 1);
+      // Clean up empty tracks — but keep camera and selected object always visible
+      if (keyframes.length === 0) objTracks.delete(property);
+      const isAlwaysVisible = objectName === '__camera__' || (selectedObject && selectedObject.name === objectName);
+      if (objTracks.size === 0 && !isAlwaysVisible) animationTimeline.tracks.delete(objectName);
+    };
+
+    const tlGetAllKeyframesAtFrame = (objectName, frame) => {
+      const objTracks = animationTimeline.tracks.get(objectName);
+      if (!objTracks) return [];
+      const result = [];
+      for (const [prop, keyframes] of objTracks) {
+        const kf = keyframes.find(k => k.frame === frame);
+        if (kf) result.push({ property: prop, value: kf.value });
+      }
+      return result;
+    };
+
+    // --- Interpolation ---
+    const tlLerp = (a, b, t) => {
+      if (typeof a === 'number' && typeof b === 'number') {
+        return a + (b - a) * t;
+      }
+      if (Array.isArray(a) && Array.isArray(b)) {
+        return a.map((v, i) => v + ((b[i] || 0) - v) * t);
+      }
+      // Compound object interpolation (e.g. camera orbital state)
+      if (typeof a === 'object' && a !== null && !Array.isArray(a) &&
+        typeof b === 'object' && b !== null && !Array.isArray(b)) {
+        const result = {};
+        for (const key of Object.keys(a)) {
+          result[key] = tlLerp(a[key], b[key], t);
+        }
+        return result;
+      }
+      return t < 0.5 ? a : b; // Fallback for non-numeric types
+    };
+
+    const tlInterpolate = (keyframes, frame) => {
+      if (!keyframes || keyframes.length === 0) return null;
+      if (keyframes.length === 1) return keyframes[0].value;
+      // Before first keyframe
+      if (frame <= keyframes[0].frame) return keyframes[0].value;
+      // After last keyframe
+      if (frame >= keyframes[keyframes.length - 1].frame) return keyframes[keyframes.length - 1].value;
+      // Find surrounding keyframes
+      for (let i = 0; i < keyframes.length - 1; i++) {
+        const k0 = keyframes[i];
+        const k1 = keyframes[i + 1];
+        if (frame >= k0.frame && frame <= k1.frame) {
+          // Step (incoming) — hold previous value until destination keyframe
+          if (k1.interp === 'step') return k0.value;
+          const t = (frame - k0.frame) / (k1.frame - k0.frame);
+          return tlLerp(k0.value, k1.value, t);
+        }
+      }
+      return keyframes[keyframes.length - 1].value;
+    };
+
+    // --- Camera Orbital State Helper ---
+    const getCameraOrbitalState = (cam) => {
+      const relative = vectorSubtract(cam.position, cam.target);
+      const dist = vectorLength(relative);
+      const azimuth = (Math.atan2(relative[0], relative[2]) * 180) / Math.PI;
+      const elevation = 90 - (Math.acos(Math.max(-1, Math.min(1, relative[1] / Math.max(dist, 1e-10)))) * 180) / Math.PI;
+
+      // Truck/Pedestal — displacement of target from initialTarget
+      const displacement = vectorSubtract(cam.target, cam.initialTarget);
+      const zAxis = vectorNormalize(relative);
+      const rightAxis = vectorNormalize(vectorCross(cam.up, zAxis));
+      const upAxis = vectorNormalize(vectorCross(zAxis, rightAxis));
+      const truck = vectorDot(displacement, rightAxis);
+      const pedestal = vectorDot(displacement, upAxis);
+
+      return {
+        azimuth,
+        elevation,
+        distance: dist,
+        truck,
+        pedestal,
+        fov: cam.fovDegrees,
+        orthoZoom: cam.orthoZoom,
+      };
+    };
+
+    // --- Apply Frame — sets object/camera properties from interpolated keyframes ---
+    const tlApplyFrame = (frame) => {
+      for (const [objectName, objTracks] of animationTimeline.tracks) {
+        // Check if it's a camera track
+        if (objectName === '__camera__') {
+          // Per-property camera lookup
+          const getVal = (prop) => {
+            const kfs = objTracks.get(prop);
+            return kfs ? tlInterpolate(kfs, frame) : null;
+          };
+          const azKf = getVal('azimuth');
+          const elKf = getVal('elevation');
+          const distKf = getVal('distance');
+          const trkKf = getVal('truck');
+          const pedKf = getVal('pedestal');
+          const fvKf = getVal('fov');
+          const ozKf = getVal('orthoZoom');
+
+          // If any orbital param is keyframed, reconstruct camera position
+          // Un-keyframed params fall back to current live camera state
+          const hasOrbital = azKf !== null || elKf !== null || distKf !== null;
+          if (hasOrbital) {
+            const liveState = getCameraOrbitalState(activeCamera);
+            const az = azKf !== null ? azKf : liveState.azimuth;
+            const el = elKf !== null ? elKf : liveState.elevation;
+            const dist = distKf !== null ? distKf : liveState.distance;
+
+            const radAz = (az * Math.PI) / 180;
+            const radEl = ((90 - el) * Math.PI) / 180;
+            const y = dist * Math.cos(radEl);
+            const h = dist * Math.sin(radEl);
+            const x = h * Math.sin(radAz);
+            const z = h * Math.cos(radAz);
+            const orbitalOffset = [x, y, z];
+
+            const zAxis = vectorNormalize(orbitalOffset);
+            let rightAxis = vectorNormalize(vectorCross([0, 1, 0], zAxis));
+            if (vectorLength(rightAxis) < 0.001) rightAxis = [1, 0, 0];
+            const upAxis = vectorNormalize(vectorCross(zAxis, rightAxis));
+
+            const trkVal = trkKf !== null ? trkKf : 0;
+            const pedVal = pedKf !== null ? pedKf : 0;
+            activeCamera.target = vectorAdd(activeCamera.initialTarget,
+              vectorAdd(
+                vectorScale(rightAxis, trkVal),
+                vectorScale(upAxis, pedVal)
+              ));
+            activeCamera.position = vectorAdd(activeCamera.target, orbitalOffset);
+
+            // Re-orthogonalize up vector
+            activeCamera.up = [0, 1, 0];
+            const viewDir = vectorNormalize(vectorSubtract(activeCamera.target, activeCamera.position));
+            const right2 = vectorNormalize(vectorCross([0, 1, 0], viewDir));
+            if (vectorLength(right2) > 0.001) {
+              activeCamera.up = vectorNormalize(vectorCross(viewDir, right2));
+            }
+          } else {
+            // Apply truck/pedestal independently if only they are keyframed
+            if (trkKf !== null || pedKf !== null) {
+              const relative = vectorSubtract(activeCamera.position, activeCamera.target);
+              const zAxis = vectorNormalize(relative);
+              let rightAxis = vectorNormalize(vectorCross([0, 1, 0], zAxis));
+              if (vectorLength(rightAxis) < 0.001) rightAxis = [1, 0, 0];
+              const upAxis = vectorNormalize(vectorCross(zAxis, rightAxis));
+              const trkVal = trkKf !== null ? trkKf : 0;
+              const pedVal = pedKf !== null ? pedKf : 0;
+              activeCamera.target = vectorAdd(activeCamera.initialTarget,
+                vectorAdd(
+                  vectorScale(rightAxis, trkVal),
+                  vectorScale(upAxis, pedVal)
+                ));
+              activeCamera.position = vectorAdd(activeCamera.target, relative);
+            }
+          }
+          // Apply fov/orthoZoom independently
+          if (fvKf !== null) activeCamera.fovDegrees = fvKf;
+          if (ozKf !== null) activeCamera.orthoZoom = ozKf;
+          continue;
+        }
+        // Find scene object by name
+        const obj = sceneObjects.find(o => o.name === objectName);
+        if (!obj) continue;
+        // Ensure arrays exist
+        if (!obj.scale) obj.scale = [1, 1, 1];
+        let rotChanged = false;
+        let newPivot = null;
+        const positionOverridden = [false, false, false];
+        for (const [prop, keyframes] of objTracks) {
+          const val = tlInterpolate(keyframes, frame);
+          if (val === null) continue;
+          // Look up the paramDef for this prop to find vecProp and vecIdx
+          const paramDef = _objParams.find(p => p.prop === prop);
+          if (paramDef) {
+            const { vecProp, vecIdx } = paramDef;
+            if (vecProp === 'position') {
+              obj.position[vecIdx] = val;
+              positionOverridden[vecIdx] = true;
+            } else if (vecProp === 'rotation') {
+              if (!obj.rotationEuler) obj.rotationEuler = matrixToEuler(obj.rotationMatrix);
+              obj.rotationEuler[vecIdx] = val;
+              rotChanged = true;
+            } else if (vecProp === 'scale') {
+              obj.scale[vecIdx] = val;
+            } else if (vecProp === 'pivot') {
+              if (!newPivot) newPivot = [...(obj.pivot || [0, 0, 0])];
+              newPivot[vecIdx] = val;
+            }
+          }
+        }
+        if (rotChanged) {
+          obj.rotationMatrix = matrixFromEuler(obj.rotationEuler);
+        }
+        // Apply pivot with position compensation (same formula as setObjectPivot)
+        // P' = P + R * S * (newPivot - oldPivot), skipping position-keyed axes
+        if (newPivot) {
+          const oldPivot = obj.pivot || [0, 0, 0];
+          const deltaPivot = vectorSubtract(newPivot, oldPivot);
+          if (Math.abs(deltaPivot[0]) > 0.0001 || Math.abs(deltaPivot[1]) > 0.0001 || Math.abs(deltaPivot[2]) > 0.0001) {
+            const S = createScaleMatrix(obj.scale[0], obj.scale[1], obj.scale[2]);
+            const RS = matrixMultiply(obj.rotationMatrix, S);
+            const posDelta = vectorApplyMatrix(deltaPivot, RS);
+            for (let i = 0; i < 3; i++) {
+              if (!positionOverridden[i]) {
+                obj.position[i] += posDelta[i];
+              }
+            }
+          }
+          obj.pivot = newPivot;
+        }
+
+        // --- Parametric shape params ---
+        const primParams = _getPrimitiveParamsForObj(obj);
+        if (primParams) {
+          let primitiveChanged = false;
+          for (const paramDef of primParams) {
+            const kfs = objTracks.get(paramDef.prop);
+            if (!kfs) continue;
+            const val = tlInterpolate(kfs, frame);
+            if (val !== null) {
+              obj.primitiveData[paramDef.pdKey] = val;
+              primitiveChanged = true;
+            }
+          }
+          if (primitiveChanged) {
+            rebuildPrimitiveGeometry(obj);
+          }
+        }
+
+        // --- Spline Flow params ---
+        const sfParams = _getSplineFlowParamsForObj(obj);
+        if (sfParams && obj.surfaceConstraint) {
+          for (const paramDef of sfParams) {
+            const kfs = objTracks.get(paramDef.prop);
+            if (!kfs) continue;
+            const val = tlInterpolate(kfs, frame);
+            if (val !== null) {
+              obj.surfaceConstraint[paramDef.scKey] = val;
+            }
+          }
+        }
+
+        // --- Surface Mapping params ---
+        const smParams = _getSurfaceMappingParamsForObj(obj);
+        if (smParams && obj.surfaceConstraint?.surfaceMapping) {
+          for (const paramDef of smParams) {
+            const kfs = objTracks.get(paramDef.prop);
+            if (!kfs) continue;
+            const val = tlInterpolate(kfs, frame);
+            if (val !== null) {
+              obj.surfaceConstraint.surfaceMapping[paramDef.dataKey] = val;
+            }
+          }
+        }
+
+        // --- 3D Settings params ---
+        const tdInfo = _get3dSettingsParamsForObj(obj);
+        if (tdInfo) {
+          for (const paramDef of tdInfo.params) {
+            const kfs = objTracks.get(paramDef.prop);
+            if (!kfs) continue;
+            const val = tlInterpolate(kfs, frame);
+            if (val !== null) {
+              _writeSettingsKey(obj[tdInfo.settingsObj], paramDef.settingsKey, val);
+            }
+          }
+        }
+      }
+      requestRender();
+    };
+
+    // --- Playback Engine ---
+    const tlStartPlayback = () => {
+      if (animationTimeline.isPlaying) return;
+      animationTimeline.isPlaying = true;
+      tlPlayIcon.style.display = 'none';
+      tlPauseIcon.style.display = '';
+      tlPlayPause.classList.add('active');
+      // Clear keyframe selection during playback
+      if (tlSelectedKf) {
+        tlSelectedKf = null;
+        document.querySelectorAll('.tl-keyframe.selected').forEach(el => el.classList.remove('selected'));
+      }
+
+      animationTimeline._playDirection = 1;
+      animationTimeline._playInterval = setInterval(() => {
+        const rangeEnd = animationTimeline.playbackRange;
+        let next = animationTimeline.currentFrame + animationTimeline._playDirection;
+
+        if (animationTimeline.pingPong) {
+          if (next >= rangeEnd) {
+            animationTimeline._playDirection = -1;
+            next = rangeEnd - 2;
+            if (next < 0) next = 0;
+          } else if (next < 0) {
+            animationTimeline._playDirection = 1;
+            next = 1;
+            if (next >= rangeEnd) next = 0;
+          }
+        } else {
+          if (next >= rangeEnd) {
+            if (animationTimeline.loop) {
+              next = 0;
+            } else {
+              tlStopPlayback();
+              return;
+            }
+          }
+        }
+        animationTimeline.currentFrame = next;
+        tlApplyFrame(next);
+        tlUpdateUI();
+      }, 1000 / animationTimeline.fps);
+    };
+
+    const tlStopPlayback = () => {
+      if (!animationTimeline.isPlaying) return;
+      animationTimeline.isPlaying = false;
+      clearInterval(animationTimeline._playInterval);
+      animationTimeline._playInterval = null;
+      animationTimeline._playDirection = 1;
+      tlPlayIcon.style.display = '';
+      tlPauseIcon.style.display = 'none';
+      tlPlayPause.classList.remove('active');
+    };
+
+    const tlSetFrame = (frame) => {
+      frame = Math.max(0, Math.min(animationTimeline.totalFrames - 1, Math.round(frame)));
+      animationTimeline.currentFrame = frame;
+      // Clear keyframe selection when playhead moves
+      if (tlSelectedKf) {
+        tlSelectedKf = null;
+        document.querySelectorAll('.tl-keyframe.selected').forEach(el => el.classList.remove('selected'));
+      }
+      // Only apply values if there are any tracks
+      if (animationTimeline.tracks.size > 0) {
+        tlApplyFrame(frame);
+      }
+      tlUpdateUI();
+    };
+
+    // --- UI Update ---
+    const tlUpdateUI = () => {
+      const f = animationTimeline.currentFrame;
+      tlFrameInput.value = f;
+      tlFrameInput.max = animationTimeline.playbackRange - 1;
+      tlPlaybackRange.value = animationTimeline.playbackRange;
+      tlFpsInput.value = animationTimeline.fps;
+      tlPingPong.checked = animationTimeline.pingPong;
+      // Playhead position
+      tlUpdatePlayheadPosition();
+      // Update inline track inputs
+      tlUpdateTrackInputs();
+    };
+
+    // Camera sub-track parameter definitions
+    const _camParams = [
+      { prop: 'azimuth', label: 'Az', precision: 1, suffix: '°', step: 1 },
+      { prop: 'elevation', label: 'El', precision: 1, suffix: '°', step: 1 },
+      { prop: 'distance', label: 'Dist', precision: 2, step: 0.1 },
+      { prop: 'truck', label: 'Truck', precision: 2, step: 0.1 },
+      { prop: 'pedestal', label: 'Ped', precision: 2, step: 0.1 },
+      { prop: 'fov', label: 'FOV', precision: 0, suffix: '°', step: 1 },
+      { prop: 'orthoZoom', label: 'OrthoZm', precision: 1, step: 0.1 },
+    ];
+    // Object sub-track parameter definitions
+    const _objParams = [
+      { prop: 'posX', label: 'Pos X', precision: 2, vecProp: 'position', vecIdx: 0 },
+      { prop: 'posY', label: 'Pos Y', precision: 2, vecProp: 'position', vecIdx: 1 },
+      { prop: 'posZ', label: 'Pos Z', precision: 2, vecProp: 'position', vecIdx: 2 },
+      { prop: 'rotX', label: 'Rot X', precision: 1, vecProp: 'rotation', vecIdx: 0 },
+      { prop: 'rotY', label: 'Rot Y', precision: 1, vecProp: 'rotation', vecIdx: 1 },
+      { prop: 'rotZ', label: 'Rot Z', precision: 1, vecProp: 'rotation', vecIdx: 2 },
+      { prop: 'sclX', label: 'Scl X', precision: 2, vecProp: 'scale', vecIdx: 0 },
+      { prop: 'sclY', label: 'Scl Y', precision: 2, vecProp: 'scale', vecIdx: 1 },
+      { prop: 'sclZ', label: 'Scl Z', precision: 2, vecProp: 'scale', vecIdx: 2 },
+      { prop: 'pivX', label: 'Piv X', precision: 2, vecProp: 'pivot', vecIdx: 0 },
+      { prop: 'pivY', label: 'Piv Y', precision: 2, vecProp: 'pivot', vecIdx: 1 },
+      { prop: 'pivZ', label: 'Piv Z', precision: 2, vecProp: 'pivot', vecIdx: 2 },
+    ];
+
+    // Parametric shape sub-track parameter definitions (keyed by primitiveData.type)
+    const _primitiveParams = {
+      spiral: [
+        { prop: 'snfAngle', label: 'Angle', pdKey: 'angle', precision: 1, step: 1 },
+        { prop: 'snfRadius', label: 'Radius', pdKey: 'radius', precision: 2, step: 0.1 },
+        { prop: 'snfStartR', label: 'Start R', pdKey: 'startRadius', precision: 2, step: 0.1 },
+        { prop: 'snfHeight', label: 'Height', pdKey: 'height', precision: 2, step: 0.1 },
+        { prop: 'snfCount', label: 'Count', pdKey: 'count', precision: 0, step: 1 },
+      ],
+      cycloid: [
+        { prop: 'cycFixedR', label: 'Fixed R', pdKey: 'fixedR', precision: 2, step: 0.1 },
+        { prop: 'cycRollingR', label: 'Roll R', pdKey: 'rollingR', precision: 2, step: 0.1 },
+        { prop: 'cycPenD', label: 'Pen D', pdKey: 'penD', precision: 2, step: 0.1 },
+        { prop: 'cycCount', label: 'Count', pdKey: 'count', precision: 0, step: 1 },
+        { prop: 'cycLoops', label: 'Loops', pdKey: 'loops', precision: 0, step: 1 },
+        { prop: 'cycHeight', label: 'Height', pdKey: 'height', precision: 2, step: 0.1 },
+      ],
+      lissajous: [
+        { prop: 'lisFreqA', label: 'Freq A', pdKey: 'freqA', precision: 2, step: 0.1 },
+        { prop: 'lisFreqB', label: 'Freq B', pdKey: 'freqB', precision: 2, step: 0.1 },
+        { prop: 'lisDelta', label: 'Delta', pdKey: 'delta', precision: 3, step: 0.01 },
+        { prop: 'lisAmpA', label: 'Amp A', pdKey: 'ampA', precision: 2, step: 0.1 },
+        { prop: 'lisAmpB', label: 'Amp B', pdKey: 'ampB', precision: 2, step: 0.1 },
+        { prop: 'lisCount', label: 'Count', pdKey: 'count', precision: 0, step: 1 },
+        { prop: 'lisLoops', label: 'Loops', pdKey: 'loops', precision: 0, step: 1 },
+        { prop: 'lisHeight', label: 'Height', pdKey: 'height', precision: 2, step: 0.1 },
+        { prop: 'lisFreqC', label: 'Freq C', pdKey: 'freqC', precision: 2, step: 0.1 },
+        { prop: 'lisPhaseC', label: 'Phase C', pdKey: 'phaseC', precision: 2, step: 0.01 },
+      ],
+    };
+
+    // Helper: find primitiveParam definition across all shape types
+    const _findPrimitiveParam = (prop) => {
+      for (const type of Object.keys(_primitiveParams)) {
+        const found = _primitiveParams[type].find(p => p.prop === prop);
+        if (found) return found;
+      }
+      return null;
+    };
+
+    // Helper: get the primitive params for a scene object (or null)
+    const _getPrimitiveParamsForObj = (obj) => {
+      if (!obj || !obj.primitiveData) return null;
+      return _primitiveParams[obj.primitiveData.type] || null;
+    };
+
+    // Spline Flow animatable parameter definitions
+    const _splineFlowParams = [
+      { prop: 'sfOffset', label: 'Offset', scKey: 'offset', precision: 2, step: 0.01 },
+      { prop: 'sfHOffset', label: 'H Offset', scKey: 'hOffset', precision: 2, step: 0.01 },
+      { prop: 'sfBank', label: 'Bank', scKey: 'bankFactor', precision: 2, step: 0.1 },
+      { prop: 'sfTwist', label: 'Twist', scKey: 'twist', precision: 1, step: 5 },
+      { prop: 'sfScaleU', label: 'Scale U', scKey: 'scaleU', precision: 2, step: 0.1 },
+      { prop: 'sfScaleV', label: 'Scale V', scKey: 'scaleV', precision: 2, step: 0.1 },
+      { prop: 'sfRotX', label: 'Rot X', scKey: 'rotationX', precision: 1, step: 1 },
+      { prop: 'sfRotY', label: 'Rot Y', scKey: 'rotationY', precision: 1, step: 1 },
+      { prop: 'sfRotZ', label: 'Rot Z', scKey: 'rotation', precision: 1, step: 1 },
+      { prop: 'sfRepeat', label: 'Repeat', scKey: 'repeat', precision: 0, step: 1 },
+      { prop: 'sfGap', label: 'Gap', scKey: 'repeatOffset', precision: 2, step: 0.01 },
+    ];
+
+    // Helper: get spline flow params for a scene object (or null)
+    const _getSplineFlowParamsForObj = (obj) => {
+      if (!obj || !obj.surfaceConstraint || !obj.surfaceConstraint.active) return null;
+      return _splineFlowParams;
+    };
+
+    // Surface Mapping animatable parameter definitions
+    const _surfaceMappingParams = [
+      { prop: 'smScaleU', label: 'Scale U', dataKey: 'scaleU', precision: 2, step: 0.1 },
+      { prop: 'smScaleV', label: 'Scale V', dataKey: 'scaleV', precision: 2, step: 0.1 },
+      { prop: 'smOffsetU', label: 'Offset U', dataKey: 'offsetU', precision: 2, step: 0.01 },
+      { prop: 'smOffsetV', label: 'Offset V', dataKey: 'offsetV', precision: 2, step: 0.01 },
+      { prop: 'smOffsetN', label: 'Normal Offset', dataKey: 'offsetN', precision: 2, step: 0.01 },
+      { prop: 'smRotation', label: 'Rotation', dataKey: 'rotation', precision: 1, step: 1 },
+    ];
+
+    // Helper: get surface mapping params for a scene object (or null)
+    const _getSurfaceMappingParamsForObj = (obj) => {
+      if (!obj || !obj.surfaceConstraint?.surfaceMapping?.enabled) return null;
+      return _surfaceMappingParams;
+    };
+
+    // 3D Settings animatable parameter definitions (per feature)
+    const _extrudeParams = [
+      { prop: 'exDepth', label: 'Depth', settingsKey: 'depth', precision: 2, step: 0.1 },
+      { prop: 'exVecX', label: 'Vector X', settingsKey: 'vector.x', precision: 2, step: 0.1 },
+      { prop: 'exVecY', label: 'Vector Y', settingsKey: 'vector.y', precision: 2, step: 0.1 },
+      { prop: 'exVecZ', label: 'Vector Z', settingsKey: 'vector.z', precision: 2, step: 0.1 },
+      { prop: 'exScaleFrontU', label: 'Front U', settingsKey: 'scaleFrontU', precision: 2, step: 0.1 },
+      { prop: 'exScaleFrontV', label: 'Front V', settingsKey: 'scaleFrontV', precision: 2, step: 0.1 },
+      { prop: 'exScaleBackU', label: 'Back U', settingsKey: 'scaleBackU', precision: 2, step: 0.1 },
+      { prop: 'exScaleBackV', label: 'Back V', settingsKey: 'scaleBackV', precision: 2, step: 0.1 },
+    ];
+
+    const _revolveParams = [
+      { prop: 'rvAngle', label: 'Angle', settingsKey: 'angle', precision: 1, step: 1 },
+      { prop: 'rvSegments', label: 'Segments', settingsKey: 'segments', precision: 0, step: 1 },
+      { prop: 'rvOffset', label: 'Offset', settingsKey: 'offset', precision: 1, step: 1 },
+      { prop: 'rvScaleStart', label: 'Scale Start', settingsKey: 'scaleStart', precision: 2, step: 0.1 },
+      { prop: 'rvScaleEnd', label: 'Scale End', settingsKey: 'scaleEnd', precision: 2, step: 0.1 },
+    ];
+
+    const _sweepParams = [
+      { prop: 'swScaleStart', label: 'Scale Start', settingsKey: 'scaleStart', precision: 2, step: 0.1 },
+      { prop: 'swScaleEnd', label: 'Scale End', settingsKey: 'scaleEnd', precision: 2, step: 0.1 },
+    ];
+
+    const _loftParams = [
+      { prop: 'lfDepth', label: 'Depth', settingsKey: 'depth', precision: 2, step: 0.1 },
+      { prop: 'lfSegments', label: 'Segments', settingsKey: 'segments', precision: 0, step: 1 },
+    ];
+
+    // Helper: get 3D settings params for a scene object (or null)
+    // Returns { params, settingsObj, label } or null
+    const _get3dSettingsParamsForObj = (obj) => {
+      if (!obj) return null;
+      if (obj.extrudeSettings?.enabled) return { params: _extrudeParams, settingsObj: 'extrudeSettings', label: 'Extrude' };
+      if (obj.revolveSettings?.enabled) return { params: _revolveParams, settingsObj: 'revolveSettings', label: 'Revolve' };
+      if (obj.sweepSettings?.enabled) return { params: _sweepParams, settingsObj: 'sweepSettings', label: 'Sweep' };
+      if (obj.loftSettings?.enabled) return { params: _loftParams, settingsObj: 'loftSettings', label: 'Loft' };
+      return null;
+    };
+
+    // Utility: read a possibly nested settings key (e.g. 'vector.x')
+    const _readSettingsKey = (settingsObj, key) => {
+      const parts = key.split('.');
+      if (parts.length === 2) return settingsObj?.[parts[0]]?.[parts[1]];
+      return settingsObj?.[key];
+    };
+
+    // Utility: write a possibly nested settings key (e.g. 'vector.x')
+    const _writeSettingsKey = (settingsObj, key, val) => {
+      const parts = key.split('.');
+      if (parts.length === 2) {
+        if (!settingsObj[parts[0]]) settingsObj[parts[0]] = {};
+        settingsObj[parts[0]][parts[1]] = val;
+      } else {
+        settingsObj[key] = val;
+      }
+    };
+
+    // Track collapse state (persisted per session)
+    const _tlGroupCollapsed = new Map(); // objectName -> boolean
+    const _tlSubGroupCollapsed = new Map(); // "objectName:subGroup" -> boolean
+
+    // Inline input references for updating values
+    let _tlTrackInputs = []; // { objectName, prop, inputs: [HTMLInputElement], type: 'scalar', keyBtn: HTMLButtonElement }
+
+    // --- Keyframe Selection Model ---
+    // Tracks which keyframe is currently selected (null = none).
+    // When selected, inputs show the exact keyframe value and edits
+    // modify that keyframe (even if playhead is elsewhere).
+    let tlSelectedKf = null; // { objectName, prop, frame, kf }
+
+    const tlSelectKf = (objectName, prop, frame, kf) => {
+      tlSelectedKf = { objectName, prop, frame, kf };
+      // Apply this keyframe's value to the viewport for visual feedback
+      tlApplyFrame(frame);
+      // Update inputs to show the selected keyframe's exact value
+      tlUpdateTrackInputs();
+      // Highlight the selected diamond in the DOM
+      document.querySelectorAll('.tl-keyframe.selected').forEach(el => el.classList.remove('selected'));
+      const sel = document.querySelector(`.tl-keyframe[data-obj="${objectName}"][data-prop="${prop}"][data-frame="${frame}"]`);
+      if (sel) sel.classList.add('selected');
+    };
+
+    const tlClearKfSelection = () => {
+      if (!tlSelectedKf) return;
+      tlSelectedKf = null;
+      document.querySelectorAll('.tl-keyframe.selected').forEach(el => el.classList.remove('selected'));
+      // Restore viewport to current frame
+      tlApplyFrame(animationTimeline.currentFrame);
+      tlUpdateTrackInputs();
+    };
+
+    // Track selection changes to re-render timeline when selected object changes
+    let _tlLastSelectedName = null;
+
+    // Update all inline track inputs with interpolated values at current frame
+    const tlUpdateTrackInputs = () => {
+      const frame = animationTimeline.currentFrame;
+      for (const entry of _tlTrackInputs) {
+        const { objectName, prop, inputs, type, keyBtn } = entry;
+        const objTracks = animationTimeline.tracks.get(objectName);
+        const kfs = objTracks ? objTracks.get(prop) : null;
+
+        // Sync keyframe button state (filled ◆ vs empty ◇)
+        if (keyBtn) {
+          const checkFrame = (tlSelectedKf && tlSelectedKf.objectName === objectName && tlSelectedKf.prop === prop)
+            ? tlSelectedKf.frame : frame;
+          const hasKf = kfs ? kfs.some(k => k.frame === checkFrame) : false;
+          keyBtn.classList.toggle('has-keyframe', hasKf);
+          keyBtn.title = hasKf ? `Remove keyframe for ${entry.label || prop}` : `Add keyframe for ${entry.label || prop}`;
+        }
+
+        // If this track's keyframe is selected, show its exact value
+        if (tlSelectedKf && tlSelectedKf.objectName === objectName && tlSelectedKf.prop === prop) {
+          const selVal = tlSelectedKf.kf.value;
+          if (selVal !== null && selVal !== undefined && inputs[0] && document.activeElement !== inputs[0]) {
+            let paramDef;
+            if (objectName === '__camera__') paramDef = _camParams.find(p => p.prop === prop);
+            else {
+              paramDef = _objParams.find(p => p.prop === prop);
+              if (!paramDef) {
+                const obj = sceneObjects.find(o => o.name === objectName);
+                const primParams = obj ? _getPrimitiveParamsForObj(obj) : null;
+                if (primParams) paramDef = primParams.find(p => p.prop === prop);
+              }
+              if (!paramDef) {
+                paramDef = _splineFlowParams.find(p => p.prop === prop);
+              }
+              if (!paramDef) {
+                paramDef = _surfaceMappingParams.find(p => p.prop === prop);
+              }
+              if (!paramDef) {
+                const obj2 = sceneObjects.find(o => o.name === objectName);
+                const tdInfo = obj2 ? _get3dSettingsParamsForObj(obj2) : null;
+                if (tdInfo) paramDef = tdInfo.params.find(p => p.prop === prop);
+              }
+            }
+            inputs[0].value = (typeof selVal === 'number' ? selVal : 0).toFixed(paramDef ? paramDef.precision : 2);
+          }
+          continue;
+        }
+
+        if (objectName === '__camera__') {
+          // Get interpolated or live camera value
+          let val = kfs ? tlInterpolate(kfs, frame) : null;
+          if (val === null) {
+            // Show live camera value
+            const camState = getCameraOrbitalState(activeCamera);
+            val = camState[prop];
+          }
+          if (val !== null && val !== undefined && inputs[0] && document.activeElement !== inputs[0]) {
+            const paramDef = _camParams.find(p => p.prop === prop);
+            inputs[0].value = val.toFixed(paramDef ? paramDef.precision : 2);
+          }
+        } else {
+          // Object track — per-component scalar row
+          let paramDef = _objParams.find(p => p.prop === prop);
+          let val = kfs ? tlInterpolate(kfs, frame) : null;
+          if (val === null && paramDef) {
+            // Show live object value
+            const obj = sceneObjects.find(o => o.name === objectName);
+            if (obj) {
+              const { vecProp, vecIdx } = paramDef;
+              if (vecProp === 'position') val = obj.position[vecIdx];
+              else if (vecProp === 'rotation') val = (obj.rotationEuler || matrixToEuler(obj.rotationMatrix))[vecIdx];
+              else if (vecProp === 'scale') val = (obj.scale || [1, 1, 1])[vecIdx];
+              else if (vecProp === 'pivot') val = (obj.pivot || [0, 0, 0])[vecIdx];
+            }
+          }
+          // Primitive param fallback
+          if (!paramDef) {
+            const obj = sceneObjects.find(o => o.name === objectName);
+            const primParams = obj ? _getPrimitiveParamsForObj(obj) : null;
+            if (primParams) {
+              paramDef = primParams.find(p => p.prop === prop);
+              if (paramDef && val === null && obj.primitiveData) {
+                val = obj.primitiveData[paramDef.pdKey];
+              }
+            }
+          }
+          // Spline Flow param fallback
+          if (!paramDef) {
+            const obj = sceneObjects.find(o => o.name === objectName);
+            const sfParamDef = _splineFlowParams.find(p => p.prop === prop);
+            if (sfParamDef && obj && obj.surfaceConstraint) {
+              paramDef = sfParamDef;
+              if (val === null) {
+                val = obj.surfaceConstraint[sfParamDef.scKey];
+              }
+            }
+          }
+          // Surface Mapping param fallback
+          if (!paramDef) {
+            const obj = sceneObjects.find(o => o.name === objectName);
+            const smParamDef = _surfaceMappingParams.find(p => p.prop === prop);
+            if (smParamDef && obj?.surfaceConstraint?.surfaceMapping) {
+              paramDef = smParamDef;
+              if (val === null) {
+                val = obj.surfaceConstraint.surfaceMapping[smParamDef.dataKey];
+              }
+            }
+          }
+          // 3D Settings param fallback
+          if (!paramDef) {
+            const obj = sceneObjects.find(o => o.name === objectName);
+            const tdInfo = obj ? _get3dSettingsParamsForObj(obj) : null;
+            if (tdInfo) {
+              const tdParamDef = tdInfo.params.find(p => p.prop === prop);
+              if (tdParamDef) {
+                paramDef = tdParamDef;
+                if (val === null) {
+                  val = _readSettingsKey(obj[tdInfo.settingsObj], tdParamDef.settingsKey);
+                }
+              }
+            }
+          }
+          if (val !== null && val !== undefined && inputs[0] && document.activeElement !== inputs[0]) {
+            inputs[0].value = (typeof val === 'number' ? val : 0).toFixed(paramDef ? paramDef.precision : 2);
+          }
+        }
+      }
+    };
+
+    const tlUpdatePlayheadPosition = () => {
+      const f = animationTimeline.currentFrame;
+      const total = animationTimeline.totalFrames;
+      const rulerW = tlRuler ? tlRuler.clientWidth : 1;
+      const x = (f / (total - 1)) * rulerW;
+      if (tlRulerPlayhead) tlRulerPlayhead.style.left = x + 'px';
+      if (tlPlayhead) tlPlayhead.style.left = x + 'px';
+    };
+
+    // --- Ruler Drawing (canvas) ---
+    const tlDrawRuler = () => {
+      const canvas = tlRulerCanvas;
+      if (!canvas) return;
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, w, h);
+      const total = animationTimeline.totalFrames;
+      const fps = animationTimeline.fps;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+      ctx.font = '9px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+
+      for (let i = 0; i < total; i++) {
+        const x = (i / (total - 1)) * w;
+        if (i % fps === 0) {
+          // Major tick (every second)
+          ctx.fillStyle = 'rgba(0,0,0,0.6)';
+          ctx.fillRect(x, h - 10, 1, 10);
+          ctx.fillText(String(i), x, h - 11);
+        } else if (i % (fps / 4) === 0 || (fps <= 12 && i % Math.max(1, Math.floor(fps / 2)) === 0)) {
+          // Minor tick
+          ctx.fillStyle = 'rgba(0,0,0,0.15)';
+          ctx.fillRect(x, h - 5, 1, 5);
+        }
+      }
+
+      // Out-of-range dim overlay on ruler
+      const range = animationTimeline.playbackRange;
+      if (range < total) {
+        const rangeX = ((range - 1) / (total - 1)) * w;
+        ctx.fillStyle = 'rgba(0,0,0,0.06)';
+        ctx.fillRect(rangeX, 0, w - rangeX, h);
+        // Boundary line
+        ctx.strokeStyle = 'rgba(255,100,0,0.35)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(rangeX, 0);
+        ctx.lineTo(rangeX, h);
+        ctx.stroke();
+      }
+    };
+
+    // --- Track Rendering ---
+    // Helper: add a camera keyframe for a specific property with azimuth unwrapping
+    const _tlAddCamKeyframe = (prop, frame, value) => {
+      if (prop === 'azimuth') {
+        // Unwrap azimuth relative to previous keyframe
+        const camTracks = animationTimeline.tracks.get('__camera__');
+        if (camTracks) {
+          const azKfs = camTracks.get('azimuth');
+          if (azKfs && azKfs.length > 0) {
+            let prevKf = null;
+            for (let i = azKfs.length - 1; i >= 0; i--) {
+              if (azKfs[i].frame <= frame) { prevKf = azKfs[i]; break; }
+            }
+            if (!prevKf) prevKf = azKfs[0];
+            const prevAz = prevKf.value;
+            let dAz = value - prevAz;
+            dAz = ((dAz + 180) % 360 + 360) % 360 - 180;
+            value = prevAz + dAz;
+          }
+        }
+      }
+      tlAddKeyframe('__camera__', prop, frame, value);
+    };
+
+    // Helper: add all camera keyframes at once
+    const _tlAddAllCamKeyframes = (frame) => {
+      const state = getCameraOrbitalState(activeCamera);
+      _tlAddCamKeyframe('azimuth', frame, state.azimuth);
+      tlAddKeyframe('__camera__', 'elevation', frame, state.elevation);
+      tlAddKeyframe('__camera__', 'distance', frame, state.distance);
+      tlAddKeyframe('__camera__', 'truck', frame, state.truck);
+      tlAddKeyframe('__camera__', 'pedestal', frame, state.pedestal);
+      tlAddKeyframe('__camera__', 'fov', frame, state.fov);
+      tlAddKeyframe('__camera__', 'orthoZoom', frame, state.orthoZoom);
+    };
+
+    // --- Auto-Keying ---
+    // Standard animation app behavior:
+    // - On a keyframe: overwrite the keyframe with new values
+    // - Between keyframes: create a new keyframe at the current frame
+    // Only acts if animation is enabled AND the object/camera already has tracks.
+
+    const tlAutoKeyCamera = () => {
+      const animCb = document.getElementById('animationEnabledCb');
+      if (!animCb || !animCb.checked) return;
+      if (animationTimeline.isPlaying) return;
+      const camTracks = animationTimeline.tracks.get('__camera__');
+      if (!camTracks || camTracks.size === 0) return;
+      // Camera has tracks — auto-record all parameters that have keyframes
+      const frame = animationTimeline.currentFrame;
+      const state = getCameraOrbitalState(activeCamera);
+      let changed = false;
+      for (const paramDef of _camParams) {
+        const kfs = camTracks.get(paramDef.prop);
+        if (!kfs || kfs.length === 0) continue;
+        // This property is keyframed — auto-key it
+        if (paramDef.prop === 'azimuth') {
+          _tlAddCamKeyframe('azimuth', frame, state.azimuth);
+        } else {
+          tlAddKeyframe('__camera__', paramDef.prop, frame, state[paramDef.prop]);
+        }
+        changed = true;
+      }
+      if (changed) {
+        tlRenderTracks();
+        tlUpdateTrackInputs();
+      }
+    };
+
+    const tlAutoKeyObject = (obj) => {
+      if (!obj) return;
+      const animCb = document.getElementById('animationEnabledCb');
+      if (!animCb || !animCb.checked) return;
+      if (animationTimeline.isPlaying) return;
+      const objTracks = animationTimeline.tracks.get(obj.name);
+      if (!objTracks || objTracks.size === 0) return;
+      // Object has tracks — auto-record properties that have keyframes
+      const frame = animationTimeline.currentFrame;
+      const euler = obj.rotationEuler || matrixToEuler(obj.rotationMatrix);
+      const scale = obj.scale || [1, 1, 1];
+      const pivot = obj.pivot || [0, 0, 0];
+      let changed = false;
+      for (const paramDef of _objParams) {
+        const kfs = objTracks.get(paramDef.prop);
+        if (!kfs || kfs.length === 0) continue;
+        let val;
+        if (paramDef.vecProp === 'position') val = obj.position[paramDef.vecIdx];
+        else if (paramDef.vecProp === 'rotation') val = euler[paramDef.vecIdx];
+        else if (paramDef.vecProp === 'scale') val = scale[paramDef.vecIdx];
+        else if (paramDef.vecProp === 'pivot') val = pivot[paramDef.vecIdx];
+        if (val !== undefined) {
+          tlAddKeyframe(obj.name, paramDef.prop, frame, val);
+          changed = true;
+        }
+      }
+      if (changed) {
+        tlRenderTracks();
+        tlUpdateTrackInputs();
+      }
+    };
+
+    const tlRenderTracks = () => {
+      if (!tlTrackLabels || !tlTracksArea) return;
+      // Preserve scroll position across re-renders
+      const container = tlTrackLabels.parentElement;
+      const savedScroll = container ? container.scrollTop : 0;
+      // Clear existing
+      tlTrackLabels.innerHTML = '';
+      while (tlTracksArea.children.length > 1) {
+        tlTracksArea.removeChild(tlTracksArea.lastChild);
+      }
+      if (tlPlayhead && tlTracksArea.firstChild !== tlPlayhead) {
+        tlTracksArea.insertBefore(tlPlayhead, tlTracksArea.firstChild);
+      }
+
+      const total = animationTimeline.totalFrames;
+      const areaW = tlTracksArea.clientWidth;
+      _tlTrackInputs = []; // Reset input references
+
+      // Helper: create a sub-track row (label + keyframe strip)
+      const addSubTrack = (objectName, prop, labelText, keyframes, precision, inputOpts) => {
+        const collapsed = _tlGroupCollapsed.get(objectName) || false;
+
+        // Label
+        const label = document.createElement('div');
+        label.className = 'tl-track-label tl-sub-track' + (collapsed ? ' tl-collapsed' : '');
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'tl-track-name';
+        nameSpan.textContent = labelText;
+        label.appendChild(nameSpan);
+
+        // Inline input — single scalar input per row, using num-spin-wrap
+        const inputEntry = { objectName, prop, inputs: [], type: 'scalar' };
+
+        // Build num-spin-wrap structure
+        const wrap = document.createElement('div');
+        wrap.className = 'num-spin-wrap';
+
+        const inp = document.createElement('input');
+        inp.type = 'number';
+        inp.className = 'ui-input';
+        inp.step = inputOpts.step || 0.1;
+        inp.value = '0';
+        inp.addEventListener('click', (e) => e.stopPropagation());
+        inp.addEventListener('change', () => {
+          pushUndoState('Edit keyframe');
+          const newVal = parseFloat(inp.value) || 0;
+
+          // If this track has a selected keyframe, edit that keyframe
+          if (tlSelectedKf && tlSelectedKf.objectName === objectName && tlSelectedKf.prop === prop) {
+            tlSelectedKf.kf.value = newVal;
+            tlApplyFrame(tlSelectedKf.frame);
+            tlRenderTracks();
+            // Re-highlight since render rebuilds DOM
+            requestAnimationFrame(() => {
+              const sel = document.querySelector(`.tl-keyframe[data-obj="${objectName}"][data-prop="${prop}"][data-frame="${tlSelectedKf.frame}"]`);
+              if (sel) sel.classList.add('selected');
+            });
+            return;
+          }
+
+          // Default: add/update keyframe at current frame
+          const frame = animationTimeline.currentFrame;
+          tlAddKeyframe(objectName, prop, frame, newVal);
+          tlApplyFrame(frame);
+          tlRenderTracks();
+        });
+        wrap.appendChild(inp);
+
+        // Spinner buttons (right side — increment/decrement arrows)
+        const btns = document.createElement('div');
+        btns.className = 'num-spin-btns';
+        const upBtn = document.createElement('button');
+        upBtn.className = 'num-spin-up';
+        upBtn.tabIndex = -1;
+        upBtn.type = 'button';
+        upBtn.innerHTML = '<svg viewBox="0 0 8 8"><polyline points="6.4 5.6 4 2.4 1.6 5.6"/></svg>';
+        const downBtn = document.createElement('button');
+        downBtn.className = 'num-spin-down';
+        downBtn.tabIndex = -1;
+        downBtn.type = 'button';
+        downBtn.innerHTML = '<svg viewBox="0 0 8 8"><polyline points="1.6 2.4 4 5.6 6.4 2.4"/></svg>';
+        btns.appendChild(upBtn);
+        btns.appendChild(downBtn);
+        wrap.appendChild(btns);
+
+        // Step function for spin buttons
+        const doStep = (dir) => {
+          const s = parseFloat(inp.step) || 1;
+          const min = inp.min !== '' ? parseFloat(inp.min) : -Infinity;
+          const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
+          let val = parseFloat(inp.value) || 0;
+          val = Math.round((val + dir * s) * 1e9) / 1e9;
+          val = Math.max(min, Math.min(max, val));
+          inp.value = val;
+          inp.dispatchEvent(new Event('input', { bubbles: true }));
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        const bindSpinBtn = (btn, dir) => {
+          let holdTimer = null;
+          let holdInterval = null;
+          btn.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            doStep(dir);
+            holdTimer = setTimeout(() => {
+              holdInterval = setInterval(() => doStep(dir), 80);
+            }, 400);
+          });
+          const stopHold = () => {
+            clearTimeout(holdTimer);
+            clearInterval(holdInterval);
+            holdTimer = null;
+            holdInterval = null;
+          };
+          btn.addEventListener('mouseup', stopHold);
+          btn.addEventListener('mouseleave', stopHold);
+        };
+        bindSpinBtn(upBtn, 1);
+        bindSpinBtn(downBtn, -1);
+
+        // Scrub handle (left side — drag to adjust)
+        const scrub = document.createElement('button');
+        scrub.className = 'num-spin-scrub';
+        scrub.tabIndex = -1;
+        scrub.type = 'button';
+        scrub.setAttribute('aria-label', 'Drag to adjust value');
+        scrub.innerHTML = '<svg viewBox="0 0 8 16"><polyline points="5.2 9.2 6.8 8 5.2 6.8"/><polyline points="2.8 6.8 1.2 8 2.8 9.2"/><line x1="6.8" y1="8" x2="1.2" y2="8"/></svg>';
+        wrap.appendChild(scrub);
+
+        let scrubDragging = false;
+        let scrubStartVal = 0;
+        let scrubAccum = 0;
+        let scrubLastX = 0;
+        let scrubLastY = 0;
+        let scrubAxis = null;
+        let scrubOriginX = 0;
+        let scrubOriginY = 0;
+        const SCRUB_AXIS_THRESHOLD = 3;
+
+        const onScrubMove = (e) => {
+          if (!scrubDragging) return;
+          if (!scrubAxis) {
+            const totalDx = Math.abs(e.clientX - scrubOriginX);
+            const totalDy = Math.abs(e.clientY - scrubOriginY);
+            if (totalDx < SCRUB_AXIS_THRESHOLD && totalDy < SCRUB_AXIS_THRESHOLD) return;
+            scrubAxis = totalDx >= totalDy ? 'h' : 'v';
+            document.documentElement.style.cursor = scrubAxis === 'h' ? 'ew-resize' : 'ns-resize';
+            scrubLastX = e.clientX;
+            scrubLastY = e.clientY;
+            return;
+          }
+          let delta;
+          if (scrubAxis === 'h') {
+            delta = e.clientX - scrubLastX;
+            scrubLastX = e.clientX;
+          } else {
+            delta = -(e.clientY - scrubLastY);
+            scrubLastY = e.clientY;
+          }
+          const step = parseFloat(inp.step) || 1;
+          const sensitivity = step / 4;
+          let mult = 1;
+          if (e.shiftKey) mult = 10;
+          else if (e.altKey) mult = 0.1;
+          scrubAccum += delta * sensitivity * mult;
+          const min = inp.min !== '' ? parseFloat(inp.min) : -Infinity;
+          const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
+          let newVal = scrubStartVal + scrubAccum;
+          newVal = Math.round(newVal * 1e9) / 1e9;
+          newVal = Math.max(min, Math.min(max, newVal));
+          inp.value = newVal;
+          inp.dispatchEvent(new Event('input', { bubbles: true }));
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        const onScrubUp = () => {
+          if (!scrubDragging) return;
+          scrubDragging = false;
+          scrubAxis = null;
+          scrub.classList.remove('scrubbing');
+          document.documentElement.style.cursor = '';
+          document.removeEventListener('mousemove', onScrubMove);
+          document.removeEventListener('mouseup', onScrubUp);
+          document.removeEventListener('keydown', onScrubKey);
+          document.body.style.userSelect = '';
+        };
+        const onScrubKey = (e) => {
+          if (e.key === 'Escape' && scrubDragging) {
+            inp.value = scrubStartVal;
+            inp.dispatchEvent(new Event('input', { bubbles: true }));
+            inp.dispatchEvent(new Event('change', { bubbles: true }));
+            onScrubUp();
+          }
+        };
+        scrub.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          scrubDragging = true;
+          scrubAxis = null;
+          scrubStartVal = parseFloat(inp.value) || 0;
+          scrubAccum = 0;
+          scrubOriginX = e.clientX;
+          scrubOriginY = e.clientY;
+          scrubLastX = e.clientX;
+          scrubLastY = e.clientY;
+          scrub.classList.add('scrubbing');
+          document.body.style.userSelect = 'none';
+          document.addEventListener('mousemove', onScrubMove);
+          document.addEventListener('mouseup', onScrubUp);
+          document.addEventListener('keydown', onScrubKey);
+        });
+
+        inputEntry.inputs.push(inp);
+        label.appendChild(wrap);
+
+        // Per-property keyframe toggle button (add ◇ / remove ◆)
+        const keyBtn = document.createElement('button');
+        keyBtn.className = 'tl-key-single-btn';
+        keyBtn.title = `Add keyframe for ${labelText}`;
+        keyBtn.innerHTML = '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" transform="rotate(45 7 7)"/></svg>';
+        keyBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const frame = animationTimeline.currentFrame;
+          // Check if keyframe exists at this frame
+          const objTracks = animationTimeline.tracks.get(objectName);
+          const kfs = objTracks ? objTracks.get(prop) : null;
+          const existingIdx = kfs ? kfs.findIndex(k => k.frame === frame) : -1;
+
+          if (existingIdx >= 0) {
+            // Remove existing keyframe
+            pushUndoState('Remove keyframe');
+            tlRemoveKeyframe(objectName, prop, frame);
+          } else {
+            // Add new keyframe
+            pushUndoState('Add keyframe');
+            if (objectName === '__camera__') {
+              const camState = getCameraOrbitalState(activeCamera);
+              if (prop === 'azimuth') {
+                _tlAddCamKeyframe('azimuth', frame, camState.azimuth);
+              } else {
+                tlAddKeyframe('__camera__', prop, frame, camState[prop]);
+              }
+            } else {
+              // Object property — check transform params first, then primitive
+              const obj = sceneObjects.find(o => o.name === objectName);
+              const paramDef = _objParams.find(p => p.prop === prop);
+              if (paramDef && obj) {
+                let val;
+                if (paramDef.vecProp === 'position') val = obj.position[paramDef.vecIdx];
+                else if (paramDef.vecProp === 'rotation') val = (obj.rotationEuler || matrixToEuler(obj.rotationMatrix))[paramDef.vecIdx];
+                else if (paramDef.vecProp === 'scale') val = (obj.scale || [1, 1, 1])[paramDef.vecIdx];
+                else if (paramDef.vecProp === 'pivot') val = (obj.pivot || [0, 0, 0])[paramDef.vecIdx];
+                if (val !== undefined) {
+                  tlAddKeyframe(objectName, prop, frame, val);
+                }
+              } else if (obj) {
+                // Primitive param
+                let keyed = false;
+                const primParams = _getPrimitiveParamsForObj(obj);
+                if (primParams) {
+                  const primDef = primParams.find(p => p.prop === prop);
+                  if (primDef && obj.primitiveData) {
+                    const val = obj.primitiveData[primDef.pdKey];
+                    if (val !== undefined && val !== null) {
+                      tlAddKeyframe(objectName, prop, frame, val);
+                      keyed = true;
+                    }
+                  }
+                }
+                // Spline Flow param
+                if (!keyed) {
+                  const sfParamDef = _splineFlowParams.find(p => p.prop === prop);
+                  if (sfParamDef && obj.surfaceConstraint) {
+                    const val = obj.surfaceConstraint[sfParamDef.scKey];
+                    if (val !== undefined && val !== null) {
+                      tlAddKeyframe(objectName, prop, frame, val);
+                      keyed = true;
+                    }
+                  }
+                }
+                // Surface Mapping param
+                if (!keyed) {
+                  const smParamDef = _surfaceMappingParams.find(p => p.prop === prop);
+                  if (smParamDef && obj?.surfaceConstraint?.surfaceMapping) {
+                    const val = obj.surfaceConstraint.surfaceMapping[smParamDef.dataKey];
+                    if (val !== undefined && val !== null) {
+                      tlAddKeyframe(objectName, prop, frame, val);
+                      keyed = true;
+                    }
+                  }
+                }
+                // 3D Settings param
+                if (!keyed) {
+                  const tdInfo = _get3dSettingsParamsForObj(obj);
+                  if (tdInfo) {
+                    const tdParamDef = tdInfo.params.find(p => p.prop === prop);
+                    if (tdParamDef) {
+                      const val = _readSettingsKey(obj[tdInfo.settingsObj], tdParamDef.settingsKey);
+                      if (val !== undefined && val !== null) {
+                        tlAddKeyframe(objectName, prop, frame, val);
+                        keyed = true;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          tlRenderTracks();
+          tlUpdateTrackInputs();
+        });
+        label.appendChild(keyBtn);
+
+        inputEntry.keyBtn = keyBtn;
+        inputEntry.label = labelText;
+        _tlTrackInputs.push(inputEntry);
+
+        tlTrackLabels.appendChild(label);
+
+        // Track row
+        const row = document.createElement('div');
+        row.className = 'tl-track-row' + (collapsed ? ' tl-collapsed' : '');
+        if (keyframes) {
+          for (const kf of keyframes) {
+            const diamond = document.createElement('div');
+            const isStep = kf.interp === 'step';
+            diamond.className = 'tl-keyframe' + (isStep ? ' step' : '');
+            diamond.title = `${prop} @ frame ${kf.frame}` + (isStep ? ' (constant)' : '');
+            diamond.dataset.obj = objectName;
+            diamond.dataset.prop = prop;
+            diamond.dataset.frame = kf.frame;
+            // Highlight if this is the selected keyframe
+            if (tlSelectedKf && tlSelectedKf.objectName === objectName && tlSelectedKf.prop === prop && tlSelectedKf.frame === kf.frame) {
+              diamond.classList.add('selected');
+            }
+            const x = (kf.frame / (total - 1)) * areaW;
+            diamond.style.left = x + 'px';
+
+            // --- Drag logic ---
+            diamond.addEventListener('pointerdown', (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+
+              // --- Option+click → show keyframe context menu ---
+              if (e.altKey) {
+                const menu = document.getElementById('tlKeyframeMenu');
+                // Set anchor on the clicked diamond
+                diamond.style.anchorName = '--tl-kf-anchor';
+                // Update active state on menu buttons
+                menu.querySelectorAll('button').forEach(btn => {
+                  btn.classList.toggle('active', btn.dataset.interp === (kf.interp || 'linear'));
+                });
+                // Store reference for menu action
+                menu._kfRef = { objectName, prop, frame: kf.frame, kf };
+                menu.showPopover();
+                // Clean up anchor on close
+                menu.addEventListener('toggle', (te) => {
+                  if (te.newState === 'closed') {
+                    diamond.style.anchorName = '';
+                  }
+                }, { once: true });
+                return;
+              }
+
+              const startX = e.clientX;
+              const startFrame = kf.frame;
+              const startLeft = x;
+              let isDragging = false;
+              let currentFrame = startFrame;
+              let ghost = null;
+
+              diamond.setPointerCapture(e.pointerId);
+
+              const onMove = (me) => {
+                const dx = me.clientX - startX;
+
+                // 3px dead zone to distinguish click from drag
+                if (!isDragging && Math.abs(dx) < 3) return;
+
+                if (!isDragging) {
+                  isDragging = true;
+                  diamond.classList.add('dragging');
+
+                  // Create ghost marker at original position (inherits step class)
+                  ghost = document.createElement('div');
+                  ghost.className = 'tl-keyframe-ghost' + (isStep ? ' step' : '');
+                  ghost.style.left = startLeft + 'px';
+                  row.appendChild(ghost);
+                }
+
+                // Calculate new frame from mouse position
+                const areaRect = tlTracksArea.getBoundingClientRect();
+                const relX = me.clientX - areaRect.left;
+                const totalF = animationTimeline.totalFrames;
+                let newFrame = Math.round((relX / areaRect.width) * (totalF - 1));
+                newFrame = Math.max(0, Math.min(totalF - 1, newFrame));
+                currentFrame = newFrame;
+
+                // Update diamond position in real-time
+                const newLeft = (newFrame / (totalF - 1)) * areaRect.width;
+                diamond.style.left = newLeft + 'px';
+                diamond.title = `${prop} @ frame ${newFrame}` + (isStep ? ' (constant)' : '');
+              };
+
+              const onUp = (ue) => {
+                diamond.releasePointerCapture(ue.pointerId);
+                diamond.removeEventListener('pointermove', onMove);
+                diamond.removeEventListener('pointerup', onUp);
+                document.removeEventListener('keydown', onEscape);
+
+                if (ghost) { ghost.remove(); ghost = null; }
+                diamond.classList.remove('dragging');
+
+                if (!isDragging) {
+                  // Click — select this keyframe (don't move playhead)
+                  tlSelectKf(objectName, prop, startFrame, kf);
+                } else if (currentFrame !== startFrame) {
+                  // Drag completed — move keyframe data (preserve interp)
+                  const value = kf.value;
+                  const interp = kf.interp || 'linear';
+                  tlRemoveKeyframe(objectName, prop, startFrame);
+                  tlAddKeyframe(objectName, prop, currentFrame, value, interp);
+                  // Find the newly added kf reference
+                  const objTracks = animationTimeline.tracks.get(objectName);
+                  const kfs = objTracks ? objTracks.get(prop) : null;
+                  const movedKf = kfs ? kfs.find(k => k.frame === currentFrame) : null;
+                  tlRenderTracks();
+                  if (movedKf) {
+                    tlSelectKf(objectName, prop, currentFrame, movedKf);
+                  }
+                } else {
+                  // Dragged back to original position — select it
+                  tlSelectKf(objectName, prop, startFrame, kf);
+                }
+              };
+
+              const onEscape = (ke) => {
+                if (ke.key === 'Escape') {
+                  ke.preventDefault();
+                  // Cancel drag — restore original position
+                  diamond.releasePointerCapture(e.pointerId);
+                  diamond.removeEventListener('pointermove', onMove);
+                  diamond.removeEventListener('pointerup', onUp);
+                  document.removeEventListener('keydown', onEscape);
+
+                  if (ghost) { ghost.remove(); ghost = null; }
+                  diamond.classList.remove('dragging');
+                  diamond.style.left = startLeft + 'px';
+                  diamond.title = `${prop} @ frame ${startFrame}` + (isStep ? ' (constant)' : '');
+                }
+              };
+
+              diamond.addEventListener('pointermove', onMove);
+              diamond.addEventListener('pointerup', onUp);
+              document.addEventListener('keydown', onEscape);
+            });
+
+            row.appendChild(diamond);
+          }
+        }
+        tlTracksArea.appendChild(row);
+      };
+
+      // Helper: create a group header (collapsible)
+      const addGroupHeader = (objectName, displayName, isSelected, onKeyAll) => {
+        const collapsed = _tlGroupCollapsed.get(objectName) || false;
+
+        // Header label
+        const header = document.createElement('div');
+        header.className = 'tl-group-header' + (isSelected ? ' selected' : '') + (collapsed ? ' collapsed' : '');
+
+        const toggle = document.createElement('span');
+        toggle.className = 'tl-group-toggle';
+        toggle.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-miterlimit="10"><polyline points="4.5 8.5 10 14.5 15.5 8.5"/></svg>';
+        header.appendChild(toggle);
+
+        const name = document.createElement('span');
+        name.className = 'tl-group-name';
+        name.textContent = displayName;
+        header.appendChild(name);
+
+        // Keyframe-all button
+        if (onKeyAll) {
+          const keyBtn = document.createElement('button');
+          keyBtn.className = 'tl-key-all-btn';
+          keyBtn.textContent = '◇';
+          keyBtn.title = 'Keyframe all at current frame';
+          keyBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            onKeyAll();
+          });
+          header.appendChild(keyBtn);
+        }
+
+        header.addEventListener('click', (e) => {
+          e.stopPropagation();
+          _tlGroupCollapsed.set(objectName, !collapsed);
+          tlRenderTracks();
+        });
+
+        tlTrackLabels.appendChild(header);
+
+        // Header track row (empty, for alignment)
+        const headerRow = document.createElement('div');
+        headerRow.className = 'tl-track-row';
+        tlTracksArea.appendChild(headerRow);
+      };
+
+      // Build the list of objects to show: camera + selected object + any with keyframes
+      const renderedNames = new Set();
+
+      // Helper to render a camera group
+      const renderCameraGroup = (objTracks) => {
+        if (renderedNames.has('__camera__')) return;
+        renderedNames.add('__camera__');
+        addGroupHeader('__camera__', 'Camera', false, () => {
+          pushUndoState('Add camera keyframe');
+          _tlAddAllCamKeyframes(animationTimeline.currentFrame);
+          tlRenderTracks();
+        });
+        for (const paramDef of _camParams) {
+          const kfs = objTracks ? objTracks.get(paramDef.prop) || null : null;
+          addSubTrack('__camera__', paramDef.prop, paramDef.label, kfs, paramDef.precision, {
+            step: paramDef.step,
+          });
+        }
+      };
+
+      // Helper to render an object group
+      // Helper: create a sub-group header (smaller, indented, collapsible)
+      const addSubGroupHeader = (objectName, subGroupName, displayLabel) => {
+        const key = objectName + ':' + subGroupName;
+        const collapsed = _tlSubGroupCollapsed.get(key) || false;
+        const parentCollapsed = _tlGroupCollapsed.get(objectName) || false;
+
+        const header = document.createElement('div');
+        header.className = 'tl-subgroup-header' + (collapsed ? ' collapsed' : '') + (parentCollapsed ? ' tl-collapsed' : '');
+
+        const toggle = document.createElement('span');
+        toggle.className = 'tl-group-toggle';
+        toggle.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-miterlimit="10"><polyline points="4.5 8.5 10 14.5 15.5 8.5"/></svg>';
+        header.appendChild(toggle);
+
+        const name = document.createElement('span');
+        name.className = 'tl-group-name';
+        name.textContent = displayLabel;
+        header.appendChild(name);
+
+        header.addEventListener('click', (e) => {
+          e.stopPropagation();
+          _tlSubGroupCollapsed.set(key, !collapsed);
+          tlRenderTracks();
+        });
+
+        tlTrackLabels.appendChild(header);
+
+        // Alignment row in tracks area
+        const headerRow = document.createElement('div');
+        headerRow.className = 'tl-track-row' + (parentCollapsed ? ' tl-collapsed' : '');
+        headerRow.style.height = '22px';
+        tlTracksArea.appendChild(headerRow);
+
+        return collapsed || parentCollapsed;
+      };
+
+      const renderObjectGroup = (objectName, objTracks) => {
+        if (renderedNames.has(objectName)) return;
+        renderedNames.add(objectName);
+        const isSelected = selectedObject && selectedObject.name === objectName;
+        const obj = sceneObjects.find(o => o.name === objectName);
+
+        addGroupHeader(objectName, objectName, isSelected, () => {
+          if (!obj) return;
+          pushUndoState('Add keyframe');
+          const frame = animationTimeline.currentFrame;
+          const euler = obj.rotationEuler || matrixToEuler(obj.rotationMatrix);
+          const scale = obj.scale || [1, 1, 1];
+          const pivot = obj.pivot || [0, 0, 0];
+          for (const paramDef of _objParams) {
+            let val;
+            if (paramDef.vecProp === 'position') val = obj.position[paramDef.vecIdx];
+            else if (paramDef.vecProp === 'rotation') val = euler[paramDef.vecIdx];
+            else if (paramDef.vecProp === 'scale') val = scale[paramDef.vecIdx];
+            else if (paramDef.vecProp === 'pivot') val = pivot[paramDef.vecIdx];
+            if (val !== undefined) {
+              tlAddKeyframe(objectName, paramDef.prop, frame, val);
+            }
+          }
+          // Also key primitive params if applicable
+          const primParams = obj ? _getPrimitiveParamsForObj(obj) : null;
+          if (primParams && obj.primitiveData) {
+            for (const paramDef of primParams) {
+              const val = obj.primitiveData[paramDef.pdKey];
+              if (val !== undefined && val !== null) {
+                tlAddKeyframe(objectName, paramDef.prop, frame, val);
+              }
+            }
+          }
+          // Also key spline flow params if applicable
+          const sfParams = obj ? _getSplineFlowParamsForObj(obj) : null;
+          if (sfParams && obj.surfaceConstraint) {
+            for (const paramDef of sfParams) {
+              const val = obj.surfaceConstraint[paramDef.scKey];
+              if (val !== undefined && val !== null) {
+                tlAddKeyframe(objectName, paramDef.prop, frame, val);
+              }
+            }
+          }
+          // Also key surface mapping params if applicable
+          const smParams = obj ? _getSurfaceMappingParamsForObj(obj) : null;
+          if (smParams && obj.surfaceConstraint?.surfaceMapping) {
+            for (const paramDef of smParams) {
+              const val = obj.surfaceConstraint.surfaceMapping[paramDef.dataKey];
+              if (val !== undefined && val !== null) {
+                tlAddKeyframe(objectName, paramDef.prop, frame, val);
+              }
+            }
+          }
+          // Also key 3D settings params if applicable
+          const tdInfo = obj ? _get3dSettingsParamsForObj(obj) : null;
+          if (tdInfo) {
+            for (const paramDef of tdInfo.params) {
+              const val = _readSettingsKey(obj[tdInfo.settingsObj], paramDef.settingsKey);
+              if (val !== undefined && val !== null) {
+                tlAddKeyframe(objectName, paramDef.prop, frame, val);
+              }
+            }
+          }
+          tlRenderTracks();
+        });
+
+        // --- Transform sub-group ---
+        const transformCollapsed = addSubGroupHeader(objectName, 'transform', 'Transform');
+        if (!transformCollapsed) {
+          for (const paramDef of _objParams) {
+            const kfs = objTracks ? objTracks.get(paramDef.prop) || null : null;
+            addSubTrack(objectName, paramDef.prop, paramDef.label, kfs, paramDef.precision, {
+              step: 0.1,
+            });
+          }
+        }
+
+        // --- Primitive params sub-group (only for parametric shapes) ---
+        const primParams = obj ? _getPrimitiveParamsForObj(obj) : null;
+        if (primParams) {
+          const shapeType = obj.primitiveData.type;
+          const shapeLabel = shapeType.charAt(0).toUpperCase() + shapeType.slice(1);
+          const primCollapsed = addSubGroupHeader(objectName, 'primitive', shapeLabel + ' Params');
+          if (!primCollapsed) {
+            for (const paramDef of primParams) {
+              const kfs = objTracks ? objTracks.get(paramDef.prop) || null : null;
+              addSubTrack(objectName, paramDef.prop, paramDef.label, kfs, paramDef.precision, {
+                step: paramDef.step,
+              });
+            }
+          }
+        }
+
+        // --- Spline Flow params sub-group ---
+        const sfParams = obj ? _getSplineFlowParamsForObj(obj) : null;
+        if (sfParams) {
+          const sfCollapsed = addSubGroupHeader(objectName, 'splineflow', 'Spline Flow');
+          if (!sfCollapsed) {
+            for (const paramDef of sfParams) {
+              const kfs = objTracks ? objTracks.get(paramDef.prop) || null : null;
+              addSubTrack(objectName, paramDef.prop, paramDef.label, kfs, paramDef.precision, {
+                step: paramDef.step,
+              });
+            }
+          }
+        }
+
+        // --- Surface Mapping params sub-group ---
+        const smParams = obj ? _getSurfaceMappingParamsForObj(obj) : null;
+        if (smParams) {
+          const smCollapsed = addSubGroupHeader(objectName, 'surfacemapping', 'Surface Mapping');
+          if (!smCollapsed) {
+            for (const paramDef of smParams) {
+              const kfs = objTracks ? objTracks.get(paramDef.prop) || null : null;
+              addSubTrack(objectName, paramDef.prop, paramDef.label, kfs, paramDef.precision, {
+                step: paramDef.step,
+              });
+            }
+          }
+        }
+
+        // --- 3D Settings params sub-group ---
+        const tdInfo = obj ? _get3dSettingsParamsForObj(obj) : null;
+        if (tdInfo) {
+          const tdCollapsed = addSubGroupHeader(objectName, tdInfo.settingsObj, tdInfo.label);
+          if (!tdCollapsed) {
+            for (const paramDef of tdInfo.params) {
+              const kfs = objTracks ? objTracks.get(paramDef.prop) || null : null;
+              addSubTrack(objectName, paramDef.prop, paramDef.label, kfs, paramDef.precision, {
+                step: paramDef.step,
+              });
+            }
+          }
+        }
+      };
+
+      // 1. Always show camera
+      renderCameraGroup(animationTimeline.tracks.get('__camera__') || null);
+
+      // 2. Always show selected object (if any)
+      if (selectedObject) {
+        renderObjectGroup(selectedObject.name, animationTimeline.tracks.get(selectedObject.name) || null);
+      }
+
+      // 3. Show all other objects that have keyframes
+      for (const [objectName, objTracks] of animationTimeline.tracks) {
+        if (objectName === '__camera__') continue;
+        renderObjectGroup(objectName, objTracks);
+      }
+
+      tlUpdatePlayheadPosition();
+      tlUpdateTrackInputs();
+      // Restore scroll position after DOM rebuild
+      if (container) container.scrollTop = savedScroll;
+    };
+
+    // Register selection-change callback so timeline re-renders when selection changes
+    _onSelectionChanged = () => {
+      const curSelName = selectedObject ? selectedObject.name : null;
+      if (curSelName !== _tlLastSelectedName) {
+        _tlLastSelectedName = curSelName;
+        tlRenderTracks();
+      }
+    };
+
+    // --- Ruler Scrubbing ---
+    let tlScrubbing = false;
+    const tlScrubFromEvent = (e) => {
+      const rect = tlRuler.getBoundingClientRect();
+      const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+      const frame = Math.round((x / rect.width) * (animationTimeline.totalFrames - 1));
+      tlSetFrame(frame);
+    };
+
+    tlRuler.addEventListener('mousedown', (e) => {
+      tlScrubbing = true;
+      tlScrubFromEvent(e);
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (tlScrubbing) tlScrubFromEvent(e);
+    });
+    window.addEventListener('mouseup', () => {
+      tlScrubbing = false;
+    });
+
+    // --- Transport Controls ---
+    tlPlayPause.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (animationTimeline.isPlaying) {
+        tlStopPlayback();
+      } else {
+        tlStartPlayback();
+      }
+    });
+
+    tlGoStart.addEventListener('click', (e) => {
+      e.stopPropagation();
+      tlStopPlayback();
+      tlSetFrame(0);
+    });
+
+    tlGoEnd.addEventListener('click', (e) => {
+      e.stopPropagation();
+      tlStopPlayback();
+      tlSetFrame(animationTimeline.playbackRange - 1);
+    });
+
+    // Clear Animation — remove all keyframes and revert scene to frame-0 state
+    tlClearAnimation.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (animationTimeline.tracks.size === 0) return; // nothing to clear
+      if (!confirm('Clear all keyframes? This will remove the entire animation.')) return;
+      pushUndoState('Clear animation');
+      tlStopPlayback();
+      // Apply frame 0 first so the scene is at its keyframed state at frame 0
+      tlSetFrame(0);
+      // Now clear all tracks
+      animationTimeline.tracks.clear();
+      _tlGroupCollapsed.clear();
+      _tlSubGroupCollapsed.clear();
+      tlRenderTracks();
+      tlUpdateTrackInputs();
+      updatePropertiesPanel();
+      requestRender();
+    });
+
+    // Frame input
+    tlFrameInput.addEventListener('change', () => {
+      tlSetFrame(parseInt(tlFrameInput.value) || 0);
+    });
+    tlFrameInput.addEventListener('click', (e) => e.stopPropagation());
+
+    // Playback Range input
+    tlPlaybackRange.addEventListener('change', () => {
+      let val = parseInt(tlPlaybackRange.value) || 360;
+      val = Math.max(1, Math.min(360, val));
+      animationTimeline.playbackRange = val;
+      tlPlaybackRange.value = val;
+      // Clamp current frame if beyond new range
+      if (animationTimeline.currentFrame >= val) {
+        tlSetFrame(val - 1);
+      }
+      tlFrameInput.max = val - 1;
+      tlDrawRuler();
+      tlRenderTracks();
+    });
+    tlPlaybackRange.addEventListener('click', (e) => e.stopPropagation());
+
+    // FPS input
+    tlFpsInput.addEventListener('change', () => {
+      let val = parseInt(tlFpsInput.value) || 24;
+      val = Math.max(1, Math.min(120, val));
+      animationTimeline.fps = val;
+      tlFpsInput.value = val;
+      // Restart playback with new interval if playing
+      if (animationTimeline.isPlaying) {
+        tlStopPlayback();
+        tlStartPlayback();
+      }
+    });
+    tlFpsInput.addEventListener('click', (e) => e.stopPropagation());
+
+    // Ping-pong (B&F) checkbox
+    tlPingPong.addEventListener('change', () => {
+      animationTimeline.pingPong = tlPingPong.checked;
+    });
+    tlPingPong.addEventListener('click', (e) => e.stopPropagation());
+
+    // (Popup and delete button removed — per-property toggle buttons handle add/remove)
+
+    // --- Delete selected keyframe with Delete/Backspace key ---
+    document.addEventListener('keydown', (e) => {
+      if (!tlSelectedKf) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Don't intercept if focus is in an input/textarea
+        const tag = document.activeElement?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        e.preventDefault();
+        pushUndoState('Delete keyframe');
+        const { objectName, prop, frame } = tlSelectedKf;
+        tlRemoveKeyframe(objectName, prop, frame);
+        tlSelectedKf = null;
+        tlRenderTracks();
+        tlUpdateTrackInputs();
+        tlApplyFrame(animationTimeline.currentFrame);
+      }
+    });
+
+    // --- Serialization helpers ---
+    const tlSerialize = () => {
+      const data = {
+        totalFrames: animationTimeline.totalFrames,
+        playbackRange: animationTimeline.playbackRange,
+        fps: animationTimeline.fps,
+        loop: animationTimeline.loop,
+        pingPong: animationTimeline.pingPong,
+        tracks: {},
+      };
+      for (const [objectName, objTracks] of animationTimeline.tracks) {
+        data.tracks[objectName] = {};
+        for (const [prop, keyframes] of objTracks) {
+          data.tracks[objectName][prop] = keyframes.map(k => {
+            const entry = {
+              frame: k.frame,
+              value: Array.isArray(k.value) ? [...k.value] : k.value,
+            };
+            if (k.interp && k.interp !== 'linear') entry.interp = k.interp;
+            return entry;
+          });
+        }
+      }
+      return data;
+    };
+
+    const tlDeserialize = (data) => {
+      if (!data) return;
+      animationTimeline.totalFrames = 360; // fixed; not user-configurable
+      animationTimeline.playbackRange = data.playbackRange || 360;
+      // Migrate old data: if playbackRange was the old default (240), upgrade to 360
+      if (animationTimeline.playbackRange <= 240) {
+        animationTimeline.playbackRange = 360;
+      }
+      animationTimeline.fps = data.fps || 24;
+      animationTimeline.loop = data.loop !== undefined ? data.loop : true;
+      animationTimeline.pingPong = data.pingPong || false;
+      animationTimeline.currentFrame = 0;
+      animationTimeline.tracks.clear();
+      if (data.tracks) {
+        for (const [objectName, props] of Object.entries(data.tracks)) {
+          const objMap = new Map();
+          for (const [prop, keyframes] of Object.entries(props)) {
+            objMap.set(prop, keyframes.map(k => ({
+              frame: k.frame,
+              value: Array.isArray(k.value) ? [...k.value] : k.value,
+              interp: k.interp || 'linear',
+            })));
+          }
+          animationTimeline.tracks.set(objectName, objMap);
+        }
+      }
+      tlUpdateUI();
+      if (tlExpanded) {
+        tlDrawRuler();
+        tlRenderTracks();
+      }
+    };
+
+    // --- Export Frames (SVG sequence) ---
+    const tlExportFrames = () => {
+      if (animationTimeline.tracks.size === 0) {
+        alert('No animation keyframes to export.');
+        return;
+      }
+      tlStopPlayback();
+      const total = animationTimeline.playbackRange;
+      const frames = [];
+      const originalFrame = animationTimeline.currentFrame;
+
+      for (let i = 0; i < total; i++) {
+        animationTimeline.currentFrame = i;
+        tlApplyFrame(i);
+        // Capture SVG
+        const svgEl = document.getElementById('svgContainer');
+        const clone = svgEl.cloneNode(true);
+        // Remove gizmo overlays
+        const removeIds = ['gizmoGroup', 'targetGizmoGroup', 'selectionGizmoGroup',
+          'vertexGizmoGroup', 'axisIndicatorGroup', 'marqueeRect',
+          'penPreviewPath', 'penTangentPreviewGroup'];
+        removeIds.forEach(id => {
+          const el = clone.querySelector('#' + id);
+          if (el) el.remove();
+        });
+        const serializer = new XMLSerializer();
+        const svgString = serializer.serializeToString(clone);
+        frames.push({ frame: i, svg: svgString });
+      }
+
+      // Restore original frame
+      animationTimeline.currentFrame = originalFrame;
+      tlApplyFrame(originalFrame);
+      tlUpdateUI();
+
+      // Download as JSON (array of SVG strings)
+      const exportData = {
+        fps: animationTimeline.fps,
+        totalFrames: total,
+        frames: frames,
+      };
+      const blob = new Blob([JSON.stringify(exportData)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dim_animation_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    // --- Resize handler ---
+    window.addEventListener('resize', () => {
+      if (tlExpanded) {
+        tlDrawRuler();
+        tlRenderTracks();
+      }
+    });
+
+    // Initial UI state
+    tlUpdateUI();
 
     init();
 

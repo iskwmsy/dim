@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260627c -->
+<!-- dim v20260627d -->
 <!--
   MIT License
 
@@ -3310,6 +3310,42 @@
       height: 14px;
     }
 
+    .tl-interp-select {
+      display: none;
+      margin-left: 8px;
+      border: none;
+      border-radius: var(--radius-sm);
+      background: var(--bg-input);
+      padding: 2px 20px 2px 6px;
+      font-size: var(--font-size-field);
+      color: var(--text-main);
+      font-weight: 500;
+      font-family: var(--font-family-sans);
+      cursor: pointer;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 6px center;
+      background-size: 10px 6px;
+    }
+
+    .tl-interp-select:hover {
+      background-color: rgba(255, 255, 255, 0.95);
+    }
+
+    .tl-interp-select:focus {
+      outline: none;
+      background-color: rgba(255, 255, 255, 1);
+      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+    }
+
+    .tl-interp-select.visible {
+      display: inline-block;
+    }
+
+
     .tl-out-of-range {
       position: absolute;
       top: 0;
@@ -3544,73 +3580,63 @@
       border-bottom: 1px solid rgba(0, 0, 0, 0.04);
     }
 
-    /* --- Keyframe Diamond --- */
+    /* --- Keyframe Marker (SVG-based icons) --- */
     .tl-keyframe {
       position: absolute;
       top: 50%;
-      width: 8px;
-      height: 8px;
-      background: #999;
-      transform: translate(-50%, -50%) rotate(45deg);
+      width: 10px;
+      height: 10px;
+      color: #999;
+      transform: translate(-50%, -50%);
       cursor: grab;
-      border-radius: 1px;
       z-index: 1;
-      transition: transform 0.1s, box-shadow 0.1s, background 0.1s;
+      transition: transform 0.1s, filter 0.1s, color 0.1s;
+    }
+
+    .tl-keyframe>svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      fill: currentColor;
     }
 
     .tl-keyframe:hover {
-      background: #777;
-      transform: translate(-50%, -50%) rotate(45deg) scale(1.3);
+      color: #777;
+      transform: translate(-50%, -50%) scale(1.3);
     }
 
     .tl-keyframe.selected {
-      background: var(--accent-color);
+      color: var(--accent-color);
     }
 
     .tl-keyframe.selected:hover {
-      background: var(--accent-color-hover);
+      color: var(--accent-color-hover);
     }
 
     .tl-keyframe.dragging {
       cursor: grabbing;
       z-index: 10;
-      transform: translate(-50%, -50%) rotate(45deg) scale(1.4);
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+      transform: translate(-50%, -50%) scale(1.4);
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
       transition: none;
     }
 
     .tl-keyframe-ghost {
       position: absolute;
       top: 50%;
-      width: 8px;
-      height: 8px;
-      background: #999;
-      transform: translate(-50%, -50%) rotate(45deg);
-      border-radius: 1px;
+      width: 10px;
+      height: 10px;
+      color: #999;
+      transform: translate(-50%, -50%);
       opacity: 0.25;
       pointer-events: none;
     }
 
-    /* Step keyframe — square (no rotation) */
-    .tl-keyframe.step {
-      transform: translate(-50%, -50%);
-      width: 7px;
-      height: 7px;
-      border-radius: 1px;
-    }
-
-    .tl-keyframe.step:hover {
-      transform: translate(-50%, -50%) scale(1.3);
-    }
-
-    .tl-keyframe.step.dragging {
-      transform: translate(-50%, -50%) scale(1.4);
-    }
-
-    .tl-keyframe-ghost.step {
-      transform: translate(-50%, -50%);
-      width: 7px;
-      height: 7px;
+    .tl-keyframe-ghost>svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      fill: currentColor;
     }
 
     /* --- Keyframe Context Menu (Popover + Anchor Positioning) --- */
@@ -3647,6 +3673,13 @@
       color: var(--text-main);
       cursor: pointer;
       text-align: left;
+    }
+
+    #tlKeyframeMenu button>svg {
+      width: 10px;
+      height: 10px;
+      fill: currentColor;
+      flex-shrink: 0;
     }
 
     #tlKeyframeMenu button:hover {
@@ -6638,6 +6671,14 @@
       <label class="tl-checkbox-label" title="Show only layers with keyframes">
         <input type="checkbox" id="tlShowKeyframed" class="ui-checkbox"> Show keyframed layers
       </label>
+      <!-- Interpolation Type (visible when keyframe selected) -->
+      <select id="tlInterpSelect" class="tl-interp-select" title="Interpolation type">
+        <option value="linear">◆ Linear</option>
+        <option value="easeIn">◀ Ease In</option>
+        <option value="easeOut">▶ Ease Out</option>
+        <option value="easeInOut">● Ease In Out</option>
+        <option value="step">■ Constant</option>
+      </select>
       <div class="tl-separator"></div>
 
       <!-- Frame Display -->
@@ -6674,8 +6715,11 @@
 
     <!-- Keyframe context menu (shared popover) -->
     <div id="tlKeyframeMenu" popover>
-      <button data-interp="linear">◆ Linear</button>
-      <button data-interp="step">■ Constant</button>
+      <button data-interp="linear"><svg viewBox="0 0 10 10"><rect x="1.46" y="1.46" width="7.07" height="7.07" transform="translate(-2.07 5) rotate(-45)"/></svg>Linear</button>
+      <button data-interp="easeIn"><svg viewBox="0 0 10 10"><path d="M5,0c-2.76,0-5,2.24-5,5s2.24,5,5,5l5-5-5-5Z"/></svg>Ease In</button>
+      <button data-interp="easeOut"><svg viewBox="0 0 10 10"><path d="M5,0l-5,5,5,5c2.76,0,5-2.24,5-5S7.76,0,5,0Z"/></svg>Ease Out</button>
+      <button data-interp="easeInOut"><svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"/></svg>Ease In Out</button>
+      <button data-interp="step"><svg viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8"/></svg>Constant</button>
     </div>
   </div>
 
@@ -10594,6 +10638,8 @@
       restoreAnimationState(_lastAnimState);
       // Re-capture from live state to prevent ghost diffs
       _lastAnimState = deepClone(captureAnimationState());
+      // Clear keyframe selection — restored state may no longer match
+      if (typeof tlClearKfSelection === 'function') tlClearKfSelection();
       _scheduleHistoryUpdate();
     };
 
@@ -10606,6 +10652,8 @@
       restoreAnimationState(_lastAnimState);
       // Re-capture after redo restoration
       _lastAnimState = deepClone(captureAnimationState());
+      // Clear keyframe selection — restored state may no longer match
+      if (typeof tlClearKfSelection === 'function') tlClearKfSelection();
       _scheduleHistoryUpdate();
     };
 
@@ -40686,6 +40734,7 @@
     const tlPingPong = document.getElementById('tlPingPong');
     const tlShowKeyframed = document.getElementById('tlShowKeyframed');
     let _tlShowKeyframedOnly = false;
+    const tlInterpSelect = document.getElementById('tlInterpSelect');
     const tlRuler = document.getElementById('tlRuler');
     const tlRulerCanvas = document.getElementById('tlRulerCanvas');
     const tlRulerPlayhead = document.getElementById('tlRulerPlayhead');
@@ -40709,17 +40758,38 @@
       }
     });
 
+    // --- Keyframe Icon SVGs ---
+    const _tlKeyframeIcons = {
+      linear:    '<svg viewBox="0 0 10 10"><rect x="1.46" y="1.46" width="7.07" height="7.07" transform="translate(-2.07 5) rotate(-45)"/></svg>',
+      step:      '<svg viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8"/></svg>',
+      easeIn:    '<svg viewBox="0 0 10 10"><path d="M5,0c-2.76,0-5,2.24-5,5s2.24,5,5,5l5-5-5-5Z"/></svg>',
+      easeOut:   '<svg viewBox="0 0 10 10"><path d="M5,0l-5,5,5,5c2.76,0,5-2.24,5-5S7.76,0,5,0Z"/></svg>',
+      easeInOut: '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"/></svg>',
+    };
+    const _tlInterpLabel = { linear: '', step: ' (constant)', easeIn: ' (ease in)', easeOut: ' (ease out)', easeInOut: ' (ease in out)' };
+
     // --- Keyframe Context Menu (popover) ---
     const tlKfMenu = document.getElementById('tlKeyframeMenu');
     tlKfMenu.addEventListener('click', (e) => {
       const btn = e.target.closest('button[data-interp]');
       if (!btn || !tlKfMenu._kfRef) return;
-      const { kf } = tlKfMenu._kfRef;
+      const { kf, diamondEl } = tlKfMenu._kfRef;
       const newInterp = btn.dataset.interp;
+      if (kf.interp === newInterp) { tlKfMenu.hidePopover(); return; }
+      pushAnimUndoState('change interp');
       kf.interp = newInterp;
+      // Update the diamond's icon in place
+      if (diamondEl) {
+        diamondEl.innerHTML = _tlKeyframeIcons[newInterp] || _tlKeyframeIcons.linear;
+        diamondEl.title = diamondEl.title.replace(/ \(.*\)$/, '') + (_tlInterpLabel[newInterp] || '');
+      }
       tlKfMenu.hidePopover();
       tlRenderTracks();
       tlUpdateTrackInputs();
+      // Sync interp dropdown if the changed keyframe is currently selected
+      if (tlSelectedKf && tlSelectedKf.kf === kf) {
+        tlInterpSelect.value = newInterp;
+      }
     });
 
     // --- Original value storage for revert on keyframe removal ---
@@ -40911,6 +40981,11 @@
     };
 
     // --- Interpolation ---
+    // Quadratic easing curves
+    const _easeIn    = (t) => t * t;
+    const _easeOut   = (t) => t * (2 - t);
+    const _easeInOut = (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+
     const tlLerp = (a, b, t) => {
       if (typeof a === 'number' && typeof b === 'number') {
         return a + (b - a) * t;
@@ -40942,10 +41017,20 @@
         const k0 = keyframes[i];
         const k1 = keyframes[i + 1];
         if (frame >= k0.frame && frame <= k1.frame) {
-          // Step (incoming) — hold previous value until destination keyframe
-          if (k1.interp === 'step') return k0.value;
+          // Step/Constant — hold value (check both sides)
+          if (k0.interp === 'step' || k1.interp === 'step') return k0.value;
           const t = (frame - k0.frame) / (k1.frame - k0.frame);
-          return tlLerp(k0.value, k1.value, t);
+          // Determine easing for this segment from each keyframe's type:
+          //  - "Ease Out" on k0 = slow departure from k0 → slow start of segment
+          //  - "Ease In"  on k1 = slow arrival at k1  → slow end of segment
+          //  - "Ease In Out" on either side contributes both
+          const slowStart = k0.interp === 'easeOut' || k0.interp === 'easeInOut';
+          const slowEnd   = k1.interp === 'easeIn'  || k1.interp === 'easeInOut';
+          let et = t;
+          if (slowStart && slowEnd) et = _easeInOut(t);
+          else if (slowStart)       et = _easeIn(t);   // t² — slow start
+          else if (slowEnd)         et = _easeOut(t);   // t(2-t) — slow end
+          return tlLerp(k0.value, k1.value, et);
         }
       }
       return keyframes[keyframes.length - 1].value;
@@ -41443,12 +41528,17 @@
       document.querySelectorAll('.tl-keyframe.selected').forEach(el => el.classList.remove('selected'));
       const sel = document.querySelector(`.tl-keyframe[data-obj="${objectName}"][data-prop="${prop}"][data-frame="${frame}"]`);
       if (sel) sel.classList.add('selected');
+      // Show interp dropdown and sync to this keyframe's type
+      tlInterpSelect.value = kf.interp || 'linear';
+      tlInterpSelect.classList.add('visible');
     };
 
     const tlClearKfSelection = () => {
       if (!tlSelectedKf) return;
       tlSelectedKf = null;
       document.querySelectorAll('.tl-keyframe.selected').forEach(el => el.classList.remove('selected'));
+      // Hide interp dropdown
+      tlInterpSelect.classList.remove('visible');
       // Restore viewport to current frame
       tlApplyFrame(animationTimeline.currentFrame);
       tlUpdateTrackInputs();
@@ -42083,9 +42173,10 @@
         if (keyframes) {
           for (const kf of keyframes) {
             const diamond = document.createElement('div');
-            const isStep = kf.interp === 'step';
-            diamond.className = 'tl-keyframe' + (isStep ? ' step' : '');
-            diamond.title = `${prop} @ frame ${kf.frame}` + (isStep ? ' (constant)' : '');
+            const interpType = kf.interp || 'linear';
+            diamond.className = 'tl-keyframe';
+            diamond.innerHTML = _tlKeyframeIcons[interpType] || _tlKeyframeIcons.linear;
+            diamond.title = `${prop} @ frame ${kf.frame}${_tlInterpLabel[interpType] || ''}`;
             diamond.dataset.obj = objectName;
             diamond.dataset.prop = prop;
             diamond.dataset.frame = kf.frame;
@@ -42111,7 +42202,7 @@
                   btn.classList.toggle('active', btn.dataset.interp === (kf.interp || 'linear'));
                 });
                 // Store reference for menu action
-                menu._kfRef = { objectName, prop, frame: kf.frame, kf };
+                menu._kfRef = { objectName, prop, frame: kf.frame, kf, diamondEl: diamond };
                 menu.showPopover();
                 // Clean up anchor on close
                 menu.addEventListener('toggle', (te) => {
@@ -42143,7 +42234,8 @@
 
                   // Create ghost marker at original position (inherits step class)
                   ghost = document.createElement('div');
-                  ghost.className = 'tl-keyframe-ghost' + (isStep ? ' step' : '');
+                  ghost.className = 'tl-keyframe-ghost';
+                  ghost.innerHTML = _tlKeyframeIcons[interpType] || _tlKeyframeIcons.linear;
                   ghost.style.left = startLeft + 'px';
                   row.appendChild(ghost);
                 }
@@ -42159,7 +42251,7 @@
                 // Update diamond position in real-time
                 const newLeft = (newFrame / (totalF - 1)) * areaRect.width;
                 diamond.style.left = newLeft + 'px';
-                diamond.title = `${prop} @ frame ${newFrame}` + (isStep ? ' (constant)' : '');
+                diamond.title = `${prop} @ frame ${newFrame}${_tlInterpLabel[interpType] || ''}`;
               };
 
               const onUp = (ue) => {
@@ -42206,7 +42298,7 @@
                   if (ghost) { ghost.remove(); ghost = null; }
                   diamond.classList.remove('dragging');
                   diamond.style.left = startLeft + 'px';
-                  diamond.title = `${prop} @ frame ${startFrame}` + (isStep ? ' (constant)' : '');
+                  diamond.title = `${prop} @ frame ${startFrame}${_tlInterpLabel[interpType] || ''}`;
                 }
               };
 
@@ -42651,6 +42743,25 @@
       tlRenderTracks();
     });
     tlShowKeyframed.addEventListener('click', (e) => e.stopPropagation());
+
+    // Interpolation type dropdown (visible when keyframe selected)
+    tlInterpSelect.addEventListener('change', () => {
+      if (!tlSelectedKf) return;
+      const newInterp = tlInterpSelect.value;
+      const { kf, objectName, prop, frame } = tlSelectedKf;
+      if (kf.interp === newInterp) return;
+      pushAnimUndoState('change interp');
+      kf.interp = newInterp;
+      // Update the diamond's SVG icon in place
+      const diamondEl = document.querySelector(`.tl-keyframe[data-obj="${objectName}"][data-prop="${prop}"][data-frame="${frame}"]`);
+      if (diamondEl) {
+        diamondEl.innerHTML = _tlKeyframeIcons[newInterp] || _tlKeyframeIcons.linear;
+        diamondEl.title = diamondEl.title.replace(/ \(.*\)$/, '') + (_tlInterpLabel[newInterp] || '');
+      }
+      tlRenderTracks();
+      tlUpdateTrackInputs();
+    });
+    tlInterpSelect.addEventListener('click', (e) => e.stopPropagation());
 
     // (Popup and delete button removed — per-property toggle buttons handle add/remove)
 

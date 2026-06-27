@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260627b -->
+<!-- dim v20260627c -->
 <!--
   MIT License
 
@@ -969,6 +969,12 @@
     }
 
     .history-stack-label-camera {
+      border-top: 1px solid var(--border-light);
+      margin-top: 2px;
+      padding-top: 6px;
+    }
+
+    .history-stack-label-animation {
       border-top: 1px solid var(--border-light);
       margin-top: 2px;
       padding-top: 6px;
@@ -5364,6 +5370,8 @@
       <div id="historySceneList" class="history-list"></div>
       <div class="history-stack-label history-stack-label-camera">Camera</div>
       <div id="historyCameraList" class="history-list"></div>
+      <div class="history-stack-label history-stack-label-animation">Animation</div>
+      <div id="historyAnimationList" class="history-list"></div>
     </div>
   </div>
 
@@ -6625,6 +6633,11 @@
           <rect x="8" y="5.5" width="1" height="4.5" rx="0.3" fill="var(--tl-bg, #2a2a2a)" />
         </svg>
       </button>
+      <div class="tl-separator"></div>
+      <!-- Show Keyframed Only -->
+      <label class="tl-checkbox-label" title="Show only layers with keyframes">
+        <input type="checkbox" id="tlShowKeyframed" class="ui-checkbox"> Show keyframed layers
+      </label>
       <div class="tl-separator"></div>
 
       <!-- Frame Display -->
@@ -9958,11 +9971,18 @@
     let cameraRedoHistory = [];
     let _lastCameraState = null;
 
+    // --- Animation undo (separate stack) ---
+    let animUndoHistory = [];
+    let animRedoHistory = [];
+    let _lastAnimState = null;
+
     // --- Coalesce timers (one per stack) ---
     let _sceneCoalesceTimer = null;
     let _sceneCoalesceBeforeState = null;
     let _cameraCoalesceTimer = null;
     let _cameraCoalesceBeforeState = null;
+    let _animCoalesceTimer = null;
+    let _animCoalesceBeforeState = null;
 
     // Background color model variable — updated AFTER undo capture so
     // captureSceneState() snapshots the old value, not the already-changed DOM value.
@@ -10426,6 +10446,169 @@
       _scheduleHistoryUpdate();
     };
 
+    // --- Animation State Capture & Restore ---
+    const captureAnimationState = () => {
+      // Serialize tracks to a plain object for diff comparison
+      const tracks = {};
+      for (const [objectName, objTracks] of animationTimeline.tracks) {
+        tracks[objectName] = {};
+        for (const [prop, keyframes] of objTracks) {
+          tracks[objectName][prop] = keyframes.map(k => ({
+            frame: k.frame,
+            value: Array.isArray(k.value) ? [...k.value] : k.value,
+            interp: k.interp || 'linear',
+          }));
+        }
+      }
+      // Serialize _tlOriginalValues map
+      const originals = {};
+      if (typeof _tlOriginalValues !== 'undefined') {
+        for (const [key, val] of _tlOriginalValues) {
+          originals[key] = val;
+        }
+      }
+      return {
+        tracks,
+        originals,
+      };
+    };
+
+    const restoreAnimationState = (state) => {
+      if (!state) return;
+      // Restore tracks
+      animationTimeline.tracks.clear();
+      if (state.tracks) {
+        for (const [objectName, props] of Object.entries(state.tracks)) {
+          const objMap = new Map();
+          for (const [prop, keyframes] of Object.entries(props)) {
+            objMap.set(prop, keyframes.map(k => ({
+              frame: k.frame,
+              value: Array.isArray(k.value) ? [...k.value] : k.value,
+              interp: k.interp || 'linear',
+            })));
+          }
+          animationTimeline.tracks.set(objectName, objMap);
+        }
+      }
+      // Restore _tlOriginalValues
+      if (typeof _tlOriginalValues !== 'undefined') {
+        _tlOriginalValues.clear();
+        if (state.originals) {
+          for (const [key, val] of Object.entries(state.originals)) {
+            _tlOriginalValues.set(key, val);
+          }
+        }
+      }
+      // Re-apply current frame to scene (playback position is NOT restored —
+      // only keyframe structure is tracked by animation undo)
+      tlApplyFrame(animationTimeline.currentFrame);
+      tlUpdateUI();
+      if (tlExpanded) {
+        tlDrawRuler();
+        tlRenderTracks();
+      }
+      tlUpdateTrackInputs();
+      updatePropertiesPanel();
+      requestRender();
+    };
+
+    // --- Animation Undo Push (diff-based) ---
+    const pushAnimUndoState = (label) => {
+      const current = captureAnimationState();
+      if (_lastAnimState) {
+        const diffs = computeDiff(_lastAnimState, current);
+        if (diffs.length === 0) return;
+        if (label) diffs._label = label;
+        animUndoHistory.push(diffs);
+        if (animUndoHistory.length > HISTORY_MAX) animUndoHistory.shift();
+        animRedoHistory.length = 0;
+      }
+      _lastAnimState = deepClone(current);
+      _animCoalesceBeforeState = null;
+      _scheduleHistoryUpdate();
+    };
+
+    const pushAnimUndoStateCoalesced = (delay = 300) => {
+      if (!_animCoalesceBeforeState && !_animCoalesceTimer) {
+        _animCoalesceBeforeState = deepClone(captureAnimationState());
+      }
+      if (_animCoalesceTimer) {
+        clearTimeout(_animCoalesceTimer);
+        _animCoalesceTimer = null;
+      }
+      _animCoalesceTimer = setTimeout(() => {
+        if (_animCoalesceBeforeState) {
+          const current = captureAnimationState();
+          const diffs = computeDiff(_animCoalesceBeforeState, current);
+          if (diffs.length > 0) {
+            animUndoHistory.push(diffs);
+            if (animUndoHistory.length > HISTORY_MAX) animUndoHistory.shift();
+            animRedoHistory.length = 0;
+          }
+          _lastAnimState = deepClone(current);
+          _animCoalesceBeforeState = null;
+        }
+        _animCoalesceTimer = null;
+        _scheduleHistoryUpdate();
+      }, delay);
+    };
+
+    // --- Flush outstanding animation diffs ---
+    const _flushAnimOutstanding = () => {
+      const current = captureAnimationState();
+      if (_lastAnimState) {
+        const diffs = computeDiff(_lastAnimState, current);
+        if (diffs.length > 0) {
+          animUndoHistory.push(diffs);
+          if (animUndoHistory.length > HISTORY_MAX) animUndoHistory.shift();
+          _lastAnimState = deepClone(current);
+          _scheduleHistoryUpdate();
+        }
+      }
+    };
+
+    // --- Animation Undo / Redo ---
+    const performAnimUndo = () => {
+      // Flush coalesced timer
+      if (_animCoalesceTimer) {
+        clearTimeout(_animCoalesceTimer);
+        _animCoalesceTimer = null;
+        if (_animCoalesceBeforeState) {
+          const current = captureAnimationState();
+          const diffs = computeDiff(_animCoalesceBeforeState, current);
+          if (diffs.length > 0) {
+            animUndoHistory.push(diffs);
+            if (animUndoHistory.length > HISTORY_MAX) animUndoHistory.shift();
+          }
+          _lastAnimState = deepClone(current);
+          _animCoalesceBeforeState = null;
+        }
+      }
+      // Flush outstanding diffs
+      _flushAnimOutstanding();
+
+      if (animUndoHistory.length === 0) return;
+      const diffs = animUndoHistory.pop();
+      animRedoHistory.push(diffs);
+      _lastAnimState = applyDiffs(_lastAnimState, diffs, true);
+      restoreAnimationState(_lastAnimState);
+      // Re-capture from live state to prevent ghost diffs
+      _lastAnimState = deepClone(captureAnimationState());
+      _scheduleHistoryUpdate();
+    };
+
+    const performAnimRedo = () => {
+      if (animRedoHistory.length === 0) return;
+      const diffs = animRedoHistory.pop();
+      animUndoHistory.push(diffs);
+      if (animUndoHistory.length > HISTORY_MAX) animUndoHistory.shift();
+      _lastAnimState = applyDiffs(_lastAnimState, diffs, false);
+      restoreAnimationState(_lastAnimState);
+      // Re-capture after redo restoration
+      _lastAnimState = deepClone(captureAnimationState());
+      _scheduleHistoryUpdate();
+    };
+
     // --- History Panel ---
     let _historyUpdateRAF = null;
     const _scheduleHistoryUpdate = () => {
@@ -10701,6 +10884,63 @@
       }
       const curCam = cameraList.querySelector('.history-current');
       if (curCam) curCam.scrollIntoView({ block: 'nearest' });
+
+      // --- Animation ---
+      const animList = document.getElementById('historyAnimationList');
+      if (!animList) return;
+      animList.innerHTML = '';
+      const aUndoLen = animUndoHistory.length;
+      const aRedoLen = animRedoHistory.length;
+
+      if (aUndoLen === 0 && aRedoLen === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'history-entry';
+        empty.innerHTML = '<span class="history-entry-label" style="color:var(--text-muted);font-style:italic">No history</span>';
+        animList.appendChild(empty);
+      } else {
+        const aTotal = aUndoLen + aRedoLen;
+        // Original state
+        const orig = document.createElement('div');
+        orig.className = 'history-entry';
+        orig.innerHTML = `<span class="history-entry-num">${aTotal}.</span><span class="history-entry-label">Original</span>`;
+        orig.addEventListener('click', () => {
+          for (let s = 0; s < aUndoLen; s++) performAnimUndo();
+        });
+        animList.appendChild(orig);
+        // Undo entries
+        for (let i = 0; i < aUndoLen; i++) {
+          const entry = document.createElement('div');
+          const isCurrent = (i === aUndoLen - 1);
+          entry.className = 'history-entry' + (isCurrent ? ' history-current' : '');
+          const diffs = animUndoHistory[i];
+          const label = diffs._label ? diffs._label.charAt(0).toUpperCase() + diffs._label.slice(1) : `${diffs.length} changes`;
+          const num = aTotal - 1 - i;
+          entry.innerHTML = `<span class="history-entry-num">${num}.</span><span class="history-entry-label">${label}</span>`;
+          if (!isCurrent) {
+            const stepsBack = aUndoLen - i;
+            entry.addEventListener('click', () => {
+              for (let s = 0; s < stepsBack; s++) performAnimUndo();
+            });
+          }
+          animList.appendChild(entry);
+        }
+        // Redo entries
+        for (let i = aRedoLen - 1; i >= 0; i--) {
+          const entry = document.createElement('div');
+          entry.className = 'history-entry history-redo';
+          const diffs = animRedoHistory[i];
+          const label = diffs._label ? diffs._label.charAt(0).toUpperCase() + diffs._label.slice(1) : `${diffs.length} changes`;
+          const num = i;
+          entry.innerHTML = `<span class="history-entry-num">${num}.</span><span class="history-entry-label">${label}</span>`;
+          const stepsForward = aRedoLen - i;
+          entry.addEventListener('click', () => {
+            for (let s = 0; s < stepsForward; s++) performAnimRedo();
+          });
+          animList.appendChild(entry);
+        }
+      }
+      const curAnim = animList.querySelector('.history-current');
+      if (curAnim) curAnim.scrollIntoView({ block: 'nearest' });
     };
 
     // Helper: check if ANY active tool session has a non-zero delta
@@ -38880,6 +39120,28 @@
       window.addEventListener('keydown', (event) => {
         const isToolActive = (currentTool === 'select' || currentTool === 'directSelect' || currentTool === 'rotate' || currentTool === 'scale');
 
+        // Option+Shift+X / Alt+Shift+X → Animation Redo
+        if (event.altKey && !event.metaKey && !event.ctrlKey && event.shiftKey && event.code === 'KeyX') {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+            document.activeElement.blur();
+          }
+          performAnimRedo();
+          return;
+        }
+
+        // Option+X / Alt+X → Animation Undo
+        if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.code === 'KeyX') {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+            document.activeElement.blur();
+          }
+          performAnimUndo();
+          return;
+        }
+
         // Option+Shift+Z / Alt+Shift+Z → Camera Redo
         if (event.altKey && !event.metaKey && !event.ctrlKey && event.code === 'KeyZ' && event.shiftKey) {
           event.preventDefault();
@@ -40422,6 +40684,8 @@
     const tlPlaybackRange = document.getElementById('tlPlaybackRange');
     const tlFpsInput = document.getElementById('tlFpsInput');
     const tlPingPong = document.getElementById('tlPingPong');
+    const tlShowKeyframed = document.getElementById('tlShowKeyframed');
+    let _tlShowKeyframedOnly = false;
     const tlRuler = document.getElementById('tlRuler');
     const tlRulerCanvas = document.getElementById('tlRulerCanvas');
     const tlRulerPlayhead = document.getElementById('tlRulerPlayhead');
@@ -40458,14 +40722,147 @@
       tlUpdateTrackInputs();
     });
 
+    // --- Original value storage for revert on keyframe removal ---
+    const _tlOriginalValues = new Map(); // key: "objectName::prop", value: original value
+
+    // Read the current live value of a property from the scene
+    const _tlReadPropertyValue = (objectName, prop) => {
+      if (objectName === '__camera__') {
+        const camState = getCameraOrbitalState(activeCamera);
+        return camState[prop] !== undefined ? camState[prop] : null;
+      }
+      const obj = _tlFindObjectByName(objectName);
+      if (!obj) return null;
+      // Transform param
+      const paramDef = _objParams.find(p => p.prop === prop);
+      if (paramDef) {
+        if (paramDef.vecProp === 'position') return obj.position[paramDef.vecIdx];
+        if (paramDef.vecProp === 'rotation') return (obj.rotationEuler || matrixToEuler(obj.rotationMatrix))[paramDef.vecIdx];
+        if (paramDef.vecProp === 'scale') return (obj.scale || [1, 1, 1])[paramDef.vecIdx];
+        if (paramDef.vecProp === 'pivot') return (obj.pivot || [0, 0, 0])[paramDef.vecIdx];
+        return null;
+      }
+      // Primitive param
+      const primParams = _getPrimitiveParamsForObj(obj);
+      if (primParams) {
+        const primDef = primParams.find(p => p.prop === prop);
+        if (primDef && obj.primitiveData) return obj.primitiveData[primDef.pdKey] ?? null;
+      }
+      // Spline Flow param
+      const sfDef = _splineFlowParams.find(p => p.prop === prop);
+      if (sfDef && obj.surfaceConstraint) return obj.surfaceConstraint[sfDef.scKey] ?? null;
+      // Surface Mapping param
+      const smDef = _surfaceMappingParams.find(p => p.prop === prop);
+      if (smDef && obj.surfaceConstraint?.surfaceMapping) return obj.surfaceConstraint.surfaceMapping[smDef.dataKey] ?? null;
+      // 3D Settings param
+      const tdInfo = _get3dSettingsParamsForObj(obj);
+      if (tdInfo) {
+        const tdDef = tdInfo.params.find(p => p.prop === prop);
+        if (tdDef) return _readSettingsKey(obj[tdInfo.settingsObj], tdDef.settingsKey) ?? null;
+      }
+      return null;
+    };
+
+    // Write a value back to the scene object's property
+    const _tlWritePropertyValue = (objectName, prop, val) => {
+      if (objectName === '__camera__') {
+        if (prop === 'fov') { activeCamera.fovDegrees = val; return; }
+        if (prop === 'orthoZoom') { activeCamera.orthoZoom = val; return; }
+        // For orbital params, rebuild camera from all stored original values
+        // Collect full original orbital state from _tlOriginalValues, falling back to current
+        const origOrGet = (p) => {
+          const key = '__camera__::' + p;
+          if (_tlOriginalValues.has(key)) return _tlOriginalValues.get(key);
+          return getCameraOrbitalState(activeCamera)[p];
+        };
+        const az = origOrGet('azimuth');
+        const el = origOrGet('elevation');
+        const dist = origOrGet('distance');
+        const trk = origOrGet('truck');
+        const ped = origOrGet('pedestal');
+
+        const radAz = (az * Math.PI) / 180;
+        const radEl = ((90 - el) * Math.PI) / 180;
+        const y = dist * Math.cos(radEl);
+        const h = dist * Math.sin(radEl);
+        const x = h * Math.sin(radAz);
+        const z = h * Math.cos(radAz);
+        const orbitalOffset = [x, y, z];
+
+        const zAxis = vectorNormalize(orbitalOffset);
+        let rightAxis = vectorNormalize(vectorCross([0, 1, 0], zAxis));
+        if (vectorLength(rightAxis) < 0.001) rightAxis = [1, 0, 0];
+        const upAxis = vectorNormalize(vectorCross(zAxis, rightAxis));
+
+        activeCamera.target = vectorAdd(activeCamera.initialTarget,
+          vectorAdd(
+            vectorScale(rightAxis, trk),
+            vectorScale(upAxis, ped)
+          ));
+        activeCamera.position = vectorAdd(activeCamera.target, orbitalOffset);
+
+        // Re-orthogonalize up vector
+        activeCamera.up = [0, 1, 0];
+        const viewDir = vectorNormalize(vectorSubtract(activeCamera.target, activeCamera.position));
+        const right2 = vectorNormalize(vectorCross([0, 1, 0], viewDir));
+        if (vectorLength(right2) > 0.001) {
+          activeCamera.up = vectorNormalize(vectorCross(viewDir, right2));
+        }
+
+        // Also restore fov/orthoZoom if they have stored originals
+        const fovKey = '__camera__::fov';
+        if (_tlOriginalValues.has(fovKey)) activeCamera.fovDegrees = _tlOriginalValues.get(fovKey);
+        const ozKey = '__camera__::orthoZoom';
+        if (_tlOriginalValues.has(ozKey)) activeCamera.orthoZoom = _tlOriginalValues.get(ozKey);
+        return;
+      }
+      const obj = _tlFindObjectByName(objectName);
+      if (!obj) return;
+      const paramDef = _objParams.find(p => p.prop === prop);
+      if (paramDef) {
+        if (paramDef.vecProp === 'position') obj.position[paramDef.vecIdx] = val;
+        else if (paramDef.vecProp === 'rotation') {
+          if (!obj.rotationEuler) obj.rotationEuler = matrixToEuler(obj.rotationMatrix);
+          obj.rotationEuler[paramDef.vecIdx] = val;
+          obj.rotationMatrix = matrixFromEuler(obj.rotationEuler);
+        }
+        else if (paramDef.vecProp === 'scale') { if (!obj.scale) obj.scale = [1,1,1]; obj.scale[paramDef.vecIdx] = val; }
+        else if (paramDef.vecProp === 'pivot') { if (!obj.pivot) obj.pivot = [0,0,0]; obj.pivot[paramDef.vecIdx] = val; }
+        return;
+      }
+      const primParams = _getPrimitiveParamsForObj(obj);
+      if (primParams) {
+        const primDef = primParams.find(p => p.prop === prop);
+        if (primDef && obj.primitiveData) { obj.primitiveData[primDef.pdKey] = val; rebuildPrimitiveGeometry(obj); return; }
+      }
+      const sfDef = _splineFlowParams.find(p => p.prop === prop);
+      if (sfDef && obj.surfaceConstraint) { obj.surfaceConstraint[sfDef.scKey] = val; return; }
+      const smDef = _surfaceMappingParams.find(p => p.prop === prop);
+      if (smDef && obj.surfaceConstraint?.surfaceMapping) { obj.surfaceConstraint.surfaceMapping[smDef.dataKey] = val; return; }
+      const tdInfo = _get3dSettingsParamsForObj(obj);
+      if (tdInfo) {
+        const tdDef = tdInfo.params.find(p => p.prop === prop);
+        if (tdDef) { _writeSettingsKey(obj[tdInfo.settingsObj], tdDef.settingsKey, val); return; }
+      }
+    };
+
     // --- Keyframe CRUD ---
     const tlAddKeyframe = (objectName, property, frame, value, interp) => {
       if (!animationTimeline.tracks.has(objectName)) {
         animationTimeline.tracks.set(objectName, new Map());
       }
       const objTracks = animationTimeline.tracks.get(objectName);
-      if (!objTracks.has(property)) {
+      const isNewTrack = !objTracks.has(property);
+      if (isNewTrack) {
         objTracks.set(property, []);
+        // Snapshot the original value before any animation is applied
+        const origKey = objectName + '::' + property;
+        if (!_tlOriginalValues.has(origKey)) {
+          const origVal = _tlReadPropertyValue(objectName, property);
+          if (origVal !== null) {
+            _tlOriginalValues.set(origKey, Array.isArray(origVal) ? [...origVal] : origVal);
+          }
+        }
       }
       const keyframes = objTracks.get(property);
       // Replace if keyframe already exists at this frame
@@ -40488,8 +40885,16 @@
       if (!keyframes) return;
       const idx = keyframes.findIndex(k => k.frame === frame);
       if (idx >= 0) keyframes.splice(idx, 1);
-      // Clean up empty tracks — but keep camera and selected object always visible
-      if (keyframes.length === 0) objTracks.delete(property);
+      // Clean up empty tracks — restore original value and clean up
+      if (keyframes.length === 0) {
+        objTracks.delete(property);
+        // Restore the original value before animation was applied
+        const origKey = objectName + '::' + property;
+        if (_tlOriginalValues.has(origKey)) {
+          _tlWritePropertyValue(objectName, property, _tlOriginalValues.get(origKey));
+          _tlOriginalValues.delete(origKey);
+        }
+      }
       const isAlwaysVisible = objectName === '__camera__' || (selectedObject && selectedObject.name === objectName);
       if (objTracks.size === 0 && !isAlwaysVisible) animationTimeline.tracks.delete(objectName);
     };
@@ -41020,6 +41425,7 @@
 
     // Inline input references for updating values
     let _tlTrackInputs = []; // { objectName, prop, inputs: [HTMLInputElement], type: 'scalar', keyBtn: HTMLButtonElement }
+    let _tlFocusedTrack = null; // { objectName, prop } — tracks last-focused timeline input for context-aware trash
 
     // --- Keyframe Selection Model ---
     // Tracks which keyframe is currently selected (null = none).
@@ -41362,6 +41768,8 @@
 
       // Helper: create a sub-track row (label + keyframe strip)
       const addSubTrack = (objectName, prop, labelText, keyframes, precision, inputOpts) => {
+        // Filter: skip tracks without keyframes when "Keyframed" filter is on
+        if (_tlShowKeyframedOnly && (!keyframes || keyframes.length === 0)) return;
         const collapsed = _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : (objectName === '__camera__');
 
         // Label
@@ -41385,8 +41793,17 @@
         inp.step = inputOpts.step || 0.1;
         inp.value = '0';
         inp.addEventListener('click', (e) => e.stopPropagation());
+        inp.addEventListener('focusin', () => { _tlFocusedTrack = { objectName, prop }; });
+        inp.addEventListener('focusout', () => {
+          // Delay clearing so the trash click handler can still read it
+          setTimeout(() => {
+            if (_tlFocusedTrack?.objectName === objectName && _tlFocusedTrack?.prop === prop) {
+              _tlFocusedTrack = null;
+            }
+          }, 150);
+        });
         inp.addEventListener('change', () => {
-          pushUndoState('Edit keyframe');
+          pushAnimUndoStateCoalesced();
           const newVal = parseFloat(inp.value) || 0;
 
           // If this track has a selected keyframe, edit that keyframe
@@ -41571,11 +41988,11 @@
 
           if (existingIdx >= 0) {
             // Remove existing keyframe
-            pushUndoState('Remove keyframe');
+            pushAnimUndoState('Remove keyframe');
             tlRemoveKeyframe(objectName, prop, frame);
           } else {
             // Add new keyframe
-            pushUndoState('Add keyframe');
+            pushAnimUndoState('Add keyframe');
             if (objectName === '__camera__') {
               const camState = getCameraOrbitalState(activeCamera);
               if (prop === 'azimuth') {
@@ -41855,9 +42272,11 @@
       // Helper to render a camera group
       const renderCameraGroup = (objTracks) => {
         if (renderedNames.has('__camera__')) return;
+        // Filter: skip camera entirely when filter is on and it has no keyframes
+        if (_tlShowKeyframedOnly && (!objTracks || objTracks.size === 0)) return;
         renderedNames.add('__camera__');
         addGroupHeader('__camera__', 'Camera', false, () => {
-          pushUndoState('Add camera keyframe');
+          pushAnimUndoState('Add camera keyframe');
           _tlAddAllCamKeyframes(animationTimeline.currentFrame);
           tlRenderTracks();
         });
@@ -41908,13 +42327,15 @@
 
       const renderObjectGroup = (objectName, objTracks) => {
         if (renderedNames.has(objectName)) return;
+        // Filter: skip object group entirely when filter is on and it has no keyframes
+        if (_tlShowKeyframedOnly && (!objTracks || objTracks.size === 0)) return;
         renderedNames.add(objectName);
         const isSelected = selectedObject && selectedObject.name === objectName;
         const obj = _tlFindObjectByName(objectName);
 
         addGroupHeader(objectName, objectName, isSelected, () => {
           if (!obj) return;
-          pushUndoState('Add keyframe');
+          pushAnimUndoState('Add keyframe');
           const frame = animationTimeline.currentFrame;
           const euler = obj.rotationEuler || matrixToEuler(obj.rotationMatrix);
           const scale = obj.scale || [1, 1, 1];
@@ -42113,16 +42534,66 @@
       tlSetFrame(animationTimeline.playbackRange - 1);
     });
 
-    // Clear Animation — remove all keyframes and revert scene to frame-0 state
+    // Clear Animation — context-aware: selected keyframe → focused track → all
     tlClearAnimation.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (animationTimeline.tracks.size === 0) return; // nothing to clear
+
+      // Priority 1: Delete selected keyframe (blue diamond)
+      if (tlSelectedKf) {
+        pushAnimUndoState('Delete keyframe');
+        const { objectName, prop, frame } = tlSelectedKf;
+        tlRemoveKeyframe(objectName, prop, frame);
+        tlSelectedKf = null;
+        tlRenderTracks();
+        tlUpdateTrackInputs();
+        tlApplyFrame(animationTimeline.currentFrame);
+        requestRender();
+        return;
+      }
+
+      // Priority 2: Delete focused track's keyframes (single property)
+      if (_tlFocusedTrack) {
+        const { objectName, prop } = _tlFocusedTrack;
+        const objTracks = animationTimeline.tracks.get(objectName);
+        if (objTracks && objTracks.has(prop)) {
+          pushAnimUndoState('Delete track keyframes');
+          objTracks.delete(prop);
+          // Restore original value for this property
+          const origKey = objectName + '::' + prop;
+          if (_tlOriginalValues.has(origKey)) {
+            _tlWritePropertyValue(objectName, prop, _tlOriginalValues.get(origKey));
+            _tlOriginalValues.delete(origKey);
+          }
+          // Clean up empty object entry
+          if (objTracks.size === 0) {
+            const isAlwaysVisible = objectName === '__camera__'
+              || (selectedObject && selectedObject.name === objectName);
+            if (!isAlwaysVisible) animationTimeline.tracks.delete(objectName);
+          }
+          _tlFocusedTrack = null;
+          tlRenderTracks();
+          tlUpdateTrackInputs();
+          tlApplyFrame(animationTimeline.currentFrame);
+          updatePropertiesPanel();
+          requestRender();
+          return;
+        }
+      }
+
+      // Priority 3: Clear all animation (with confirmation)
+      if (animationTimeline.tracks.size === 0) return;
       if (!confirm('Clear all keyframes? This will remove the entire animation.')) return;
-      pushUndoState('Clear animation');
+      pushAnimUndoState('Clear animation');
       tlStopPlayback();
-      // Apply frame 0 first so the scene is at its keyframed state at frame 0
       tlSetFrame(0);
-      // Now clear all tracks
+      // Restore all original values before clearing tracks
+      for (const [origKey, origVal] of _tlOriginalValues) {
+        const sepIdx = origKey.indexOf('::');
+        const objName = origKey.substring(0, sepIdx);
+        const prop = origKey.substring(sepIdx + 2);
+        _tlWritePropertyValue(objName, prop, origVal);
+      }
+      _tlOriginalValues.clear();
       animationTimeline.tracks.clear();
       _tlGroupCollapsed.clear();
       _tlSubGroupCollapsed.clear();
@@ -42174,6 +42645,13 @@
     });
     tlPingPong.addEventListener('click', (e) => e.stopPropagation());
 
+    // Show Keyframed Only checkbox
+    tlShowKeyframed.addEventListener('change', () => {
+      _tlShowKeyframedOnly = tlShowKeyframed.checked;
+      tlRenderTracks();
+    });
+    tlShowKeyframed.addEventListener('click', (e) => e.stopPropagation());
+
     // (Popup and delete button removed — per-property toggle buttons handle add/remove)
 
     // --- Delete selected keyframe with Delete/Backspace key ---
@@ -42184,7 +42662,7 @@
         const tag = document.activeElement?.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
         e.preventDefault();
-        pushUndoState('Delete keyframe');
+        pushAnimUndoState('Delete keyframe');
         const { objectName, prop, frame } = tlSelectedKf;
         tlRemoveKeyframe(objectName, prop, frame);
         tlSelectedKf = null;
@@ -42326,6 +42804,7 @@
     // Initialize diff baseline states for undo history
     _lastSceneState = deepClone(captureSceneState());
     _lastCameraState = deepClone(captureCameraState());
+    _lastAnimState = deepClone(captureAnimationState());
   </script>
 </body>
 

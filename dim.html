@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260627d -->
+<!-- dim v20260627f -->
 <!--
   MIT License
 
@@ -6670,6 +6670,10 @@
       <!-- Show Keyframed Only -->
       <label class="tl-checkbox-label" title="Show only layers with keyframes">
         <input type="checkbox" id="tlShowKeyframed" class="ui-checkbox"> Show keyframed layers
+      </label>
+      <!-- Auto Keyframing -->
+      <label class="tl-checkbox-label" title="Automatically record keyframes when changing object properties">
+        <input type="checkbox" id="tlAutoKeyframing" class="ui-checkbox"> Auto keyframing
       </label>
       <!-- Interpolation Type (visible when keyframe selected) -->
       <select id="tlInterpSelect" class="tl-interp-select" title="Interpolation type">
@@ -32655,25 +32659,29 @@
         }
         cam.position = vectorAdd(cam.target, vectorScale(currentDir, dist));
       } else if (['camAzimuthInput', 'camElevationInput'].includes(activeId)) {
-        // Orbit around target
+        // Orbit around target — supports continuous rotation past ±90° poles
         const radAz = (az * Math.PI) / 180;
-        const radEl = ((90 - el) * Math.PI) / 180; // Convert back to spherical theta (0=up)
+        const radEl = ((90 - el) * Math.PI) / 180; // Spherical theta (0=up)
 
         const y = dist * Math.cos(radEl);
-        const h = dist * Math.sin(radEl); // Horizontal radius
+        const h = dist * Math.sin(radEl); // Signed horizontal radius (negative past pole)
         const x = h * Math.sin(radAz);
         const z = h * Math.cos(radAz);
 
         cam.position = vectorAdd(cam.target, [x, y, z]);
 
-        // Reset Up vector to avoid rolling issues during absolute positioning
-        // Assuming Y-up world
-        cam.up = [0, 1, 0];
-        // Re-orthogonalize up
+        // Derive up vector from whether we've crossed a pole:
+        // sin(radEl) < 0 means past north (el>90) or south (el<-90) pole
+        const worldUp = Math.sin(radEl) >= 0 ? [0, 1, 0] : [0, -1, 0];
+        cam.up = [...worldUp];
         const viewDir = vectorNormalize(vectorSubtract(cam.target, cam.position));
-        const right = vectorNormalize(vectorCross([0, 1, 0], viewDir));
+        const right = vectorNormalize(vectorCross(worldUp, viewDir));
         if (vectorLength(right) > 0.001) {
           cam.up = vectorNormalize(vectorCross(viewDir, right));
+        } else {
+          // At exact pole: derive up from azimuth direction
+          const s = Math.sin(radEl) >= 0 ? 1 : -1;
+          cam.up = [-s * Math.sin(radAz), 0, s * Math.cos(radAz)];
         }
       } else if (['camPanInput', 'camTiltInput'].includes(activeId)) {
         // Pan/Tilt: rotate view direction from fixed position
@@ -32838,12 +32846,22 @@
         }
       }
 
-      // Angles
-      let elevation = (Math.acos(relative[1] / dist) * 180) / Math.PI;
-      let azimuth = (Math.atan2(relative[0], relative[2]) * 180) / Math.PI;
+      // Angles — use up vector sign to detect pole-crossing for continuous elevation
+      const hRadius = Math.sqrt(relative[0] * relative[0] + relative[2] * relative[2]);
+      const signedH = cam.up[1] >= 0 ? hRadius : -hRadius;
+      const theta = Math.atan2(signedH, relative[1]); // atan2(sin, cos) → full range
+      let elDisplay = 90 - (theta * 180) / Math.PI;
+      if (elDisplay > 180) elDisplay -= 360;
+      if (elDisplay < -180) elDisplay += 360;
+      // Azimuth: compensate 180° flip when camera is past a pole
+      let azDisplay = (Math.atan2(relative[0], relative[2]) * 180) / Math.PI;
+      if (cam.up[1] < 0) {
+        azDisplay += 180;
+        if (azDisplay > 180) azDisplay -= 360;
+      }
 
-      if (document.activeElement !== camAzimuthInput) camAzimuthInput.value = azimuth.toFixed(1);
-      if (document.activeElement !== camElevationInput) camElevationInput.value = (90 - elevation).toFixed(1);
+      if (document.activeElement !== camAzimuthInput) camAzimuthInput.value = azDisplay.toFixed(1);
+      if (document.activeElement !== camElevationInput) camElevationInput.value = elDisplay.toFixed(1);
 
       // Pan / Tilt (view direction angles)
       const viewDir = vectorNormalize(vectorSubtract(cam.target, cam.position));
@@ -33476,11 +33494,17 @@
       const relative = vectorSubtract(cam.position, cam.target);
       const dist = vectorLength(relative);
       if (dist > 0.001) {
-        const az = (Math.atan2(relative[0], relative[2]) * 180) / Math.PI;
-        if (_hudAzValue) _hudAzValue.textContent = az.toFixed(1) + '°';
-        const elevation = (Math.acos(relative[1] / dist) * 180) / Math.PI;
-        const el = 90 - elevation; // same as sidebar El field
-        if (_hudElValue) _hudElValue.textContent = el.toFixed(1) + '°';
+        // Use up vector sign to detect pole-crossing for continuous display
+        const _hR = Math.sqrt(relative[0] * relative[0] + relative[2] * relative[2]);
+        const _sH = cam.up[1] >= 0 ? _hR : -_hR;
+        const _th = Math.atan2(_sH, relative[1]);
+        let _elH = 90 - (_th * 180) / Math.PI;
+        if (_elH > 180) _elH -= 360;
+        if (_elH < -180) _elH += 360;
+        let _azH = (Math.atan2(relative[0], relative[2]) * 180) / Math.PI;
+        if (cam.up[1] < 0) { _azH += 180; if (_azH > 180) _azH -= 360; }
+        if (_hudAzValue) _hudAzValue.textContent = _azH.toFixed(1) + '°';
+        if (_hudElValue) _hudElValue.textContent = _elH.toFixed(1) + '°';
       }
       // FOV values (perspective only — bars are hidden otherwise)
       if (!fovHidden) {
@@ -33592,8 +33616,9 @@
         e.stopPropagation();
         const dy = e.clientY - _hudElStartY;
         // Drag up = positive elevation, drag down = negative
+        // No clamping — allows continuous orbit past poles
         const deltaDeg = -dy * 0.5;
-        const newEl = Math.max(-90, Math.min(90, _hudElStartEl + deltaDeg));
+        const newEl = _hudElStartEl + deltaDeg;
         camElevationInput.value = newEl.toFixed(1);
         updateCameraFromInput({ target: camElevationInput });
       });
@@ -37963,9 +37988,12 @@
       if (typeof tlAutoKeyCamera === 'function' && typeof tlAutoKeyObject === 'function') {
         const cameraModes = ['orbit', 'truck', 'zoom', 'fov'];
         const objectModes = ['translate', 'translate-local', 'rotate-screen', 'rotate-local', 'scale'];
+        const pivotModes = ['translate-pivot', 'translate-pivot-free', 'translate-pivot-planar'];
         if (cameraModes.includes(_prevDragMode)) {
           tlAutoKeyCamera();
         } else if (objectModes.includes(_prevDragMode) && selectedObject) {
+          tlAutoKeyObject(selectedObject);
+        } else if (pivotModes.includes(_prevDragMode) && selectedObject) {
           tlAutoKeyObject(selectedObject);
         }
       }
@@ -40734,6 +40762,8 @@
     const tlPingPong = document.getElementById('tlPingPong');
     const tlShowKeyframed = document.getElementById('tlShowKeyframed');
     let _tlShowKeyframedOnly = false;
+    const tlAutoKeyframingCb = document.getElementById('tlAutoKeyframing');
+    let _tlAutoKeyframing = false;
     const tlInterpSelect = document.getElementById('tlInterpSelect');
     const tlRuler = document.getElementById('tlRuler');
     const tlRulerCanvas = document.getElementById('tlRulerCanvas');
@@ -40859,9 +40889,15 @@
         const z = h * Math.cos(radAz);
         const orbitalOffset = [x, y, z];
 
+        // Derive world-up from whether elevation is past a pole
+        const worldUpDrag = Math.sin(radEl) >= 0 ? [0, 1, 0] : [0, -1, 0];
+
         const zAxis = vectorNormalize(orbitalOffset);
-        let rightAxis = vectorNormalize(vectorCross([0, 1, 0], zAxis));
-        if (vectorLength(rightAxis) < 0.001) rightAxis = [1, 0, 0];
+        let rightAxis = vectorNormalize(vectorCross(worldUpDrag, zAxis));
+        if (vectorLength(rightAxis) < 0.001) {
+          const s = Math.sin(radEl) >= 0 ? 1 : -1;
+          rightAxis = [s * Math.cos(radAz), 0, -s * Math.sin(radAz)];
+        }
         const upAxis = vectorNormalize(vectorCross(zAxis, rightAxis));
 
         activeCamera.target = vectorAdd(activeCamera.initialTarget,
@@ -40871,12 +40907,15 @@
           ));
         activeCamera.position = vectorAdd(activeCamera.target, orbitalOffset);
 
-        // Re-orthogonalize up vector
-        activeCamera.up = [0, 1, 0];
+        // Re-orthogonalize up vector using correct world-up reference
+        activeCamera.up = [...worldUpDrag];
         const viewDir = vectorNormalize(vectorSubtract(activeCamera.target, activeCamera.position));
-        const right2 = vectorNormalize(vectorCross([0, 1, 0], viewDir));
+        const right2 = vectorNormalize(vectorCross(worldUpDrag, viewDir));
         if (vectorLength(right2) > 0.001) {
           activeCamera.up = vectorNormalize(vectorCross(viewDir, right2));
+        } else {
+          const s2 = Math.sin(radEl) >= 0 ? 1 : -1;
+          activeCamera.up = [-s2 * Math.sin(radAz), 0, s2 * Math.cos(radAz)];
         }
 
         // Also restore fov/orthoZoom if they have stored originals
@@ -41040,8 +41079,21 @@
     const getCameraOrbitalState = (cam) => {
       const relative = vectorSubtract(cam.position, cam.target);
       const dist = vectorLength(relative);
-      const azimuth = (Math.atan2(relative[0], relative[2]) * 180) / Math.PI;
-      const elevation = 90 - (Math.acos(Math.max(-1, Math.min(1, relative[1] / Math.max(dist, 1e-10)))) * 180) / Math.PI;
+
+      // Continuous elevation using atan2 + up vector sign for pole detection
+      const hR = Math.sqrt(relative[0] * relative[0] + relative[2] * relative[2]);
+      const sH = cam.up[1] >= 0 ? hR : -hR;
+      const th = Math.atan2(sH, relative[1]);
+      let elevation = 90 - (th * 180) / Math.PI;
+      if (elevation > 180) elevation -= 360;
+      if (elevation < -180) elevation += 360;
+
+      // Azimuth: compensate 180° flip when past a pole
+      let azimuth = (Math.atan2(relative[0], relative[2]) * 180) / Math.PI;
+      if (cam.up[1] < 0) {
+        azimuth += 180;
+        if (azimuth > 180) azimuth -= 360;
+      }
 
       // Truck/Pedestal — displacement of target from initialTarget
       const displacement = vectorSubtract(cam.target, cam.initialTarget);
@@ -41097,9 +41149,16 @@
             const z = h * Math.cos(radAz);
             const orbitalOffset = [x, y, z];
 
+            // Derive world-up from whether elevation is past a pole
+            const worldUpAnim = Math.sin(radEl) >= 0 ? [0, 1, 0] : [0, -1, 0];
+
             const zAxis = vectorNormalize(orbitalOffset);
-            let rightAxis = vectorNormalize(vectorCross([0, 1, 0], zAxis));
-            if (vectorLength(rightAxis) < 0.001) rightAxis = [1, 0, 0];
+            let rightAxis = vectorNormalize(vectorCross(worldUpAnim, zAxis));
+            if (vectorLength(rightAxis) < 0.001) {
+              // At exact pole: derive from azimuth
+              const s = Math.sin(radEl) >= 0 ? 1 : -1;
+              rightAxis = [s * Math.cos(radAz), 0, -s * Math.sin(radAz)];
+            }
             const upAxis = vectorNormalize(vectorCross(zAxis, rightAxis));
 
             const trkVal = trkKf !== null ? trkKf : 0;
@@ -41111,12 +41170,16 @@
               ));
             activeCamera.position = vectorAdd(activeCamera.target, orbitalOffset);
 
-            // Re-orthogonalize up vector
-            activeCamera.up = [0, 1, 0];
+            // Re-orthogonalize up vector using correct world-up reference
+            activeCamera.up = [...worldUpAnim];
             const viewDir = vectorNormalize(vectorSubtract(activeCamera.target, activeCamera.position));
-            const right2 = vectorNormalize(vectorCross([0, 1, 0], viewDir));
+            const right2 = vectorNormalize(vectorCross(worldUpAnim, viewDir));
             if (vectorLength(right2) > 0.001) {
               activeCamera.up = vectorNormalize(vectorCross(viewDir, right2));
+            } else {
+              // Exact pole fallback
+              const s2 = Math.sin(radEl) >= 0 ? 1 : -1;
+              activeCamera.up = [-s2 * Math.sin(radAz), 0, s2 * Math.cos(radAz)];
             }
           } else {
             // Apply truck/pedestal independently if only they are keyframed
@@ -41783,6 +41846,7 @@
       const animCb = document.getElementById('animationEnabledCb');
       if (!animCb || !animCb.checked) return;
       if (animationTimeline.isPlaying) return;
+      if (!_tlAutoKeyframing) return;
       const camTracks = animationTimeline.tracks.get('__camera__');
       if (!camTracks || camTracks.size === 0) return;
       // Camera has tracks — auto-record all parameters that have keyframes
@@ -41811,6 +41875,7 @@
       const animCb = document.getElementById('animationEnabledCb');
       if (!animCb || !animCb.checked) return;
       if (animationTimeline.isPlaying) return;
+      if (!_tlAutoKeyframing) return;
       const objTracks = animationTimeline.tracks.get(obj.name);
       if (!objTracks || objTracks.size === 0) return;
       // Object has tracks — auto-record properties that have keyframes
@@ -42743,6 +42808,12 @@
       tlRenderTracks();
     });
     tlShowKeyframed.addEventListener('click', (e) => e.stopPropagation());
+
+    // Auto Keyframing checkbox
+    tlAutoKeyframingCb.addEventListener('change', () => {
+      _tlAutoKeyframing = tlAutoKeyframingCb.checked;
+    });
+    tlAutoKeyframingCb.addEventListener('click', (e) => e.stopPropagation());
 
     // Interpolation type dropdown (visible when keyframe selected)
     tlInterpSelect.addEventListener('change', () => {

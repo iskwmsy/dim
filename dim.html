@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260625e -->
+<!-- dim v20260627b -->
 <!--
   MIT License
 
@@ -6331,8 +6331,9 @@
                       <label>Overflow</label>
                       <div class="xyz-inputs">
                         <select id="splineFlowOverflowModeSelect">
+                          <option value="none">None</option>
                           <option value="clip">Clip</option>
-                          <option value="clipwarp">Clip & Warp</option>
+                          <option value="clipwarp">Clip &amp; Warp</option>
                           <option value="overflow" selected>Overflow</option>
                           <option value="around">Around</option>
                         </select>
@@ -6509,8 +6510,9 @@
                         <div class="xyz-field">
                           <span class="xyz-col-label">U</span>
                           <select id="surfaceMappingOverflowModeU">
+                            <option value="none">None</option>
                             <option value="clip">Clip</option>
-                            <option value="clipwarp">Clip & Warp</option>
+                            <option value="clipwarp">Clip &amp; Warp</option>
                             <option value="overflow">Overflow</option>
                             <option value="around" selected>Around</option>
                           </select>
@@ -6518,8 +6520,9 @@
                         <div class="xyz-field">
                           <span class="xyz-col-label">V</span>
                           <select id="surfaceMappingOverflowModeV">
+                            <option value="none">None</option>
                             <option value="clip" selected>Clip</option>
-                            <option value="clipwarp">Clip & Warp</option>
+                            <option value="clipwarp">Clip &amp; Warp</option>
                             <option value="overflow">Overflow</option>
                             <option value="around">Around</option>
                           </select>
@@ -17116,6 +17119,7 @@
         const overflowMode = options.overflowMode || (options.mappingOverflow ? 'overflow' : 'clip');
         const mappingOverflow = overflowMode === 'overflow';
         const mapAround = overflowMode === 'around';
+        const clipNone = overflowMode === 'none';
 
         // Prepare Source Matrix for "Respect Original" Mode
         let sourceMatrix = null;
@@ -17201,14 +17205,47 @@
         let rigidFrame = null;
         let rigidTangent = null;
         if (rigidMode) {
-          const anchorU = Math.max(0, Math.min(0.5 + hOffset + tgtOff, 1));
-          rigidFrame = SurfaceMapper.getPointOnPath(targetPath, anchorU);
-          // Apply shiftVector for target offset consistency
-          rigidFrame = {
-            pos: vectorSubtract(rigidFrame.pos, shiftVector),
-            side: rigidFrame.side,
-            normal: rigidFrame.normal
-          };
+          let anchorU = 0.5 + hOffset + tgtOff;
+
+          if (mapAround) {
+            // Around: wrap to [0, 1] via modular arithmetic
+            anchorU = ((anchorU % 1) + 1) % 1;
+            rigidFrame = SurfaceMapper.getPointOnPath(targetPath, anchorU);
+            rigidFrame = {
+              pos: vectorSubtract(rigidFrame.pos, shiftVector),
+              side: rigidFrame.side,
+              normal: rigidFrame.normal
+            };
+          } else if (mappingOverflow && (anchorU < 0 || anchorU > 1)) {
+            // Overflow: extrapolate past endpoint along tangent
+            const edgeU = anchorU < 0 ? 0 : 1;
+            const eps = 0.001;
+            const nearU = anchorU < 0 ? eps : 1 - eps;
+            const edgeFrame = SurfaceMapper.getPointOnPath(targetPath, edgeU);
+            const nearFrame = SurfaceMapper.getPointOnPath(targetPath, nearU);
+            const tangent = vectorSubtract(edgeFrame.pos, nearFrame.pos);
+            const tangentLen = Math.sqrt(tangent[0] * tangent[0] + tangent[1] * tangent[1] + tangent[2] * tangent[2]) || 1;
+            const overflowDist = Math.abs(anchorU - edgeU) * totalLen;
+            const extraPos = [
+              edgeFrame.pos[0] + (tangent[0] / tangentLen) * overflowDist,
+              edgeFrame.pos[1] + (tangent[1] / tangentLen) * overflowDist,
+              edgeFrame.pos[2] + (tangent[2] / tangentLen) * overflowDist
+            ];
+            rigidFrame = {
+              pos: vectorSubtract(extraPos, shiftVector),
+              side: edgeFrame.side,
+              normal: edgeFrame.normal
+            };
+          } else {
+            // None / Clip: clamp anchor to [0, 1]
+            anchorU = Math.max(0, Math.min(anchorU, 1));
+            rigidFrame = SurfaceMapper.getPointOnPath(targetPath, anchorU);
+            rigidFrame = {
+              pos: vectorSubtract(rigidFrame.pos, shiftVector),
+              side: rigidFrame.side,
+              normal: rigidFrame.normal
+            };
+          }
           // Tangent = cross(side, normal) — the forward direction along the spline
           rigidTangent = vectorNormalize(vectorCross(rigidFrame.side, rigidFrame.normal));
         }
@@ -17259,8 +17296,16 @@
             ];
           } else {
             // Bend mode: map each vertex's rx to a different u along the path
-            const u = 0.5 + (rx / totalLen) + hOffset;
-            const u_geo = u + tgtOff;
+            let u_geo;
+            if (clipNone) {
+              // None mode: clamp the object CENTER to [0,1], spread vertices from there
+              const centerU = 0.5 + hOffset + tgtOff;
+              const clampedCenter = Math.max(0, Math.min(centerU, 1));
+              u_geo = clampedCenter + (rx / totalLen);
+            } else {
+              const u = 0.5 + (rx / totalLen) + hOffset;
+              u_geo = u + tgtOff;
+            }
 
             // Anchored Scope Shift
             let combinedFrame;
@@ -17268,7 +17313,7 @@
             if (mapAround) {
               u_routing = ((u_geo % 1) + 1) % 1;
             }
-            if (mappingOverflow && (u_routing < 0 || u_routing > 1)) {
+            if ((clipNone || mappingOverflow) && (u_routing < 0 || u_routing > 1)) {
               const edgeU = u_geo < 0 ? 0 : 1;
               const eps = 0.001;
               const nearU = u_geo < 0 ? eps : 1 - eps;
@@ -18285,7 +18330,15 @@
         if (idx > -1) {
           this.children.splice(idx, 1);
           obj.parent = null;
-          this.svgElement.removeChild(obj.svgElement);
+          // Guard: after Z-Sort rendering, replaceChildren may have moved
+          // the child's svgElement out of this group's <g>. Only remove
+          // if it is actually a direct child to avoid NotFoundError.
+          if (obj.svgElement && obj.svgElement.parentNode === this.svgElement) {
+            this.svgElement.removeChild(obj.svgElement);
+          } else if (obj.svgElement && obj.svgElement.parentNode) {
+            // Element is parented elsewhere (e.g. still in pathGroup after z-sort) — detach it
+            obj.svgElement.parentNode.removeChild(obj.svgElement);
+          }
         }
       }
 
@@ -18422,6 +18475,23 @@
           if (!externalFaceList) {
             // This is the top-level z-sorted group: sort and render
             sharedFaceList.sort((a, b) => b.z - a.z);
+
+            // Neutralize inheritable paint attributes on the Group <g> before
+            // reparenting face elements. Without this, bare face elements
+            // (or child <g> elements missing some attributes) would inherit
+            // the Group's fill/stroke instead of keeping their own styles.
+            // SVG initial values: fill="black", stroke="none" — we must
+            // explicitly set both to prevent unwanted cascading.
+            this.svgElement.removeAttribute('fill');
+            this.svgElement.removeAttribute('stroke');
+            this.svgElement.removeAttribute('fill-opacity');
+            this.svgElement.removeAttribute('stroke-opacity');
+            this.svgElement.removeAttribute('stroke-width');
+            this.svgElement.removeAttribute('stroke-linejoin');
+            this.svgElement.removeAttribute('stroke-linecap');
+            this.svgElement.removeAttribute('stroke-dasharray');
+            this.svgElement.removeAttribute('fill-rule');
+            this.svgElement.style.mixBlendMode = '';
 
             // Re-append all face elements in sorted order (single DOM reflow)
             this.svgElement.replaceChildren(
@@ -19053,6 +19123,7 @@
         if (this.extrudeSettings.enabled || this.revolveSettings.enabled || this.sweepSettings.enabled || this.loftSettings.enabled || splineFlowActive || surfaceMappingActive) {
           // --- 3D Mode ---
           const faceList = externalFaceList || [];
+          const _faceListStartIdx = faceList.length; // Track start for z-sort style stamping
           // NOTE: SVG children are cleared AFTER face list is built (below),
           // not here, to avoid an empty-viewport flash during async GPU awaits.
           this.frontFace.style.display = 'none';
@@ -19580,8 +19651,44 @@
             faceList.forEach(face => {
               this.svgElement.appendChild(face.element);
             });
+          } else if (faceList.length > _faceListStartIdx) {
+            // --- Z-Sort style stamping ---
+            // Face elements (frontFace, side ribbons, mesh faces, etc.) normally
+            // inherit fill/stroke from their parent Path <g>. When z-sorted, the
+            // Group reparents them into its own <g>, breaking that inheritance.
+            // Stamp explicit styles on each face so they're self-contained.
+            const _zsEffective = getEffectiveStyle(this);
+            for (let _fi = _faceListStartIdx; _fi < faceList.length; _fi++) {
+              const _el = faceList[_fi].element;
+              if (!_el) continue;
+              // Only stamp attributes the element doesn't already have explicitly
+              if (!_el.hasAttribute('fill') && _zsEffective.fill) {
+                setSvgColor(_el, 'fill', _zsEffective.fill);
+              }
+              if (!_el.hasAttribute('stroke') && _zsEffective.stroke) {
+                setSvgColor(_el, 'stroke', _zsEffective.stroke);
+              }
+              if (!_el.hasAttribute('stroke-width') && _zsEffective['stroke-width'] !== undefined) {
+                _el.setAttribute('stroke-width', getEffectiveStrokeWidth(_zsEffective['stroke-width']));
+              }
+              if (!_el.hasAttribute('fill-opacity') && _zsEffective['fill-opacity'] !== undefined) {
+                _el.setAttribute('fill-opacity', _zsEffective['fill-opacity']);
+              }
+              if (!_el.hasAttribute('stroke-opacity') && _zsEffective['stroke-opacity'] !== undefined) {
+                _el.setAttribute('stroke-opacity', _zsEffective['stroke-opacity']);
+              }
+              if (!_el.hasAttribute('stroke-linejoin') && _zsEffective['stroke-linejoin']) {
+                _el.setAttribute('stroke-linejoin', _zsEffective['stroke-linejoin']);
+              }
+              if (!_el.hasAttribute('stroke-linecap') && _zsEffective['stroke-linecap']) {
+                _el.setAttribute('stroke-linecap', _zsEffective['stroke-linecap']);
+              }
+              if (!_el.hasAttribute('fill-rule') && _zsEffective['fill-rule']) {
+                _el.setAttribute('fill-rule', _zsEffective['fill-rule']);
+              }
+            }
           }
-          // External mode: faces already pushed to shared list,
+          // External mode: faces already pushed to shared list (now with explicit styles),
           // parent Group will sort and append them.
 
         } else {
@@ -28475,42 +28582,15 @@
         return;
       }
 
-      const enabled = extrudeEnabledInput.checked;
-      const depth = fromDisplay(parseFloat(extrudeDepthInput.value) || 0);
-      const symmetric = extrudeSymmetricInput.checked;
-      const capFront = extrudeCapFrontInput.checked;
-      const capBack = extrudeCapBackInput.checked;
+      // NOTE: Do NOT read input values and write them back to objects here.
+      // updatePropertiesPanel is a display-refresh function and runs when
+      // the selection changes, before the UI inputs reflect the new
+      // selection's data. Writing stale UI values back to the newly
+      // selected objects would corrupt their settings (e.g., clearing
+      // extrude after ungrouping). The proper input→model sync is
+      // handled by updateStyleFromInput() change handlers.
 
       if (selectedObject) {
-        // Handle multi-selection or group content? 
-        // For now simpler: Just selectedObject
-        // const targets = GetSelectedObjects(); // Error: undefined
-        const targets = selectedObjects && selectedObjects.length > 0 ? selectedObjects : [selectedObject];
-
-
-
-
-
-        targets.forEach(obj => {
-          // Assuming 'forceAll' and 'targetId' are defined in the scope or passed as arguments
-          // For this snippet, we'll assume they are available or default to true/empty string
-          const forceAll = true; // Placeholder, adjust as needed
-          const targetId = ''; // Placeholder, adjust as needed
-
-          if (!obj.isGroup && (forceAll || targetId.startsWith('extrude'))) {
-            // Sync inputs to object? This logic seems to overwrite object data with panel data.
-            // Preserving existing behavior as requested.
-            if (!obj.extrudeSettings) obj.extrudeSettings = {};
-            // Note: This logic might be buggy (stale inputs overwriting selection), 
-            // but touching it might break 'Apply' workflow. Leaving as is.
-            obj.extrudeSettings.enabled = enabled;
-            obj.extrudeSettings.depth = depth;
-            obj.extrudeSettings.symmetric = symmetric;
-            obj.extrudeSettings.capFront = capFront;
-            obj.extrudeSettings.capBack = capBack;
-          }
-        });
-
         // --- Show Selected Object Panel ---
         if (selectedObjectContent) selectedObjectContent.style.display = 'block';
         // Auto-expand the selected object collapsible section
@@ -31752,6 +31832,9 @@
 
       // Update Subpath UI specifically (re-generate tokens)
       updateSubPathUI();
+
+      // Refresh timeline tracks when feature toggles (extrude, spline flow, etc.) change subgroup visibility
+      if (typeof tlRenderTracks === 'function') tlRenderTracks();
     };
 
     document.getElementById('strokeEnabledInput').addEventListener('change', updateStyleFromInput);
@@ -38741,6 +38824,31 @@
         const idx = sceneObjects.indexOf(targetGroup);
         if (idx > -1) sceneObjects.splice(idx, 1);
       }
+      // Clean up the Group's SVG element from the DOM.
+      // After Z-Sort rendering, the Group's <g> may still contain orphaned
+      // face elements (side ribbons, mesh faces, etc.) that were created by
+      // child Paths during draw(). Removing the <g> eliminates ghost renders.
+      if (targetGroup.svgElement && targetGroup.svgElement.parentNode) {
+        targetGroup.svgElement.parentNode.removeChild(targetGroup.svgElement);
+      }
+
+      // Force children to rebuild their SVG structure on next render.
+      // After z-sort, child Paths' persistent SVG references (frontFace,
+      // backFace, sidesGroup) may have been displaced into the now-removed
+      // Group <g>. Re-appending them into each child's own <g> ensures
+      // the next draw() frame starts from a clean state.
+      children.forEach(child => {
+        if (!child.isGroup && child.svgElement) {
+          // Clear any leftover z-sort face elements from the child's <g>
+          while (child.svgElement.firstChild) {
+            child.svgElement.removeChild(child.svgElement.firstChild);
+          }
+          // Restore persistent SVG elements into the child's <g>
+          if (child.frontFace) child.svgElement.appendChild(child.frontFace);
+          if (child.backFace) child.svgElement.appendChild(child.backFace);
+          if (child.sidesGroup) child.svgElement.appendChild(child.sidesGroup);
+        }
+      });
 
       // Restore selection to children
       // We need to re-select all children
@@ -40279,6 +40387,28 @@
       _playInterval: null,
     };
 
+    // --- Recursive object lookup for timeline (searches inside groups) ---
+    const _tlFindInGroup = (group, name) => {
+      for (const child of group.children) {
+        if (child.name === name) return child;
+        if (child.isGroup && child.children) {
+          const found = _tlFindInGroup(child, name);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const _tlFindObjectByName = (name) => {
+      for (const obj of sceneObjects) {
+        if (obj.name === name) return obj;
+        if (obj.isGroup && obj.children) {
+          const found = _tlFindInGroup(obj, name);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
     // --- DOM refs ---
     const tlPanel = document.getElementById('timelinePanel');
     const tlHeader = document.getElementById('tlHeader');
@@ -40522,7 +40652,7 @@
           continue;
         }
         // Find scene object by name
-        const obj = sceneObjects.find(o => o.name === objectName);
+        const obj = _tlFindObjectByName(objectName);
         if (!obj) continue;
         // Ensure arrays exist
         if (!obj.scale) obj.scale = [1, 1, 1];
@@ -40947,7 +41077,7 @@
             else {
               paramDef = _objParams.find(p => p.prop === prop);
               if (!paramDef) {
-                const obj = sceneObjects.find(o => o.name === objectName);
+                const obj = _tlFindObjectByName(objectName);
                 const primParams = obj ? _getPrimitiveParamsForObj(obj) : null;
                 if (primParams) paramDef = primParams.find(p => p.prop === prop);
               }
@@ -40958,7 +41088,7 @@
                 paramDef = _surfaceMappingParams.find(p => p.prop === prop);
               }
               if (!paramDef) {
-                const obj2 = sceneObjects.find(o => o.name === objectName);
+                const obj2 = _tlFindObjectByName(objectName);
                 const tdInfo = obj2 ? _get3dSettingsParamsForObj(obj2) : null;
                 if (tdInfo) paramDef = tdInfo.params.find(p => p.prop === prop);
               }
@@ -40986,7 +41116,7 @@
           let val = kfs ? tlInterpolate(kfs, frame) : null;
           if (val === null && paramDef) {
             // Show live object value
-            const obj = sceneObjects.find(o => o.name === objectName);
+            const obj = _tlFindObjectByName(objectName);
             if (obj) {
               const { vecProp, vecIdx } = paramDef;
               if (vecProp === 'position') val = obj.position[vecIdx];
@@ -40997,7 +41127,7 @@
           }
           // Primitive param fallback
           if (!paramDef) {
-            const obj = sceneObjects.find(o => o.name === objectName);
+            const obj = _tlFindObjectByName(objectName);
             const primParams = obj ? _getPrimitiveParamsForObj(obj) : null;
             if (primParams) {
               paramDef = primParams.find(p => p.prop === prop);
@@ -41008,7 +41138,7 @@
           }
           // Spline Flow param fallback
           if (!paramDef) {
-            const obj = sceneObjects.find(o => o.name === objectName);
+            const obj = _tlFindObjectByName(objectName);
             const sfParamDef = _splineFlowParams.find(p => p.prop === prop);
             if (sfParamDef && obj && obj.surfaceConstraint) {
               paramDef = sfParamDef;
@@ -41019,7 +41149,7 @@
           }
           // Surface Mapping param fallback
           if (!paramDef) {
-            const obj = sceneObjects.find(o => o.name === objectName);
+            const obj = _tlFindObjectByName(objectName);
             const smParamDef = _surfaceMappingParams.find(p => p.prop === prop);
             if (smParamDef && obj?.surfaceConstraint?.surfaceMapping) {
               paramDef = smParamDef;
@@ -41030,7 +41160,7 @@
           }
           // 3D Settings param fallback
           if (!paramDef) {
-            const obj = sceneObjects.find(o => o.name === objectName);
+            const obj = _tlFindObjectByName(objectName);
             const tdInfo = obj ? _get3dSettingsParamsForObj(obj) : null;
             if (tdInfo) {
               const tdParamDef = tdInfo.params.find(p => p.prop === prop);
@@ -41232,7 +41362,7 @@
 
       // Helper: create a sub-track row (label + keyframe strip)
       const addSubTrack = (objectName, prop, labelText, keyframes, precision, inputOpts) => {
-        const collapsed = _tlGroupCollapsed.get(objectName) || false;
+        const collapsed = _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : (objectName === '__camera__');
 
         // Label
         const label = document.createElement('div');
@@ -41455,7 +41585,7 @@
               }
             } else {
               // Object property — check transform params first, then primitive
-              const obj = sceneObjects.find(o => o.name === objectName);
+              const obj = _tlFindObjectByName(objectName);
               const paramDef = _objParams.find(p => p.prop === prop);
               if (paramDef && obj) {
                 let val;
@@ -41676,7 +41806,7 @@
 
       // Helper: create a group header (collapsible)
       const addGroupHeader = (objectName, displayName, isSelected, onKeyAll) => {
-        const collapsed = _tlGroupCollapsed.get(objectName) || false;
+        const collapsed = _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : (objectName === '__camera__');
 
         // Header label
         const header = document.createElement('div');
@@ -41743,8 +41873,8 @@
       // Helper: create a sub-group header (smaller, indented, collapsible)
       const addSubGroupHeader = (objectName, subGroupName, displayLabel) => {
         const key = objectName + ':' + subGroupName;
-        const collapsed = _tlSubGroupCollapsed.get(key) || false;
-        const parentCollapsed = _tlGroupCollapsed.get(objectName) || false;
+        const collapsed = _tlSubGroupCollapsed.has(key) ? _tlSubGroupCollapsed.get(key) : true;
+        const parentCollapsed = _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : (objectName === '__camera__');
 
         const header = document.createElement('div');
         header.className = 'tl-subgroup-header' + (collapsed ? ' collapsed' : '') + (parentCollapsed ? ' tl-collapsed' : '');
@@ -41780,7 +41910,7 @@
         if (renderedNames.has(objectName)) return;
         renderedNames.add(objectName);
         const isSelected = selectedObject && selectedObject.name === objectName;
-        const obj = sceneObjects.find(o => o.name === objectName);
+        const obj = _tlFindObjectByName(objectName);
 
         addGroupHeader(objectName, objectName, isSelected, () => {
           if (!obj) return;

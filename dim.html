@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260627f -->
+<!-- dim v20260629a -->
 <!--
   MIT License
 
@@ -31074,12 +31074,20 @@
         // Deep copy transform properties
         newGroup.position = [...obj.position];
         newGroup.scale = [...obj.scale];
-        // Rotation is a matrix. To duplicate, we can just copy the matrix state.
-        // Or if we want to "cleanly" duplicate, we assume the matrix is the source of truth.
         newGroup.rotationMatrix = obj.rotationMatrix.map(row => [...row]);
         newGroup.style = JSON.parse(JSON.stringify(obj.style));
         newGroup.visible = obj.visible;
         newGroup.lock = obj.lock;
+        newGroup.pivot = [...obj.pivot];
+        newGroup.pivotRotation = [...obj.pivotRotation];
+        newGroup.faceCamera = { ...obj.faceCamera };
+        newGroup.zSortChildren = obj.zSortChildren;
+        newGroup.zSortMode = obj.zSortMode;
+
+        // Deep copy surface constraint (Spline Flow / 3D Mapping)
+        if (obj.surfaceConstraint) {
+          newGroup.surfaceConstraint = JSON.parse(JSON.stringify(obj.surfaceConstraint));
+        }
 
         // Recursively duplicate children
         obj.children.forEach(child => {
@@ -31096,11 +31104,6 @@
         // Deep copy style
         const newStyle = JSON.parse(JSON.stringify(obj.style));
 
-        // Extract Euler angles from matrix for the constructor?
-        // The Path constructor expects 'rotation' as Euler angles [x, y, z].
-        // But 'obj.rotationMatrix' holds the current state.
-        // We can re-derive Euler angles or just override the matrix after creation.
-        // Overriding matrix is safer to preserve exact visual state.
         const euler = matrixToEuler(obj.rotationMatrix);
 
         const newPath = new Path(
@@ -31114,9 +31117,32 @@
           [...obj.scale],
           newSubPathData
         );
-        // newPath.rotationMatrix is set by constructor from Euler. 
-        // It should be close enough, but for exactness:
+        // Override rotation matrix for exact match
         newPath.rotationMatrix = obj.rotationMatrix.map(row => [...row]);
+
+        // Deep copy all 3D settings
+        newPath.extrudeSettings = JSON.parse(JSON.stringify(obj.extrudeSettings));
+        newPath.revolveSettings = JSON.parse(JSON.stringify(obj.revolveSettings));
+        newPath.sweepSettings = JSON.parse(JSON.stringify(obj.sweepSettings));
+        newPath.loftSettings = JSON.parse(JSON.stringify(obj.loftSettings));
+        newPath.vertexPointSettings = JSON.parse(JSON.stringify(obj.vertexPointSettings));
+
+        // Deep copy surface constraint (Spline Flow / 3D Mapping)
+        if (obj.surfaceConstraint) {
+          newPath.surfaceConstraint = JSON.parse(JSON.stringify(obj.surfaceConstraint));
+        }
+
+        // Copy transform extras
+        newPath.pivot = [...obj.pivot];
+        newPath.pivotRotation = [...obj.pivotRotation];
+        newPath.faceCamera = { ...obj.faceCamera };
+        newPath.visible = obj.visible;
+        newPath.lock = obj.lock;
+
+        // Copy primitive data (Spiral, Cycloid, Lissajous)
+        if (obj.primitiveData) newPath.primitiveData = { ...obj.primitiveData };
+        if (obj._pixelEllipse) newPath._pixelEllipse = true;
+        if (obj._pixelCellOrigin) newPath._pixelCellOrigin = [...obj._pixelCellOrigin];
 
         return newPath;
       }

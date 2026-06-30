@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260629a -->
+<!-- dim v20260630a -->
 <!--
   MIT License
 
@@ -6664,6 +6664,22 @@
           <rect x="5.5" y="1" width="3" height="1.5" rx="0.5" />
           <rect x="5" y="5.5" width="1" height="4.5" rx="0.3" fill="var(--tl-bg, #2a2a2a)" />
           <rect x="8" y="5.5" width="1" height="4.5" rx="0.3" fill="var(--tl-bg, #2a2a2a)" />
+        </svg>
+      </button>
+      <!-- Export SVG Sequence -->
+      <button class="tl-transport-btn" id="tlExportSVGBtn" title="Export SVG Sequence (1 file per frame)">
+        <svg viewBox="0 0 14 14" fill="currentColor" stroke="none">
+          <rect x="2" y="10" width="10" height="1.5" rx="0.5" />
+          <polygon points="7,2 11,7 9,7 9,9 5,9 5,7 3,7" />
+        </svg>
+      </button>
+      <!-- Export Multi-Layer SVG -->
+      <button class="tl-transport-btn" id="tlExportMLBtn" title="Export Multi-Layer SVG (all frames in one file)">
+        <svg viewBox="0 0 14 14" fill="currentColor" stroke="none">
+          <rect x="2" y="10" width="10" height="1.5" rx="0.5" />
+          <rect x="3" y="1.5" width="8" height="1.5" rx="0.4" opacity="0.5" />
+          <rect x="3" y="4" width="8" height="1.5" rx="0.4" opacity="0.75" />
+          <polygon points="7,6 11,8.5 9,8.5 9,9 5,9 5,8.5 3,8.5" />
         </svg>
       </button>
       <div class="tl-separator"></div>
@@ -40447,7 +40463,7 @@
             active: workplanes.indexOf(activeWorkplane),
             list: workplanes.map(wp => wp.serialize())
           },
-          animation: (document.getElementById('animationEnabledCb')?.checked && typeof tlSerialize === 'function') ? tlSerialize() : undefined
+          animation: (typeof tlSerialize === 'function') ? tlSerialize() : undefined
         };
         localStorage.setItem(SCENE_KEY, JSON.stringify(sceneData));
         console.log('Scene saved to localStorage.');
@@ -40532,7 +40548,7 @@
           active: workplanes.indexOf(activeWorkplane),
           list: workplanes.map(wp => wp.serialize())
         },
-        animation: (document.getElementById('animationEnabledCb')?.checked && typeof tlSerialize === 'function') ? tlSerialize() : undefined
+        animation: (typeof tlSerialize === 'function') ? tlSerialize() : undefined
       };
 
       const jsonStr = JSON.stringify(sceneData, null, 2);
@@ -40711,6 +40727,11 @@
       // Restore Animation Timeline
       if (data.animation && typeof tlDeserialize === 'function') {
         tlDeserialize(data.animation);
+        // Re-enable animation panel if there are keyframes in the data
+        const hasTracks = data.animation.tracks && Object.keys(data.animation.tracks).length > 0;
+        if (hasTracks && typeof setAnimationEnabled === 'function') {
+          setAnimationEnabled(true);
+        }
       } else if (typeof tlDeserialize === 'function') {
         // No animation data — clear timeline
         tlDeserialize(null);
@@ -42910,8 +42931,10 @@
       if (!data) return;
       animationTimeline.totalFrames = 360; // fixed; not user-configurable
       animationTimeline.playbackRange = data.playbackRange || 360;
-      // Migrate old data: if playbackRange was the old default (240), upgrade to 360
-      if (animationTimeline.playbackRange <= 240) {
+      // Migrate old data: if playbackRange was exactly 240 (old default), upgrade to 360.
+      // Do NOT touch any other value — this was previously `<= 240` which wrongly
+      // reset custom short ranges like 60, 90, 120 to 360.
+      if (animationTimeline.playbackRange === 240) {
         animationTimeline.playbackRange = 360;
       }
       animationTimeline.fps = data.fps || 24;
@@ -42939,55 +42962,267 @@
       }
     };
 
-    // --- Export Frames (SVG sequence) ---
-    const tlExportFrames = () => {
+    // --- Export SVG Sequence (File System Access API) ---
+    const tlExportSVGSequence = async () => {
       if (animationTimeline.tracks.size === 0) {
         alert('No animation keyframes to export.');
         return;
       }
-      tlStopPlayback();
-      const total = animationTimeline.playbackRange;
-      const frames = [];
-      const originalFrame = animationTimeline.currentFrame;
-
-      for (let i = 0; i < total; i++) {
-        animationTimeline.currentFrame = i;
-        tlApplyFrame(i);
-        // Capture SVG
-        const svgEl = document.getElementById('svgContainer');
-        const clone = svgEl.cloneNode(true);
-        // Remove gizmo overlays
-        const removeIds = ['gizmoGroup', 'targetGizmoGroup', 'selectionGizmoGroup',
-          'vertexGizmoGroup', 'axisIndicatorGroup', 'marqueeRect',
-          'penPreviewPath', 'penTangentPreviewGroup'];
-        removeIds.forEach(id => {
-          const el = clone.querySelector('#' + id);
-          if (el) el.remove();
-        });
-        const serializer = new XMLSerializer();
-        const svgString = serializer.serializeToString(clone);
-        frames.push({ frame: i, svg: svgString });
+      if (!('showDirectoryPicker' in window)) {
+        alert('Your browser does not support the File System Access API (directory picker).\nPlease use Chrome or Edge.');
+        return;
       }
 
-      // Restore original frame
-      animationTimeline.currentFrame = originalFrame;
-      tlApplyFrame(originalFrame);
-      tlUpdateUI();
+      // --- Pick output directory ---
+      let dirHandle;
+      try {
+        dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      } catch (err) {
+        // User cancelled
+        return;
+      }
 
-      // Download as JSON (array of SVG strings)
-      const exportData = {
-        fps: animationTimeline.fps,
-        totalFrames: total,
-        frames: frames,
+      tlStopPlayback();
+      const total = animationTimeline.playbackRange;
+      const originalFrame = animationTimeline.currentFrame;
+
+      // --- Progress overlay ---
+      const overlay = document.createElement('div');
+      overlay.id = 'svgExportOverlay';
+      overlay.style.cssText = [
+        'position:fixed', 'inset:0', 'z-index:99999',
+        'background:rgba(0,0,0,0.6)',
+        'display:flex', 'flex-direction:column',
+        'align-items:center', 'justify-content:center', 'gap:14px',
+        'font-family:system-ui,sans-serif'
+      ].join(';');
+
+      const progressLabel = document.createElement('div');
+      progressLabel.style.cssText = 'color:#fff;font-size:13px;font-weight:600;';
+
+      const progressBarWrap = document.createElement('div');
+      progressBarWrap.style.cssText = 'width:260px;height:6px;background:rgba(255,255,255,0.2);border-radius:3px;overflow:hidden;';
+      const progressBar = document.createElement('div');
+      progressBar.style.cssText = 'height:100%;width:0%;background:#4a78ff;border-radius:3px;transition:width 0.1s linear;';
+      progressBarWrap.appendChild(progressBar);
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.style.cssText = 'margin-top:4px;padding:5px 18px;border:1px solid rgba(255,255,255,0.3);background:transparent;color:#fff;border-radius:4px;cursor:pointer;font-size:12px;';
+
+      overlay.appendChild(progressLabel);
+      overlay.appendChild(progressBarWrap);
+      overlay.appendChild(cancelBtn);
+      document.body.appendChild(overlay);
+
+      let cancelled = false;
+      cancelBtn.addEventListener('click', () => { cancelled = true; });
+
+      // --- Compute vpMatrix for the export render (same as live render) ---
+      const _getVpMatrix = () => {
+        const vm = activeCamera.createViewMatrix();
+        const pm = activeCamera.createProjectionMatrix();
+        return matrixMultiply(pm, vm);
       };
-      const blob = new Blob([JSON.stringify(exportData)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `dim_animation_${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+
+      try {
+        for (let i = 0; i < total; i++) {
+          if (cancelled) break;
+
+          // Update progress
+          progressLabel.textContent = `Exporting frame ${i + 1} / ${total}`;
+          progressBar.style.width = `${((i) / total) * 100}%`;
+
+          // Apply frame state
+          animationTimeline.currentFrame = i;
+          tlApplyFrame(i);
+
+          // Draw all scene objects with current camera — this is the same call as in render()
+          const vpMatrix = _getVpMatrix();
+          await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix })));
+
+          // Capture clean SVG using the existing generateSVGString pipeline
+          const svgString = generateSVGString();
+
+          // Write file: frame_0001.svg, frame_0002.svg …
+          const frameName = `frame_${String(i + 1).padStart(4, '0')}.svg`;
+          const fileHandle = await dirHandle.getFileHandle(frameName, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(svgString);
+          await writable.close();
+
+          // Yield to keep UI responsive
+          await new Promise(r => setTimeout(r, 0));
+        }
+      } catch (err) {
+        console.error('[dim] SVG export error:', err);
+        alert(`Export failed: ${err.message}`);
+      } finally {
+        // Restore original frame
+        animationTimeline.currentFrame = originalFrame;
+        tlApplyFrame(originalFrame);
+        tlUpdateUI();
+        requestRender();
+        // Show completion briefly then close overlay
+        if (!cancelled) {
+          progressBar.style.width = '100%';
+          progressLabel.textContent = `Export complete — ${total} frames saved.`;
+          await new Promise(r => setTimeout(r, 900));
+        }
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      }
     };
+
+    // Bind export buttons
+    const tlExportSVGBtn = document.getElementById('tlExportSVGBtn');
+    if (tlExportSVGBtn) {
+      tlExportSVGBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        tlExportSVGSequence();
+      });
+    }
+
+    // --- Export Multi-Layer SVG (all frames, one <g> layer per frame) ---
+    const tlExportSVGMultiLayer = async () => {
+      if (animationTimeline.tracks.size === 0) {
+        alert('No animation keyframes to export.');
+        return;
+      }
+
+      tlStopPlayback();
+      const total = animationTimeline.playbackRange;
+      const fps = animationTimeline.fps;
+      const originalFrame = animationTimeline.currentFrame;
+
+      // --- Progress overlay ---
+      const overlay = document.createElement('div');
+      overlay.style.cssText = [
+        'position:fixed', 'inset:0', 'z-index:99999',
+        'background:rgba(0,0,0,0.6)',
+        'display:flex', 'flex-direction:column',
+        'align-items:center', 'justify-content:center', 'gap:14px',
+        'font-family:system-ui,sans-serif'
+      ].join(';');
+
+      const progressLabel = document.createElement('div');
+      progressLabel.style.cssText = 'color:#fff;font-size:13px;font-weight:600;';
+
+      const progressBarWrap = document.createElement('div');
+      progressBarWrap.style.cssText = 'width:260px;height:6px;background:rgba(255,255,255,0.2);border-radius:3px;overflow:hidden;';
+      const progressBar = document.createElement('div');
+      progressBar.style.cssText = 'height:100%;width:0%;background:#4a78ff;border-radius:3px;transition:width 0.1s linear;';
+      progressBarWrap.appendChild(progressBar);
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.style.cssText = 'margin-top:4px;padding:5px 18px;border:1px solid rgba(255,255,255,0.3);background:transparent;color:#fff;border-radius:4px;cursor:pointer;font-size:12px;';
+
+      overlay.appendChild(progressLabel);
+      overlay.appendChild(progressBarWrap);
+      overlay.appendChild(cancelBtn);
+      document.body.appendChild(overlay);
+
+      let cancelled = false;
+      cancelBtn.addEventListener('click', () => { cancelled = true; });
+
+      const _getVpMatrix = () => {
+        const vm = activeCamera.createViewMatrix();
+        const pm = activeCamera.createProjectionMatrix();
+        return matrixMultiply(pm, vm);
+      };
+
+      // Build the root <svg> element
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const inkNS = 'http://www.inkscape.org/namespaces/inkscape';
+      const outSVG = document.createElementNS(svgNS, 'svg');
+      outSVG.setAttribute('xmlns', svgNS);
+      outSVG.setAttribute('xmlns:inkscape', inkNS);
+      outSVG.setAttribute('width', FRAME_SIZE);
+      outSVG.setAttribute('height', FRAME_SIZE);
+      outSVG.setAttribute('viewBox', `${-FRAME_SIZE / 2} ${-FRAME_SIZE / 2} ${FRAME_SIZE} ${FRAME_SIZE}`);
+      // Embed FPS as a metadata comment
+      outSVG.appendChild(document.createComment(` dim animation — ${total} frames @ ${fps} fps `));
+
+      try {
+        for (let i = 0; i < total; i++) {
+          if (cancelled) break;
+
+          progressLabel.textContent = `Building frame ${i + 1} / ${total}`;
+          progressBar.style.width = `${(i / total) * 100}%`;
+
+          // Apply frame + draw
+          animationTimeline.currentFrame = i;
+          tlApplyFrame(i);
+          const vpMatrix = _getVpMatrix();
+          await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix })));
+
+          // Capture this frame as a clean SVG string, then parse it back into nodes
+          const svgString = generateSVGString();
+          const parser = new DOMParser();
+          const parsedDoc = parser.parseFromString(svgString, 'image/svg+xml');
+          const parsedRoot = parsedDoc.documentElement;
+
+          // Create a named layer <g> for this frame
+          const layer = document.createElementNS(svgNS, 'g');
+          const framePadded = String(i + 1).padStart(4, '0');
+          layer.setAttribute('id', `frame_${framePadded}`);
+          layer.setAttributeNS(inkNS, 'inkscape:label', `Frame ${framePadded}`);
+          layer.setAttributeNS(inkNS, 'inkscape:groupmode', 'layer');
+          // Only frame 0 is visible; all others hidden (for Illustrator / Inkscape layer workflow)
+          layer.style.display = (i === 0) ? 'inline' : 'none';
+
+          // Import all child nodes from the parsed SVG root into the layer
+          Array.from(parsedRoot.childNodes).forEach(child => {
+            layer.appendChild(outSVG.ownerDocument
+              ? document.importNode(child, true)
+              : child.cloneNode(true));
+          });
+
+          outSVG.appendChild(layer);
+
+          await new Promise(r => setTimeout(r, 0));
+        }
+      } catch (err) {
+        console.error('[dim] Multi-layer SVG export error:', err);
+        alert(`Export failed: ${err.message}`);
+      } finally {
+        // Restore
+        animationTimeline.currentFrame = originalFrame;
+        tlApplyFrame(originalFrame);
+        tlUpdateUI();
+        requestRender();
+
+        if (!cancelled) {
+          // Serialize and download
+          const serializer = new XMLSerializer();
+          const finalSVG = serializer.serializeToString(outSVG);
+          const blob = new Blob([finalSVG], { type: 'image/svg+xml' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `dim_anim_layers_${total}f_${fps}fps_${Date.now()}.svg`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+          progressBar.style.width = '100%';
+          progressLabel.textContent = `Export complete — ${total} frames in one SVG.`;
+          await new Promise(r => setTimeout(r, 900));
+        }
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      }
+    };
+
+    const tlExportMLBtn = document.getElementById('tlExportMLBtn');
+    if (tlExportMLBtn) {
+      tlExportMLBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        tlExportSVGMultiLayer();
+      });
+    }
 
     // --- Resize handler ---
     window.addEventListener('resize', () => {

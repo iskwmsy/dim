@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260630a -->
+<!-- dim v20260630b -->
 <!--
   MIT License
 
@@ -43133,16 +43133,24 @@
       };
 
       // Build the root <svg> element
+      // IMPORTANT: Use 0-based viewBox (0 0 ...) instead of negative origin (-500 -500 ...)
+      // because Adobe Illustrator has a known bug where negative viewBox origins cause
+      // layer position offsets when importing multi-layer SVGs.
       const svgNS = 'http://www.w3.org/2000/svg';
       const inkNS = 'http://www.inkscape.org/namespaces/inkscape';
+      const adobeNS = 'http://ns.adobe.com/AdobeIllustrator/10.0/';
       const outSVG = document.createElementNS(svgNS, 'svg');
       outSVG.setAttribute('xmlns', svgNS);
       outSVG.setAttribute('xmlns:inkscape', inkNS);
+      outSVG.setAttribute('xmlns:i', adobeNS);
       outSVG.setAttribute('width', FRAME_SIZE);
       outSVG.setAttribute('height', FRAME_SIZE);
-      outSVG.setAttribute('viewBox', `${-FRAME_SIZE / 2} ${-FRAME_SIZE / 2} ${FRAME_SIZE} ${FRAME_SIZE}`);
+      outSVG.setAttribute('viewBox', `0 0 ${FRAME_SIZE} ${FRAME_SIZE}`);
       // Embed FPS as a metadata comment
       outSVG.appendChild(document.createComment(` dim animation — ${total} frames @ ${fps} fps `));
+
+      // Offset to shift content from center-origin (-500..500) to 0-based (0..1000)
+      const halfFrame = FRAME_SIZE / 2;
 
       try {
         for (let i = 0; i < total; i++) {
@@ -43167,16 +43175,32 @@
           const layer = document.createElementNS(svgNS, 'g');
           const framePadded = String(i + 1).padStart(4, '0');
           layer.setAttribute('id', `frame_${framePadded}`);
+          layer.setAttribute('data-name', `Frame ${framePadded}`);
+          layer.setAttributeNS(adobeNS, 'i:layer', 'yes');
           layer.setAttributeNS(inkNS, 'inkscape:label', `Frame ${framePadded}`);
           layer.setAttributeNS(inkNS, 'inkscape:groupmode', 'layer');
           // Only frame 0 is visible; all others hidden (for Illustrator / Inkscape layer workflow)
           layer.style.display = (i === 0) ? 'inline' : 'none';
 
-          // Import all child nodes from the parsed SVG root into the layer
+          // Wrap content in a translate group to shift from center-origin to 0-based coords.
+          // The per-frame SVG uses viewBox "-500 -500 1000 1000" (center origin),
+          // but outSVG uses "0 0 1000 1000", so we shift by +500,+500.
+          const wrapper = document.createElementNS(svgNS, 'g');
+          wrapper.setAttribute('transform', `translate(${halfFrame}, ${halfFrame})`);
+
+          // Import all child nodes from the parsed SVG root into the wrapper
           Array.from(parsedRoot.childNodes).forEach(child => {
-            layer.appendChild(outSVG.ownerDocument
+            wrapper.appendChild(outSVG.ownerDocument
               ? document.importNode(child, true)
               : child.cloneNode(true));
+          });
+
+          layer.appendChild(wrapper);
+
+          // De-duplicate IDs: prefix every id with the frame number
+          // so that multiple frames in one SVG don't collide
+          layer.querySelectorAll('[id]').forEach(el => {
+            el.setAttribute('id', `f${framePadded}_${el.getAttribute('id')}`);
           });
 
           outSVG.appendChild(layer);

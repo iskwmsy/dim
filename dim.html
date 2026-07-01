@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260701e -->
+<!-- dim v20260701g -->
 <!--
   MIT License
 
@@ -3313,25 +3313,106 @@
     /* --- Curve Editor Popover --- */
     #tlCurveEditor {
       position: fixed;
-      position-anchor: --tl-curve-anchor;
-      position-try-fallbacks: flip-block;
-      margin: 4px 0 0 0;
+      left: var(--toolbar-width);
+      bottom: 32px; /* sits above the 32px timeline header bar */
+      margin: 0;
       padding: 0;
-      border: 1px solid var(--border-color);
-      border-radius: 6px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-      background: var(--bg-color);
+      border: 1px solid var(--border-light);
+      border-radius: 0;
+      box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.1);
+      background: var(--bg-panel);
       overflow: visible;
-      z-index: 100;
+      z-index: 501;
     }
 
     #tlCurveEditor::backdrop {
       background: transparent;
     }
+
     .tl-curve-editor-inner {
-      width: 200px;
-      height: 200px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tl-curve-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .tl-curve-toolbar label {
+      font-size: var(--font-size-field);
+      font-weight: 500;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .tl-curve-toolbar .ui-select {
+      width: auto;
+      min-width: 80px;
+      flex: 1;
+    }
+
+    #tlCurveClose:hover {
+      color: var(--text-main);
+    }
+
+    .tl-curve-svg-wrap {
+      width: 300px;
+      height: 300px;
       position: relative;
+    }
+
+    .tl-curve-inputs {
+      display: flex;
+      gap: 0;
+      border-top: 1px solid var(--border-light);
+    }
+
+    .tl-curve-input-group {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tl-curve-input-group + .tl-curve-input-group {
+      border-left: 1px solid var(--border-light);
+    }
+
+    .tl-curve-input-group label {
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 3px 6px 0;
+      line-height: 1;
+    }
+
+    .tl-curve-input-group input {
+      width: 100%;
+      background: var(--bg-input);
+      border: none;
+      border-radius: 0;
+      color: var(--text-main);
+      padding: 2px 6px 3px;
+      box-sizing: border-box;
+      font-size: var(--font-size-field);
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      font-family: var(--font-family-sans);
+      text-align: right;
+      line-height: 1;
+    }
+
+    .tl-curve-input-group input:focus {
+      outline: none;
+      background: rgba(255, 255, 255, 1);
+      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      position: relative;
+      z-index: 1;
     }
 
     .tl-interp-select {
@@ -6804,24 +6885,77 @@
     </div>
 
     <!-- Curve Editor Popover -->
-    <div id="tlCurveEditor" popover>
+    <div id="tlCurveEditor" popover="manual">
       <div class="tl-curve-editor-inner">
-        <svg id="tlCurveSvg" width="200" height="200" style="display:block; overflow:visible;">
-          <!-- Background grid -->
-          <rect x="50" y="50" width="100" height="100" fill="none" stroke="var(--border-color)" stroke-width="1" />
-          <line x1="50" y1="150" x2="150" y2="50" stroke="var(--border-color)" stroke-width="1" stroke-dasharray="2,2" opacity="0.5" />
-          
-          <!-- Handles -->
-          <line id="tlCurveLine1" x1="50" y1="150" x2="92" y2="150" stroke="#999" stroke-width="1.5" />
-          <line id="tlCurveLine2" x1="150" y1="50" x2="108" y2="50" stroke="#999" stroke-width="1.5" />
-          
-          <!-- Path -->
-          <path id="tlCurvePath" d="M50,150 C92,150 108,50 150,50" fill="none" stroke="var(--accent-color)" stroke-width="2" />
-          
-          <!-- Handle controls -->
-          <circle id="tlCurveHandle1" cx="92" cy="150" r="6" fill="#fff" stroke="var(--accent-color)" stroke-width="2" style="cursor:pointer;" />
-          <circle id="tlCurveHandle2" cx="108" cy="50" r="6" fill="#fff" stroke="var(--accent-color)" stroke-width="2" style="cursor:pointer;" />
-        </svg>
+        <!-- Toolbar with preset dropdown -->
+        <div class="tl-curve-toolbar">
+          <label>Preset</label>
+          <select id="tlCurvePreset" class="ui-select">
+            <option value="custom">Custom</option>
+            <option value="constant">Constant</option>
+            <option value="linear">Linear</option>
+            <option value="easeIn">Ease In</option>
+            <option value="easeOut">Ease Out</option>
+            <option value="easeInOut">Ease In Out</option>
+            <option value="anticipate">Anticipate</option>
+            <option value="overshoot">Overshoot</option>
+            <option value="anticipateOvershoot">Anticipate + Overshoot</option>
+            <option value="bounce">Bounce</option>
+          </select>
+          <button id="tlCurveClose" type="button" title="Close" style="margin-left:auto; background:none; border:none; cursor:pointer; padding:2px 4px; font-size:16px; color:var(--text-muted); line-height:1;">&times;</button>
+        </div>
+        <div class="tl-curve-toolbar">
+          <label>Curve</label>
+          <select id="tlCurveAlgorithm" class="ui-select">
+            <option value="bezier">Bézier</option>
+            <option value="linear">Linear</option>
+            <option value="bspline">B-Spline (Cubic)</option>
+            <option value="bspline2">B-Spline (Quad)</option>
+          </select>
+        </div>
+        <!-- SVG Canvas -->
+        <div class="tl-curve-svg-wrap">
+          <svg id="tlCurveSvg" width="300" height="300" style="display:block; overflow:visible;">
+            <!-- Background grid -->
+            <rect x="50" y="50" width="200" height="200" fill="none" stroke="var(--border-light)" stroke-width="1" />
+            <!-- Diagonal reference line (linear) -->
+            <line x1="50" y1="250" x2="250" y2="50" stroke="var(--border-light)" stroke-width="1" stroke-dasharray="3,3" />
+            <!-- Midpoint grid lines -->
+            <line x1="150" y1="50" x2="150" y2="250" stroke="var(--border-light)" stroke-width="0.5" />
+            <line x1="50" y1="150" x2="250" y2="150" stroke="var(--border-light)" stroke-width="0.5" />
+
+            <!-- Handle lines (control polygon) -->
+            <line id="tlCurveLine1" x1="50" y1="250" x2="134" y2="250" stroke="#999" stroke-width="1" />
+            <line id="tlCurveLine3" x1="134" y1="250" x2="166" y2="50" stroke="#999" stroke-width="1" />
+            <line id="tlCurveLine2" x1="250" y1="50" x2="166" y2="50" stroke="#999" stroke-width="1" />
+
+            <!-- Bezier path -->
+            <path id="tlCurvePath" d="M50,250 C134,250 166,50 250,50" fill="none" stroke="var(--accent-color)" stroke-width="2" />
+
+            <!-- Handle controls -->
+            <circle id="tlCurveHandle1" cx="134" cy="250" r="6" fill="#fff" stroke="var(--accent-color)" stroke-width="2" style="cursor:pointer;" />
+            <circle id="tlCurveHandle2" cx="166" cy="50" r="6" fill="#fff" stroke="var(--accent-color)" stroke-width="2" style="cursor:pointer;" />
+          </svg>
+        </div>
+        <!-- Numeric inputs -->
+        <div class="tl-curve-inputs">
+          <div class="tl-curve-input-group">
+            <label>X1</label>
+            <input id="tlCurveX1" type="number" step="0.01" min="0" max="1" value="0.42">
+          </div>
+          <div class="tl-curve-input-group">
+            <label>Y1</label>
+            <input id="tlCurveY1" type="number" step="0.01" value="0.00">
+          </div>
+          <div class="tl-curve-input-group">
+            <label>X2</label>
+            <input id="tlCurveX2" type="number" step="0.01" min="0" max="1" value="0.58">
+          </div>
+          <div class="tl-curve-input-group">
+            <label>Y2</label>
+            <input id="tlCurveY2" type="number" step="0.01" value="1.00">
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -40987,24 +41121,101 @@
       }
     });
 
-    // --- Curve Editor (popover) ---
     const tlCurveEditor = document.getElementById('tlCurveEditor');
     const tlCurvePath = document.getElementById('tlCurvePath');
     const tlCurveHandle1 = document.getElementById('tlCurveHandle1');
     const tlCurveHandle2 = document.getElementById('tlCurveHandle2');
     const tlCurveLine1 = document.getElementById('tlCurveLine1');
     const tlCurveLine2 = document.getElementById('tlCurveLine2');
+    const tlCurveLine3 = document.getElementById('tlCurveLine3');
+    const tlCurvePreset = document.getElementById('tlCurvePreset');
+    const tlCurveAlgorithm = document.getElementById('tlCurveAlgorithm');
+    const tlCurveX1 = document.getElementById('tlCurveX1');
+    const tlCurveY1 = document.getElementById('tlCurveY1');
+    const tlCurveX2 = document.getElementById('tlCurveX2');
+    const tlCurveY2 = document.getElementById('tlCurveY2');
     let _activeCurveKf = null;
 
+    // SVG coordinate mapping: normalized [0,1] ↔ SVG pixel [50..250] (200px range in a 300px canvas)
+    const _CE_ORIGIN = 50, _CE_RANGE = 200;
+    // Convert normalized coords to SVG pixel coords
+    const _cePx = (nx) => _CE_ORIGIN + nx * _CE_RANGE;
+    const _cePy = (ny) => _CE_ORIGIN + _CE_RANGE - ny * _CE_RANGE;
+
     const _updateCurveSvg = (x1, y1, x2, y2) => {
-      // Map normalized [0,1] to SVG space [50..150]
-      const px1 = 50 + x1 * 100, py1 = 150 - y1 * 100;
-      const px2 = 50 + x2 * 100, py2 = 150 - y2 * 100;
-      tlCurvePath.setAttribute('d', `M50,150 C${px1},${py1} ${px2},${py2} 150,50`);
+      const px1 = _cePx(x1), py1 = _cePy(y1);
+      const px2 = _cePx(x2), py2 = _cePy(y2);
+      const sX = _cePx(0), sY = _cePy(0); // Start (0,0)
+      const eX = _cePx(1), eY = _cePy(1); // End (1,1)
+
+      // Update handles and control polygon lines
       tlCurveHandle1.setAttribute('cx', px1); tlCurveHandle1.setAttribute('cy', py1);
       tlCurveHandle2.setAttribute('cx', px2); tlCurveHandle2.setAttribute('cy', py2);
       tlCurveLine1.setAttribute('x2', px1); tlCurveLine1.setAttribute('y2', py1);
       tlCurveLine2.setAttribute('x2', px2); tlCurveLine2.setAttribute('y2', py2);
+      tlCurveLine3.setAttribute('x1', px1); tlCurveLine3.setAttribute('y1', py1);
+      tlCurveLine3.setAttribute('x2', px2); tlCurveLine3.setAttribute('y2', py2);
+
+      // Determine algorithm from the active keyframe (default bezier)
+      const algo = (_activeCurveKf && _activeCurveKf.curveAlgorithm) || 'bezier';
+
+      if (algo === 'bezier') {
+        // Standard cubic bezier: M start C handle1 handle2 end
+        tlCurvePath.setAttribute('d', `M${sX},${sY} C${px1},${py1} ${px2},${py2} ${eX},${eY}`);
+      } else if (algo === 'linear') {
+        // Polyline through all 4 points
+        tlCurvePath.setAttribute('d', `M${sX},${sY} L${px1},${py1} L${px2},${py2} L${eX},${eY}`);
+      } else if (algo === 'bspline' || algo === 'bspline2') {
+        // Convert 4 normalized points to 3D (z=0), duplicate endpoints for clamping
+        const pts3D = [
+          [0, 0, 0], [0, 0, 0],   // duplicate start
+          [x1, y1, 0], [x2, y2, 0],
+          [1, 1, 0], [1, 1, 0],   // duplicate end
+        ];
+        const segments = algo === 'bspline2'
+          ? getQuadraticBezierControlPoints3D(pts3D, false)
+          : getCubicBezierControlPoints3D(pts3D, false);
+        let d = '';
+        segments.forEach((seg, i) => {
+          const sx = _cePx(seg.p0[0]), sy = _cePy(seg.p0[1]);
+          const c1x = _cePx(seg.p1[0]), c1y = _cePy(seg.p1[1]);
+          const c2x = _cePx(seg.p2[0]), c2y = _cePy(seg.p2[1]);
+          const ex2 = _cePx(seg.p3[0]), ey2 = _cePy(seg.p3[1]);
+          if (i === 0) d += `M${sx},${sy} `;
+          d += `C${c1x},${c1y} ${c2x},${c2y} ${ex2},${ey2} `;
+        });
+        tlCurvePath.setAttribute('d', d || `M${sX},${sY} L${eX},${eY}`);
+      }
+
+      // Sync numeric inputs
+      tlCurveX1.value = x1.toFixed(2);
+      tlCurveY1.value = y1.toFixed(2);
+      tlCurveX2.value = x2.toFixed(2);
+      tlCurveY2.value = y2.toFixed(2);
+    };
+
+    // Preset definitions
+    const _curvePresets = {
+      constant:            [1, 0, 1, 0],
+      linear:              [0, 0, 1, 1],
+      easeIn:              [0.42, 0, 1, 1],
+      easeOut:             [0, 0, 0.58, 1],
+      easeInOut:           [0.42, 0, 0.58, 1],
+      anticipate:          [0.36, -0.4, 0.26, 1],
+      overshoot:           [0.34, 1.2, 0.64, 1],
+      anticipateOvershoot: [0.68, -0.55, 0.27, 1.55],
+      bounce:              [0.22, 1.5, 0.36, 1],
+    };
+
+    // Match current bezier to a preset name, else 'custom'
+    const _matchPreset = (bz) => {
+      for (const [name, vals] of Object.entries(_curvePresets)) {
+        if (Math.abs(bz[0] - vals[0]) < 0.005 && Math.abs(bz[1] - vals[1]) < 0.005 &&
+            Math.abs(bz[2] - vals[2]) < 0.005 && Math.abs(bz[3] - vals[3]) < 0.005) {
+          return name;
+        }
+      }
+      return 'custom';
     };
 
     const _openCurveEditor = (lineEl, kf) => {
@@ -41014,14 +41225,73 @@
         if (kf.interp === 'easeIn') kf.cubicBezier = [0.42, 0, 1, 1];
         else if (kf.interp === 'easeOut') kf.cubicBezier = [0, 0, 0.58, 1];
         else if (kf.interp === 'easeInOut') kf.cubicBezier = [0.42, 0, 0.58, 1];
-        else if (kf.interp === 'step') kf.cubicBezier = [1, 0, 1, 0]; // Visual only for step
+        else if (kf.interp === 'step') kf.cubicBezier = [1, 0, 1, 0];
         else kf.cubicBezier = [0, 0, 1, 1]; // Linear
       }
+      // Default algorithm
+      if (!kf.curveAlgorithm) kf.curveAlgorithm = 'bezier';
+      tlCurveAlgorithm.value = kf.curveAlgorithm;
       _updateCurveSvg(...kf.cubicBezier);
-      lineEl.style.anchorName = '--tl-curve-anchor';
-      tlCurveEditor.style.positionArea = 'top';
-      tlCurveEditor.showPopover();
+      tlCurvePreset.value = (kf.curveAlgorithm === 'bezier') ? _matchPreset(kf.cubicBezier) : 'custom';
+      // Show if not already visible; otherwise just load the new data
+      if (!tlCurveEditor.matches(':popover-open')) {
+        tlCurveEditor.showPopover();
+      }
     };
+
+    // Close button
+    document.getElementById('tlCurveClose').addEventListener('click', () => {
+      tlCurveEditor.hidePopover();
+    });
+
+    // Preset dropdown change — always forces Bézier algorithm
+    tlCurvePreset.addEventListener('change', () => {
+      if (!_activeCurveKf) return;
+      const vals = _curvePresets[tlCurvePreset.value];
+      if (!vals) return; // 'custom' selected — do nothing
+      pushAnimUndoState('curve preset');
+      _activeCurveKf.cubicBezier = [...vals];
+      _activeCurveKf.curveAlgorithm = 'bezier';
+      tlCurveAlgorithm.value = 'bezier';
+      _updateCurveSvg(...vals);
+      tlApplyFrame(tlCurrentFrame, true);
+      updateVisualsRecursive();
+      tlUpdateTrackInputs();
+    });
+
+    // Algorithm dropdown change
+    tlCurveAlgorithm.addEventListener('change', () => {
+      if (!_activeCurveKf) return;
+      pushAnimUndoState('curve algorithm');
+      _activeCurveKf.curveAlgorithm = tlCurveAlgorithm.value;
+      // Re-render with same control points but new algorithm
+      _updateCurveSvg(..._activeCurveKf.cubicBezier);
+      // Update preset to 'custom' for non-bezier algorithms
+      tlCurvePreset.value = (tlCurveAlgorithm.value === 'bezier') ? _matchPreset(_activeCurveKf.cubicBezier) : 'custom';
+      tlApplyFrame(tlCurrentFrame, true);
+      updateVisualsRecursive();
+      tlUpdateTrackInputs();
+    });
+
+    // Numeric input change handler
+    const _onCurveInputChange = () => {
+      if (!_activeCurveKf) return;
+      pushAnimUndoState('edit curve values');
+      const bz = _activeCurveKf.cubicBezier;
+      bz[0] = Math.max(0, Math.min(1, parseFloat(tlCurveX1.value) || 0));
+      bz[1] = parseFloat(tlCurveY1.value) || 0; // Y is unclamped
+      bz[2] = Math.max(0, Math.min(1, parseFloat(tlCurveX2.value) || 0));
+      bz[3] = parseFloat(tlCurveY2.value) || 0; // Y is unclamped
+      _updateCurveSvg(...bz);
+      tlCurvePreset.value = _matchPreset(bz);
+      tlApplyFrame(tlCurrentFrame, true);
+      updateVisualsRecursive();
+      tlUpdateTrackInputs();
+    };
+    tlCurveX1.addEventListener('change', _onCurveInputChange);
+    tlCurveY1.addEventListener('change', _onCurveInputChange);
+    tlCurveX2.addEventListener('change', _onCurveInputChange);
+    tlCurveY2.addEventListener('change', _onCurveInputChange);
 
     let _dragHandle = null;
     const _onCurveDragMove = (e) => {
@@ -41029,17 +41299,27 @@
       const svgRect = document.getElementById('tlCurveSvg').getBoundingClientRect();
       const x = e.clientX - svgRect.left;
       const y = e.clientY - svgRect.top;
-      // Convert to normalized coordinates
-      let nx = (x - 50) / 100;
-      let ny = (150 - y) / 100;
+      // Convert to normalized coordinates (200px range, origin at 50)
+      let nx = (x - _CE_ORIGIN) / _CE_RANGE;
+      let ny = (_CE_ORIGIN + _CE_RANGE - y) / _CE_RANGE;
       nx = Math.max(0, Math.min(1, nx)); // Clamp X to [0,1]
       // Y is allowed to overshoot
-      
+
       const bz = _activeCurveKf.cubicBezier;
-      if (_dragHandle === 1) { bz[0] = nx; bz[1] = ny; }
-      else { bz[2] = nx; bz[3] = ny; }
-      
+      const algo = _activeCurveKf.curveAlgorithm || 'bezier';
+
+      if (_dragHandle === 1) {
+        // For non-bezier modes, clamp H1.x ≤ H2.x
+        if (algo !== 'bezier') nx = Math.min(nx, bz[2]);
+        bz[0] = nx; bz[1] = ny;
+      } else {
+        // For non-bezier modes, clamp H2.x ≥ H1.x
+        if (algo !== 'bezier') nx = Math.max(nx, bz[0]);
+        bz[2] = nx; bz[3] = ny;
+      }
+
       _updateCurveSvg(...bz);
+      tlCurvePreset.value = (algo === 'bezier') ? _matchPreset(bz) : 'custom';
       tlApplyFrame(tlCurrentFrame, true); // live preview
       updateVisualsRecursive();
     };
@@ -41273,6 +41553,76 @@
       return 3 * (1 - t) ** 2 * t * y1 + 3 * (1 - t) * t ** 2 * y2 + t ** 3;
     };
 
+    // Evaluate Y at a given X for a series of cubic Bézier segments (from B-Spline conversion).
+    // Each segment = { p0:[x,y,z], p1:[x,y,z], p2:[x,y,z], p3:[x,y,z] }
+    const _evaluatePiecewiseBezier = (x, segments) => {
+      if (!segments || segments.length === 0) return x;
+      // Find the segment whose X range contains our target x
+      for (const seg of segments) {
+        const segStartX = seg.p0[0], segEndX = seg.p3[0];
+        // Allow small tolerance for floating-point overlap
+        if (x >= segStartX - 0.0001 && x <= segEndX + 0.0001) {
+          // Solve for parameter t where the bezier X(t) = x, using binary search
+          const ax = seg.p0[0], bx = seg.p1[0], cx = seg.p2[0], dx = seg.p3[0];
+          const ay = seg.p0[1], by = seg.p1[1], cy = seg.p2[1], dy = seg.p3[1];
+          let lo = 0, hi = 1, t = 0.5;
+          for (let i = 0; i < 20; i++) {
+            const u = 1 - t;
+            const estX = u * u * u * ax + 3 * u * u * t * bx + 3 * u * t * t * cx + t * t * t * dx;
+            if (Math.abs(estX - x) < 0.0005) break;
+            if (estX < x) lo = t; else hi = t;
+            t = (lo + hi) / 2;
+          }
+          const u = 1 - t;
+          return u * u * u * ay + 3 * u * u * t * by + 3 * u * t * t * cy + t * t * t * dy;
+        }
+      }
+      // Fallback: clamp to last segment endpoint
+      const last = segments[segments.length - 1];
+      return last.p3[1];
+    };
+
+    // Evaluate a piecewise linear curve through points (including implicit endpoints)
+    const _evaluateLinearCurve = (x, bz) => {
+      // Full ordered point list: (0,0), H1, H2, (1,1)
+      const pts = [[0, 0], [bz[0], bz[1]], [bz[2], bz[3]], [1, 1]];
+      for (let i = 0; i < pts.length - 1; i++) {
+        if (x <= pts[i + 1][0] + 0.0001) {
+          const dx = pts[i + 1][0] - pts[i][0];
+          if (dx < 0.0001) return pts[i + 1][1]; // vertical segment
+          const segT = (x - pts[i][0]) / dx;
+          return pts[i][1] + segT * (pts[i + 1][1] - pts[i][1]);
+        }
+      }
+      return 1;
+    };
+
+    // Main curve evaluation dispatcher — returns eased t for any algorithm
+    const _evaluateCurve = (t, algo, bz) => {
+      if (t <= 0) return 0;
+      if (t >= 1) return 1;
+
+      if (algo === 'linear') {
+        return _evaluateLinearCurve(t, bz);
+      }
+
+      if (algo === 'bspline' || algo === 'bspline2') {
+        // Build 3D points with duplicated endpoints for clamping
+        const pts3D = [
+          [0, 0, 0], [0, 0, 0],       // duplicate start
+          [bz[0], bz[1], 0], [bz[2], bz[3], 0],
+          [1, 1, 0], [1, 1, 0],       // duplicate end
+        ];
+        const segments = algo === 'bspline2'
+          ? getQuadraticBezierControlPoints3D(pts3D, false)
+          : getCubicBezierControlPoints3D(pts3D, false);
+        return _evaluatePiecewiseBezier(t, segments);
+      }
+
+      // Default: cubic bezier
+      return _solveCubicBezier(t, bz[0], bz[1], bz[2], bz[3]);
+    };
+
     const tlLerp = (a, b, t) => {
       if (typeof a === 'number' && typeof b === 'number') {
         return a + (b - a) * t;
@@ -41310,7 +41660,8 @@
           // Determine easing for this segment
           let et = t;
           if (k0.cubicBezier) {
-            et = _solveCubicBezier(t, k0.cubicBezier[0], k0.cubicBezier[1], k0.cubicBezier[2], k0.cubicBezier[3]);
+            const algo = k0.curveAlgorithm || 'bezier';
+            et = _evaluateCurve(t, algo, k0.cubicBezier);
           } else {
             // Legacy fallback using individual keyframe strings
             const slowStart = k0.interp === 'easeOut' || k0.interp === 'easeInOut';
@@ -43292,6 +43643,8 @@
               value: Array.isArray(k.value) ? [...k.value] : k.value,
             };
             if (k.interp && k.interp !== 'linear') entry.interp = k.interp;
+            if (k.cubicBezier) entry.cubicBezier = [...k.cubicBezier];
+            if (k.curveAlgorithm && k.curveAlgorithm !== 'bezier') entry.curveAlgorithm = k.curveAlgorithm;
             return entry;
           });
         }
@@ -43318,11 +43671,16 @@
         for (const [objectName, props] of Object.entries(data.tracks)) {
           const objMap = new Map();
           for (const [prop, keyframes] of Object.entries(props)) {
-            objMap.set(prop, keyframes.map(k => ({
-              frame: k.frame,
-              value: Array.isArray(k.value) ? [...k.value] : k.value,
-              interp: k.interp || 'linear',
-            })));
+            objMap.set(prop, keyframes.map(k => {
+              const kf = {
+                frame: k.frame,
+                value: Array.isArray(k.value) ? [...k.value] : k.value,
+                interp: k.interp || 'linear',
+              };
+              if (k.cubicBezier) kf.cubicBezier = [...k.cubicBezier];
+              if (k.curveAlgorithm) kf.curveAlgorithm = k.curveAlgorithm;
+              return kf;
+            }));
           }
           animationTimeline.tracks.set(objectName, objMap);
         }

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260630b -->
+<!-- dim v20260701e -->
 <!--
   MIT License
 
@@ -3310,6 +3310,30 @@
       height: 14px;
     }
 
+    /* --- Curve Editor Popover --- */
+    #tlCurveEditor {
+      position: fixed;
+      position-anchor: --tl-curve-anchor;
+      position-try-fallbacks: flip-block;
+      margin: 4px 0 0 0;
+      padding: 0;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      background: var(--bg-color);
+      overflow: visible;
+      z-index: 100;
+    }
+
+    #tlCurveEditor::backdrop {
+      background: transparent;
+    }
+    .tl-curve-editor-inner {
+      width: 200px;
+      height: 200px;
+      position: relative;
+    }
+
     .tl-interp-select {
       display: none;
       margin-left: 8px;
@@ -3366,8 +3390,8 @@
     /* --- Ruler --- */
     .tl-ruler-row {
       display: flex;
-      height: 20px;
-      min-height: 20px;
+      height: 24px;
+      min-height: 24px;
       border-bottom: 1px solid var(--border-light);
     }
 
@@ -3578,6 +3602,43 @@
       height: var(--row-height);
       position: relative;
       border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+    }
+
+    /* --- Keyframe Marker Lines --- */
+    .tl-kf-line {
+      position: absolute;
+      top: 50%;
+      height: 10px;
+      margin-top: -5px;
+      z-index: 0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+    }
+    .tl-kf-line::after {
+      content: '';
+      display: block;
+      width: 100%;
+      height: 1px;
+      opacity: 0.4;
+      transition: all 0.15s ease;
+    }
+    .tl-kf-line.solid::after {
+      background-color: #999;
+    }
+    .tl-kf-line.dotted::after {
+      background-image: linear-gradient(to right, #999 50%, transparent 50%);
+      background-size: 8px 1px;
+      background-repeat: repeat-x;
+    }
+    .tl-kf-line:hover::after {
+      opacity: 1;
+    }
+    .tl-kf-line.solid:hover::after {
+      background-color: var(--accent-color);
+    }
+    .tl-kf-line.dotted:hover::after {
+      background-image: linear-gradient(to right, var(--accent-color) 50%, transparent 50%);
     }
 
     /* --- Keyframe Marker (SVG-based icons) --- */
@@ -6740,6 +6801,28 @@
       <button data-interp="easeOut"><svg viewBox="0 0 10 10"><path d="M5,0l-5,5,5,5c2.76,0,5-2.24,5-5S7.76,0,5,0Z"/></svg>Ease Out</button>
       <button data-interp="easeInOut"><svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"/></svg>Ease In Out</button>
       <button data-interp="step"><svg viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8"/></svg>Constant</button>
+    </div>
+
+    <!-- Curve Editor Popover -->
+    <div id="tlCurveEditor" popover>
+      <div class="tl-curve-editor-inner">
+        <svg id="tlCurveSvg" width="200" height="200" style="display:block; overflow:visible;">
+          <!-- Background grid -->
+          <rect x="50" y="50" width="100" height="100" fill="none" stroke="var(--border-color)" stroke-width="1" />
+          <line x1="50" y1="150" x2="150" y2="50" stroke="var(--border-color)" stroke-width="1" stroke-dasharray="2,2" opacity="0.5" />
+          
+          <!-- Handles -->
+          <line id="tlCurveLine1" x1="50" y1="150" x2="92" y2="150" stroke="#999" stroke-width="1.5" />
+          <line id="tlCurveLine2" x1="150" y1="50" x2="108" y2="50" stroke="#999" stroke-width="1.5" />
+          
+          <!-- Path -->
+          <path id="tlCurvePath" d="M50,150 C92,150 108,50 150,50" fill="none" stroke="var(--accent-color)" stroke-width="2" />
+          
+          <!-- Handle controls -->
+          <circle id="tlCurveHandle1" cx="92" cy="150" r="6" fill="#fff" stroke="var(--accent-color)" stroke-width="2" style="cursor:pointer;" />
+          <circle id="tlCurveHandle2" cx="108" cy="50" r="6" fill="#fff" stroke="var(--accent-color)" stroke-width="2" style="cursor:pointer;" />
+        </svg>
+      </div>
     </div>
   </div>
 
@@ -18534,10 +18617,17 @@
 
       const effective = {};
       // Iterate styles from Child to Root
-      styles.forEach(s => {
-        // We only merge keys that are actually defined/non-null in parent?
-        // Or just simple overwrite. "Overrided by parent" implies overwrite.
-        Object.assign(effective, s);
+      styles.forEach((s, i) => {
+        if (i === 0) {
+          Object.assign(effective, s);
+        } else {
+          // Parent styles override child styles only if they are actively applied
+          for (const key in s) {
+            if (s[key] && s[key] !== 'none') {
+              effective[key] = s[key];
+            }
+          }
+        }
       });
       return effective;
     };
@@ -19437,6 +19527,23 @@
           this.frontFace.style.display = 'none';
           this.backFace.style.display = 'none';
 
+          // Clear stale z-sort style stamps on persistent face elements.
+          // These elements persist across frames; leftover explicit attributes
+          // from a previous z-sort stamp would block both inheritance (local mode)
+          // and re-stamping (external mode) when the effective style changes.
+          for (const _pf of [this.frontFace, this.backFace]) {
+            _pf.removeAttribute('stroke');
+            _pf.removeAttribute('stroke-width');
+            _pf.removeAttribute('stroke-opacity');
+            _pf.removeAttribute('stroke-linejoin');
+            _pf.removeAttribute('stroke-linecap');
+            _pf.removeAttribute('stroke-dasharray');
+            _pf.removeAttribute('fill-opacity');
+            _pf.removeAttribute('fill-rule');
+            // Note: 'fill' is managed explicitly per-frame (set/removed based on
+            // open subpath status), so we do NOT clear it here.
+          }
+
           // --- Spline Flow Rendering ---
           if (splineFlowActive) {
             const targetPath = findObjectById(activeMapping.targetId);
@@ -19556,15 +19663,16 @@
                     fragGroup.appendChild(pathEl);
                   }
 
+                  const _effSF1 = getEffectiveStyle(this);
                   if (this.style.stroke && this.style.stroke !== 'none') {
-                    const strokeWidth = getEffectiveStrokeWidth(this.style['stroke-width'] || (2 / FRAME_SIZE).toString());
+                    const strokeWidth = getEffectiveStrokeWidth(_effSF1['stroke-width'] || (2 / FRAME_SIZE).toString());
                     if (frag.strokes && frag.strokes.length > 0) {
                       frag.strokes.forEach(sD => {
                         if (!sD) return; // skip null sentinels
                         const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                         pathEl.setAttribute('fill', 'none');
                         pathEl.setAttribute('d', sD);
-                        pathEl.setAttribute('stroke', this.style.stroke);
+                        pathEl.setAttribute('stroke', _effSF1.stroke);
                         pathEl.setAttribute('stroke-width', strokeWidth);
                         pathEl.setAttribute('stroke-linecap', 'round');
                         pathEl.setAttribute('stroke-linejoin', 'round');
@@ -19574,7 +19682,7 @@
                       const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                       pathEl.setAttribute('fill', 'none');
                       pathEl.setAttribute('d', dOpen);
-                      pathEl.setAttribute('stroke', this.style.stroke);
+                      pathEl.setAttribute('stroke', _effSF1.stroke);
                       pathEl.setAttribute('stroke-width', strokeWidth);
                       pathEl.setAttribute('stroke-linecap', 'round');
                       pathEl.setAttribute('stroke-linejoin', 'round');
@@ -19697,15 +19805,16 @@
                     // evenodd for hole-based compounds (correct winding for holes like letter 'a').
                     fillEl.setAttribute('fill-rule', frag.useNonzero ? 'nonzero' : 'evenodd');
                     fillEl.setAttribute('stroke', 'none');
-                    if (this.style['fill-opacity'] !== undefined) {
-                      fillEl.setAttribute('fill-opacity', this.style['fill-opacity']);
+                    if (_effSF2['fill-opacity'] !== undefined) {
+                      fillEl.setAttribute('fill-opacity', _effSF2['fill-opacity']);
                     }
                     fragGroup.appendChild(fillEl);
                   }
 
                   // Draw strokes (open paths for correct silhouette-edge visibility)
+                  const _effSF2 = getEffectiveStyle(this);
                   if (this.style.stroke && this.style.stroke !== 'none' && frag.strokes) {
-                    const strokeWidth = getEffectiveStrokeWidth(this.style['stroke-width'] || (2 / FRAME_SIZE).toString());
+                    const strokeWidth = getEffectiveStrokeWidth(_effSF2['stroke-width'] || (2 / FRAME_SIZE).toString());
                     // Merge consecutive stroke fragments into continuous paths to
                     // eliminate gaps at silhouette split boundaries.
                     // Strokes that share endpoints (or are within a small threshold) are
@@ -19755,12 +19864,12 @@
                       const strokeEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                       strokeEl.setAttribute('fill', 'none');
                       strokeEl.setAttribute('d', sD);
-                      strokeEl.setAttribute('stroke', rgbToHex(this.style.stroke));
+                      strokeEl.setAttribute('stroke', rgbToHex(_effSF2.stroke));
                       strokeEl.setAttribute('stroke-width', strokeWidth);
                       strokeEl.setAttribute('stroke-linecap', 'round');
                       strokeEl.setAttribute('stroke-linejoin', 'round');
-                      if (this.style['stroke-opacity'] !== undefined) {
-                        strokeEl.setAttribute('stroke-opacity', this.style['stroke-opacity']);
+                      if (_effSF2['stroke-opacity'] !== undefined) {
+                        strokeEl.setAttribute('stroke-opacity', _effSF2['stroke-opacity']);
                       }
                       fragGroup.appendChild(strokeEl);
                     });
@@ -19969,7 +20078,6 @@
             for (let _fi = _faceListStartIdx; _fi < faceList.length; _fi++) {
               const _el = faceList[_fi].element;
               if (!_el) continue;
-              // Only stamp attributes the element doesn't already have explicitly
               if (!_el.hasAttribute('fill') && _zsEffective.fill) {
                 setSvgColor(_el, 'fill', _zsEffective.fill);
               }
@@ -20834,6 +20942,7 @@
 
         // Strip alpha from rgba() colors to ensure opaque 3D face rendering.
         // Preserve fill='none' for wireframe rendering when fill is disabled.
+        const _effRevolve = getEffectiveStyle(this);
         const resolvedFill = (this.style.fill && this.style.fill !== 'none') ? rgbToHex(this.style.fill) : this.style.fill;
         const resolvedStroke = (this.style.stroke && this.style.stroke !== 'none') ? rgbToHex(this.style.stroke) : this.style.stroke;
 
@@ -21342,11 +21451,11 @@
               sidePath.setAttribute('d', f.d);
               const ribbonColor = (this.revolveSettings.useRibbonColor && this.revolveSettings.ribbonColor) ? this.revolveSettings.ribbonColor : null;
               sidePath.setAttribute('fill', ribbonColor || resolvedFill);
-              sidePath.setAttribute('fill-opacity', this.style['fill-opacity']);
+              sidePath.setAttribute('fill-opacity', _effRevolve['fill-opacity']);
               sidePath.setAttribute('stroke', resolvedStroke);
-              sidePath.setAttribute('stroke-width', getEffectiveStrokeWidth(this.style['stroke-width']));
-              if (this.style['stroke-opacity'] !== undefined) {
-                sidePath.setAttribute('stroke-opacity', this.style['stroke-opacity']);
+              sidePath.setAttribute('stroke-width', getEffectiveStrokeWidth(_effRevolve['stroke-width']));
+              if (_effRevolve['stroke-opacity'] !== undefined) {
+                sidePath.setAttribute('stroke-opacity', _effRevolve['stroke-opacity']);
               }
               faceList.push({ element: sidePath, z: f.z });
             }
@@ -21465,12 +21574,12 @@
               const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
               p.setAttribute('d', d);
               p.setAttribute('fill', resolvedFill);
-              p.setAttribute('fill-opacity', this.style['fill-opacity']);
-              if (this.style.stroke && this.style.stroke !== 'none') {
+              p.setAttribute('fill-opacity', _effRevolve['fill-opacity']);
+              if (_effRevolve.stroke && _effRevolve.stroke !== 'none') {
                 p.setAttribute('stroke', resolvedStroke);
-                p.setAttribute('stroke-width', getEffectiveStrokeWidth(this.style['stroke-width']));
-                if (this.style['stroke-opacity'] !== undefined) {
-                  p.setAttribute('stroke-opacity', this.style['stroke-opacity']);
+                p.setAttribute('stroke-width', getEffectiveStrokeWidth(_effRevolve['stroke-width']));
+                if (_effRevolve['stroke-opacity'] !== undefined) {
+                  p.setAttribute('stroke-opacity', _effRevolve['stroke-opacity']);
                 }
               }
               faceList.push({ element: p, z: z });
@@ -22094,11 +22203,11 @@
           const sidePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           sidePath.setAttribute('d', d);
           sidePath.setAttribute('fill', resolvedFill);
-          sidePath.setAttribute('fill-opacity', this.style['fill-opacity']);
+          sidePath.setAttribute('fill-opacity', _effRevolve['fill-opacity']);
           sidePath.setAttribute('stroke', resolvedStroke);
-          sidePath.setAttribute('stroke-width', getEffectiveStrokeWidth(this.style['stroke-width']));
-          if (this.style['stroke-opacity'] !== undefined) {
-            sidePath.setAttribute('stroke-opacity', this.style['stroke-opacity']);
+          sidePath.setAttribute('stroke-width', getEffectiveStrokeWidth(_effRevolve['stroke-width']));
+          if (_effRevolve['stroke-opacity'] !== undefined) {
+            sidePath.setAttribute('stroke-opacity', _effRevolve['stroke-opacity']);
           }
 
           if (hasStarted) faces.push({ element: sidePath, z: zAvg });
@@ -22344,12 +22453,13 @@
         // Determine fill/stroke colors (shared)
         // Strip alpha from rgba() colors to ensure opaque 3D face rendering.
         // Preserve fill='none' for wireframe rendering when fill is disabled.
+        const _effSurface = getEffectiveStyle(this);
         const resolvedFill = (this.style.fill && this.style.fill !== 'none') ? rgbToHex(this.style.fill) : this.style.fill;
         const fillColor = (ss.useSurfaceColor && ss.surfaceColor) ? ss.surfaceColor : resolvedFill;
         // Cap fill uses the path's own fill
         const capFillColor = resolvedFill;
         const strokeColor = (this.style.stroke && this.style.stroke !== 'none') ? rgbToHex(this.style.stroke) : null;
-        const strokeWidth = getEffectiveStrokeWidth(this.style['stroke-width'] || (2 / FRAME_SIZE).toString());
+        const strokeWidth = getEffectiveStrokeWidth(_effSurface['stroke-width'] || (2 / FRAME_SIZE).toString());
 
         const mvp = vpMatrix;
         const toScreen = (pt3d) => {
@@ -23120,12 +23230,12 @@
                 const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 pathEl.setAttribute('d', d);
                 pathEl.setAttribute('fill', fillColor);
-                pathEl.setAttribute('fill-opacity', this.style['fill-opacity']);
+                pathEl.setAttribute('fill-opacity', _effSurface['fill-opacity']);
                 if (strokeColor) {
                   pathEl.setAttribute('stroke', strokeColor);
                   pathEl.setAttribute('stroke-width', strokeWidth);
-                  if (this.style['stroke-opacity'] !== undefined) {
-                    pathEl.setAttribute('stroke-opacity', this.style['stroke-opacity']);
+                  if (_effSurface['stroke-opacity'] !== undefined) {
+                    pathEl.setAttribute('stroke-opacity', _effSurface['stroke-opacity']);
                   }
                 }
                 faceList.push({ element: pathEl, z: avgZ });
@@ -23790,13 +23900,13 @@
               capEl.setAttribute('fill', allSubpathsClosed ? capFillColor : 'none');
               capEl.setAttribute('fill-rule', 'evenodd');
               if (allSubpathsClosed) {
-                capEl.setAttribute('fill-opacity', this.style['fill-opacity']);
+                capEl.setAttribute('fill-opacity', _effSurface['fill-opacity']);
               }
               if (strokeColor) {
                 capEl.setAttribute('stroke', strokeColor);
                 capEl.setAttribute('stroke-width', strokeWidth);
-                if (this.style['stroke-opacity'] !== undefined) {
-                  capEl.setAttribute('stroke-opacity', this.style['stroke-opacity']);
+                if (_effSurface['stroke-opacity'] !== undefined) {
+                  capEl.setAttribute('stroke-opacity', _effSurface['stroke-opacity']);
                 }
               }
               faceList.push({ element: capEl, z: ptCount > 0 ? zSum / ptCount : 0 });
@@ -24091,10 +24201,11 @@
         };
 
         // Colors
+        const _effLoft = getEffectiveStyle(this);
         const resolvedFill = (this.style.fill && this.style.fill !== 'none') ? rgbToHex(this.style.fill) : this.style.fill;
         const fillColor = (ls.useSurfaceColor && ls.surfaceColor) ? ls.surfaceColor : resolvedFill;
         const strokeColor = (this.style.stroke && this.style.stroke !== 'none') ? rgbToHex(this.style.stroke) : null;
-        const strokeWidth = getEffectiveStrokeWidth(this.style['stroke-width'] || (2 / FRAME_SIZE).toString());
+        const strokeWidth = getEffectiveStrokeWidth(_effLoft['stroke-width'] || (2 / FRAME_SIZE).toString());
         const renderMode = ls.renderMode || 'mesh';
 
         // ========== LAYER RENDER MODE ==========
@@ -24138,12 +24249,12 @@
             layerPath.setAttribute('d', dStr);
             layerPath.setAttribute('fill-rule', 'evenodd');
             layerPath.setAttribute('fill', (allClosed && fillColor && fillColor !== 'none') ? fillColor : 'none');
-            layerPath.setAttribute('fill-opacity', this.style['fill-opacity'] || '1');
+            layerPath.setAttribute('fill-opacity', _effLoft['fill-opacity'] || '1');
             if (strokeColor) {
               layerPath.setAttribute('stroke', strokeColor);
               layerPath.setAttribute('stroke-width', strokeWidth);
-              if (this.style['stroke-opacity'] !== undefined) {
-                layerPath.setAttribute('stroke-opacity', this.style['stroke-opacity']);
+              if (_effLoft['stroke-opacity'] !== undefined) {
+                layerPath.setAttribute('stroke-opacity', _effLoft['stroke-opacity']);
               }
             } else {
               layerPath.setAttribute('stroke', 'none');
@@ -24372,12 +24483,12 @@
                 const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
                 poly.setAttribute('points', `${s0.x},${s0.y} ${s1.x},${s1.y} ${s2.x},${s2.y} ${s3.x},${s3.y}`);
                 poly.setAttribute('fill', fillColor || 'none');
-                poly.setAttribute('fill-opacity', this.style['fill-opacity'] || '1');
+                poly.setAttribute('fill-opacity', _effLoft['fill-opacity'] || '1');
                 if (strokeColor) {
                   poly.setAttribute('stroke', strokeColor);
                   poly.setAttribute('stroke-width', strokeWidth);
-                  if (this.style['stroke-opacity'] !== undefined) {
-                    poly.setAttribute('stroke-opacity', this.style['stroke-opacity']);
+                  if (_effLoft['stroke-opacity'] !== undefined) {
+                    poly.setAttribute('stroke-opacity', _effLoft['stroke-opacity']);
                   }
                 } else {
                   poly.setAttribute('stroke', 'none');
@@ -24391,12 +24502,12 @@
               const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
               pathEl.setAttribute('d', d);
               pathEl.setAttribute('fill', fillColor || 'none');
-              pathEl.setAttribute('fill-opacity', this.style['fill-opacity'] || '1');
+              pathEl.setAttribute('fill-opacity', _effLoft['fill-opacity'] || '1');
               if (strokeColor) {
                 pathEl.setAttribute('stroke', strokeColor);
                 pathEl.setAttribute('stroke-width', strokeWidth);
-                if (this.style['stroke-opacity'] !== undefined) {
-                  pathEl.setAttribute('stroke-opacity', this.style['stroke-opacity']);
+                if (_effLoft['stroke-opacity'] !== undefined) {
+                  pathEl.setAttribute('stroke-opacity', _effLoft['stroke-opacity']);
                 }
               } else {
                 pathEl.setAttribute('stroke', 'none');
@@ -24428,7 +24539,7 @@
           capEl.setAttribute('d', dStr);
           capEl.setAttribute('fill-rule', 'evenodd');
           capEl.setAttribute('fill', resolvedFill || 'none');
-          capEl.setAttribute('fill-opacity', this.style['fill-opacity'] || '1');
+          capEl.setAttribute('fill-opacity', _effLoft['fill-opacity'] || '1');
           if (strokeColor) {
             capEl.setAttribute('stroke', strokeColor);
             capEl.setAttribute('stroke-width', strokeWidth);
@@ -24477,6 +24588,7 @@
 
       drawSideRibbons(mvpFront, mvpBack, faceList) {
         if (!this.extrudeSettings.enabled) return;
+        const _effSide = getEffectiveStyle(this);
 
         const segments = this.getSegments();
         // Matrices are now passed IN, decoupling from Z-axis assumptions
@@ -24490,7 +24602,7 @@
           p.setAttribute('fill-rule', 'nonzero');
           if (sideColor) {
             p.setAttribute('fill', sideColor);
-            const opacity = this.style['fill-opacity'] !== undefined ? this.style['fill-opacity'] : 1;
+            const opacity = _effSide['fill-opacity'] !== undefined ? _effSide['fill-opacity'] : 1;
             p.setAttribute('fill-opacity', opacity);
             // Ensure opacity is maintained if we override the fill
             // Also need to handle stroke if we want sides to have stroke? 
@@ -28511,8 +28623,11 @@
 
           // Clean up
           clearDragClasses(li);
+          const droppedObj = draggedTreeObj;
           draggedTreeObj = null;
 
+          updateVisualsRecursive(droppedObj); // Immediately refresh effective style after reparenting
+          
           updateTreeView();
           updatePropertiesPanel();
           requestRender();
@@ -31862,16 +31977,18 @@
         // Actually if we just toggle "Enabled", we might want to restore saved or just apply current.
         // The logic above applies current 'color' if enabled.
 
-        if ((forceAll || targetId === 'strokeWidthInput') && hasStroke) s['stroke-width'] = sw;
-        if ((forceAll || targetId === 'strokeLineJoinInput') && hasStroke) s['stroke-linejoin'] = lineJoin;
-        if ((forceAll || targetId === 'strokeLineCapInput') && hasStroke) s['stroke-linecap'] = lineCap;
-        if ((forceAll || targetId === 'strokeDashArrayInput') && hasStroke) {
+        const forceStrokeProps = forceAll || targetId === 'strokeEnabledInput' || targetId === 'strokeColorInput' || targetId === 'strokeColorHexInput';
+        if ((forceStrokeProps || targetId === 'strokeWidthInput') && hasStroke) s['stroke-width'] = sw;
+        if ((forceStrokeProps || targetId === 'strokeLineJoinInput') && hasStroke) s['stroke-linejoin'] = lineJoin;
+        if ((forceStrokeProps || targetId === 'strokeLineCapInput') && hasStroke) s['stroke-linecap'] = lineCap;
+        if ((forceStrokeProps || targetId === 'strokeDashArrayInput') && hasStroke) {
           if (dashArray.trim() !== '') s['stroke-dasharray'] = dashArray;
           else delete s['stroke-dasharray'];
         }
-        if ((forceAll || targetId === 'strokeOpacityInput') && hasStroke) s['stroke-opacity'] = opacity;
+        if ((forceStrokeProps || targetId === 'strokeOpacityInput') && hasStroke) s['stroke-opacity'] = opacity;
 
-        if (forceAll || targetId === 'fillEnabledInput' || targetId === 'fillColorInput' || targetId === 'fillColorHexInput') {
+        const forceFillProps = forceAll || targetId === 'fillEnabledInput' || targetId === 'fillColorInput' || targetId === 'fillColorHexInput';
+        if (forceFillProps) {
           if (hasFill) {
             s.fill = fillColor;
           } else {
@@ -31880,8 +31997,8 @@
           }
         }
 
-        if ((forceAll || targetId === 'fillOpacityInput') && hasFill) s['fill-opacity'] = fillOpacity;
-        if ((forceAll || targetId === 'fillRuleInput') && hasFill) s['fill-rule'] = fillRule;
+        if ((forceFillProps || targetId === 'fillOpacityInput') && hasFill) s['fill-opacity'] = fillOpacity;
+        if ((forceFillProps || targetId === 'fillRuleInput') && hasFill) s['fill-rule'] = fillRule;
 
         if (forceAll || targetId === 'blendModeInput') {
           if (blendMode && blendMode !== 'normal') {
@@ -38046,6 +38163,7 @@
     const onWheel = (event) => {
       event.preventDefault();
       if (activeCamera.lock) return; // Prevent Zoom/FOV changes if locked
+      if (animationTimeline.isPlaying) return; // Don't fight animated camera during playback
       pushCameraUndoStateCoalesced(); // Coalesced camera undo for scroll zoom
       if (projectionType === 'perspective' && event.shiftKey) {
         activeCamera.adjustFov(event.deltaY);
@@ -40864,10 +40982,81 @@
       tlRenderTracks();
       tlUpdateTrackInputs();
       // Sync interp dropdown if the changed keyframe is currently selected
-      if (tlSelectedKf && tlSelectedKf.kf === kf) {
+      if (_tlLastClickedKf && _tlLastClickedKf.kf === kf) {
         tlInterpSelect.value = newInterp;
       }
     });
+
+    // --- Curve Editor (popover) ---
+    const tlCurveEditor = document.getElementById('tlCurveEditor');
+    const tlCurvePath = document.getElementById('tlCurvePath');
+    const tlCurveHandle1 = document.getElementById('tlCurveHandle1');
+    const tlCurveHandle2 = document.getElementById('tlCurveHandle2');
+    const tlCurveLine1 = document.getElementById('tlCurveLine1');
+    const tlCurveLine2 = document.getElementById('tlCurveLine2');
+    let _activeCurveKf = null;
+
+    const _updateCurveSvg = (x1, y1, x2, y2) => {
+      // Map normalized [0,1] to SVG space [50..150]
+      const px1 = 50 + x1 * 100, py1 = 150 - y1 * 100;
+      const px2 = 50 + x2 * 100, py2 = 150 - y2 * 100;
+      tlCurvePath.setAttribute('d', `M50,150 C${px1},${py1} ${px2},${py2} 150,50`);
+      tlCurveHandle1.setAttribute('cx', px1); tlCurveHandle1.setAttribute('cy', py1);
+      tlCurveHandle2.setAttribute('cx', px2); tlCurveHandle2.setAttribute('cy', py2);
+      tlCurveLine1.setAttribute('x2', px1); tlCurveLine1.setAttribute('y2', py1);
+      tlCurveLine2.setAttribute('x2', px2); tlCurveLine2.setAttribute('y2', py2);
+    };
+
+    const _openCurveEditor = (lineEl, kf) => {
+      _activeCurveKf = kf;
+      // Default to bezier equivalent of preset if missing
+      if (!kf.cubicBezier) {
+        if (kf.interp === 'easeIn') kf.cubicBezier = [0.42, 0, 1, 1];
+        else if (kf.interp === 'easeOut') kf.cubicBezier = [0, 0, 0.58, 1];
+        else if (kf.interp === 'easeInOut') kf.cubicBezier = [0.42, 0, 0.58, 1];
+        else if (kf.interp === 'step') kf.cubicBezier = [1, 0, 1, 0]; // Visual only for step
+        else kf.cubicBezier = [0, 0, 1, 1]; // Linear
+      }
+      _updateCurveSvg(...kf.cubicBezier);
+      lineEl.style.anchorName = '--tl-curve-anchor';
+      tlCurveEditor.style.positionArea = 'top';
+      tlCurveEditor.showPopover();
+    };
+
+    let _dragHandle = null;
+    const _onCurveDragMove = (e) => {
+      if (!_dragHandle || !_activeCurveKf) return;
+      const svgRect = document.getElementById('tlCurveSvg').getBoundingClientRect();
+      const x = e.clientX - svgRect.left;
+      const y = e.clientY - svgRect.top;
+      // Convert to normalized coordinates
+      let nx = (x - 50) / 100;
+      let ny = (150 - y) / 100;
+      nx = Math.max(0, Math.min(1, nx)); // Clamp X to [0,1]
+      // Y is allowed to overshoot
+      
+      const bz = _activeCurveKf.cubicBezier;
+      if (_dragHandle === 1) { bz[0] = nx; bz[1] = ny; }
+      else { bz[2] = nx; bz[3] = ny; }
+      
+      _updateCurveSvg(...bz);
+      tlApplyFrame(tlCurrentFrame, true); // live preview
+      updateVisualsRecursive();
+    };
+
+    tlCurveHandle1.addEventListener('pointerdown', (e) => { e.preventDefault(); pushAnimUndoState('edit curve'); _dragHandle = 1; tlCurveHandle1.setPointerCapture(e.pointerId); });
+    tlCurveHandle2.addEventListener('pointerdown', (e) => { e.preventDefault(); pushAnimUndoState('edit curve'); _dragHandle = 2; tlCurveHandle2.setPointerCapture(e.pointerId); });
+    document.getElementById('tlCurveSvg').addEventListener('pointermove', _onCurveDragMove);
+    const _onCurveDragEnd = (e) => {
+      if (_dragHandle) {
+        if (_dragHandle === 1) tlCurveHandle1.releasePointerCapture(e.pointerId);
+        else tlCurveHandle2.releasePointerCapture(e.pointerId);
+        _dragHandle = null;
+        tlUpdateTrackInputs();
+      }
+    };
+    tlCurveHandle1.addEventListener('pointerup', _onCurveDragEnd);
+    tlCurveHandle2.addEventListener('pointerup', _onCurveDragEnd);
 
     // --- Original value storage for revert on keyframe removal ---
     const _tlOriginalValues = new Map(); // key: "objectName::prop", value: original value
@@ -41072,6 +41261,18 @@
     const _easeOut   = (t) => t * (2 - t);
     const _easeInOut = (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
 
+    const _solveCubicBezier = (x, x1, y1, x2, y2) => {
+      if (x === 0 || x === 1) return x;
+      let lower = 0, upper = 1, t = x;
+      for (let i = 0; i < 15; i++) {
+        const estX = 3 * (1 - t) ** 2 * t * x1 + 3 * (1 - t) * t ** 2 * x2 + t ** 3;
+        if (Math.abs(estX - x) < 0.001) break;
+        if (estX < x) lower = t; else upper = t;
+        t = (upper + lower) / 2;
+      }
+      return 3 * (1 - t) ** 2 * t * y1 + 3 * (1 - t) * t ** 2 * y2 + t ** 3;
+    };
+
     const tlLerp = (a, b, t) => {
       if (typeof a === 'number' && typeof b === 'number') {
         return a + (b - a) * t;
@@ -41106,16 +41307,18 @@
           // Step/Constant — hold value (check both sides)
           if (k0.interp === 'step' || k1.interp === 'step') return k0.value;
           const t = (frame - k0.frame) / (k1.frame - k0.frame);
-          // Determine easing for this segment from each keyframe's type:
-          //  - "Ease Out" on k0 = slow departure from k0 → slow start of segment
-          //  - "Ease In"  on k1 = slow arrival at k1  → slow end of segment
-          //  - "Ease In Out" on either side contributes both
-          const slowStart = k0.interp === 'easeOut' || k0.interp === 'easeInOut';
-          const slowEnd   = k1.interp === 'easeIn'  || k1.interp === 'easeInOut';
+          // Determine easing for this segment
           let et = t;
-          if (slowStart && slowEnd) et = _easeInOut(t);
-          else if (slowStart)       et = _easeIn(t);   // t² — slow start
-          else if (slowEnd)         et = _easeOut(t);   // t(2-t) — slow end
+          if (k0.cubicBezier) {
+            et = _solveCubicBezier(t, k0.cubicBezier[0], k0.cubicBezier[1], k0.cubicBezier[2], k0.cubicBezier[3]);
+          } else {
+            // Legacy fallback using individual keyframe strings
+            const slowStart = k0.interp === 'easeOut' || k0.interp === 'easeInOut';
+            const slowEnd   = k1.interp === 'easeIn'  || k1.interp === 'easeInOut';
+            if (slowStart && slowEnd) et = _easeInOut(t);
+            else if (slowStart)       et = _easeIn(t);   // t² — slow start
+            else if (slowEnd)         et = _easeOut(t);   // t(2-t) — slow end
+          }
           return tlLerp(k0.value, k1.value, et);
         }
       }
@@ -41370,8 +41573,9 @@
       tlPauseIcon.style.display = '';
       tlPlayPause.classList.add('active');
       // Clear keyframe selection during playback
-      if (tlSelectedKf) {
-        tlSelectedKf = null;
+      if (tlSelectedKfs.size > 0) {
+        tlSelectedKfs.clear();
+        _tlLastClickedKf = null;
         document.querySelectorAll('.tl-keyframe.selected').forEach(el => el.classList.remove('selected'));
       }
 
@@ -41421,8 +41625,9 @@
       frame = Math.max(0, Math.min(animationTimeline.totalFrames - 1, Math.round(frame)));
       animationTimeline.currentFrame = frame;
       // Clear keyframe selection when playhead moves
-      if (tlSelectedKf) {
-        tlSelectedKf = null;
+      if (tlSelectedKfs.size > 0) {
+        tlSelectedKfs.clear();
+        _tlLastClickedKf = null;
         document.querySelectorAll('.tl-keyframe.selected').forEach(el => el.classList.remove('selected'));
       }
       // Only apply values if there are any tracks
@@ -41622,35 +41827,80 @@
     let _tlTrackInputs = []; // { objectName, prop, inputs: [HTMLInputElement], type: 'scalar', keyBtn: HTMLButtonElement }
     let _tlFocusedTrack = null; // { objectName, prop } — tracks last-focused timeline input for context-aware trash
 
-    // --- Keyframe Selection Model ---
-    // Tracks which keyframe is currently selected (null = none).
-    // When selected, inputs show the exact keyframe value and edits
-    // modify that keyframe (even if playhead is elsewhere).
-    let tlSelectedKf = null; // { objectName, prop, frame, kf }
+    // --- Keyframe Selection Model (Multi-Select) ---
+    // Tracks which keyframes are currently selected.
+    // Set of "objectName:prop:frame" key strings.
+    const tlSelectedKfs = new Set();
+    let _tlLastClickedKf = null; // { objectName, prop, frame, kf } — for interp dropdown / input editing
 
-    const tlSelectKf = (objectName, prop, frame, kf) => {
-      tlSelectedKf = { objectName, prop, frame, kf };
-      // Apply this keyframe's value to the viewport for visual feedback
-      tlApplyFrame(frame);
-      // Update inputs to show the selected keyframe's exact value
+    const _kfKey = (obj, prop, frame) => `${obj}:${prop}:${frame}`;
+
+    // Find a kf reference object by key (searches animationTimeline.tracks)
+    const _tlFindKfByKey = (key) => {
+      const parts = key.split(':');
+      const frame = parseInt(parts.pop());
+      const prop = parts.pop();
+      const objectName = parts.join(':'); // handle object names with colons
+      const objTracks = animationTimeline.tracks.get(objectName);
+      if (!objTracks) return null;
+      const kfs = objTracks.get(prop);
+      if (!kfs) return null;
+      const kf = kfs.find(k => k.frame === frame);
+      return kf ? { objectName, prop, frame, kf } : null;
+    };
+
+    const tlSelectKf = (objectName, prop, frame, kf, shiftKey) => {
+      const key = _kfKey(objectName, prop, frame);
+      if (shiftKey) {
+        // Shift+click: toggle in/out of selection
+        if (tlSelectedKfs.has(key)) {
+          tlSelectedKfs.delete(key);
+          // If we removed the last-clicked, update it
+          if (_tlLastClickedKf && _kfKey(_tlLastClickedKf.objectName, _tlLastClickedKf.prop, _tlLastClickedKf.frame) === key) {
+            _tlLastClickedKf = null;
+            // Pick any remaining selected as last-clicked
+            for (const k of tlSelectedKfs) {
+              _tlLastClickedKf = _tlFindKfByKey(k);
+              break;
+            }
+          }
+        } else {
+          tlSelectedKfs.add(key);
+          _tlLastClickedKf = { objectName, prop, frame, kf };
+        }
+      } else {
+        // Normal click: replace selection
+        tlSelectedKfs.clear();
+        tlSelectedKfs.add(key);
+        _tlLastClickedKf = { objectName, prop, frame, kf };
+      }
+      // Update inputs to show the last-clicked keyframe's value
       tlUpdateTrackInputs();
-      // Highlight the selected diamond in the DOM
+      // Update visual highlights
       document.querySelectorAll('.tl-keyframe.selected').forEach(el => el.classList.remove('selected'));
-      const sel = document.querySelector(`.tl-keyframe[data-obj="${objectName}"][data-prop="${prop}"][data-frame="${frame}"]`);
-      if (sel) sel.classList.add('selected');
-      // Show interp dropdown and sync to this keyframe's type
-      tlInterpSelect.value = kf.interp || 'linear';
-      tlInterpSelect.classList.add('visible');
+      for (const k of tlSelectedKfs) {
+        const ref = _tlFindKfByKey(k);
+        if (ref) {
+          const sel = document.querySelector(`.tl-keyframe[data-obj="${ref.objectName}"][data-prop="${ref.prop}"][data-frame="${ref.frame}"]`);
+          if (sel) sel.classList.add('selected');
+        }
+      }
+      // Show interp dropdown synced to last-clicked keyframe
+      if (_tlLastClickedKf) {
+        tlInterpSelect.value = _tlLastClickedKf.kf.interp || 'linear';
+        tlInterpSelect.classList.add('visible');
+      } else {
+        tlInterpSelect.classList.remove('visible');
+      }
     };
 
     const tlClearKfSelection = () => {
-      if (!tlSelectedKf) return;
-      tlSelectedKf = null;
+      if (tlSelectedKfs.size === 0) return;
+      tlSelectedKfs.clear();
+      _tlLastClickedKf = null;
       document.querySelectorAll('.tl-keyframe.selected').forEach(el => el.classList.remove('selected'));
       // Hide interp dropdown
       tlInterpSelect.classList.remove('visible');
-      // Restore viewport to current frame
-      tlApplyFrame(animationTimeline.currentFrame);
       tlUpdateTrackInputs();
     };
 
@@ -41667,16 +41917,16 @@
 
         // Sync keyframe button state (filled ◆ vs empty ◇)
         if (keyBtn) {
-          const checkFrame = (tlSelectedKf && tlSelectedKf.objectName === objectName && tlSelectedKf.prop === prop)
-            ? tlSelectedKf.frame : frame;
+          const checkFrame = (_tlLastClickedKf && _tlLastClickedKf.objectName === objectName && _tlLastClickedKf.prop === prop)
+            ? _tlLastClickedKf.frame : frame;
           const hasKf = kfs ? kfs.some(k => k.frame === checkFrame) : false;
           keyBtn.classList.toggle('has-keyframe', hasKf);
           keyBtn.title = hasKf ? `Remove keyframe for ${entry.label || prop}` : `Add keyframe for ${entry.label || prop}`;
         }
 
         // If this track's keyframe is selected, show its exact value
-        if (tlSelectedKf && tlSelectedKf.objectName === objectName && tlSelectedKf.prop === prop) {
-          const selVal = tlSelectedKf.kf.value;
+        if (_tlLastClickedKf && _tlLastClickedKf.objectName === objectName && _tlLastClickedKf.prop === prop) {
+          const selVal = _tlLastClickedKf.kf.value;
           if (selVal !== null && selVal !== undefined && inputs[0] && document.activeElement !== inputs[0]) {
             let paramDef;
             if (objectName === '__camera__') paramDef = _camParams.find(p => p.prop === prop);
@@ -42005,18 +42255,23 @@
           }, 150);
         });
         inp.addEventListener('change', () => {
+          if (animationTimeline.isPlaying) return; // Don't create keyframes during playback
           pushAnimUndoStateCoalesced();
           const newVal = parseFloat(inp.value) || 0;
 
           // If this track has a selected keyframe, edit that keyframe
-          if (tlSelectedKf && tlSelectedKf.objectName === objectName && tlSelectedKf.prop === prop) {
-            tlSelectedKf.kf.value = newVal;
-            tlApplyFrame(tlSelectedKf.frame);
+          if (_tlLastClickedKf && _tlLastClickedKf.objectName === objectName && _tlLastClickedKf.prop === prop) {
+            _tlLastClickedKf.kf.value = newVal;
             tlRenderTracks();
             // Re-highlight since render rebuilds DOM
             requestAnimationFrame(() => {
-              const sel = document.querySelector(`.tl-keyframe[data-obj="${objectName}"][data-prop="${prop}"][data-frame="${tlSelectedKf.frame}"]`);
-              if (sel) sel.classList.add('selected');
+              for (const k of tlSelectedKfs) {
+                const ref = _tlFindKfByKey(k);
+                if (ref) {
+                  const sel = document.querySelector(`.tl-keyframe[data-obj="${ref.objectName}"][data-prop="${ref.prop}"][data-frame="${ref.frame}"]`);
+                  if (sel) sel.classList.add('selected');
+                }
+              }
             });
             return;
           }
@@ -42283,6 +42538,38 @@
         const row = document.createElement('div');
         row.className = 'tl-track-row' + (collapsed ? ' tl-collapsed' : '');
         if (keyframes) {
+          // --- Draw connecting lines first (so they are under the diamonds) ---
+          for (let i = 0; i < keyframes.length - 1; i++) {
+            const kf = keyframes[i];
+            const nextKf = keyframes[i + 1];
+            
+            const x1 = (kf.frame / (total - 1)) * areaW;
+            const x2 = (nextKf.frame / (total - 1)) * areaW;
+            
+            const line = document.createElement('div');
+            
+            // Determine if there is motion between these two keyframes
+            // Motion occurs if values differ AND interpolation is not 'constant'
+            let hasMotion = false;
+            if (kf.interp !== 'constant') {
+              if (Array.isArray(kf.value) && Array.isArray(nextKf.value)) {
+                hasMotion = JSON.stringify(kf.value) !== JSON.stringify(nextKf.value);
+              } else {
+                hasMotion = kf.value !== nextKf.value;
+              }
+            }
+            
+            line.className = 'tl-kf-line ' + (hasMotion ? 'solid' : 'dotted');
+            line.style.left = x1 + 'px';
+            line.style.width = (x2 - x1) + 'px';
+            line.addEventListener('pointerdown', (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              _openCurveEditor(line, kf);
+            });
+            row.appendChild(line);
+          }
+
           for (const kf of keyframes) {
             const diamond = document.createElement('div');
             const interpType = kf.interp || 'linear';
@@ -42292,8 +42579,8 @@
             diamond.dataset.obj = objectName;
             diamond.dataset.prop = prop;
             diamond.dataset.frame = kf.frame;
-            // Highlight if this is the selected keyframe
-            if (tlSelectedKf && tlSelectedKf.objectName === objectName && tlSelectedKf.prop === prop && tlSelectedKf.frame === kf.frame) {
+            // Highlight if this keyframe is in the selection set
+            if (tlSelectedKfs.has(_kfKey(objectName, prop, kf.frame))) {
               diamond.classList.add('selected');
             }
             const x = (kf.frame / (total - 1)) * areaW;
@@ -42325,12 +42612,18 @@
                 return;
               }
 
+              const thisKey = _kfKey(objectName, prop, kf.frame);
+              const isAlreadySelected = tlSelectedKfs.has(thisKey);
+              const isMultiSelected = tlSelectedKfs.size > 1;
+
               const startX = e.clientX;
               const startFrame = kf.frame;
               const startLeft = x;
               let isDragging = false;
-              let currentFrame = startFrame;
-              let ghost = null;
+              let currentDelta = 0;
+
+              // Batch drag state for multi-select
+              let batchDragInfos = null; // [{objectName, prop, startFrame, kf, diamond, row, startLeft, ghost}]
 
               diamond.setPointerCapture(e.pointerId);
 
@@ -42342,28 +42635,54 @@
 
                 if (!isDragging) {
                   isDragging = true;
-                  diamond.classList.add('dragging');
 
-                  // Create ghost marker at original position (inherits step class)
-                  ghost = document.createElement('div');
-                  ghost.className = 'tl-keyframe-ghost';
-                  ghost.innerHTML = _tlKeyframeIcons[interpType] || _tlKeyframeIcons.linear;
-                  ghost.style.left = startLeft + 'px';
-                  row.appendChild(ghost);
+                  // If dragging a non-selected keyframe, make it the only selection
+                  if (!isAlreadySelected) {
+                    tlSelectKf(objectName, prop, startFrame, kf, false);
+                  }
+
+                  // Build batch drag info for all selected keyframes
+                  batchDragInfos = [];
+                  for (const k of tlSelectedKfs) {
+                    const ref = _tlFindKfByKey(k);
+                    if (!ref) continue;
+                    const dEl = document.querySelector(`.tl-keyframe[data-obj="${ref.objectName}"][data-prop="${ref.prop}"][data-frame="${ref.frame}"]`);
+                    if (!dEl) continue;
+                    const dRow = dEl.parentElement;
+                    const dLeft = parseFloat(dEl.style.left);
+                    dEl.classList.add('dragging');
+                    // Create ghost at original position
+                    const ghost = document.createElement('div');
+                    ghost.className = 'tl-keyframe-ghost';
+                    ghost.innerHTML = dEl.innerHTML;
+                    ghost.style.left = dLeft + 'px';
+                    dRow.appendChild(ghost);
+                    batchDragInfos.push({
+                      objectName: ref.objectName, prop: ref.prop,
+                      startFrame: ref.frame, kf: ref.kf,
+                      diamond: dEl, row: dRow, startLeft: dLeft, ghost
+                    });
+                  }
                 }
 
-                // Calculate new frame from mouse position
+                // Calculate frame delta from the dragged diamond
                 const areaRect = tlTracksArea.getBoundingClientRect();
                 const relX = me.clientX - areaRect.left;
                 const totalF = animationTimeline.totalFrames;
                 let newFrame = Math.round((relX / areaRect.width) * (totalF - 1));
                 newFrame = Math.max(0, Math.min(totalF - 1, newFrame));
-                currentFrame = newFrame;
+                currentDelta = newFrame - startFrame;
 
-                // Update diamond position in real-time
-                const newLeft = (newFrame / (totalF - 1)) * areaRect.width;
-                diamond.style.left = newLeft + 'px';
-                diamond.title = `${prop} @ frame ${newFrame}${_tlInterpLabel[interpType] || ''}`;
+                // Update all dragged diamonds
+                if (batchDragInfos) {
+                  for (const info of batchDragInfos) {
+                    let destFrame = info.startFrame + currentDelta;
+                    destFrame = Math.max(0, Math.min(totalF - 1, destFrame));
+                    const newLeft = (destFrame / (totalF - 1)) * areaRect.width;
+                    info.diamond.style.left = newLeft + 'px';
+                    info.diamond.title = `${info.prop} @ frame ${destFrame}${_tlInterpLabel[info.kf.interp || 'linear'] || ''}`;
+                  }
+                }
               };
 
               const onUp = (ue) => {
@@ -42372,45 +42691,87 @@
                 diamond.removeEventListener('pointerup', onUp);
                 document.removeEventListener('keydown', onEscape);
 
-                if (ghost) { ghost.remove(); ghost = null; }
-                diamond.classList.remove('dragging');
+                // Clean up ghosts and dragging class
+                if (batchDragInfos) {
+                  for (const info of batchDragInfos) {
+                    if (info.ghost) info.ghost.remove();
+                    info.diamond.classList.remove('dragging');
+                  }
+                }
 
                 if (!isDragging) {
-                  // Click — select this keyframe (don't move playhead)
-                  tlSelectKf(objectName, prop, startFrame, kf);
-                } else if (currentFrame !== startFrame) {
-                  // Drag completed — move keyframe data (preserve interp)
-                  const value = kf.value;
-                  const interp = kf.interp || 'linear';
-                  tlRemoveKeyframe(objectName, prop, startFrame);
-                  tlAddKeyframe(objectName, prop, currentFrame, value, interp);
-                  // Find the newly added kf reference
+                  // Click — select this keyframe (Shift for multi-select)
+                  tlSelectKf(objectName, prop, startFrame, kf, e.shiftKey);
+                } else if (currentDelta !== 0) {
+                  // Drag completed — move all selected keyframes by delta
+                  pushAnimUndoState('Move keyframes');
+                  const totalF = animationTimeline.totalFrames;
+                  // Collect move operations (remove first, then add to avoid conflicts)
+                  const moves = [];
+                  for (const info of batchDragInfos) {
+                    let destFrame = info.startFrame + currentDelta;
+                    destFrame = Math.max(0, Math.min(totalF - 1, destFrame));
+                    moves.push({
+                      objectName: info.objectName, prop: info.prop,
+                      fromFrame: info.startFrame, toFrame: destFrame,
+                      value: info.kf.value, interp: info.kf.interp || 'linear'
+                    });
+                  }
+                  // Remove all source keyframes first
+                  for (const m of moves) {
+                    tlRemoveKeyframe(m.objectName, m.prop, m.fromFrame);
+                  }
+                  // Add at destination (overwrite any existing)
+                  for (const m of moves) {
+                    tlAddKeyframe(m.objectName, m.prop, m.toFrame, m.value, m.interp);
+                  }
+                  // Rebuild selection set with new frame positions
+                  tlSelectedKfs.clear();
+                  _tlLastClickedKf = null;
+                  for (const m of moves) {
+                    tlSelectedKfs.add(_kfKey(m.objectName, m.prop, m.toFrame));
+                  }
+                  // Set last-clicked to the dragged diamond's new position
                   const objTracks = animationTimeline.tracks.get(objectName);
-                  const kfs = objTracks ? objTracks.get(prop) : null;
-                  const movedKf = kfs ? kfs.find(k => k.frame === currentFrame) : null;
-                  tlRenderTracks();
+                  const kfs2 = objTracks ? objTracks.get(prop) : null;
+                  const movedKf = kfs2 ? kfs2.find(k => k.frame === startFrame + currentDelta) : null;
                   if (movedKf) {
-                    tlSelectKf(objectName, prop, currentFrame, movedKf);
+                    _tlLastClickedKf = { objectName, prop, frame: startFrame + currentDelta, kf: movedKf };
+                  }
+                  tlRenderTracks();
+                  tlUpdateTrackInputs();
+                  // Show interp dropdown
+                  if (_tlLastClickedKf) {
+                    tlInterpSelect.value = _tlLastClickedKf.kf.interp || 'linear';
+                    tlInterpSelect.classList.add('visible');
                   }
                 } else {
-                  // Dragged back to original position — select it
-                  tlSelectKf(objectName, prop, startFrame, kf);
+                  // Dragged back to original — treat as click
+                  if (!e.shiftKey && isMultiSelected) {
+                    // Clicking without shift on a multi-selected kf narrows to just this one
+                    tlSelectKf(objectName, prop, startFrame, kf, false);
+                  }
                 }
               };
 
               const onEscape = (ke) => {
                 if (ke.key === 'Escape') {
                   ke.preventDefault();
-                  // Cancel drag — restore original position
+                  // Cancel drag — restore all to original positions
                   diamond.releasePointerCapture(e.pointerId);
                   diamond.removeEventListener('pointermove', onMove);
                   diamond.removeEventListener('pointerup', onUp);
                   document.removeEventListener('keydown', onEscape);
 
-                  if (ghost) { ghost.remove(); ghost = null; }
-                  diamond.classList.remove('dragging');
-                  diamond.style.left = startLeft + 'px';
-                  diamond.title = `${prop} @ frame ${startFrame}${_tlInterpLabel[interpType] || ''}`;
+                  if (batchDragInfos) {
+                    for (const info of batchDragInfos) {
+                      if (info.ghost) info.ghost.remove();
+                      info.diamond.classList.remove('dragging');
+                      info.diamond.style.left = info.startLeft + 'px';
+                      info.diamond.title = `${info.prop} @ frame ${info.startFrame}${_tlInterpLabel[info.kf.interp || 'linear'] || ''}`;
+                    }
+                    batchDragInfos = null;
+                  }
                 }
               };
 
@@ -42496,7 +42857,7 @@
       // Helper: create a sub-group header (smaller, indented, collapsible)
       const addSubGroupHeader = (objectName, subGroupName, displayLabel) => {
         const key = objectName + ':' + subGroupName;
-        const collapsed = _tlSubGroupCollapsed.has(key) ? _tlSubGroupCollapsed.get(key) : true;
+        const collapsed = _tlShowKeyframedOnly ? false : (_tlSubGroupCollapsed.has(key) ? _tlSubGroupCollapsed.get(key) : true);
         const parentCollapsed = _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : (objectName === '__camera__');
 
         const header = document.createElement('div');
@@ -42706,6 +43067,7 @@
     };
 
     tlRuler.addEventListener('mousedown', (e) => {
+      tlStopPlayback(); // Stop playback when user scrubs the ruler
       tlScrubbing = true;
       tlScrubFromEvent(e);
     });
@@ -42742,12 +43104,16 @@
     tlClearAnimation.addEventListener('click', (e) => {
       e.stopPropagation();
 
-      // Priority 1: Delete selected keyframe (blue diamond)
-      if (tlSelectedKf) {
-        pushAnimUndoState('Delete keyframe');
-        const { objectName, prop, frame } = tlSelectedKf;
-        tlRemoveKeyframe(objectName, prop, frame);
-        tlSelectedKf = null;
+      // Priority 1: Delete selected keyframe(s) (blue diamonds)
+      if (tlSelectedKfs.size > 0) {
+        pushAnimUndoState('Delete keyframe(s)');
+        for (const k of tlSelectedKfs) {
+          const ref = _tlFindKfByKey(k);
+          if (ref) tlRemoveKeyframe(ref.objectName, ref.prop, ref.frame);
+        }
+        tlSelectedKfs.clear();
+        _tlLastClickedKf = null;
+        tlInterpSelect.classList.remove('visible');
         tlRenderTracks();
         tlUpdateTrackInputs();
         tlApplyFrame(animationTimeline.currentFrame);
@@ -42864,17 +43230,19 @@
 
     // Interpolation type dropdown (visible when keyframe selected)
     tlInterpSelect.addEventListener('change', () => {
-      if (!tlSelectedKf) return;
+      if (tlSelectedKfs.size === 0) return;
       const newInterp = tlInterpSelect.value;
-      const { kf, objectName, prop, frame } = tlSelectedKf;
-      if (kf.interp === newInterp) return;
       pushAnimUndoState('change interp');
-      kf.interp = newInterp;
-      // Update the diamond's SVG icon in place
-      const diamondEl = document.querySelector(`.tl-keyframe[data-obj="${objectName}"][data-prop="${prop}"][data-frame="${frame}"]`);
-      if (diamondEl) {
-        diamondEl.innerHTML = _tlKeyframeIcons[newInterp] || _tlKeyframeIcons.linear;
-        diamondEl.title = diamondEl.title.replace(/ \(.*\)$/, '') + (_tlInterpLabel[newInterp] || '');
+      // Apply to all selected keyframes
+      for (const k of tlSelectedKfs) {
+        const ref = _tlFindKfByKey(k);
+        if (!ref) continue;
+        ref.kf.interp = newInterp;
+        const diamondEl = document.querySelector(`.tl-keyframe[data-obj="${ref.objectName}"][data-prop="${ref.prop}"][data-frame="${ref.frame}"]`);
+        if (diamondEl) {
+          diamondEl.innerHTML = _tlKeyframeIcons[newInterp] || _tlKeyframeIcons.linear;
+          diamondEl.title = diamondEl.title.replace(/ \(.*\)$/, '') + (_tlInterpLabel[newInterp] || '');
+        }
       }
       tlRenderTracks();
       tlUpdateTrackInputs();
@@ -42885,16 +43253,20 @@
 
     // --- Delete selected keyframe with Delete/Backspace key ---
     document.addEventListener('keydown', (e) => {
-      if (!tlSelectedKf) return;
+      if (tlSelectedKfs.size === 0) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
         // Don't intercept if focus is in an input/textarea
         const tag = document.activeElement?.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
         e.preventDefault();
-        pushAnimUndoState('Delete keyframe');
-        const { objectName, prop, frame } = tlSelectedKf;
-        tlRemoveKeyframe(objectName, prop, frame);
-        tlSelectedKf = null;
+        pushAnimUndoState('Delete keyframe(s)');
+        for (const k of tlSelectedKfs) {
+          const ref = _tlFindKfByKey(k);
+          if (ref) tlRemoveKeyframe(ref.objectName, ref.prop, ref.frame);
+        }
+        tlSelectedKfs.clear();
+        _tlLastClickedKf = null;
+        tlInterpSelect.classList.remove('visible');
         tlRenderTracks();
         tlUpdateTrackInputs();
         tlApplyFrame(animationTimeline.currentFrame);

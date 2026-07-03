@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260701g -->
+<!-- dim v20260703e -->
 <!--
   MIT License
 
@@ -494,7 +494,7 @@
       box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.10), 0 -1px 4px rgba(0, 0, 0, 0.06);
       display: flex;
       flex-direction: column;
-      max-height: 90vh;
+      max-height: calc(100vh - var(--timeline-height) - 10px);
       pointer-events: auto;
       z-index: 11;
       color: var(--text-main);
@@ -3359,61 +3359,41 @@
       color: var(--text-main);
     }
 
+    .tl-curve-pt-btn {
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: 1px solid var(--border-light);
+      border-radius: 3px;
+      background: var(--bg-input);
+      color: var(--text-main);
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .tl-curve-pt-btn:hover {
+      background: var(--bg-hover);
+    }
+
+    .tl-curve-pt-btn:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+
     .tl-curve-svg-wrap {
       width: 300px;
-      height: 300px;
+      height: 500px;
       position: relative;
     }
 
-    .tl-curve-inputs {
-      display: flex;
-      gap: 0;
-      border-top: 1px solid var(--border-light);
-    }
 
-    .tl-curve-input-group {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-    }
 
-    .tl-curve-input-group + .tl-curve-input-group {
-      border-left: 1px solid var(--border-light);
-    }
-
-    .tl-curve-input-group label {
-      font-size: 9px;
-      font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      padding: 3px 6px 0;
-      line-height: 1;
-    }
-
-    .tl-curve-input-group input {
-      width: 100%;
-      background: var(--bg-input);
-      border: none;
-      border-radius: 0;
-      color: var(--text-main);
-      padding: 2px 6px 3px;
-      box-sizing: border-box;
-      font-size: var(--font-size-field);
-      font-weight: 500;
-      font-variant-numeric: tabular-nums;
-      font-family: var(--font-family-sans);
-      text-align: right;
-      line-height: 1;
-    }
-
-    .tl-curve-input-group input:focus {
-      outline: none;
-      background: rgba(255, 255, 255, 1);
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
-      position: relative;
-      z-index: 1;
-    }
 
     .tl-interp-select {
       display: none;
@@ -3716,9 +3696,22 @@
       opacity: 1;
     }
     .tl-kf-line.solid:hover::after {
-      background-color: var(--accent-color);
+      background-color: color-mix(in srgb, #999, black 12%);
     }
     .tl-kf-line.dotted:hover::after {
+      background-image: linear-gradient(to right, color-mix(in srgb, #999, black 12%) 50%, transparent 50%);
+    }
+    /* Selected state — stays accent-colored at full opacity even when mouse leaves */
+    .tl-kf-line.selected::after,
+    .tl-kf-line.selected:hover::after {
+      opacity: 1;
+    }
+    .tl-kf-line.selected.solid::after,
+    .tl-kf-line.selected.solid:hover::after {
+      background-color: var(--accent-color);
+    }
+    .tl-kf-line.selected.dotted::after,
+    .tl-kf-line.selected.dotted:hover::after {
       background-image: linear-gradient(to right, var(--accent-color) 50%, transparent 50%);
     }
 
@@ -6833,14 +6826,7 @@
       <label class="tl-checkbox-label" title="Automatically record keyframes when changing object properties">
         <input type="checkbox" id="tlAutoKeyframing" class="ui-checkbox"> Auto keyframing
       </label>
-      <!-- Interpolation Type (visible when keyframe selected) -->
-      <select id="tlInterpSelect" class="tl-interp-select" title="Interpolation type">
-        <option value="linear">◆ Linear</option>
-        <option value="easeIn">◀ Ease In</option>
-        <option value="easeOut">▶ Ease Out</option>
-        <option value="easeInOut">● Ease In Out</option>
-        <option value="step">■ Constant</option>
-      </select>
+      <!-- Interpolation Type removed -->
       <div class="tl-separator"></div>
 
       <!-- Frame Display -->
@@ -6875,15 +6861,6 @@
       </div>
     </div>
 
-    <!-- Keyframe context menu (shared popover) -->
-    <div id="tlKeyframeMenu" popover>
-      <button data-interp="linear"><svg viewBox="0 0 10 10"><rect x="1.46" y="1.46" width="7.07" height="7.07" transform="translate(-2.07 5) rotate(-45)"/></svg>Linear</button>
-      <button data-interp="easeIn"><svg viewBox="0 0 10 10"><path d="M5,0c-2.76,0-5,2.24-5,5s2.24,5,5,5l5-5-5-5Z"/></svg>Ease In</button>
-      <button data-interp="easeOut"><svg viewBox="0 0 10 10"><path d="M5,0l-5,5,5,5c2.76,0,5-2.24,5-5S7.76,0,5,0Z"/></svg>Ease Out</button>
-      <button data-interp="easeInOut"><svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"/></svg>Ease In Out</button>
-      <button data-interp="step"><svg viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8"/></svg>Constant</button>
-    </div>
-
     <!-- Curve Editor Popover -->
     <div id="tlCurveEditor" popover="manual">
       <div class="tl-curve-editor-inner">
@@ -6894,13 +6871,39 @@
             <option value="custom">Custom</option>
             <option value="constant">Constant</option>
             <option value="linear">Linear</option>
-            <option value="easeIn">Ease In</option>
-            <option value="easeOut">Ease Out</option>
-            <option value="easeInOut">Ease In Out</option>
-            <option value="anticipate">Anticipate</option>
-            <option value="overshoot">Overshoot</option>
-            <option value="anticipateOvershoot">Anticipate + Overshoot</option>
-            <option value="bounce">Bounce</option>
+            <option value="easeInSine">easeInSine</option>
+            <option value="easeOutSine">easeOutSine</option>
+            <option value="easeInOutSine">easeInOutSine</option>
+            <option value="easeInQuad">easeInQuad</option>
+            <option value="easeOutQuad">easeOutQuad</option>
+            <option value="easeInOutQuad">easeInOutQuad</option>
+            <option value="easeInCubic">easeInCubic</option>
+            <option value="easeOutCubic">easeOutCubic</option>
+            <option value="easeInOutCubic">easeInOutCubic</option>
+            <option value="easeInQuart">easeInQuart</option>
+            <option value="easeOutQuart">easeOutQuart</option>
+            <option value="easeInOutQuart">easeInOutQuart</option>
+            <option value="easeInQuint">easeInQuint</option>
+            <option value="easeOutQuint">easeOutQuint</option>
+            <option value="easeInOutQuint">easeInOutQuint</option>
+            <option value="easeInExpo">easeInExpo</option>
+            <option value="easeOutExpo">easeOutExpo</option>
+            <option value="easeInOutExpo">easeInOutExpo</option>
+            <option value="easeInCirc">easeInCirc</option>
+            <option value="easeOutCirc">easeOutCirc</option>
+            <option value="easeInOutCirc">easeInOutCirc</option>
+            <option value="easeInBack">easeInBack</option>
+            <option value="easeOutBack">easeOutBack</option>
+            <option value="easeInOutBack">easeInOutBack</option>
+            <option value="anticipate">anticipate (Multi-node)</option>
+            <option value="overshoot">overshoot (Multi-node)</option>
+            <option value="anticipateOvershoot">anticipateOvershoot (Multi-node)</option>
+            <option value="easeInElastic">easeInElastic</option>
+            <option value="easeOutElastic">easeOutElastic</option>
+            <option value="easeInOutElastic">easeInOutElastic</option>
+            <option value="easeInBounce">easeInBounce</option>
+            <option value="easeOutBounce">easeOutBounce</option>
+            <option value="easeInOutBounce">easeInOutBounce</option>
           </select>
           <button id="tlCurveClose" type="button" title="Close" style="margin-left:auto; background:none; border:none; cursor:pointer; padding:2px 4px; font-size:16px; color:var(--text-muted); line-height:1;">&times;</button>
         </div>
@@ -6912,48 +6915,47 @@
             <option value="bspline">B-Spline (Cubic)</option>
             <option value="bspline2">B-Spline (Quad)</option>
           </select>
+          <button id="tlCurveMirrorH" type="button" class="tl-curve-pt-btn" title="Mirror horizontal (reverse)">↔</button>
+          <button id="tlCurveMirrorV" type="button" class="tl-curve-pt-btn" title="Mirror vertical (invert)">↕</button>
+          <span style="width:1px; height:14px; background:var(--border-light); flex-shrink:0;"></span>
+          <button id="tlCurveCopy" type="button" class="tl-curve-pt-btn" title="Copy curve"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="5.5" width="8" height="8" rx="1"/><path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg></button>
+          <button id="tlCurvePaste" type="button" class="tl-curve-pt-btn" title="Paste curve" disabled><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3.5" y="4.5" width="9" height="9" rx="1"/><path d="M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5"/></svg></button>
+          <span style="width:1px; height:14px; background:var(--border-light); flex-shrink:0;"></span>
+          <button id="tlCurveAddPt" type="button" class="tl-curve-pt-btn" title="Add point">+</button>
+          <button id="tlCurveRemovePt" type="button" class="tl-curve-pt-btn" title="Remove selected point">&minus;</button>
         </div>
         <!-- SVG Canvas -->
         <div class="tl-curve-svg-wrap">
-          <svg id="tlCurveSvg" width="300" height="300" style="display:block; overflow:visible;">
-            <!-- Background grid -->
-            <rect x="50" y="50" width="200" height="200" fill="none" stroke="var(--border-light)" stroke-width="1" />
+          <svg id="tlCurveSvg" width="300" height="500" style="display:block; overflow:visible;">
+            <!-- Background grid (0,0 → 1,1 box) -->
+            <rect x="50" y="150" width="200" height="200" fill="none" stroke="var(--border-light)" stroke-width="1" />
             <!-- Diagonal reference line (linear) -->
-            <line x1="50" y1="250" x2="250" y2="50" stroke="var(--border-light)" stroke-width="1" stroke-dasharray="3,3" />
+            <line x1="50" y1="350" x2="250" y2="150" stroke="var(--border-light)" stroke-width="1" stroke-dasharray="3,3" />
             <!-- Midpoint grid lines -->
-            <line x1="150" y1="50" x2="150" y2="250" stroke="var(--border-light)" stroke-width="0.5" />
-            <line x1="50" y1="150" x2="250" y2="150" stroke="var(--border-light)" stroke-width="0.5" />
+            <line x1="150" y1="150" x2="150" y2="350" stroke="var(--border-light)" stroke-width="0.5" />
+            <line x1="50" y1="250" x2="250" y2="250" stroke="var(--border-light)" stroke-width="0.5" />
 
-            <!-- Handle lines (control polygon) -->
-            <line id="tlCurveLine1" x1="50" y1="250" x2="134" y2="250" stroke="#999" stroke-width="1" />
-            <line id="tlCurveLine3" x1="134" y1="250" x2="166" y2="50" stroke="#999" stroke-width="1" />
-            <line id="tlCurveLine2" x1="250" y1="50" x2="166" y2="50" stroke="#999" stroke-width="1" />
-
-            <!-- Bezier path -->
-            <path id="tlCurvePath" d="M50,250 C134,250 166,50 250,50" fill="none" stroke="var(--accent-color)" stroke-width="2" />
-
-            <!-- Handle controls -->
-            <circle id="tlCurveHandle1" cx="134" cy="250" r="6" fill="#fff" stroke="var(--accent-color)" stroke-width="2" style="cursor:pointer;" />
-            <circle id="tlCurveHandle2" cx="166" cy="50" r="6" fill="#fff" stroke="var(--accent-color)" stroke-width="2" style="cursor:pointer;" />
+            <!-- Dynamic elements -->
+            <g id="tlCurvePolygon"></g>
+            <path id="tlCurveEffectivePath" d="" fill="none" stroke="var(--accent-color)" stroke-width="2" opacity="0.5" style="display:none;" />
+            <path id="tlCurvePath" d="" fill="none" stroke="var(--accent-color)" stroke-width="2" />
+            <g id="tlCurveHandles"></g>
+            <!-- Seek line (playback position indicator) -->
+            <line id="tlCurveSeekLine" x1="50" y1="0" x2="50" y2="500" stroke="var(--accent-color)" stroke-width="1.5" opacity="0.7" style="display:none;" />
           </svg>
         </div>
-        <!-- Numeric inputs -->
-        <div class="tl-curve-inputs">
-          <div class="tl-curve-input-group">
-            <label>X1</label>
-            <input id="tlCurveX1" type="number" step="0.01" min="0" max="1" value="0.42">
-          </div>
-          <div class="tl-curve-input-group">
-            <label>Y1</label>
-            <input id="tlCurveY1" type="number" step="0.01" value="0.00">
-          </div>
-          <div class="tl-curve-input-group">
-            <label>X2</label>
-            <input id="tlCurveX2" type="number" step="0.01" min="0" max="1" value="0.58">
-          </div>
-          <div class="tl-curve-input-group">
-            <label>Y2</label>
-            <input id="tlCurveY2" type="number" step="0.01" value="1.00">
+        <!-- Numeric inputs for selected point (xyz-row style, like Taper) -->
+        <div class="xyz-row" style="margin-top:0; padding:4px var(--row-padding-h);">
+          <label style="flex:0 0 auto;">Point</label>
+          <div class="xyz-inputs">
+            <div class="xyz-field">
+              <span class="xyz-col-label">X</span>
+              <input type="number" id="tlCurvePtX" step="0.01" min="0" max="1" value="0.00">
+            </div>
+            <div class="xyz-field">
+              <span class="xyz-col-label">Y</span>
+              <input type="number" id="tlCurvePtY" step="0.01" value="0.00">
+            </div>
           </div>
         </div>
       </div>
@@ -10734,11 +10736,16 @@
       for (const [objectName, objTracks] of animationTimeline.tracks) {
         tracks[objectName] = {};
         for (const [prop, keyframes] of objTracks) {
-          tracks[objectName][prop] = keyframes.map(k => ({
-            frame: k.frame,
-            value: Array.isArray(k.value) ? [...k.value] : k.value,
-            interp: k.interp || 'linear',
-          }));
+          tracks[objectName][prop] = keyframes.map(k => {
+            const entry = {
+              frame: k.frame,
+              value: Array.isArray(k.value) ? [...k.value] : k.value,
+              interp: k.interp || 'linear',
+            };
+            if (k.cubicBezier) entry.cubicBezier = k.cubicBezier.map(p => Array.isArray(p) ? [...p] : p);
+            if (k.curveAlgorithm) entry.curveAlgorithm = k.curveAlgorithm;
+            return entry;
+          });
         }
       }
       // Serialize _tlOriginalValues map
@@ -10762,11 +10769,33 @@
         for (const [objectName, props] of Object.entries(state.tracks)) {
           const objMap = new Map();
           for (const [prop, keyframes] of Object.entries(props)) {
-            objMap.set(prop, keyframes.map(k => ({
-              frame: k.frame,
-              value: Array.isArray(k.value) ? [...k.value] : k.value,
-              interp: k.interp || 'linear',
-            })));
+            objMap.set(prop, keyframes.map(k => {
+              const entry = {
+                frame: k.frame,
+                value: Array.isArray(k.value) ? [...k.value] : k.value,
+                interp: k.interp || 'linear',
+              };
+              if (k.cubicBezier) entry.cubicBezier = k.cubicBezier.map(p => Array.isArray(p) ? [...p] : p);
+              if (k.curveAlgorithm) entry.curveAlgorithm = k.curveAlgorithm;
+              // Migrate all legacy interp strings to modern cubicBezier presets
+              if (!entry.cubicBezier) {
+                if (entry.interp === 'step' || entry.interp === 'constant') {
+                  entry.cubicBezier = [[1, 0], [1, 0]];
+                  entry.curveAlgorithm = 'linear';
+                } else if (entry.interp === 'easeIn') {
+                  entry.cubicBezier = [[0.55, 0], [1, 1]];
+                  entry.curveAlgorithm = 'bezier';
+                } else if (entry.interp === 'easeOut') {
+                  entry.cubicBezier = [[0, 0], [0.45, 1]];
+                  entry.curveAlgorithm = 'bezier';
+                } else if (entry.interp === 'easeInOut') {
+                  entry.cubicBezier = [[0.45, 0], [0.55, 1]];
+                  entry.curveAlgorithm = 'bezier';
+                }
+              }
+              entry.interp = 'linear'; // interp field is now vestigial
+              return entry;
+            }));
           }
           animationTimeline.tracks.set(objectName, objMap);
         }
@@ -38622,6 +38651,8 @@
 
       // Delete / Backspace
       if (event.key === 'Delete' || event.key === 'Backspace') {
+        // If timeline keyframes are selected, let the timeline handler deal with it
+        if (typeof tlSelectedKfs !== 'undefined' && tlSelectedKfs.size > 0) return;
         event.preventDefault();
         deleteSelection();
         return;
@@ -39270,6 +39301,32 @@
           } else {
             // Fallback: If object is not in the list, force re-render anyway to clear artifacts
             console.warn("Delete: Object not found in sceneObjects, but destroyed.", selectedObject.id);
+          }
+        }
+
+        // Clean up animation tracks for the deleted object (and its children if it's a group)
+        if (typeof animationTimeline !== 'undefined') {
+          const _removeAnimTracks = (obj) => {
+            const name = obj.name;
+            if (name && animationTimeline.tracks.has(name)) {
+              animationTimeline.tracks.delete(name);
+            }
+            // Clean up _tlOriginalValues for this object
+            if (typeof _tlOriginalValues !== 'undefined') {
+              const prefix = name + '::';
+              for (const key of [..._tlOriginalValues.keys()]) {
+                if (key.startsWith(prefix)) _tlOriginalValues.delete(key);
+              }
+            }
+            // Recurse into children (groups)
+            if (obj.children) {
+              obj.children.forEach(child => _removeAnimTracks(child));
+            }
+          };
+          _removeAnimTracks(selectedObject);
+          // Refresh timeline UI if visible
+          if (typeof tlRenderTracks === 'function' && typeof tlExpanded !== 'undefined' && tlExpanded) {
+            tlRenderTracks();
           }
         }
 
@@ -41063,7 +41120,7 @@
     let _tlShowKeyframedOnly = false;
     const tlAutoKeyframingCb = document.getElementById('tlAutoKeyframing');
     let _tlAutoKeyframing = false;
-    const tlInterpSelect = document.getElementById('tlInterpSelect');
+
     const tlRuler = document.getElementById('tlRuler');
     const tlRulerCanvas = document.getElementById('tlRulerCanvas');
     const tlRulerPlayhead = document.getElementById('tlRulerPlayhead');
@@ -41090,86 +41147,134 @@
     // --- Keyframe Icon SVGs ---
     const _tlKeyframeIcons = {
       linear:    '<svg viewBox="0 0 10 10"><rect x="1.46" y="1.46" width="7.07" height="7.07" transform="translate(-2.07 5) rotate(-45)"/></svg>',
-      step:      '<svg viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8"/></svg>',
-      easeIn:    '<svg viewBox="0 0 10 10"><path d="M5,0c-2.76,0-5,2.24-5,5s2.24,5,5,5l5-5-5-5Z"/></svg>',
-      easeOut:   '<svg viewBox="0 0 10 10"><path d="M5,0l-5,5,5,5c2.76,0,5-2.24,5-5S7.76,0,5,0Z"/></svg>',
-      easeInOut: '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"/></svg>',
+      curve:     '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"/></svg>',
+      constant:  '<svg viewBox="0 0 10 10"><path d="M5,0 A5,5 0 0,0 5,10 L10,10 L10,0 Z"/></svg>',
     };
-    const _tlInterpLabel = { linear: '', step: ' (constant)', easeIn: ' (ease in)', easeOut: ' (ease out)', easeInOut: ' (ease in out)' };
-
-    // --- Keyframe Context Menu (popover) ---
-    const tlKfMenu = document.getElementById('tlKeyframeMenu');
-    tlKfMenu.addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-interp]');
-      if (!btn || !tlKfMenu._kfRef) return;
-      const { kf, diamondEl } = tlKfMenu._kfRef;
-      const newInterp = btn.dataset.interp;
-      if (kf.interp === newInterp) { tlKfMenu.hidePopover(); return; }
-      pushAnimUndoState('change interp');
-      kf.interp = newInterp;
-      // Update the diamond's icon in place
-      if (diamondEl) {
-        diamondEl.innerHTML = _tlKeyframeIcons[newInterp] || _tlKeyframeIcons.linear;
-        diamondEl.title = diamondEl.title.replace(/ \(.*\)$/, '') + (_tlInterpLabel[newInterp] || '');
-      }
-      tlKfMenu.hidePopover();
-      tlRenderTracks();
-      tlUpdateTrackInputs();
-      // Sync interp dropdown if the changed keyframe is currently selected
-      if (_tlLastClickedKf && _tlLastClickedKf.kf === kf) {
-        tlInterpSelect.value = newInterp;
-      }
-    });
+    const _tlInterpLabel = { linear: '', curve: ' (curve)', constant: ' (constant)' };
 
     const tlCurveEditor = document.getElementById('tlCurveEditor');
     const tlCurvePath = document.getElementById('tlCurvePath');
-    const tlCurveHandle1 = document.getElementById('tlCurveHandle1');
-    const tlCurveHandle2 = document.getElementById('tlCurveHandle2');
-    const tlCurveLine1 = document.getElementById('tlCurveLine1');
-    const tlCurveLine2 = document.getElementById('tlCurveLine2');
-    const tlCurveLine3 = document.getElementById('tlCurveLine3');
+    const tlCurveEffectivePath = document.getElementById('tlCurveEffectivePath');
+    const tlCurvePolygon = document.getElementById('tlCurvePolygon');
+    const tlCurveHandlesG = document.getElementById('tlCurveHandles');
     const tlCurvePreset = document.getElementById('tlCurvePreset');
     const tlCurveAlgorithm = document.getElementById('tlCurveAlgorithm');
-    const tlCurveX1 = document.getElementById('tlCurveX1');
-    const tlCurveY1 = document.getElementById('tlCurveY1');
-    const tlCurveX2 = document.getElementById('tlCurveX2');
-    const tlCurveY2 = document.getElementById('tlCurveY2');
+    const tlCurvePtX = document.getElementById('tlCurvePtX');
+    const tlCurvePtY = document.getElementById('tlCurvePtY');
+    const tlCurveAddPt = document.getElementById('tlCurveAddPt');
+    const tlCurveRemovePt = document.getElementById('tlCurveRemovePt');
+    const tlCurveMirrorH = document.getElementById('tlCurveMirrorH');
+    const tlCurveMirrorV = document.getElementById('tlCurveMirrorV');
+    const tlCurveCopy = document.getElementById('tlCurveCopy');
+    const tlCurvePaste = document.getElementById('tlCurvePaste');
     let _activeCurveKf = null;
+    let _ceSelectedIdx = 0;  // index into kf.cubicBezier (which handle is selected)
+    let _curveClipboard = null; // { points: [[x,y],...], algorithm: string }
+    let _activeCurveStartFrame = 0;
+    let _activeCurveEndFrame = 0;
+    const tlCurveSeekLine = document.getElementById('tlCurveSeekLine');
 
-    // SVG coordinate mapping: normalized [0,1] ↔ SVG pixel [50..250] (200px range in a 300px canvas)
-    const _CE_ORIGIN = 50, _CE_RANGE = 200;
-    // Convert normalized coords to SVG pixel coords
-    const _cePx = (nx) => _CE_ORIGIN + nx * _CE_RANGE;
-    const _cePy = (ny) => _CE_ORIGIN + _CE_RANGE - ny * _CE_RANGE;
+    // SVG coordinate mapping: X [0,1] → [50..250] (full width), Y [0,1] → [350..150] (200px box centered in 500px height)
+    const _CE_X_ORIGIN = 50, _CE_X_RANGE = 200;
+    const _CE_Y_ORIGIN = 150, _CE_Y_RANGE = 200;
+    const _cePx = (nx) => _CE_X_ORIGIN + nx * _CE_X_RANGE;
+    const _cePy = (ny) => _CE_Y_ORIGIN + _CE_Y_RANGE - ny * _CE_Y_RANGE;
+    const _SVG_NS = 'http://www.w3.org/2000/svg';
 
-    const _updateCurveSvg = (x1, y1, x2, y2) => {
-      const px1 = _cePx(x1), py1 = _cePy(y1);
-      const px2 = _cePx(x2), py2 = _cePy(y2);
-      const sX = _cePx(0), sY = _cePy(0); // Start (0,0)
-      const eX = _cePx(1), eY = _cePy(1); // End (1,1)
+    // Update the vertical seek line in the curve editor to reflect the current playhead position
+    const _ceUpdateSeekLine = () => {
+      if (!_activeCurveKf || !tlCurveEditor.matches(':popover-open')) {
+        tlCurveSeekLine.style.display = 'none';
+        return;
+      }
+      const span = _activeCurveEndFrame - _activeCurveStartFrame;
+      if (span <= 0) { tlCurveSeekLine.style.display = 'none'; return; }
+      const t = (animationTimeline.currentFrame - _activeCurveStartFrame) / span;
+      if (t < 0 || t > 1) { tlCurveSeekLine.style.display = 'none'; return; }
+      const x = _cePx(t);
+      tlCurveSeekLine.setAttribute('x1', x);
+      tlCurveSeekLine.setAttribute('x2', x);
+      tlCurveSeekLine.style.display = '';
+    };
 
-      // Update handles and control polygon lines
-      tlCurveHandle1.setAttribute('cx', px1); tlCurveHandle1.setAttribute('cy', py1);
-      tlCurveHandle2.setAttribute('cx', px2); tlCurveHandle2.setAttribute('cy', py2);
-      tlCurveLine1.setAttribute('x2', px1); tlCurveLine1.setAttribute('y2', py1);
-      tlCurveLine2.setAttribute('x2', px2); tlCurveLine2.setAttribute('y2', py2);
-      tlCurveLine3.setAttribute('x1', px1); tlCurveLine3.setAttribute('y1', py1);
-      tlCurveLine3.setAttribute('x2', px2); tlCurveLine3.setAttribute('y2', py2);
+    // --- Migration helper: old flat [x1,y1,x2,y2] → new [[x1,y1],[x2,y2],...] ---
+    const _migrateBezierData = (bz) => {
+      if (!bz || bz.length === 0) return [[0, 0], [1, 1]];
+      // Already migrated: first element is an array
+      if (Array.isArray(bz[0])) return bz;
+      // Old flat format: [x1, y1, x2, y2]
+      if (bz.length >= 4) {
+        const pts = [];
+        for (let i = 0; i < bz.length; i += 2) {
+          pts.push([bz[i], bz[i + 1]]);
+        }
+        return pts;
+      }
+      return [[0, 0], [1, 1]];
+    };
 
-      // Determine algorithm from the active keyframe (default bezier)
+    // --- Update curve editor SVG from an array of [x,y] pairs ---
+    const _updateCurveSvg = (pts) => {
+      // Full ordered point list including implicit start/end
+      const allPts = [[0, 0], ...pts, [1, 1]];
+
+      // Determine algorithm
       const algo = (_activeCurveKf && _activeCurveKf.curveAlgorithm) || 'bezier';
 
+      // --- Clear dynamic SVG groups ---
+      tlCurvePolygon.innerHTML = '';
+      tlCurveHandlesG.innerHTML = '';
+
+      // --- Draw control polygon lines ---
+      for (let i = 0; i < allPts.length - 1; i++) {
+        const line = document.createElementNS(_SVG_NS, 'line');
+        line.setAttribute('x1', _cePx(allPts[i][0]));
+        line.setAttribute('y1', _cePy(allPts[i][1]));
+        line.setAttribute('x2', _cePx(allPts[i + 1][0]));
+        line.setAttribute('y2', _cePy(allPts[i + 1][1]));
+        line.setAttribute('stroke', '#999');
+        line.setAttribute('stroke-width', '1');
+        tlCurvePolygon.appendChild(line);
+      }
+
+      // --- Draw curve path ---
+      const sX = _cePx(0), sY = _cePy(0);
+      const eX = _cePx(1), eY = _cePy(1);
+
       if (algo === 'bezier') {
-        // Standard cubic bezier: M start C handle1 handle2 end
-        tlCurvePath.setAttribute('d', `M${sX},${sY} C${px1},${py1} ${px2},${py2} ${eX},${eY}`);
+        // Piecewise bezier: groups-of-3 pattern (same as drawCubicBezier in Path)
+        let d = `M${sX},${sY} `;
+        let k = 0;
+        const count = allPts.length;
+        while (k < count - 1) {
+          const remaining = count - 1 - k;
+          if (remaining >= 3) {
+            const p1 = allPts[k + 1], p2 = allPts[k + 2], p3 = allPts[k + 3];
+            d += `C${_cePx(p1[0])},${_cePy(p1[1])} ${_cePx(p2[0])},${_cePy(p2[1])} ${_cePx(p3[0])},${_cePy(p3[1])} `;
+            k += 3;
+          } else if (remaining === 2) {
+            const p1 = allPts[k + 1], p2 = allPts[k + 2];
+            d += `Q${_cePx(p1[0])},${_cePy(p1[1])} ${_cePx(p2[0])},${_cePy(p2[1])} `;
+            k += 2;
+          } else {
+            const p1 = allPts[k + 1];
+            d += `L${_cePx(p1[0])},${_cePy(p1[1])} `;
+            k += 1;
+          }
+        }
+        tlCurvePath.setAttribute('d', d);
       } else if (algo === 'linear') {
-        // Polyline through all 4 points
-        tlCurvePath.setAttribute('d', `M${sX},${sY} L${px1},${py1} L${px2},${py2} L${eX},${eY}`);
+        // Polyline through all points
+        let d = `M${sX},${sY}`;
+        for (let i = 1; i < allPts.length; i++) {
+          d += ` L${_cePx(allPts[i][0])},${_cePy(allPts[i][1])}`;
+        }
+        tlCurvePath.setAttribute('d', d);
       } else if (algo === 'bspline' || algo === 'bspline2') {
-        // Convert 4 normalized points to 3D (z=0), duplicate endpoints for clamping
+        // Convert to 3D with duplicated endpoints for clamping
         const pts3D = [
           [0, 0, 0], [0, 0, 0],   // duplicate start
-          [x1, y1, 0], [x2, y2, 0],
+          ...pts.map(p => [p[0], p[1], 0]),
           [1, 1, 0], [1, 1, 0],   // duplicate end
         ];
         const segments = algo === 'bspline2'
@@ -41187,56 +41292,301 @@
         tlCurvePath.setAttribute('d', d || `M${sX},${sY} L${eX},${eY}`);
       }
 
-      // Sync numeric inputs
-      tlCurveX1.value = x1.toFixed(2);
-      tlCurveY1.value = y1.toFixed(2);
-      tlCurveX2.value = x2.toFixed(2);
-      tlCurveY2.value = y2.toFixed(2);
-    };
-
-    // Preset definitions
-    const _curvePresets = {
-      constant:            [1, 0, 1, 0],
-      linear:              [0, 0, 1, 1],
-      easeIn:              [0.42, 0, 1, 1],
-      easeOut:             [0, 0, 0.58, 1],
-      easeInOut:           [0.42, 0, 0.58, 1],
-      anticipate:          [0.36, -0.4, 0.26, 1],
-      overshoot:           [0.34, 1.2, 0.64, 1],
-      anticipateOvershoot: [0.68, -0.55, 0.27, 1.55],
-      bounce:              [0.22, 1.5, 0.36, 1],
-    };
-
-    // Match current bezier to a preset name, else 'custom'
-    const _matchPreset = (bz) => {
-      for (const [name, vals] of Object.entries(_curvePresets)) {
-        if (Math.abs(bz[0] - vals[0]) < 0.005 && Math.abs(bz[1] - vals[1]) < 0.005 &&
-            Math.abs(bz[2] - vals[2]) < 0.005 && Math.abs(bz[3] - vals[3]) < 0.005) {
-          return name;
+      // --- Effective curve overlay (shown when X is non-monotonic) ---
+      // Check if any adjacent pair of points has decreasing X (non-monotonic)
+      let hasRevertingX = false;
+      for (let i = 0; i < allPts.length - 1; i++) {
+        if (allPts[i + 1][0] < allPts[i][0] - 0.001) { hasRevertingX = true; break; }
+      }
+      if (hasRevertingX) {
+        // Sample the actual _evaluateCurve at uniform X steps
+        const steps = 100;
+        let ed = '';
+        for (let s = 0; s <= steps; s++) {
+          const t = s / steps;
+          const val = _evaluateCurve(t, algo, pts);
+          const px = _cePx(t), py = _cePy(val);
+          ed += (s === 0 ? `M${px},${py}` : ` L${px},${py}`);
         }
+        tlCurveEffectivePath.setAttribute('d', ed);
+        tlCurveEffectivePath.style.display = '';
+        // Dim the user-drawn path to show it's not the actual animation
+        tlCurvePath.setAttribute('opacity', '0.3');
+      } else {
+        tlCurveEffectivePath.style.display = 'none';
+        tlCurveEffectivePath.setAttribute('d', '');
+        tlCurvePath.setAttribute('opacity', '1');
+      }
+
+      // --- Draw handle shapes (circles for handles, squares for anchors) ---
+      // Determine which user-pts indices are on-curve anchors (bezier mode only)
+      const anchorSet = new Set();
+      if (algo === 'bezier') {
+        const totalCount = allPts.length; // includes implicit start/end
+        let k = 0;
+        while (k < totalCount - 1) {
+          const remaining = totalCount - 1 - k;
+          const endIdx = k + (remaining >= 3 ? 3 : remaining);
+          // endIdx in allPts → user pts index = endIdx - 1
+          const userIdx = endIdx - 1;
+          if (userIdx >= 0 && userIdx < pts.length) anchorSet.add(userIdx);
+          k += (remaining >= 3 ? 3 : remaining);
+        }
+      }
+      // linear → all squares; bspline → all circles; bezier → mixed
+      const useSquare = (i) => {
+        if (algo === 'linear') return true;
+        if (algo === 'bspline' || algo === 'bspline2') return false;
+        return anchorSet.has(i);
+      };
+
+      const _HANDLE_R = 4.5;
+      for (let i = 0; i < pts.length; i++) {
+        const cx = _cePx(pts[i][0]), cy = _cePy(pts[i][1]);
+        const isSelected = i === _ceSelectedIdx;
+        const fillColor = isSelected ? 'var(--accent-color)' : '#fff';
+        let el;
+        if (useSquare(i)) {
+          el = document.createElementNS(_SVG_NS, 'rect');
+          const size = _HANDLE_R * 2;
+          el.setAttribute('x', cx - _HANDLE_R);
+          el.setAttribute('y', cy - _HANDLE_R);
+          el.setAttribute('width', size);
+          el.setAttribute('height', size);
+          el.setAttribute('stroke', 'var(--accent-color)');
+          el.setAttribute('stroke-width', '1.5');
+          el.setAttribute('fill', fillColor);
+        } else {
+          el = document.createElementNS(_SVG_NS, 'circle');
+          el.setAttribute('cx', cx);
+          el.setAttribute('cy', cy);
+          el.setAttribute('r', _HANDLE_R);
+          el.setAttribute('stroke', 'var(--accent-color)');
+          el.setAttribute('stroke-width', '1.5');
+          el.setAttribute('fill', fillColor);
+        }
+        el.style.cursor = 'pointer';
+        el.dataset.index = i;
+        el.dataset.shape = useSquare(i) ? 'rect' : 'circle';
+
+        // Pointer events for selection + drag
+        el.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          _ceSelectedIdx = i;
+          _ceUpdateHandleHighlight(pts);
+          _ceUpdateInputs(pts);
+          pushAnimUndoState('edit curve');
+          _dragHandle = i;
+          el.setPointerCapture(e.pointerId);
+        });
+        el.addEventListener('pointerup', (e) => {
+          if (_dragHandle !== null) {
+            el.releasePointerCapture(e.pointerId);
+            _dragHandle = null;
+            tlUpdateTrackInputs();
+          }
+        });
+
+        tlCurveHandlesG.appendChild(el);
+      }
+
+      // --- Sync numeric inputs ---
+      _ceUpdateInputs(pts);
+
+      // --- Update remove button disabled state ---
+      tlCurveRemovePt.disabled = pts.length <= 1;
+    };
+
+    // Update the selected handle highlight without rebuilding everything
+    const _ceUpdateHandleHighlight = (pts) => {
+      const handles = tlCurveHandlesG.children;
+      for (let i = 0; i < handles.length; i++) {
+        handles[i].setAttribute('fill', i === _ceSelectedIdx ? 'var(--accent-color)' : '#fff');
+      }
+    };
+
+    // Sync X/Y inputs to the selected point
+    const _ceUpdateInputs = (pts) => {
+      if (_ceSelectedIdx >= 0 && _ceSelectedIdx < pts.length) {
+        tlCurvePtX.value = pts[_ceSelectedIdx][0].toFixed(2);
+        tlCurvePtY.value = pts[_ceSelectedIdx][1].toFixed(2);
+      }
+    };
+
+    // Preset definitions — pairs are [[x,y], ...] handles (without start/end)
+    // For 2-handle presets: standard cubic-bezier format
+    // For multi-handle presets: groups of 3 form cubic segments via _buildPiecewiseBezierSegments
+    const _curvePresetsRaw = {
+      linear:              [[0, 0], [1, 1]],
+      constant:            [[1, 0], [1, 0]],
+
+      easeInSine:          [[0.12, 0], [0.39, 0]],
+      easeOutSine:         [[0.61, 1], [0.88, 1]],
+      easeInOutSine:       [[0.37, 0], [0.63, 1]],
+
+      easeInQuad:          [[0.55, 0.085], [0.68, 0.53]],
+      easeOutQuad:         [[0.25, 0.46], [0.45, 0.94]],
+      easeInOutQuad:       [[0.455, 0.03], [0.515, 0.955]],
+
+      easeInCubic:         [[0.55, 0.055], [0.675, 0.19]],
+      easeOutCubic:        [[0.215, 0.61], [0.355, 1]],
+      easeInOutCubic:      [[0.645, 0.045], [0.355, 1]],
+
+      easeInQuart:         [[0.895, 0.03], [0.685, 0.22]],
+      easeOutQuart:        [[0.165, 0.84], [0.44, 1]],
+      easeInOutQuart:      [[0.77, 0], [0.175, 1]],
+
+      easeInQuint:         [[0.755, 0.05], [0.855, 0.06]],
+      easeOutQuint:        [[0.23, 1], [0.32, 1]],
+      easeInOutQuint:      [[0.86, 0], [0.07, 1]],
+
+      easeInExpo:          [[0.95, 0.05], [0.795, 0.035]],
+      easeOutExpo:         [[0.19, 1], [0.22, 1]],
+      easeInOutExpo:       [[1, 0], [0, 1]],
+
+      easeInCirc:          [[0.6, 0.04], [0.98, 0.335]],
+      easeOutCirc:         [[0.075, 0.82], [0.165, 1]],
+      easeInOutCirc:       [[0.785, 0.135], [0.15, 0.86]],
+
+      easeInBack:          [[0.36, 0], [0.66, -0.56]],
+      easeOutBack:         [[0.34, 1.56], [0.64, 1]],
+      easeInOutBack:       [[0.68, -0.6], [0.32, 1.6]],
+
+      anticipate: [
+        [0.15, 0], [0.30, -0.30], [0.40, -0.30],   // S1: dip backward
+        [0.46, -0.30], [0.50, -0.05], [0.55, 0.25], // S2: start recovering
+        [0.58, 0.40], [0.62, 0.60], [0.68, 0.78],   // S3: accelerate forward
+        [0.75, 0.92], [0.88, 1]                     // S4: arrive at 1
+      ],
+      overshoot: [
+        [0.12, 0.08], [0.25, 0.22], [0.32, 0.40],   // S1: fast launch
+        [0.38, 0.55], [0.42, 0.72], [0.45, 0.87],    // S2: continue accelerating
+        [0.50, 1.10], [0.54, 1.30], [0.60, 1.30],    // S3: overshoot peak
+        [0.70, 1.30], [0.85, 1]                      // S4: settle back to 1
+      ],
+      anticipateOvershoot: [
+        [0.15, 0], [0.20, -0.40], [0.30, -0.40],     // S1: pull back
+        [0.36, -0.40], [0.42, 0.10], [0.50, 0.50],   // S2: launch through middle
+        [0.58, 0.90], [0.64, 1.40], [0.70, 1.40],    // S3: overshoot
+        [0.80, 1.40], [0.85, 1]                      // S4: settle to 1
+      ],
+
+      easeInElastic: [
+        [0.048, 0.0], [0.072, 0.0], [0.12, 0.0],
+        [0.18, 0.0], [0.21, -0.01], [0.27, -0.01],
+        [0.33, -0.01], [0.36, 0.02], [0.42, 0.02],
+        [0.48, 0.02], [0.51, -0.05], [0.57, -0.05],
+        [0.63, -0.05], [0.66, 0.13], [0.72, 0.13],
+        [0.78, 0.13], [0.81, -0.37], [0.87, -0.37],
+        [0.922, -0.37], [0.948, 0.844]
+      ],
+      easeOutElastic: [
+        [0.052, 0.156], [0.078, 1.37], [0.13, 1.37],
+        [0.19, 1.37], [0.22, 0.87], [0.28, 0.87],
+        [0.34, 0.87], [0.37, 1.05], [0.43, 1.05],
+        [0.49, 1.05], [0.52, 0.98], [0.58, 0.98],
+        [0.64, 0.98], [0.67, 1.01], [0.73, 1.01],
+        [0.79, 1.01], [0.82, 1.0], [0.88, 1.0],
+        [0.928, 1.0], [0.952, 1.0]
+      ],
+      easeInOutElastic: [
+        [0.024, 0.0], [0.036, 0.0], [0.06, 0.0],
+        [0.09, 0.0], [0.105, -0.005], [0.135, -0.005],
+        [0.165, -0.005], [0.18, 0.01], [0.21, 0.01],
+        [0.24, 0.01], [0.255, -0.025], [0.285, -0.025],
+        [0.315, -0.025], [0.33, 0.065], [0.36, 0.065],
+        [0.39, 0.065], [0.405, -0.185], [0.435, -0.185],
+        [0.461, -0.185], [0.474, 0.5], [0.5, 0.5],
+        [0.526, 0.5], [0.539, 1.185], [0.565, 1.185],
+        [0.595, 1.185], [0.61, 0.935], [0.64, 0.935],
+        [0.67, 0.935], [0.685, 1.025], [0.715, 1.025],
+        [0.745, 1.025], [0.76, 0.99], [0.79, 0.99],
+        [0.82, 0.99], [0.835, 1.005], [0.865, 1.005],
+        [0.895, 1.005], [0.91, 1.0], [0.94, 1.0],
+        [0.964, 1.0], [0.976, 1.0]
+      ],
+
+      easeInBounce: [
+        [0.05, 0], [0.09, 0.07], [0.13, 0.07],
+        [0.18, 0.07], [0.22, 0], [0.273, 0],
+        [0.34, 0], [0.38, 0.24], [0.455, 0.24],
+        [0.53, 0.24], [0.58, 0], [0.636, 0],
+        [0.78, 0], [0.94, 1]
+      ],
+      easeOutBounce: [
+        [0.06, 0], [0.22, 1], [0.364, 1],
+        [0.42, 1], [0.47, 0.76], [0.545, 0.76],
+        [0.62, 0.76], [0.66, 1], [0.727, 1],
+        [0.78, 1], [0.82, 0.93], [0.87, 0.93],
+        [0.91, 0.93], [0.95, 1]
+      ],
+      easeInOutBounce: [
+        [0.025, 0], [0.045, 0.035], [0.065, 0.035],
+        [0.09, 0.035], [0.11, 0], [0.1365, 0],
+        [0.17, 0], [0.19, 0.12], [0.2275, 0.12],
+        [0.265, 0.12], [0.29, 0], [0.318, 0],
+        [0.39, 0], [0.47, 0.5], [0.5, 0.5],
+        [0.53, 0.5], [0.61, 1], [0.682, 1],
+        [0.71, 1], [0.735, 0.88], [0.7725, 0.88],
+        [0.81, 0.88], [0.83, 1], [0.8635, 1],
+        [0.89, 1], [0.91, 0.965], [0.935, 0.965],
+        [0.955, 0.965], [0.975, 1]
+      ]
+    };
+    
+    const _curvePresets = {};
+    for (const [k, v] of Object.entries(_curvePresetsRaw)) {
+      _curvePresets[k] = { algo: (k === 'constant' ? 'linear' : 'bezier'), pts: v };
+    }
+
+    // Match current points to a preset name, else 'custom'
+    const _matchPreset = (pts, algo = 'bezier') => {
+      for (const [name, def] of Object.entries(_curvePresets)) {
+        if (def.algo !== algo) continue;
+        const vals = def.pts;
+        if (pts.length !== vals.length) continue;
+        let match = true;
+        for (let i = 0; i < pts.length; i++) {
+          if (Math.abs(pts[i][0] - vals[i][0]) > 0.005 || Math.abs(pts[i][1] - vals[i][1]) > 0.005) {
+            match = false;
+            break;
+          }
+        }
+        if (match) return name;
       }
       return 'custom';
     };
 
-    const _openCurveEditor = (lineEl, kf) => {
+    const _openCurveEditor = (lineEl, kf, nextFrame) => {
+
       _activeCurveKf = kf;
+      _activeCurveStartFrame = kf.frame;
+      _activeCurveEndFrame = (nextFrame != null) ? nextFrame : kf.frame;
       // Default to bezier equivalent of preset if missing
       if (!kf.cubicBezier) {
-        if (kf.interp === 'easeIn') kf.cubicBezier = [0.42, 0, 1, 1];
-        else if (kf.interp === 'easeOut') kf.cubicBezier = [0, 0, 0.58, 1];
-        else if (kf.interp === 'easeInOut') kf.cubicBezier = [0.42, 0, 0.58, 1];
-        else if (kf.interp === 'step') kf.cubicBezier = [1, 0, 1, 0];
-        else kf.cubicBezier = [0, 0, 1, 1]; // Linear
+        let presetName = 'linear';
+        if (kf.interp === 'easeIn') presetName = 'easeInQuad';
+        else if (kf.interp === 'easeOut') presetName = 'easeOutQuad';
+        else if (kf.interp === 'easeInOut') presetName = 'easeInOutQuad';
+        else if (kf.interp === 'step') presetName = 'constant';
+        
+        kf.cubicBezier = _curvePresets[presetName].pts.map(p => [...p]);
+        kf.curveAlgorithm = _curvePresets[presetName].algo;
+      } else {
+        // Migrate old flat format if necessary
+        kf.cubicBezier = _migrateBezierData(kf.cubicBezier);
       }
       // Default algorithm
       if (!kf.curveAlgorithm) kf.curveAlgorithm = 'bezier';
       tlCurveAlgorithm.value = kf.curveAlgorithm;
-      _updateCurveSvg(...kf.cubicBezier);
+      _ceSelectedIdx = Math.min(_ceSelectedIdx, kf.cubicBezier.length - 1);
+      _updateCurveSvg(kf.cubicBezier);
       tlCurvePreset.value = (kf.curveAlgorithm === 'bezier') ? _matchPreset(kf.cubicBezier) : 'custom';
       // Show if not already visible; otherwise just load the new data
       if (!tlCurveEditor.matches(':popover-open')) {
         tlCurveEditor.showPopover();
       }
+      _ceUpdateSeekLine();
     };
 
     // Close button
@@ -41244,18 +41594,35 @@
       tlCurveEditor.hidePopover();
     });
 
+    // When curve editor closes, deselect the segment line
+    tlCurveEditor.addEventListener('toggle', (e) => {
+      if (e.newState === 'closed') {
+        if (_tlSelectedSegment && _tlSelectedSegment.lineEl) {
+          _tlSelectedSegment.lineEl.classList.remove('selected');
+        }
+        _tlSelectedSegment = null;
+        _activeCurveKf = null;
+      }
+    });
+
     // Preset dropdown change — always forces Bézier algorithm
     tlCurvePreset.addEventListener('change', () => {
       if (!_activeCurveKf) return;
-      const vals = _curvePresets[tlCurvePreset.value];
-      if (!vals) return; // 'custom' selected — do nothing
+      const valName = tlCurvePreset.value;
+      const def = _curvePresets[valName];
+      if (!def) return; // 'custom' selected — do nothing
       pushAnimUndoState('curve preset');
-      _activeCurveKf.cubicBezier = [...vals];
-      _activeCurveKf.curveAlgorithm = 'bezier';
-      tlCurveAlgorithm.value = 'bezier';
-      _updateCurveSvg(...vals);
+      _activeCurveKf.cubicBezier = def.pts.map(p => [...p]);
+      _activeCurveKf.curveAlgorithm = def.algo;
+      tlCurveAlgorithm.value = def.algo;
+      
+      // interp field is vestigial — cubicBezier is the source of truth
+      
+      _ceSelectedIdx = 0;
+      _updateCurveSvg(_activeCurveKf.cubicBezier);
       tlApplyFrame(tlCurrentFrame, true);
       updateVisualsRecursive();
+      tlRenderTracks();
       tlUpdateTrackInputs();
     });
 
@@ -41264,79 +41631,224 @@
       if (!_activeCurveKf) return;
       pushAnimUndoState('curve algorithm');
       _activeCurveKf.curveAlgorithm = tlCurveAlgorithm.value;
-      // Re-render with same control points but new algorithm
-      _updateCurveSvg(..._activeCurveKf.cubicBezier);
-      // Update preset to 'custom' for non-bezier algorithms
-      tlCurvePreset.value = (tlCurveAlgorithm.value === 'bezier') ? _matchPreset(_activeCurveKf.cubicBezier) : 'custom';
+      _updateCurveSvg(_activeCurveKf.cubicBezier);
+      tlCurvePreset.value = _matchPreset(_activeCurveKf.cubicBezier, tlCurveAlgorithm.value);
+      tlApplyFrame(tlCurrentFrame, true);
+      updateVisualsRecursive();
+      tlRenderTracks();
+      tlUpdateTrackInputs();
+    });
+
+    // Add point button
+    tlCurveAddPt.addEventListener('click', () => {
+      if (!_activeCurveKf) return;
+      pushAnimUndoState('add curve point');
+      _activeCurveKf.cubicBezier.push([1, 1]);
+      _ceSelectedIdx = _activeCurveKf.cubicBezier.length - 1;
+      _updateCurveSvg(_activeCurveKf.cubicBezier);
+      tlCurvePreset.value = 'custom';
       tlApplyFrame(tlCurrentFrame, true);
       updateVisualsRecursive();
       tlUpdateTrackInputs();
     });
 
-    // Numeric input change handler
+    // Remove point button
+    tlCurveRemovePt.addEventListener('click', () => {
+      if (!_activeCurveKf) return;
+      const pts = _activeCurveKf.cubicBezier;
+      if (pts.length <= 1) return; // minimum 1 handle (quad bézier with implicit start/end)
+      pushAnimUndoState('remove curve point');
+      pts.splice(_ceSelectedIdx, 1);
+      if (_ceSelectedIdx >= pts.length) _ceSelectedIdx = pts.length - 1;
+      _updateCurveSvg(pts);
+      tlCurvePreset.value = (_activeCurveKf.curveAlgorithm === 'bezier') ? _matchPreset(pts) : 'custom';
+      tlApplyFrame(tlCurrentFrame, true);
+      updateVisualsRecursive();
+      tlUpdateTrackInputs();
+    });
+
+    // Mirror horizontal: reverse the curve (ease-in ↔ ease-out)
+    tlCurveMirrorH.addEventListener('click', () => {
+      if (!_activeCurveKf) return;
+      pushAnimUndoState('mirror curve horizontal');
+      const pts = _activeCurveKf.cubicBezier;
+      // Flip each point's X: x → 1 - x, keep Y, then reverse order
+      for (let i = 0; i < pts.length; i++) {
+        pts[i][0] = 1 - pts[i][0];
+      }
+      pts.reverse();
+      _ceSelectedIdx = Math.min(_ceSelectedIdx, pts.length - 1);
+      _updateCurveSvg(pts);
+      const algo = _activeCurveKf.curveAlgorithm || 'bezier';
+      tlCurvePreset.value = (algo === 'bezier') ? _matchPreset(pts) : 'custom';
+      tlApplyFrame(tlCurrentFrame, true);
+      updateVisualsRecursive();
+      tlUpdateTrackInputs();
+    });
+
+    // Mirror vertical: invert the curve (y → 1 - y)
+    tlCurveMirrorV.addEventListener('click', () => {
+      if (!_activeCurveKf) return;
+      pushAnimUndoState('mirror curve vertical');
+      const pts = _activeCurveKf.cubicBezier;
+      for (let i = 0; i < pts.length; i++) {
+        pts[i][1] = 1 - pts[i][1];
+      }
+      _updateCurveSvg(pts);
+      const algo = _activeCurveKf.curveAlgorithm || 'bezier';
+      tlCurvePreset.value = (algo === 'bezier') ? _matchPreset(pts) : 'custom';
+      tlApplyFrame(tlCurrentFrame, true);
+      updateVisualsRecursive();
+      tlUpdateTrackInputs();
+    });
+
+    // Copy curve to clipboard
+    tlCurveCopy.addEventListener('click', () => {
+      if (!_activeCurveKf) return;
+      const pts = _activeCurveKf.cubicBezier;
+      _curveClipboard = {
+        points: pts.map(p => [...p]),
+        algorithm: _activeCurveKf.curveAlgorithm || 'bezier'
+      };
+      tlCurvePaste.disabled = false;
+    });
+
+    // Paste curve from clipboard
+    tlCurvePaste.addEventListener('click', () => {
+      if (!_activeCurveKf || !_curveClipboard) return;
+      pushAnimUndoState('paste curve');
+      _activeCurveKf.cubicBezier = _curveClipboard.points.map(p => [...p]);
+      _activeCurveKf.curveAlgorithm = _curveClipboard.algorithm;
+      tlCurveAlgorithm.value = _curveClipboard.algorithm;
+      _ceSelectedIdx = 0;
+      _updateCurveSvg(_activeCurveKf.cubicBezier);
+      tlCurvePreset.value = (_curveClipboard.algorithm === 'bezier') ? _matchPreset(_activeCurveKf.cubicBezier) : 'custom';
+      tlApplyFrame(tlCurrentFrame, true);
+      updateVisualsRecursive();
+      tlUpdateTrackInputs();
+    });
+
+    // Numeric input change handler (for selected point)
     const _onCurveInputChange = () => {
       if (!_activeCurveKf) return;
       pushAnimUndoState('edit curve values');
-      const bz = _activeCurveKf.cubicBezier;
-      bz[0] = Math.max(0, Math.min(1, parseFloat(tlCurveX1.value) || 0));
-      bz[1] = parseFloat(tlCurveY1.value) || 0; // Y is unclamped
-      bz[2] = Math.max(0, Math.min(1, parseFloat(tlCurveX2.value) || 0));
-      bz[3] = parseFloat(tlCurveY2.value) || 0; // Y is unclamped
-      _updateCurveSvg(...bz);
-      tlCurvePreset.value = _matchPreset(bz);
+      const pts = _activeCurveKf.cubicBezier;
+      if (_ceSelectedIdx >= 0 && _ceSelectedIdx < pts.length) {
+        pts[_ceSelectedIdx][0] = Math.max(0, Math.min(1, parseFloat(tlCurvePtX.value) || 0));
+        pts[_ceSelectedIdx][1] = parseFloat(tlCurvePtY.value) || 0; // Y is unclamped
+      }
+      _updateCurveSvg(pts);
+      tlCurvePreset.value = (_activeCurveKf.curveAlgorithm === 'bezier') ? _matchPreset(pts) : 'custom';
       tlApplyFrame(tlCurrentFrame, true);
       updateVisualsRecursive();
       tlUpdateTrackInputs();
     };
-    tlCurveX1.addEventListener('change', _onCurveInputChange);
-    tlCurveY1.addEventListener('change', _onCurveInputChange);
-    tlCurveX2.addEventListener('change', _onCurveInputChange);
-    tlCurveY2.addEventListener('change', _onCurveInputChange);
+    tlCurvePtX.addEventListener('change', _onCurveInputChange);
+    tlCurvePtY.addEventListener('change', _onCurveInputChange);
 
+    // --- Handle dragging ---
     let _dragHandle = null;
+
+    // Helper: compute the anchor set for bezier mode (same logic as rendering)
+    const _ceGetAnchorSet = (pts) => {
+      const anchors = new Set();
+      const totalCount = pts.length + 2; // includes implicit start/end
+      let k = 0;
+      while (k < totalCount - 1) {
+        const remaining = totalCount - 1 - k;
+        const step = remaining >= 3 ? 3 : remaining;
+        const endIdx = k + step;
+        const userIdx = endIdx - 1;
+        if (userIdx >= 0 && userIdx < pts.length) anchors.add(userIdx);
+        k += step;
+      }
+      return anchors;
+    };
+
+    // Helper: find which anchor a handle belongs to and the mirror handle index
+    // Returns { anchor, mirror } or null if the handle isn't adjacent to any anchor
+    const _ceFindMirrorHandle = (handleIdx, pts, anchorSet) => {
+      // Check if the point before this handle is an anchor
+      if (handleIdx > 0 && anchorSet.has(handleIdx - 1)) {
+        const anchorIdx = handleIdx - 1;
+        const mirrorIdx = anchorIdx - 1;
+        if (mirrorIdx >= 0 && !anchorSet.has(mirrorIdx)) return { anchor: anchorIdx, mirror: mirrorIdx };
+      }
+      // Check if the point after this handle is an anchor
+      if (handleIdx < pts.length - 1 && anchorSet.has(handleIdx + 1)) {
+        const anchorIdx = handleIdx + 1;
+        const mirrorIdx = anchorIdx + 1;
+        if (mirrorIdx < pts.length && !anchorSet.has(mirrorIdx)) return { anchor: anchorIdx, mirror: mirrorIdx };
+      }
+      return null;
+    };
+
+    // Helper: find adjacent handles for an anchor
+    const _ceGetAdjacentHandles = (anchorIdx, pts, anchorSet) => {
+      const handles = [];
+      if (anchorIdx > 0 && !anchorSet.has(anchorIdx - 1)) handles.push(anchorIdx - 1);
+      if (anchorIdx < pts.length - 1 && !anchorSet.has(anchorIdx + 1)) handles.push(anchorIdx + 1);
+      return handles;
+    };
+
     const _onCurveDragMove = (e) => {
-      if (!_dragHandle || !_activeCurveKf) return;
+      if (_dragHandle === null || !_activeCurveKf) return;
       const svgRect = document.getElementById('tlCurveSvg').getBoundingClientRect();
       const x = e.clientX - svgRect.left;
       const y = e.clientY - svgRect.top;
-      // Convert to normalized coordinates (200px range, origin at 50)
-      let nx = (x - _CE_ORIGIN) / _CE_RANGE;
-      let ny = (_CE_ORIGIN + _CE_RANGE - y) / _CE_RANGE;
+      let nx = (x - _CE_X_ORIGIN) / _CE_X_RANGE;
+      let ny = (_CE_Y_ORIGIN + _CE_Y_RANGE - y) / _CE_Y_RANGE;
       nx = Math.max(0, Math.min(1, nx)); // Clamp X to [0,1]
-      // Y is allowed to overshoot
 
-      const bz = _activeCurveKf.cubicBezier;
+      const pts = _activeCurveKf.cubicBezier;
       const algo = _activeCurveKf.curveAlgorithm || 'bezier';
+      const idx = _dragHandle;
 
-      if (_dragHandle === 1) {
-        // For non-bezier modes, clamp H1.x ≤ H2.x
-        if (algo !== 'bezier') nx = Math.min(nx, bz[2]);
-        bz[0] = nx; bz[1] = ny;
-      } else {
-        // For non-bezier modes, clamp H2.x ≥ H1.x
-        if (algo !== 'bezier') nx = Math.max(nx, bz[0]);
-        bz[2] = nx; bz[3] = ny;
+
+      const oldX = pts[idx][0], oldY = pts[idx][1];
+      const dx = nx - oldX, dy = ny - oldY;
+      pts[idx][0] = nx;
+      pts[idx][1] = ny;
+
+      // Bezier mode: anchor drags adjacent handles; Option+drag mirrors handle
+      if (algo === 'bezier') {
+        const anchorSet = _ceGetAnchorSet(pts);
+        const isAnchor = anchorSet.has(idx);
+
+        if (isAnchor) {
+          // (a) Moving an anchor also moves its adjacent handles
+          const adjHandles = _ceGetAdjacentHandles(idx, pts, anchorSet);
+          for (const h of adjHandles) {
+            pts[h][0] = Math.max(0, Math.min(1, pts[h][0] + dx));
+            pts[h][1] += dy;
+          }
+        } else if (e.altKey) {
+          // (b) Option+drag a handle mirrors to the other side of the anchor
+          const mirrorInfo = _ceFindMirrorHandle(idx, pts, anchorSet);
+          if (mirrorInfo) {
+            const { anchor, mirror } = mirrorInfo;
+            // Mirror: reflect the handle position relative to the anchor
+            pts[mirror][0] = Math.max(0, Math.min(1, 2 * pts[anchor][0] - pts[idx][0]));
+            pts[mirror][1] = 2 * pts[anchor][1] - pts[idx][1];
+          }
+        }
       }
 
-      _updateCurveSvg(...bz);
-      tlCurvePreset.value = (algo === 'bezier') ? _matchPreset(bz) : 'custom';
-      tlApplyFrame(tlCurrentFrame, true); // live preview
+      _updateCurveSvg(pts);
+      tlCurvePreset.value = (algo === 'bezier') ? _matchPreset(pts) : 'custom';
+      tlApplyFrame(tlCurrentFrame, true);
       updateVisualsRecursive();
     };
 
-    tlCurveHandle1.addEventListener('pointerdown', (e) => { e.preventDefault(); pushAnimUndoState('edit curve'); _dragHandle = 1; tlCurveHandle1.setPointerCapture(e.pointerId); });
-    tlCurveHandle2.addEventListener('pointerdown', (e) => { e.preventDefault(); pushAnimUndoState('edit curve'); _dragHandle = 2; tlCurveHandle2.setPointerCapture(e.pointerId); });
     document.getElementById('tlCurveSvg').addEventListener('pointermove', _onCurveDragMove);
-    const _onCurveDragEnd = (e) => {
-      if (_dragHandle) {
-        if (_dragHandle === 1) tlCurveHandle1.releasePointerCapture(e.pointerId);
-        else tlCurveHandle2.releasePointerCapture(e.pointerId);
+    // Global pointerup to release drag — the per-handle pointerup can be lost when
+    // _updateCurveSvg() rebuilds elements mid-drag, orphaning the pointer capture.
+    document.addEventListener('pointerup', () => {
+      if (_dragHandle !== null) {
         _dragHandle = null;
         tlUpdateTrackInputs();
       }
-    };
-    tlCurveHandle1.addEventListener('pointerup', _onCurveDragEnd);
-    tlCurveHandle2.addEventListener('pointerup', _onCurveDragEnd);
+    });
 
     // --- Original value storage for revert on keyframe removal ---
     const _tlOriginalValues = new Map(); // key: "objectName::prop", value: original value
@@ -41583,34 +42095,82 @@
     };
 
     // Evaluate a piecewise linear curve through points (including implicit endpoints)
-    const _evaluateLinearCurve = (x, bz) => {
-      // Full ordered point list: (0,0), H1, H2, (1,1)
-      const pts = [[0, 0], [bz[0], bz[1]], [bz[2], bz[3]], [1, 1]];
-      for (let i = 0; i < pts.length - 1; i++) {
-        if (x <= pts[i + 1][0] + 0.0001) {
-          const dx = pts[i + 1][0] - pts[i][0];
-          if (dx < 0.0001) return pts[i + 1][1]; // vertical segment
-          const segT = (x - pts[i][0]) / dx;
-          return pts[i][1] + segT * (pts[i + 1][1] - pts[i][1]);
+    const _evaluateLinearCurve = (x, pts) => {
+      // Full ordered point list: (0,0), ...handles..., (1,1)
+      const allPts = [[0, 0], ...pts, [1, 1]];
+      for (let i = 0; i < allPts.length - 1; i++) {
+        if (x <= allPts[i + 1][0] + 0.0001) {
+          const dx = allPts[i + 1][0] - allPts[i][0];
+          if (dx < 0.0001) return allPts[i + 1][1]; // vertical segment
+          const segT = (x - allPts[i][0]) / dx;
+          return allPts[i][1] + segT * (allPts[i + 1][1] - allPts[i][1]);
         }
       }
       return 1;
     };
 
+    // Build piecewise cubic Bézier segments from multi-point array (groups-of-3 pattern)
+    // Returns array of { p0:[x,y,0], p1:[x,y,0], p2:[x,y,0], p3:[x,y,0] }
+    // Matches the rendering logic in _updateCurveSvg for consistency.
+    const _buildPiecewiseBezierSegments = (pts) => {
+      const allPts = [[0, 0], ...pts, [1, 1]];
+      const segments = [];
+      let k = 0;
+      const count = allPts.length;
+      while (k < count - 1) {
+        const remaining = count - 1 - k;
+        if (remaining >= 3) {
+          // Cubic segment: current point + 3 more
+          segments.push({
+            p0: [allPts[k][0], allPts[k][1], 0],
+            p1: [allPts[k + 1][0], allPts[k + 1][1], 0],
+            p2: [allPts[k + 2][0], allPts[k + 2][1], 0],
+            p3: [allPts[k + 3][0], allPts[k + 3][1], 0],
+          });
+          k += 3;
+        } else if (remaining === 2) {
+          // Quadratic segment: elevate to cubic
+          const p0 = allPts[k], p1 = allPts[k + 1], p2 = allPts[k + 2];
+          segments.push({
+            p0: [p0[0], p0[1], 0],
+            p1: [p0[0] + 2/3 * (p1[0] - p0[0]), p0[1] + 2/3 * (p1[1] - p0[1]), 0],
+            p2: [p2[0] + 2/3 * (p1[0] - p2[0]), p2[1] + 2/3 * (p1[1] - p2[1]), 0],
+            p3: [p2[0], p2[1], 0],
+          });
+          k += 2;
+        } else {
+          // Linear segment: make degenerate cubic
+          const p0 = allPts[k], p1 = allPts[k + 1];
+          segments.push({
+            p0: [p0[0], p0[1], 0],
+            p1: [p0[0], p0[1], 0],
+            p2: [p1[0], p1[1], 0],
+            p3: [p1[0], p1[1], 0],
+          });
+          k += 1;
+        }
+      }
+      return segments;
+    };
+
     // Main curve evaluation dispatcher — returns eased t for any algorithm
-    const _evaluateCurve = (t, algo, bz) => {
+    // pts is [[x,y], ...] format (internal handles only, without start/end)
+    const _evaluateCurve = (t, algo, pts) => {
       if (t <= 0) return 0;
       if (t >= 1) return 1;
 
+      // Migrate if needed (runtime safety)
+      const migrated = _migrateBezierData(pts);
+
       if (algo === 'linear') {
-        return _evaluateLinearCurve(t, bz);
+        return _evaluateLinearCurve(t, migrated);
       }
 
       if (algo === 'bspline' || algo === 'bspline2') {
         // Build 3D points with duplicated endpoints for clamping
         const pts3D = [
           [0, 0, 0], [0, 0, 0],       // duplicate start
-          [bz[0], bz[1], 0], [bz[2], bz[3], 0],
+          ...migrated.map(p => [p[0], p[1], 0]),
           [1, 1, 0], [1, 1, 0],       // duplicate end
         ];
         const segments = algo === 'bspline2'
@@ -41620,7 +42180,13 @@
       }
 
       // Default: cubic bezier
-      return _solveCubicBezier(t, bz[0], bz[1], bz[2], bz[3]);
+      // For exactly 2 handles: use fast direct solver
+      if (migrated.length === 2) {
+        return _solveCubicBezier(t, migrated[0][0], migrated[0][1], migrated[1][0], migrated[1][1]);
+      }
+      // For multi-point: build piecewise segments and evaluate
+      const segments = _buildPiecewiseBezierSegments(migrated);
+      return _evaluatePiecewiseBezier(t, segments);
     };
 
     const tlLerp = (a, b, t) => {
@@ -41654,21 +42220,12 @@
         const k0 = keyframes[i];
         const k1 = keyframes[i + 1];
         if (frame >= k0.frame && frame <= k1.frame) {
-          // Step/Constant — hold value (check both sides)
-          if (k0.interp === 'step' || k1.interp === 'step') return k0.value;
           const t = (frame - k0.frame) / (k1.frame - k0.frame);
           // Determine easing for this segment
           let et = t;
           if (k0.cubicBezier) {
             const algo = k0.curveAlgorithm || 'bezier';
             et = _evaluateCurve(t, algo, k0.cubicBezier);
-          } else {
-            // Legacy fallback using individual keyframe strings
-            const slowStart = k0.interp === 'easeOut' || k0.interp === 'easeInOut';
-            const slowEnd   = k1.interp === 'easeIn'  || k1.interp === 'easeInOut';
-            if (slowStart && slowEnd) et = _easeInOut(t);
-            else if (slowStart)       et = _easeIn(t);   // t² — slow start
-            else if (slowEnd)         et = _easeOut(t);   // t(2-t) — slow end
           }
           return tlLerp(k0.value, k1.value, et);
         }
@@ -41923,12 +42480,8 @@
       tlPlayIcon.style.display = 'none';
       tlPauseIcon.style.display = '';
       tlPlayPause.classList.add('active');
-      // Clear keyframe selection during playback
-      if (tlSelectedKfs.size > 0) {
-        tlSelectedKfs.clear();
-        _tlLastClickedKf = null;
-        document.querySelectorAll('.tl-keyframe.selected').forEach(el => el.classList.remove('selected'));
-      }
+      // Clear keyframe/segment selection during playback
+      tlClearKfSelection();
 
       animationTimeline._playDirection = 1;
       animationTimeline._playInterval = setInterval(() => {
@@ -41975,12 +42528,8 @@
     const tlSetFrame = (frame) => {
       frame = Math.max(0, Math.min(animationTimeline.totalFrames - 1, Math.round(frame)));
       animationTimeline.currentFrame = frame;
-      // Clear keyframe selection when playhead moves
-      if (tlSelectedKfs.size > 0) {
-        tlSelectedKfs.clear();
-        _tlLastClickedKf = null;
-        document.querySelectorAll('.tl-keyframe.selected').forEach(el => el.classList.remove('selected'));
-      }
+      // Clear keyframe/segment selection when playhead moves
+      tlClearKfSelection();
       // Only apply values if there are any tracks
       if (animationTimeline.tracks.size > 0) {
         tlApplyFrame(frame);
@@ -42000,6 +42549,8 @@
       tlUpdatePlayheadPosition();
       // Update inline track inputs
       tlUpdateTrackInputs();
+      // Update curve editor seek line
+      _ceUpdateSeekLine();
     };
 
     // Camera sub-track parameter definitions
@@ -42183,6 +42734,7 @@
     // Set of "objectName:prop:frame" key strings.
     const tlSelectedKfs = new Set();
     let _tlLastClickedKf = null; // { objectName, prop, frame, kf } — for interp dropdown / input editing
+    let _tlSelectedSegment = null; // { objectName, prop, kf, nextKf, lineEl }
 
     const _kfKey = (obj, prop, frame) => `${obj}:${prop}:${frame}`;
 
@@ -42236,22 +42788,17 @@
           if (sel) sel.classList.add('selected');
         }
       }
-      // Show interp dropdown synced to last-clicked keyframe
-      if (_tlLastClickedKf) {
-        tlInterpSelect.value = _tlLastClickedKf.kf.interp || 'linear';
-        tlInterpSelect.classList.add('visible');
-      } else {
-        tlInterpSelect.classList.remove('visible');
-      }
     };
 
     const tlClearKfSelection = () => {
-      if (tlSelectedKfs.size === 0) return;
+      if (tlSelectedKfs.size === 0 && !_tlSelectedSegment) return;
       tlSelectedKfs.clear();
       _tlLastClickedKf = null;
+      if (_tlSelectedSegment) {
+        if (_tlSelectedSegment.lineEl) _tlSelectedSegment.lineEl.classList.remove('selected');
+        _tlSelectedSegment = null;
+      }
       document.querySelectorAll('.tl-keyframe.selected').forEach(el => el.classList.remove('selected'));
-      // Hide interp dropdown
-      tlInterpSelect.classList.remove('visible');
       tlUpdateTrackInputs();
     };
 
@@ -42900,9 +43447,11 @@
             const line = document.createElement('div');
             
             // Determine if there is motion between these two keyframes
-            // Motion occurs if values differ AND interpolation is not 'constant'
+            // A constant segment (cubicBezier [[1,0],[1,0]]) holds value — treat as no motion
             let hasMotion = false;
-            if (kf.interp !== 'constant') {
+            const isConstantSeg = kf.cubicBezier &&
+              JSON.stringify(kf.cubicBezier) === JSON.stringify([[1, 0], [1, 0]]);
+            if (!isConstantSeg) {
               if (Array.isArray(kf.value) && Array.isArray(nextKf.value)) {
                 hasMotion = JSON.stringify(kf.value) !== JSON.stringify(nextKf.value);
               } else {
@@ -42913,19 +43462,48 @@
             line.className = 'tl-kf-line ' + (hasMotion ? 'solid' : 'dotted');
             line.style.left = x1 + 'px';
             line.style.width = (x2 - x1) + 'px';
+
+            if (_tlSelectedSegment && _tlSelectedSegment.objectName === objectName && _tlSelectedSegment.prop === prop && _tlSelectedSegment.kf === kf) {
+              line.classList.add('selected');
+              _tlSelectedSegment.lineEl = line;
+            }
             line.addEventListener('pointerdown', (e) => {
               e.stopPropagation();
               e.preventDefault();
-              _openCurveEditor(line, kf);
+              
+              // Clear previous selection
+              if (_tlSelectedSegment && _tlSelectedSegment.lineEl) {
+                _tlSelectedSegment.lineEl.classList.remove('selected');
+              }
+              tlClearKfSelection();
+              
+              // Set new selection
+              _tlSelectedSegment = { objectName, prop, kf, nextKf, lineEl: line };
+              line.classList.add('selected');
+              
+              // Also open curve editor on click
+              _openCurveEditor(line, kf, nextKf.frame);
             });
             row.appendChild(line);
           }
 
-          for (const kf of keyframes) {
-            const diamond = document.createElement('div');
+          for (let i = 0; i < keyframes.length; i++) {
+            const kf = keyframes[i];
+            const prevKf = i > 0 ? keyframes[i - 1] : null;
+            const isCurve = (k) => {
+              if (!k || !k.cubicBezier) return false;
+              const preset = _matchPreset(k.cubicBezier, k.curveAlgorithm);
+              return (preset !== 'linear' && preset !== 'constant');
+            };
+            const incomingCurve = isCurve(prevKf);
+            const outgoingCurve = isCurve(kf);
+            
+            const iconInterp = 'linear';
+            
             const interpType = kf.interp || 'linear';
+            const diamond = document.createElement('div');
             diamond.className = 'tl-keyframe';
-            diamond.innerHTML = _tlKeyframeIcons[interpType] || _tlKeyframeIcons.linear;
+            diamond.innerHTML = _tlKeyframeIcons[iconInterp] || _tlKeyframeIcons.linear;
             diamond.title = `${prop} @ frame ${kf.frame}${_tlInterpLabel[interpType] || ''}`;
             diamond.dataset.obj = objectName;
             diamond.dataset.prop = prop;
@@ -42942,30 +43520,19 @@
               e.stopPropagation();
               e.preventDefault();
 
-              // --- Option+click → show keyframe context menu ---
-              if (e.altKey) {
-                const menu = document.getElementById('tlKeyframeMenu');
-                // Set anchor on the clicked diamond
-                diamond.style.anchorName = '--tl-kf-anchor';
-                // Update active state on menu buttons
-                menu.querySelectorAll('button').forEach(btn => {
-                  btn.classList.toggle('active', btn.dataset.interp === (kf.interp || 'linear'));
-                });
-                // Store reference for menu action
-                menu._kfRef = { objectName, prop, frame: kf.frame, kf, diamondEl: diamond };
-                menu.showPopover();
-                // Clean up anchor on close
-                menu.addEventListener('toggle', (te) => {
-                  if (te.newState === 'closed') {
-                    diamond.style.anchorName = '';
-                  }
-                }, { once: true });
-                return;
-              }
+
 
               const thisKey = _kfKey(objectName, prop, kf.frame);
               const isAlreadySelected = tlSelectedKfs.has(thisKey);
               const isMultiSelected = tlSelectedKfs.size > 1;
+
+              // Shift+pointerdown: immediately add to selection so drag
+              // moves ALL selected nodes together (standard multi-select behavior)
+              if (e.shiftKey && !isAlreadySelected) {
+                tlSelectedKfs.add(thisKey);
+                _tlLastClickedKf = { objectName, prop, frame: kf.frame, kf };
+                diamond.classList.add('selected');
+              }
 
               const startX = e.clientX;
               const startFrame = kf.frame;
@@ -42987,8 +43554,8 @@
                 if (!isDragging) {
                   isDragging = true;
 
-                  // If dragging a non-selected keyframe, make it the only selection
-                  if (!isAlreadySelected) {
+                  // If dragging a non-selected keyframe (without shift), make it the only selection
+                  if (!isAlreadySelected && !e.shiftKey) {
                     tlSelectKf(objectName, prop, startFrame, kf, false);
                   }
 
@@ -43052,7 +43619,12 @@
 
                 if (!isDragging) {
                   // Click — select this keyframe (Shift for multi-select)
-                  tlSelectKf(objectName, prop, startFrame, kf, e.shiftKey);
+                  if (e.shiftKey && !isAlreadySelected) {
+                    // Already added during pointerdown; just update visuals/inputs
+                    tlUpdateTrackInputs();
+                  } else {
+                    tlSelectKf(objectName, prop, startFrame, kf, e.shiftKey);
+                  }
                 } else if (currentDelta !== 0) {
                   // Drag completed — move all selected keyframes by delta
                   pushAnimUndoState('Move keyframes');
@@ -43091,11 +43663,6 @@
                   }
                   tlRenderTracks();
                   tlUpdateTrackInputs();
-                  // Show interp dropdown
-                  if (_tlLastClickedKf) {
-                    tlInterpSelect.value = _tlLastClickedKf.kf.interp || 'linear';
-                    tlInterpSelect.classList.add('visible');
-                  }
                 } else {
                   // Dragged back to original — treat as click
                   if (!e.shiftKey && isMultiSelected) {
@@ -43462,9 +44029,7 @@
           const ref = _tlFindKfByKey(k);
           if (ref) tlRemoveKeyframe(ref.objectName, ref.prop, ref.frame);
         }
-        tlSelectedKfs.clear();
-        _tlLastClickedKf = null;
-        tlInterpSelect.classList.remove('visible');
+        tlClearKfSelection();
         tlRenderTracks();
         tlUpdateTrackInputs();
         tlApplyFrame(animationTimeline.currentFrame);
@@ -43579,26 +44144,7 @@
     });
     tlAutoKeyframingCb.addEventListener('click', (e) => e.stopPropagation());
 
-    // Interpolation type dropdown (visible when keyframe selected)
-    tlInterpSelect.addEventListener('change', () => {
-      if (tlSelectedKfs.size === 0) return;
-      const newInterp = tlInterpSelect.value;
-      pushAnimUndoState('change interp');
-      // Apply to all selected keyframes
-      for (const k of tlSelectedKfs) {
-        const ref = _tlFindKfByKey(k);
-        if (!ref) continue;
-        ref.kf.interp = newInterp;
-        const diamondEl = document.querySelector(`.tl-keyframe[data-obj="${ref.objectName}"][data-prop="${ref.prop}"][data-frame="${ref.frame}"]`);
-        if (diamondEl) {
-          diamondEl.innerHTML = _tlKeyframeIcons[newInterp] || _tlKeyframeIcons.linear;
-          diamondEl.title = diamondEl.title.replace(/ \(.*\)$/, '') + (_tlInterpLabel[newInterp] || '');
-        }
-      }
-      tlRenderTracks();
-      tlUpdateTrackInputs();
-    });
-    tlInterpSelect.addEventListener('click', (e) => e.stopPropagation());
+
 
     // (Popup and delete button removed — per-property toggle buttons handle add/remove)
 
@@ -43615,9 +44161,7 @@
           const ref = _tlFindKfByKey(k);
           if (ref) tlRemoveKeyframe(ref.objectName, ref.prop, ref.frame);
         }
-        tlSelectedKfs.clear();
-        _tlLastClickedKf = null;
-        tlInterpSelect.classList.remove('visible');
+        tlClearKfSelection();
         tlRenderTracks();
         tlUpdateTrackInputs();
         tlApplyFrame(animationTimeline.currentFrame);
@@ -43643,7 +44187,7 @@
               value: Array.isArray(k.value) ? [...k.value] : k.value,
             };
             if (k.interp && k.interp !== 'linear') entry.interp = k.interp;
-            if (k.cubicBezier) entry.cubicBezier = [...k.cubicBezier];
+            if (k.cubicBezier) entry.cubicBezier = k.cubicBezier.map(p => Array.isArray(p) ? [...p] : p);
             if (k.curveAlgorithm && k.curveAlgorithm !== 'bezier') entry.curveAlgorithm = k.curveAlgorithm;
             return entry;
           });
@@ -43653,7 +44197,22 @@
     };
 
     const tlDeserialize = (data) => {
-      if (!data) return;
+      if (!data) {
+        // No animation data — clear everything
+        animationTimeline.currentFrame = 0;
+        animationTimeline.tracks.clear();
+        _tlOriginalValues.clear();
+        _tlGroupCollapsed.clear();
+        _tlSubGroupCollapsed.clear();
+        tlClearKfSelection();
+        _tlFocusedTrack = null;
+        tlUpdateUI();
+        if (tlExpanded) {
+          tlDrawRuler();
+          tlRenderTracks();
+        }
+        return;
+      }
       animationTimeline.totalFrames = 360; // fixed; not user-configurable
       animationTimeline.playbackRange = data.playbackRange || 360;
       // Migrate old data: if playbackRange was exactly 240 (old default), upgrade to 360.
@@ -43675,10 +44234,26 @@
               const kf = {
                 frame: k.frame,
                 value: Array.isArray(k.value) ? [...k.value] : k.value,
-                interp: k.interp || 'linear',
+                interp: 'linear',
               };
-              if (k.cubicBezier) kf.cubicBezier = [...k.cubicBezier];
+              if (k.cubicBezier) kf.cubicBezier = _migrateBezierData(k.cubicBezier);
               if (k.curveAlgorithm) kf.curveAlgorithm = k.curveAlgorithm;
+              // Migrate all legacy interp strings to modern cubicBezier presets
+              if (!kf.cubicBezier && k.interp) {
+                if (k.interp === 'step' || k.interp === 'constant') {
+                  kf.cubicBezier = [[1, 0], [1, 0]];
+                  kf.curveAlgorithm = 'linear';
+                } else if (k.interp === 'easeIn') {
+                  kf.cubicBezier = [[0.55, 0], [1, 1]];
+                  kf.curveAlgorithm = 'bezier';
+                } else if (k.interp === 'easeOut') {
+                  kf.cubicBezier = [[0, 0], [0.45, 1]];
+                  kf.curveAlgorithm = 'bezier';
+                } else if (k.interp === 'easeInOut') {
+                  kf.cubicBezier = [[0.45, 0], [0.55, 1]];
+                  kf.curveAlgorithm = 'bezier';
+                }
+              }
               return kf;
             }));
           }

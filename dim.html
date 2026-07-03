@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<!-- dim v20260703e -->
+<!-- dim v20260703g -->
+
 <!--
   MIT License
 
@@ -3672,7 +3673,7 @@
       height: 10px;
       margin-top: -5px;
       z-index: 0;
-      cursor: pointer;
+      cursor: ew-resize;
       display: flex;
       align-items: center;
     }
@@ -41148,7 +41149,8 @@
     const _tlKeyframeIcons = {
       linear:    '<svg viewBox="0 0 10 10"><rect x="1.46" y="1.46" width="7.07" height="7.07" transform="translate(-2.07 5) rotate(-45)"/></svg>',
       curve:     '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"/></svg>',
-      constant:  '<svg viewBox="0 0 10 10"><path d="M5,0 A5,5 0 0,0 5,10 L10,10 L10,0 Z"/></svg>',
+      constant:  '<svg viewBox="0 0 10 10"><rect width="10" height="10"/></svg>',
+      square:    '<svg viewBox="0 0 10 10"><rect width="10" height="10"/></svg>',
     };
     const _tlInterpLabel = { linear: '', curve: ' (curve)', constant: ' (constant)' };
 
@@ -41168,6 +41170,7 @@
     const tlCurveCopy = document.getElementById('tlCurveCopy');
     const tlCurvePaste = document.getElementById('tlCurvePaste');
     let _activeCurveKf = null;
+    Object.defineProperty(window, '_activeCurveKf', { get: () => _activeCurveKf, configurable: true });
     let _ceSelectedIdx = 0;  // index into kf.cubicBezier (which handle is selected)
     let _curveClipboard = null; // { points: [[x,y],...], algorithm: string }
     let _activeCurveStartFrame = 0;
@@ -41581,7 +41584,7 @@
       tlCurveAlgorithm.value = kf.curveAlgorithm;
       _ceSelectedIdx = Math.min(_ceSelectedIdx, kf.cubicBezier.length - 1);
       _updateCurveSvg(kf.cubicBezier);
-      tlCurvePreset.value = (kf.curveAlgorithm === 'bezier') ? _matchPreset(kf.cubicBezier) : 'custom';
+      tlCurvePreset.value = _matchPreset(kf.cubicBezier, kf.curveAlgorithm);
       // Show if not already visible; otherwise just load the new data
       if (!tlCurveEditor.matches(':popover-open')) {
         tlCurveEditor.showPopover();
@@ -41589,12 +41592,13 @@
       _ceUpdateSeekLine();
     };
 
-    // Close button
+    // Close button — hides the popover AND clears the active keyframe reference
     document.getElementById('tlCurveClose').addEventListener('click', () => {
+      _activeCurveKf = null;
       tlCurveEditor.hidePopover();
     });
 
-    // When curve editor closes, deselect the segment line
+    // When curve editor closes, deselect the segment line and re-render track icons.
     tlCurveEditor.addEventListener('toggle', (e) => {
       if (e.newState === 'closed') {
         if (_tlSelectedSegment && _tlSelectedSegment.lineEl) {
@@ -41602,6 +41606,7 @@
         }
         _tlSelectedSegment = null;
         _activeCurveKf = null;
+        tlRenderTracks();
       }
     });
 
@@ -41615,13 +41620,10 @@
       _activeCurveKf.cubicBezier = def.pts.map(p => [...p]);
       _activeCurveKf.curveAlgorithm = def.algo;
       tlCurveAlgorithm.value = def.algo;
-      
-      // interp field is vestigial — cubicBezier is the source of truth
-      
       _ceSelectedIdx = 0;
       _updateCurveSvg(_activeCurveKf.cubicBezier);
-      tlApplyFrame(tlCurrentFrame, true);
-      updateVisualsRecursive();
+      tlApplyFrame(animationTimeline.currentFrame);
+      sceneObjects.forEach(obj => updateVisualsRecursive(obj));
       tlRenderTracks();
       tlUpdateTrackInputs();
     });
@@ -41633,8 +41635,8 @@
       _activeCurveKf.curveAlgorithm = tlCurveAlgorithm.value;
       _updateCurveSvg(_activeCurveKf.cubicBezier);
       tlCurvePreset.value = _matchPreset(_activeCurveKf.cubicBezier, tlCurveAlgorithm.value);
-      tlApplyFrame(tlCurrentFrame, true);
-      updateVisualsRecursive();
+      tlApplyFrame(animationTimeline.currentFrame, true);
+      sceneObjects.forEach(obj => updateVisualsRecursive(obj));
       tlRenderTracks();
       tlUpdateTrackInputs();
     });
@@ -41647,8 +41649,9 @@
       _ceSelectedIdx = _activeCurveKf.cubicBezier.length - 1;
       _updateCurveSvg(_activeCurveKf.cubicBezier);
       tlCurvePreset.value = 'custom';
-      tlApplyFrame(tlCurrentFrame, true);
-      updateVisualsRecursive();
+      tlApplyFrame(animationTimeline.currentFrame, true);
+      sceneObjects.forEach(obj => updateVisualsRecursive(obj));
+      tlRenderTracks();
       tlUpdateTrackInputs();
     });
 
@@ -41662,8 +41665,9 @@
       if (_ceSelectedIdx >= pts.length) _ceSelectedIdx = pts.length - 1;
       _updateCurveSvg(pts);
       tlCurvePreset.value = (_activeCurveKf.curveAlgorithm === 'bezier') ? _matchPreset(pts) : 'custom';
-      tlApplyFrame(tlCurrentFrame, true);
-      updateVisualsRecursive();
+      tlApplyFrame(animationTimeline.currentFrame, true);
+      sceneObjects.forEach(obj => updateVisualsRecursive(obj));
+      tlRenderTracks();
       tlUpdateTrackInputs();
     });
 
@@ -41681,8 +41685,8 @@
       _updateCurveSvg(pts);
       const algo = _activeCurveKf.curveAlgorithm || 'bezier';
       tlCurvePreset.value = (algo === 'bezier') ? _matchPreset(pts) : 'custom';
-      tlApplyFrame(tlCurrentFrame, true);
-      updateVisualsRecursive();
+      tlApplyFrame(animationTimeline.currentFrame, true);
+      sceneObjects.forEach(obj => updateVisualsRecursive(obj));
       tlUpdateTrackInputs();
     });
 
@@ -41697,8 +41701,9 @@
       _updateCurveSvg(pts);
       const algo = _activeCurveKf.curveAlgorithm || 'bezier';
       tlCurvePreset.value = (algo === 'bezier') ? _matchPreset(pts) : 'custom';
-      tlApplyFrame(tlCurrentFrame, true);
-      updateVisualsRecursive();
+      tlApplyFrame(animationTimeline.currentFrame, true);
+      sceneObjects.forEach(obj => updateVisualsRecursive(obj));
+      tlRenderTracks();
       tlUpdateTrackInputs();
     });
 
@@ -41723,8 +41728,9 @@
       _ceSelectedIdx = 0;
       _updateCurveSvg(_activeCurveKf.cubicBezier);
       tlCurvePreset.value = (_curveClipboard.algorithm === 'bezier') ? _matchPreset(_activeCurveKf.cubicBezier) : 'custom';
-      tlApplyFrame(tlCurrentFrame, true);
-      updateVisualsRecursive();
+      tlApplyFrame(animationTimeline.currentFrame, true);
+      sceneObjects.forEach(obj => updateVisualsRecursive(obj));
+      tlRenderTracks();
       tlUpdateTrackInputs();
     });
 
@@ -41739,8 +41745,9 @@
       }
       _updateCurveSvg(pts);
       tlCurvePreset.value = (_activeCurveKf.curveAlgorithm === 'bezier') ? _matchPreset(pts) : 'custom';
-      tlApplyFrame(tlCurrentFrame, true);
-      updateVisualsRecursive();
+      tlApplyFrame(animationTimeline.currentFrame, true);
+      sceneObjects.forEach(obj => updateVisualsRecursive(obj));
+      tlRenderTracks();
       tlUpdateTrackInputs();
     };
     tlCurvePtX.addEventListener('change', _onCurveInputChange);
@@ -41836,8 +41843,9 @@
 
       _updateCurveSvg(pts);
       tlCurvePreset.value = (algo === 'bezier') ? _matchPreset(pts) : 'custom';
-      tlApplyFrame(tlCurrentFrame, true);
-      updateVisualsRecursive();
+      tlApplyFrame(animationTimeline.currentFrame, true);
+      sceneObjects.forEach(obj => updateVisualsRecursive(obj));
+      tlRenderTracks();
     };
 
     document.getElementById('tlCurveSvg').addEventListener('pointermove', _onCurveDragMove);
@@ -41846,6 +41854,7 @@
     document.addEventListener('pointerup', () => {
       if (_dragHandle !== null) {
         _dragHandle = null;
+        tlRenderTracks();
         tlUpdateTrackInputs();
       }
     });
@@ -42736,6 +42745,52 @@
     let _tlLastClickedKf = null; // { objectName, prop, frame, kf } — for interp dropdown / input editing
     let _tlSelectedSegment = null; // { objectName, prop, kf, nextKf, lineEl }
 
+    // --- Segment push / ripple helper ---
+    // Moves the two-keyframe segment (indices segL, segR in `keyframes`) by `delta` frames.
+    // If the moved endpoints would collide with neighbours, those are pushed recursively.
+    // Returns an array of { kf, newFrame } for every keyframe in the track (unchanged ones
+    // will have newFrame === kf.frame). Returns null if the move is impossible (boundary).
+    const _tlPushKeyframes = (keyframes, segL, segR, delta, totalFrames) => {
+      if (delta === 0) return keyframes.map(kf => ({ kf, newFrame: kf.frame }));
+
+      const newLeft  = keyframes[segL].frame + delta;
+      const newRight = keyframes[segR].frame + delta;
+
+      // Clamp: reject the entire move if either endpoint goes out of bounds
+      if (newLeft < 0 || newRight > totalFrames - 1) return null;
+
+      const disp = new Array(keyframes.length).fill(0);
+      disp[segL] = delta;
+      disp[segR] = delta;
+
+      // Push right neighbours when moving right (delta > 0)
+      if (delta > 0) {
+        for (let i = segR + 1; i < keyframes.length; i++) {
+          const requiredFrame = keyframes[i - 1].frame + disp[i - 1] + 1;
+          if (keyframes[i].frame < requiredFrame) {
+            disp[i] = requiredFrame - keyframes[i].frame;
+            // Boundary: if a pushed kf would go past the last frame, reject the whole move
+            if (keyframes[i].frame + disp[i] > totalFrames - 1) return null;
+          }
+        }
+      }
+
+      // Push left neighbours when moving left (delta < 0)
+      if (delta < 0) {
+        for (let i = segL - 1; i >= 0; i--) {
+          const requiredFrame = keyframes[i + 1].frame + disp[i + 1] - 1;
+          if (keyframes[i].frame > requiredFrame) {
+            disp[i] = requiredFrame - keyframes[i].frame;
+            // Boundary: if a pushed kf would go before frame 0, reject the whole move
+            if (keyframes[i].frame + disp[i] < 0) return null;
+          }
+        }
+      }
+
+      return keyframes.map((kf, i) => ({ kf, newFrame: kf.frame + disp[i] }));
+    };
+
+
     const _kfKey = (obj, prop, frame) => `${obj}:${prop}:${frame}`;
 
     // Find a kf reference object by key (searches animationTimeline.tracks)
@@ -43470,19 +43525,209 @@
             line.addEventListener('pointerdown', (e) => {
               e.stopPropagation();
               e.preventDefault();
-              
+
               // Clear previous selection
               if (_tlSelectedSegment && _tlSelectedSegment.lineEl) {
                 _tlSelectedSegment.lineEl.classList.remove('selected');
               }
               tlClearKfSelection();
-              
+
               // Set new selection
               _tlSelectedSegment = { objectName, prop, kf, nextKf, lineEl: line };
               line.classList.add('selected');
-              
-              // Also open curve editor on click
-              _openCurveEditor(line, kf, nextKf.frame);
+
+              // ----- Drag-to-move segment -----
+              line.setPointerCapture(e.pointerId);
+              const startX     = e.clientX;
+              const segSpan    = nextKf.frame - kf.frame;   // fixed frame width of segment
+              let isDragging   = false;
+              let currentDelta = 0;
+              let segGhostL    = null;  // ghost at original left kf position
+              let segGhostR    = null;  // ghost at original right kf position
+              const origLineLeft  = parseFloat(line.style.left);
+              const origLineWidth = parseFloat(line.style.width);
+
+              const onSegMove = (me) => {
+                const dx = me.clientX - startX;
+                if (!isDragging && Math.abs(dx) < 3) return;
+
+                if (!isDragging) {
+                  isDragging = true;
+
+                  // Ghost for left keyframe
+                  const leftEl = row.querySelector(`.tl-keyframe[data-frame="${kf.frame}"]`);
+                  if (leftEl) {
+                    segGhostL = document.createElement('div');
+                    segGhostL.className = 'tl-keyframe-ghost';
+                    segGhostL.innerHTML = leftEl.innerHTML;
+                    segGhostL.style.left = leftEl.style.left;
+                    row.appendChild(segGhostL);
+                  }
+                  // Ghost for right keyframe
+                  const rightEl = row.querySelector(`.tl-keyframe[data-frame="${nextKf.frame}"]`);
+                  if (rightEl) {
+                    segGhostR = document.createElement('div');
+                    segGhostR.className = 'tl-keyframe-ghost';
+                    segGhostR.innerHTML = rightEl.innerHTML;
+                    segGhostR.style.left = rightEl.style.left;
+                    row.appendChild(segGhostR);
+                  }
+                }
+
+                // Compute target frame delta from mouse position
+                const areaRect = tlTracksArea.getBoundingClientRect();
+                const totalF   = animationTimeline.totalFrames;
+                const pxPerFrame = areaRect.width / (totalF - 1);
+                const rawDelta   = Math.round(dx / pxPerFrame);
+
+                // Get live keyframe list and find current indices
+                const objTracks = animationTimeline.tracks.get(objectName);
+                const kfs = objTracks ? objTracks.get(prop) : null;
+                if (!kfs) return;
+                const segLIdx = kfs.findIndex(k => k === kf);
+                const segRIdx = kfs.findIndex(k => k === nextKf);
+                if (segLIdx < 0 || segRIdx < 0) return;
+
+                // Find the largest valid delta (clamp if null is returned)
+                let validDelta = rawDelta;
+                if (_tlPushKeyframes(kfs, segLIdx, segRIdx, rawDelta, totalF) === null) {
+                  // Binary search for largest magnitude that works
+                  const sign = rawDelta > 0 ? 1 : -1;
+                  validDelta = 0;
+                  for (let d = Math.abs(rawDelta) - 1; d >= 1; d--) {
+                    if (_tlPushKeyframes(kfs, segLIdx, segRIdx, sign * d, totalF) !== null) {
+                      validDelta = sign * d;
+                      break;
+                    }
+                  }
+                }
+                currentDelta = validDelta;
+
+                // Visual-only update — move the line and both diamond icons
+                const newLeft = origLineLeft + currentDelta * pxPerFrame;
+                line.style.left = newLeft + 'px';
+
+                // Move left diamond
+                const leftEl = row.querySelector(`.tl-keyframe[data-frame="${kf.frame}"]`);
+                if (leftEl && segGhostL) {
+                  const origLLeft = parseFloat(segGhostL.style.left);
+                  leftEl.style.left = (origLLeft + currentDelta * pxPerFrame) + 'px';
+                }
+                // Move right diamond
+                const rightEl = row.querySelector(`.tl-keyframe[data-frame="${nextKf.frame}"]`);
+                if (rightEl && segGhostR) {
+                  const origRLeft = parseFloat(segGhostR.style.left);
+                  rightEl.style.left = (origRLeft + currentDelta * pxPerFrame) + 'px';
+                }
+              };
+
+              const onSegUp = (ue) => {
+                line.releasePointerCapture(ue.pointerId);
+                line.removeEventListener('pointermove', onSegMove);
+                line.removeEventListener('pointerup', onSegUp);
+                document.removeEventListener('keydown', onSegEscape);
+
+                if (segGhostL) { segGhostL.remove(); segGhostL = null; }
+                if (segGhostR) { segGhostR.remove(); segGhostR = null; }
+
+                if (!isDragging) {
+                  // Plain click — open curve editor
+                  _openCurveEditor(line, kf, nextKf.frame);
+                  return;
+                }
+
+                if (currentDelta === 0) {
+                  // Moved back to origin — restore line position and open editor
+                  line.style.left = origLineLeft + 'px';
+                  line.style.width = origLineWidth + 'px';
+                  _openCurveEditor(line, kf, nextKf.frame);
+                  return;
+                }
+
+                // Apply the push/move
+                const objTracks = animationTimeline.tracks.get(objectName);
+                const kfs = objTracks ? objTracks.get(prop) : null;
+                if (!kfs) return;
+                const segLIdx = kfs.findIndex(k => k === kf);
+                const segRIdx = kfs.findIndex(k => k === nextKf);
+                if (segLIdx < 0 || segRIdx < 0) return;
+
+                const totalF = animationTimeline.totalFrames;
+                const moves = _tlPushKeyframes(kfs, segLIdx, segRIdx, currentDelta, totalF);
+                if (!moves) return; // shouldn't happen but guard anyway
+
+                // Only process keyframes that actually move
+                const changed = moves.filter(m => m.newFrame !== m.kf.frame);
+                if (changed.length === 0) return;
+
+                pushAnimUndoState('Move segment');
+
+                // Snapshot full kf data (value, interp, curve) before removing
+                const snapshots = changed.map(({ kf: k, newFrame }) => ({
+                  frame: k.frame,
+                  newFrame,
+                  value: Array.isArray(k.value) ? [...k.value] : k.value,
+                  interp: k.interp || 'linear',
+                  cubicBezier: k.cubicBezier ? k.cubicBezier.map(p => [...p]) : undefined,
+                  curveAlgorithm: k.curveAlgorithm
+                }));
+
+                // Remove all affected frames first
+                for (const s of snapshots) tlRemoveKeyframe(objectName, prop, s.frame);
+
+                // Re-add at new frames, restoring full curve data
+                for (const s of snapshots) {
+                  tlAddKeyframe(objectName, prop, s.newFrame, s.value, s.interp);
+                  // Restore curve data that tlAddKeyframe doesn't carry
+                  if (s.cubicBezier || s.curveAlgorithm) {
+                    const newKfs = animationTimeline.tracks.get(objectName)?.get(prop);
+                    const newKf  = newKfs?.find(k => k.frame === s.newFrame);
+                    if (newKf) {
+                      if (s.cubicBezier)    newKf.cubicBezier    = s.cubicBezier;
+                      if (s.curveAlgorithm) newKf.curveAlgorithm = s.curveAlgorithm;
+                    }
+                  }
+                }
+
+                // Keep segment selected so user can immediately drag again
+                const newKfs2 = animationTimeline.tracks.get(objectName)?.get(prop);
+                const newKf_  = newKfs2?.find(k => k.frame === kf.frame + currentDelta);
+                const newNKf  = newKfs2?.find(k => k.frame === nextKf.frame + currentDelta);
+                if (newKf_ && newNKf) {
+                  _tlSelectedSegment = { objectName, prop, kf: newKf_, nextKf: newNKf, lineEl: null };
+                  // Sync curve editor seek window so the seekbar stays accurate after the move
+                  if (_activeCurveKf === kf) {
+                    _activeCurveKf = newKf_;
+                    _activeCurveStartFrame = newKf_.frame;
+                    _activeCurveEndFrame   = newNKf.frame;
+                    _ceUpdateSeekLine();
+                  }
+                } else {
+                  _tlSelectedSegment = null;
+                }
+
+                tlRenderTracks();
+                tlApplyFrame(animationTimeline.currentFrame);
+                sceneObjects.forEach(obj => updateVisualsRecursive(obj));
+              };
+
+              const onSegEscape = (ke) => {
+                if (ke.key !== 'Escape') return;
+                ke.preventDefault();
+                line.releasePointerCapture(e.pointerId);
+                line.removeEventListener('pointermove', onSegMove);
+                line.removeEventListener('pointerup', onSegUp);
+                document.removeEventListener('keydown', onSegEscape);
+                if (segGhostL) { segGhostL.remove(); segGhostL = null; }
+                if (segGhostR) { segGhostR.remove(); segGhostR = null; }
+                // Restore line visual
+                line.style.left  = origLineLeft  + 'px';
+                line.style.width = origLineWidth + 'px';
+              };
+
+              line.addEventListener('pointermove', onSegMove);
+              line.addEventListener('pointerup',   onSegUp);
+              document.addEventListener('keydown',  onSegEscape);
             });
             row.appendChild(line);
           }
@@ -43490,6 +43735,10 @@
           for (let i = 0; i < keyframes.length; i++) {
             const kf = keyframes[i];
             const prevKf = i > 0 ? keyframes[i - 1] : null;
+            const isConstant = (k) => {
+              if (!k || !k.cubicBezier) return false;
+              return _matchPreset(k.cubicBezier, k.curveAlgorithm) === 'constant';
+            };
             const isCurve = (k) => {
               if (!k || !k.cubicBezier) return false;
               const preset = _matchPreset(k.cubicBezier, k.curveAlgorithm);
@@ -43497,14 +43746,16 @@
             };
             const incomingCurve = isCurve(prevKf);
             const outgoingCurve = isCurve(kf);
-            
-            const iconInterp = 'linear';
-            
+
+            // Square: right-side arrival keyframe of a constant segment
+            const incomingConstant = isConstant(prevKf);
+            const iconInterp = incomingConstant ? 'constant' : 'linear';
+
             const interpType = kf.interp || 'linear';
             const diamond = document.createElement('div');
             diamond.className = 'tl-keyframe';
             diamond.innerHTML = _tlKeyframeIcons[iconInterp] || _tlKeyframeIcons.linear;
-            diamond.title = `${prop} @ frame ${kf.frame}${_tlInterpLabel[interpType] || ''}`;
+            diamond.title = `${prop} @ frame ${kf.frame}${incomingConstant ? ' (constant arrival)' : ''}`;
             diamond.dataset.obj = objectName;
             diamond.dataset.prop = prop;
             diamond.dataset.frame = kf.frame;

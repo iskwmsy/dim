@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260703g -->
+<!-- dim v20260703i -->
 
 <!--
   MIT License
@@ -30750,11 +30750,19 @@
       // Check if pivot actually changed
       if (Math.abs(deltaPivot[0]) < 0.0001 && Math.abs(deltaPivot[1]) < 0.0001 && Math.abs(deltaPivot[2]) < 0.0001) return;
 
-      // Position Compensation: P' = P + (R * S) * (Pivot' - Pivot)
+      // Position Compensation: P' = P + (R * orientedS) * (Pivot' - Pivot)
+      // orientedS = RPivot * S * invRPivot  (matches getLocalMatrix exactly)
       const S = createScaleMatrix(obj.scale[0], obj.scale[1], obj.scale[2]);
-      const RS = matrixMultiply(obj.rotationMatrix, S);
-
-      // vectorApplyMatrix expects 3x3 or 4x4. Our matrices are 4x4.
+      const RPivot = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
+      // Inverse of an orthogonal matrix is its transpose
+      const invRPivot = [
+        [RPivot[0][0], RPivot[1][0], RPivot[2][0], 0],
+        [RPivot[0][1], RPivot[1][1], RPivot[2][1], 0],
+        [RPivot[0][2], RPivot[1][2], RPivot[2][2], 0],
+        [0, 0, 0, 1]
+      ];
+      const orientedS = matrixMultiply(RPivot, matrixMultiply(S, invRPivot));
+      const RS = matrixMultiply(obj.rotationMatrix, orientedS);
       const positionDelta = vectorApplyMatrix(deltaPivot, RS);
 
       obj.position = vectorAdd(obj.position, positionDelta);
@@ -36846,14 +36854,28 @@
         }
 
         // Convert world delta to local-space pivot delta
-        const S = createScaleMatrix(selectedObject.scale[0], selectedObject.scale[1], selectedObject.scale[2]);
-        const RS = matrixMultiply(selectedObject.rotationMatrix, S);
-        const invRS = matrixInverse(RS);
-        if (invRS) {
-          const pivotDelta = vectorApplyMatrix(totalWorldDelta, invRS);
+        // Bug 3 fix: use R * orientedS (RPivot*S*invRPivot) instead of R * S
+        const S_piv = createScaleMatrix(selectedObject.scale[0], selectedObject.scale[1], selectedObject.scale[2]);
+        const RPiv = matrixFromEuler(selectedObject.pivotRotation || [0, 0, 0]);
+        const invRPiv = [
+          [RPiv[0][0], RPiv[1][0], RPiv[2][0], 0],
+          [RPiv[0][1], RPiv[1][1], RPiv[2][1], 0],
+          [RPiv[0][2], RPiv[1][2], RPiv[2][2], 0],
+          [0, 0, 0, 1]
+        ];
+        const orientedS_piv = matrixMultiply(RPiv, matrixMultiply(S_piv, invRPiv));
+        const RS_piv = matrixMultiply(selectedObject.rotationMatrix, orientedS_piv);
+        const invRS_piv = matrixInverse(RS_piv);
+        if (invRS_piv) {
+          const pivotDelta = vectorApplyMatrix(totalWorldDelta, invRS_piv);
           const startPivot = selectedObject._dragStartPivot || [0, 0, 0];
           const newPivot = vectorAdd(startPivot, pivotDelta);
-          setObjectPivot(selectedObject, newPivot);
+          // Bug 4 fix: write pivot + position directly from drag-start baseline
+          // (no incremental setObjectPivot calls that accumulate error per frame)
+          const startPos = selectedObject.dragStartPos || selectedObject.position;
+          const totalPivotDelta = vectorSubtract(newPivot, startPivot);
+          selectedObject.pivot = newPivot;
+          selectedObject.position = vectorAdd(startPos, vectorApplyMatrix(totalPivotDelta, RS_piv));
         }
 
         updatePropertiesPanel();
@@ -36919,14 +36941,27 @@
               }
 
               // Convert world delta to local pivot delta
-              const S = createScaleMatrix(selectedObject.scale[0], selectedObject.scale[1], selectedObject.scale[2]);
-              const RS = matrixMultiply(selectedObject.rotationMatrix, S);
-              const invRS = matrixInverse(RS);
-              if (invRS) {
-                const pivotDelta = vectorApplyMatrix(totalWorldDelta, invRS);
+              // Bug 3 fix: use R * orientedS (RPivot*S*invRPivot) instead of R * S
+              const S_piv2 = createScaleMatrix(selectedObject.scale[0], selectedObject.scale[1], selectedObject.scale[2]);
+              const RPiv2 = matrixFromEuler(selectedObject.pivotRotation || [0, 0, 0]);
+              const invRPiv2 = [
+                [RPiv2[0][0], RPiv2[1][0], RPiv2[2][0], 0],
+                [RPiv2[0][1], RPiv2[1][1], RPiv2[2][1], 0],
+                [RPiv2[0][2], RPiv2[1][2], RPiv2[2][2], 0],
+                [0, 0, 0, 1]
+              ];
+              const orientedS_piv2 = matrixMultiply(RPiv2, matrixMultiply(S_piv2, invRPiv2));
+              const RS_piv2 = matrixMultiply(selectedObject.rotationMatrix, orientedS_piv2);
+              const invRS_piv2 = matrixInverse(RS_piv2);
+              if (invRS_piv2) {
+                const pivotDelta = vectorApplyMatrix(totalWorldDelta, invRS_piv2);
                 const startPivot = selectedObject._dragStartPivot || [0, 0, 0];
                 const newPivot = vectorAdd(startPivot, pivotDelta);
-                setObjectPivot(selectedObject, newPivot);
+                // Bug 4 fix: write pivot + position directly from drag-start baseline
+                const startPos = selectedObject.dragStartPos || selectedObject.position;
+                const totalPivotDelta = vectorSubtract(newPivot, startPivot);
+                selectedObject.pivot = newPivot;
+                selectedObject.position = vectorAdd(startPos, vectorApplyMatrix(totalPivotDelta, RS_piv2));
               }
             }
           }
@@ -36987,14 +37022,27 @@
               }
 
               // Convert world delta to local pivot delta
-              const S = createScaleMatrix(selectedObject.scale[0], selectedObject.scale[1], selectedObject.scale[2]);
-              const RS = matrixMultiply(selectedObject.rotationMatrix, S);
-              const invRS = matrixInverse(RS);
-              if (invRS) {
-                const pivotDelta = vectorApplyMatrix(totalWorldDelta, invRS);
+              // Bug 3 fix: use R * orientedS (RPivot*S*invRPivot) instead of R * S
+              const S_piv3 = createScaleMatrix(selectedObject.scale[0], selectedObject.scale[1], selectedObject.scale[2]);
+              const RPiv3 = matrixFromEuler(selectedObject.pivotRotation || [0, 0, 0]);
+              const invRPiv3 = [
+                [RPiv3[0][0], RPiv3[1][0], RPiv3[2][0], 0],
+                [RPiv3[0][1], RPiv3[1][1], RPiv3[2][1], 0],
+                [RPiv3[0][2], RPiv3[1][2], RPiv3[2][2], 0],
+                [0, 0, 0, 1]
+              ];
+              const orientedS_piv3 = matrixMultiply(RPiv3, matrixMultiply(S_piv3, invRPiv3));
+              const RS_piv3 = matrixMultiply(selectedObject.rotationMatrix, orientedS_piv3);
+              const invRS_piv3 = matrixInverse(RS_piv3);
+              if (invRS_piv3) {
+                const pivotDelta = vectorApplyMatrix(totalWorldDelta, invRS_piv3);
                 const startPivot = selectedObject._dragStartPivot || [0, 0, 0];
                 const newPivot = vectorAdd(startPivot, pivotDelta);
-                setObjectPivot(selectedObject, newPivot);
+                // Bug 4 fix: write pivot + position directly from drag-start baseline
+                const startPos = selectedObject.dragStartPos || selectedObject.position;
+                const totalPivotDelta = vectorSubtract(newPivot, startPivot);
+                selectedObject.pivot = newPivot;
+                selectedObject.position = vectorAdd(startPos, vectorApplyMatrix(totalPivotDelta, RS_piv3));
               }
             }
           }
@@ -42009,6 +42057,20 @@
             _tlOriginalValues.set(origKey, Array.isArray(origVal) ? [...origVal] : origVal);
           }
         }
+        // Bug 5 fix (Option A): if this is a pivot track, also snapshot position
+        // baseline so tlApplyFrame can use absolute compensation even when no
+        // position track exists.
+        if (property === 'pivot_x' || property === 'pivot_y' || property === 'pivot_z') {
+          for (const posProp of ['position_x', 'position_y', 'position_z']) {
+            const posOrigKey = objectName + '::' + posProp;
+            if (!_tlOriginalValues.has(posOrigKey)) {
+              const posOrigVal = _tlReadPropertyValue(objectName, posProp);
+              if (posOrigVal !== null) {
+                _tlOriginalValues.set(posOrigKey, posOrigVal);
+              }
+            }
+          }
+        }
       }
       const keyframes = objTracks.get(property);
       // Replace if keyframe already exists at this frame
@@ -42404,22 +42466,55 @@
         if (rotChanged) {
           obj.rotationMatrix = matrixFromEuler(obj.rotationEuler);
         }
-        // Apply pivot with position compensation (same formula as setObjectPivot)
-        // P' = P + R * S * (newPivot - oldPivot), skipping position-keyed axes
+        // Apply pivot with absolute position compensation (Bug 5+6 fix)
+        // Replaces incremental delta from live obj.pivot (which accumulated drift)
+        // with an absolute offset from the pre-animation rest baseline.
         if (newPivot) {
-          const oldPivot = obj.pivot || [0, 0, 0];
-          const deltaPivot = vectorSubtract(newPivot, oldPivot);
-          if (Math.abs(deltaPivot[0]) > 0.0001 || Math.abs(deltaPivot[1]) > 0.0001 || Math.abs(deltaPivot[2]) > 0.0001) {
-            const S = createScaleMatrix(obj.scale[0], obj.scale[1], obj.scale[2]);
-            const RS = matrixMultiply(obj.rotationMatrix, S);
-            const posDelta = vectorApplyMatrix(deltaPivot, RS);
-            for (let i = 0; i < 3; i++) {
-              if (!positionOverridden[i]) {
-                obj.position[i] += posDelta[i];
+          // Bug 6: early-exit if all three position axes are keyframed —
+          // authored positions fully own the world position; no compensation needed.
+          if (positionOverridden[0] && positionOverridden[1] && positionOverridden[2]) {
+            obj.pivot = newPivot;
+          } else {
+            // Read pre-animation pivot baseline from _tlOriginalValues
+            // (snapshotted by tlAddKeyframe when the pivot track was first created)
+            const origPivX = _tlOriginalValues.get(objectName + '::pivot_x');
+            const origPivY = _tlOriginalValues.get(objectName + '::pivot_y');
+            const origPivZ = _tlOriginalValues.get(objectName + '::pivot_z');
+            const basePivot = [
+              origPivX !== undefined ? origPivX : (obj.pivot?.[0] ?? 0),
+              origPivY !== undefined ? origPivY : (obj.pivot?.[1] ?? 0),
+              origPivZ !== undefined ? origPivZ : (obj.pivot?.[2] ?? 0)
+            ];
+            // Absolute delta from rest pivot — idempotent, no per-frame accumulation
+            const deltaPivot = vectorSubtract(newPivot, basePivot);
+            if (Math.abs(deltaPivot[0]) > 0.0001 || Math.abs(deltaPivot[1]) > 0.0001 || Math.abs(deltaPivot[2]) > 0.0001) {
+              const S = createScaleMatrix(obj.scale[0], obj.scale[1], obj.scale[2]);
+              const RPivotAnim = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
+              const invRPivotAnim = [
+                [RPivotAnim[0][0], RPivotAnim[1][0], RPivotAnim[2][0], 0],
+                [RPivotAnim[0][1], RPivotAnim[1][1], RPivotAnim[2][1], 0],
+                [RPivotAnim[0][2], RPivotAnim[1][2], RPivotAnim[2][2], 0],
+                [0, 0, 0, 1]
+              ];
+              const orientedSAnim = matrixMultiply(RPivotAnim, matrixMultiply(S, invRPivotAnim));
+              const RS = matrixMultiply(obj.rotationMatrix, orientedSAnim);
+              const posDelta = vectorApplyMatrix(deltaPivot, RS);
+              const posPropNames = ['position_x', 'position_y', 'position_z'];
+              for (let i = 0; i < 3; i++) {
+                if (!positionOverridden[i]) {
+                  // Bug 5 fix: absolute assignment from rest baseline — not additive.
+                  // Position baseline was snapshotted at pivot-track creation time.
+                  const origPos = _tlOriginalValues.get(objectName + '::' + posPropNames[i]);
+                  if (origPos !== undefined) {
+                    obj.position[i] = origPos + posDelta[i];
+                  }
+                  // else: no baseline available (should not occur with Option A snapshot)
+                }
+                // positionOverridden[i] == true → keyframed position owns this axis
               }
             }
+            obj.pivot = newPivot;
           }
-          obj.pivot = newPivot;
         }
 
         // --- Parametric shape params ---

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260704p -->
+<!-- dim v20260704r -->
 
 <!--
   MIT License
@@ -15553,11 +15553,19 @@
 
         let profileTotalLen = 0;
         const profileSegParams = [];
+        // Flat sample list of the profile polyline (points + unscaled cumulative
+        // arc length) — used by the true-size decal remap on tapered rails.
+        const profileSamplePts = [];
+        const profileSampleDist = [];
         effectiveProfileSegs.forEach(seg => {
           const steps = 16;
           let len = 0;
           const lut = [0];
           let prev = seg.p0;
+          if (profileSamplePts.length === 0) {
+            profileSamplePts.push([seg.p0[0], seg.p0[1], seg.p0[2] || 0]);
+            profileSampleDist.push(0);
+          }
           for (let i = 1; i <= steps; i++) {
             const t = i / steps;
             const mt = 1 - t;
@@ -15570,6 +15578,8 @@
             len += Math.sqrt(dx * dx + dy * dy + dz * dz);
             lut.push(len);
             prev = pt;
+            profileSamplePts.push(pt);
+            profileSampleDist.push(profileTotalLen + len);
           }
           profileSegParams.push({ startDist: profileTotalLen, length: len, lut, seg });
           profileTotalLen += len;
@@ -15759,6 +15769,107 @@
         } : null;
 
         const wrapCoord = (x) => ((x % 1) + 1) % 1;
+        // Resolve per-frame taper scales: per-axis scaleU (side) / scaleV
+        // (normal) — used by extrude front/back taper — falling back to the
+        // uniform frame.scale (revolve/sweep taper). Mirrors drawSurface's
+        // sweepPoint so mapped geometry follows the tapered surface.
+        const frameScales = (frame) => {
+          const s = frame.scale !== undefined ? frame.scale : 1.0;
+          return [
+            frame.scaleU !== undefined ? frame.scaleU : s,
+            frame.scaleV !== undefined ? frame.scaleV : s,
+            s
+          ];
+        };
+
+        // True-size decal on tapered rails: remap V so source world-units
+        // measure PHYSICAL arc length along the LOCALLY SCALED cross-section
+        // at each u, instead of unscaled-profile parameter. Handles
+        // anisotropic extrude taper (scaleU ≠ scaleV) exactly, since the
+        // scaled metric is integrated along the actual cross-section.
+        // Decal mode only — Stretch/Fit deliberately fill the parametric
+        // domain and follow the face. Null on untapered rails so those
+        // scenes stay bit-identical.
+        const hasFrameScaling = !isLoft && railPath._frameData && railPath._frameData.some(f =>
+          (f.scale !== undefined && f.scale !== 1) ||
+          (f.scaleU !== undefined && f.scaleU !== 1) ||
+          (f.scaleV !== undefined && f.scaleV !== 1));
+        let vArcComp = null;
+        if (mappingMode === 'decal' && hasFrameScaling && profileSamplePts.length > 1 && profileTotalLen > 1e-9) {
+          const NST = 32;  // u-stations; taper varies linearly, lerp between
+          const nSmp = profileSamplePts.length;
+          const stations = [];
+          for (let si = 0; si <= NST; si++) {
+            const frame = SurfaceMapper.getFrameAtU(railPath._frameData, si / NST);
+            const [fsU, fsV, fsT] = frameScales(frame);
+            const cum = new Float64Array(nSmp);
+            let acc = 0;
+            for (let i = 1; i < nSmp; i++) {
+              const dx = (profileSamplePts[i][0] - profileSamplePts[i - 1][0]) * fsU;
+              const dy = (profileSamplePts[i][1] - profileSamplePts[i - 1][1]) * fsV;
+              const dz = (profileSamplePts[i][2] - profileSamplePts[i - 1][2]) * fsT;
+              acc += Math.sqrt(dx * dx + dy * dy + dz * dz);
+              cum[i] = acc;
+            }
+            stations.push(cum);
+          }
+          // v (param) → scaled arc length, linear in each sample interval.
+          const arcOfV = (cum, v) => {
+            const target = v * profileTotalLen;
+            let lo = 0, hi = nSmp - 1;
+            if (target <= profileSampleDist[0]) {
+              const den = profileSampleDist[1] - profileSampleDist[0] || 1;
+              return cum[0] + (target - profileSampleDist[0]) * (cum[1] - cum[0]) / den;
+            }
+            if (target >= profileSampleDist[nSmp - 1]) {
+              const den = profileSampleDist[nSmp - 1] - profileSampleDist[nSmp - 2] || 1;
+              return cum[nSmp - 1] + (target - profileSampleDist[nSmp - 1]) * (cum[nSmp - 1] - cum[nSmp - 2]) / den;
+            }
+            while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (profileSampleDist[mid] <= target) lo = mid; else hi = mid; }
+            const den = profileSampleDist[hi] - profileSampleDist[lo] || 1;
+            return cum[lo] + (target - profileSampleDist[lo]) * (cum[hi] - cum[lo]) / den;
+          };
+          // scaled arc length → v (param), extrapolating past the ends.
+          const vOfArc = (cum, a) => {
+            const P = cum[nSmp - 1];
+            if (a <= cum[0]) {
+              const den = cum[1] - cum[0] || 1;
+              return (profileSampleDist[0] + (a - cum[0]) * (profileSampleDist[1] - profileSampleDist[0]) / den) / profileTotalLen;
+            }
+            if (a >= P) {
+              const den = cum[nSmp - 1] - cum[nSmp - 2] || 1;
+              return (profileSampleDist[nSmp - 1] + (a - P) * (profileSampleDist[nSmp - 1] - profileSampleDist[nSmp - 2]) / den) / profileTotalLen;
+            }
+            let lo = 0, hi = nSmp - 1;
+            while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (cum[mid] <= a) lo = mid; else hi = mid; }
+            const den = cum[hi] - cum[lo] || 1;
+            return (profileSampleDist[lo] + (a - cum[lo]) * (profileSampleDist[hi] - profileSampleDist[lo]) / den) / profileTotalLen;
+          };
+          const vAnchor = 0.5 + offsetV;  // decal center line (param space)
+          const solveV = (cum, d) => {
+            const P = cum[nSmp - 1];
+            if (P < 1e-9) return vAnchor;  // taper collapsed to a point
+            const a = arcOfV(cum, vAnchor) + d;
+            if (mapAroundV) {
+              // Preserve winding count so around-mode seam bands stay at
+              // integer v boundaries.
+              const wraps = Math.floor(a / P);
+              return wraps + vOfArc(cum, a - wraps * P);
+            }
+            return vOfArc(cum, a);
+          };
+          vArcComp = (u, v) => {
+            const cu = mapAroundU ? wrapCoord(u) : Math.max(0, Math.min(1, u));
+            const d = (v - vAnchor) * profileTotalLen;  // signed physical distance
+            const sf = cu * NST;
+            const s0 = Math.min(NST, Math.floor(sf));
+            const s1 = Math.min(NST, s0 + 1);
+            const al = sf - s0;
+            const v0 = solveV(stations[s0], d);
+            if (s1 === s0 || al < 1e-9) return v0;
+            return v0 + (solveV(stations[s1], d) - v0) * al;
+          };
+        }
         const surfacePoint = (u, v) => {
           if (isLoft) {
             // U handling (along loft axis: source→target)
@@ -15813,20 +15924,20 @@
             const frame = SurfaceMapper.getFrameAtU(railPath._frameData, effU);
             // V is handled by getProfilePointAtV (wraps/overflows/clamps per overflowModeV)
             const pp = getProfilePointAtV(v);
-            const frameScale = frame.scale !== undefined ? frame.scale : 1.0;
+            const [fsU, fsV, fsT] = frameScales(frame);
             const localPos = vectorAdd(
               frame.pos,
               vectorAdd(
-                vectorScale(frame.side, pp[0] * frameScale),
-                vectorScale(frame.normal, pp[1] * frameScale)
+                vectorScale(frame.side, pp[0] * fsU),
+                vectorScale(frame.normal, pp[1] * fsV)
               )
             );
             // pp[2] maps to tangent direction (cross of side × normal), matching sweepPoint
             if (pp[2] !== 0) {
               const tangent = vectorNormalize(vectorCross(frame.side, frame.normal));
-              localPos[0] += tangent[0] * pp[2] * frameScale;
-              localPos[1] += tangent[1] * pp[2] * frameScale;
-              localPos[2] += tangent[2] * pp[2] * frameScale;
+              localPos[0] += tangent[0] * pp[2] * fsT;
+              localPos[1] += tangent[1] * pp[2] * fsT;
+              localPos[2] += tangent[2] * pp[2] * fsT;
             }
             const worldPt = transformVertex(localPos, railWorldMatrix);
             return [worldPt[0], worldPt[1], worldPt[2]];
@@ -15850,19 +15961,19 @@
               edgeFrame.pos[2] + (tangent[2] / tangentLen) * overflow
             ];
             const pp = getProfilePointAtV(v);
-            const frameScale = edgeFrame.scale !== undefined ? edgeFrame.scale : 1.0;
+            const [fsU, fsV, fsT] = frameScales(edgeFrame);
             const localPos = vectorAdd(
               extraPos,
               vectorAdd(
-                vectorScale(edgeFrame.side, pp[0] * frameScale),
-                vectorScale(edgeFrame.normal, pp[1] * frameScale)
+                vectorScale(edgeFrame.side, pp[0] * fsU),
+                vectorScale(edgeFrame.normal, pp[1] * fsV)
               )
             );
             if (pp[2] !== 0) {
               const tangent = vectorNormalize(vectorCross(edgeFrame.side, edgeFrame.normal));
-              localPos[0] += tangent[0] * pp[2] * frameScale;
-              localPos[1] += tangent[1] * pp[2] * frameScale;
-              localPos[2] += tangent[2] * pp[2] * frameScale;
+              localPos[0] += tangent[0] * pp[2] * fsT;
+              localPos[1] += tangent[1] * pp[2] * fsT;
+              localPos[2] += tangent[2] * pp[2] * fsT;
             }
             const worldPt = transformVertex(localPos, railWorldMatrix);
             return [worldPt[0], worldPt[1], worldPt[2]];
@@ -15870,21 +15981,21 @@
 
           const frame = SurfaceMapper.getFrameAtU(railPath._frameData, u);
           const pp = getProfilePointAtV(v);
-          const frameScale = frame.scale !== undefined ? frame.scale : 1.0;
-          // S(u,v) = Rail(u) + pp[0]*side*scale + pp[1]*normal*scale + pp[2]*tangent*scale
+          const [fsU, fsV, fsT] = frameScales(frame);
+          // S(u,v) = Rail(u) + pp[0]*side*fsU + pp[1]*normal*fsV + pp[2]*tangent*fsT
           const localPos = vectorAdd(
             frame.pos,
             vectorAdd(
-              vectorScale(frame.side, pp[0] * frameScale),
-              vectorScale(frame.normal, pp[1] * frameScale)
+              vectorScale(frame.side, pp[0] * fsU),
+              vectorScale(frame.normal, pp[1] * fsV)
             )
           );
           // pp[2] maps to tangent direction (cross of side × normal), matching sweepPoint
           if (pp[2] !== 0) {
             const tangent = vectorNormalize(vectorCross(frame.side, frame.normal));
-            localPos[0] += tangent[0] * pp[2] * frameScale;
-            localPos[1] += tangent[1] * pp[2] * frameScale;
-            localPos[2] += tangent[2] * pp[2] * frameScale;
+            localPos[0] += tangent[0] * pp[2] * fsT;
+            localPos[1] += tangent[1] * pp[2] * fsT;
+            localPos[2] += tangent[2] * pp[2] * fsT;
           }
           const worldPt = transformVertex(localPos, railWorldMatrix);
           return [worldPt[0], worldPt[1], worldPt[2]];
@@ -16002,6 +16113,8 @@
           // vFlip orients v so the source renders upright (see above).
           u = u * scaleU + 0.5 + offsetU;
           v = vFlip * v * scaleV + 0.5 + offsetV;
+          // True-size decal: divide out the local taper (see vArcComp above).
+          if (vArcComp) v = vArcComp(u, v);
           return [u, v];
         };
 
@@ -16025,19 +16138,19 @@
           if (isLoft) return _loftEval(cu, cv);
           const frame = SurfaceMapper.getFrameAtU(railPath._frameData, cu);
           const pp = getProfilePointAtV(cv);
-          const frameScale = frame.scale !== undefined ? frame.scale : 1.0;
+          const [fsU, fsV, fsT] = frameScales(frame);
           const localPos = vectorAdd(
             frame.pos,
             vectorAdd(
-              vectorScale(frame.side, pp[0] * frameScale),
-              vectorScale(frame.normal, pp[1] * frameScale)
+              vectorScale(frame.side, pp[0] * fsU),
+              vectorScale(frame.normal, pp[1] * fsV)
             )
           );
           if (pp[2] !== 0) {
             const tangent = vectorNormalize(vectorCross(frame.side, frame.normal));
-            localPos[0] += tangent[0] * pp[2] * frameScale;
-            localPos[1] += tangent[1] * pp[2] * frameScale;
-            localPos[2] += tangent[2] * pp[2] * frameScale;
+            localPos[0] += tangent[0] * pp[2] * fsT;
+            localPos[1] += tangent[1] * pp[2] * fsT;
+            localPos[2] += tangent[2] * pp[2] * fsT;
           }
           const worldPt = transformVertex(localPos, railWorldMatrix);
           return [worldPt[0], worldPt[1], worldPt[2]];

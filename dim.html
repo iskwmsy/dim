@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260703i -->
+<!-- dim v20260704e -->
 
 <!--
   MIT License
@@ -4731,6 +4731,12 @@
           <label for="animationEnabledCb" class="ui-checkbox-label">Animation <span
               style="font-size:10px; color:var(--text-muted);">(experimental)</span></label>
           <input type="checkbox" id="animationEnabledCb" class="ui-checkbox" />
+        </div>
+
+        <div class="prop-row prop-inline">
+          <label for="rcSilhouetteCb" class="ui-checkbox-label">RC_SILHOUETTE <span
+              style="font-size:10px; color:var(--text-muted);">(experimental)</span></label>
+          <input type="checkbox" id="rcSilhouetteCb" class="ui-checkbox" />
         </div>
 
         <div class="prop-row prop-row-plain" style="margin-top: 8px;">
@@ -12974,6 +12980,19 @@
 
     // --- Constants ---
     const FRAME_SIZE = 1000;
+
+    // --- Region-Clip Silhouette (experimental, v20260703j) ---
+    // Single switch between the legacy trace-based silhouette split and the
+    // region-clip pipeline (SilhouetteField + PolyClip). false = legacy
+    // rendering, byte-identical to before this experiment. Runtime-only:
+    // never serialized into scene files. Toggle from the console:
+    //   RC_SILHOUETTE = true; requestRender();
+    let RC_SILHOUETTE = false;
+    // Dev overlay: draw the extracted silhouette contours in the viewport.
+    // Independent of RC_SILHOUETTE (works over the legacy pipeline too).
+    let RC_DEBUG_CONTOURS = false;
+    // Silhouette field grid resolution — the quality/cost dial for RC.
+    let RC_GRID_N = 96;
     // Derive canvas offset from toolbar width CSS variable so it stays in sync
     const CANVAS_OFFSET_X = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--toolbar-width')) / 2 || 0;
     const TRUCK_SPEED = 0.002;
@@ -16110,6 +16129,31 @@
           return vectorAdd(pt, vectorScale(sn, offsetN));
         };
 
+        // --- Region-Clip branch & debug contour overlay (experimental, v20260703j/k) ---
+        // When RC_SILHOUETTE is on, fragment construction is delegated to the
+        // region-clip pipeline, reusing the eval helpers defined above.
+        // RC_DEBUG_CONTOURS additionally collects the extracted silhouette
+        // contours for the viewport overlay (works over the legacy pipeline).
+        // Everything below this block is the legacy trace-based path and is
+        // unreachable (byte-identical behavior) while both flags are false.
+        if (doSplit && (RC_SILHOUETTE || RC_DEBUG_CONTOURS)) {
+          const rcCtx = {
+            sourcePath, surfacePath, options, camPos,
+            sourceSegs, toUV, wrapCoord, toScreen,
+            surfacePoint, surfacePointN, surfaceNormalAt,
+            overflowModeU, overflowModeV,
+            mapAroundU, mapAroundV, mapAround,
+            railIsClosed, profileIsClosed
+          };
+          if (RC_DEBUG_CONTOURS) {
+            try { SilhouetteField.collectSurfaceMappingOverlay(rcCtx); }
+            catch (e) { console.error('[RC] surface-mapping contour overlay failed:', e); }
+          }
+          if (RC_SILHOUETTE) {
+            return SurfaceMapper._buildSurfaceMappedRC(rcCtx);
+          }
+        }
+
         // 6. Build SVG path by mapping each source segment through the surface
         const fragments = [];
         let d = '';
@@ -17806,6 +17850,9 @@
         }
 
         const project = (rawLocalPt) => {
+          // Region-clip (Stage 4): geometric u of this point, exposed on the
+          // return value when RC_SILHOUETTE is on (bend mode only).
+          let _rcUGeo = null;
           let localPt = rawLocalPt;
           // Apply sourceMatrix (e.g. from Group inheritance) first
           if (options.sourceMatrix) {
@@ -17861,6 +17908,7 @@
               const u = 0.5 + (rx / totalLen) + hOffset;
               u_geo = u + tgtOff;
             }
+            _rcUGeo = u_geo;
 
             // Anchored Scope Shift
             let combinedFrame;
@@ -17983,6 +18031,14 @@
           const screenPos = transformVertex(worldPos, options.vpMatrix);
           if (screenPos) {
             screenPos.dot = currentDot; // Attach dot product for silhouette logic
+            // Region-clip (Stage 4/5, gated — no effect on legacy): expose
+            // the already-computed world position (for grid-batched sheet
+            // normals; the contour overlay uses it too) and the geometric u
+            // (for open-target around-mode domain cuts; null in rigid mode).
+            if (RC_SILHOUETTE || RC_DEBUG_CONTOURS) {
+              screenPos.world = worldPos;
+              screenPos.uGeo = _rcUGeo;
+            }
           }
           return screenPos;
         };
@@ -18057,6 +18113,30 @@
         // Use Exclusive Pipeline: Normalize everything to Cubic Bezier
         segments = sourcePath.getBezierSegments();
 
+        // --- Region-Clip branch & debug contour overlay (experimental, v20260703j/k) ---
+        // When RC_SILHOUETTE is on, fragment construction is delegated to the
+        // region-clip pipeline. project() carries the silhouette dot product,
+        // so the field is evaluated in source space through it.
+        // RC_DEBUG_CONTOURS additionally collects the extracted silhouette
+        // contours for the viewport overlay (works over the legacy pipeline).
+        // Everything below is the legacy path, unreachable while both flags
+        // are false.
+        if (doSplit && (RC_SILHOUETTE || RC_DEBUG_CONTOURS)) {
+          const rcCtx = {
+            sourcePath, targetPath, options, camPos,
+            segments, project,
+            totalLen, hOffset, tgtOff,
+            mapAround, mappingOverflow, clipNone,
+            rigidMode, tgtWorldMatrix
+          };
+          if (RC_DEBUG_CONTOURS) {
+            try { SilhouetteField.collectSplineFlowOverlay(rcCtx); }
+            catch (e) { console.error('[RC] spline-flow contour overlay failed:', e); }
+          }
+          if (RC_SILHOUETTE) {
+            return SurfaceMapper._buildSplineFlowRC(rcCtx);
+          }
+        }
 
         segments.forEach((seg, segmentIndex) => {
           currentSubPathId = seg.subPathIdx; // Update state for current segment
@@ -18325,7 +18405,2228 @@
         flushSubpath();
         return resolveMerges(allFragments);
       }
+
+      // --- Region-Clip Silhouette pipeline (experimental scaffolding, v20260703j) ---
+      // Stage 0 stubs: intentionally unreachable while RC_SILHOUETTE is false.
+      // Stage 3 replaces _buildSurfaceMappedRC, Stage 4 _buildSplineFlowRC
+      // (see the region-clip implementation plan). Both must emit fragments
+      // matching the legacy consumers' shapes:
+      //   surface mapping → { d, zSum, count, avgZ, type:'split', layer,
+      //                       subpathIdx, strokes[], useNonzero }
+      //   spline flow     → { d, zSum, count, type:'fill', layer, strokes[],
+      //                       bounds, zBounds }
+      // ------------------------------------------------------------------
+      // Region-clip fragment cache (Stage 5, v20260704c).
+      // The app renders continuously (60fps rAF loop), so without caching
+      // the RC pipelines rebuild field+clip+fragments every frame even
+      // when NOTHING changed. Fragments are cached per mapped object,
+      // keyed by camera + mapping options + geometry checksums, and every
+      // hit is additionally validated by re-evaluating 3 world-space
+      // probes through the live mapping — so target edits, animation, and
+      // group-transform changes rebuild even if a checksum missed them.
+      // Styles are applied by the consumer per frame, so style edits render
+      // correctly against cached fragments.
+      // ------------------------------------------------------------------
+      static _rcVertsChecksum(verts) {
+        if (!verts || !verts.length) return '0';
+        let a = verts.length, b = 0;
+        for (let i = 0; i < verts.length; i++) {
+          const v = verts[i];
+          a = (a + v[0] * 73856093 + v[1] * 19349663 + (v[2] || 0) * 83492791) % 4503599627370496;
+          b = (b + v[0] + v[1] + (v[2] || 0)) % 1e9;
+        }
+        return a.toString(36) + '.' + b.toFixed(6);
+      }
+
+      static _rcMatKey(m) {
+        if (!m) return '0';
+        let s = '';
+        for (let r = 0; r < 4; r++) {
+          for (let c = 0; c < 4; c++) s += m[r][c] + ',';
+        }
+        return s;
+      }
+
+      // probeEval(probe) → world [x,y,z] or null. Probes stored at build
+      // time; any drift > 1e-9 rebuilds.
+      static _rcCacheLookup(obj, key, probeEval) {
+        const c = obj._rcFragCache;
+        if (!c) return null;
+        const hit = c.get(key);
+        if (!hit) return null;
+        for (const pr of hit.probes) {
+          const w = probeEval(pr);
+          if (!w ||
+            Math.abs(w[0] - pr.w[0]) > 1e-9 ||
+            Math.abs(w[1] - pr.w[1]) > 1e-9 ||
+            Math.abs(w[2] - pr.w[2]) > 1e-9) return null;
+        }
+        SurfaceMapper._rcCacheHits = (SurfaceMapper._rcCacheHits || 0) + 1;
+        return hit.fragments;
+      }
+
+      static _rcCacheStore(obj, key, probes, fragments) {
+        if (!obj._rcFragCache) obj._rcFragCache = new Map();
+        if (obj._rcFragCache.size > 8) obj._rcFragCache.clear(); // bound memory across option variants
+        obj._rcFragCache.set(key, { probes, fragments });
+        SurfaceMapper._rcCacheMisses = (SurfaceMapper._rcCacheMisses || 0) + 1;
+      }
+
+      // Region-clip fragment builder for the surface-mapping pipeline
+      // (Stage 3, v20260703m). Replaces legacy steps 3–5 (seam handling,
+      // trace closure, compound merging) with: flatten source in unwrapped
+      // UV → silhouette field → front region F → PolyClip split →
+      // map rings to screen → package contract-compliant fragments.
+      static _buildSurfaceMappedRC(ctx) {
+        const { sourcePath, surfacePath, options, camPos, sourceSegs, toUV, toScreen,
+          surfacePointN, surfaceNormalAt, overflowModeU, overflowModeV,
+          mapAroundU, mapAroundV, railIsClosed, profileIsClosed } = ctx;
+        const t0 = performance.now();
+        const SUBDIV = options.resolution || 8;
+
+        // --- Stage 5 fragment cache (v20260704c) ---------------------------
+        // Key: camera + option scalars + transforms + geometry checksums of
+        // everything that shapes the mapping. Probes (validated on lookup)
+        // are the backstop for anything the key can't see (e.g. loft
+        // targets, animated ancestors).
+        let railForKey = null;
+        if (surfacePath?.sweepSettings?.enabled && surfacePath.sweepSettings.railId &&
+          typeof findObjectById === 'function') {
+          railForKey = findObjectById(surfacePath.sweepSettings.railId);
+        }
+        // Geometry+config of the SURFACE — shared by all children mapping
+        // onto it (used by both the fragment key and the shared field cache).
+        const surfGeomKey = [
+          SurfaceMapper._rcMatKey(surfacePath?.getWorldMatrix?.()),
+          SurfaceMapper._rcVertsChecksum(surfacePath?.localVertices),
+          railForKey ? SurfaceMapper._rcVertsChecksum(railForKey.localVertices) : '-',
+          railForKey ? SurfaceMapper._rcMatKey(railForKey.getWorldMatrix?.()) : '-',
+          JSON.stringify(surfacePath?.extrudeSettings) + JSON.stringify(surfacePath?.revolveSettings),
+          JSON.stringify(surfacePath?.sweepSettings) + JSON.stringify(surfacePath?.loftSettings)
+        ].join('|');
+        const cacheKey = [
+          'sm', RC_GRID_N, SUBDIV,
+          // Fill state changes stroke-run extraction (v20260704d)
+          (sourcePath.style && sourcePath.style.fill && sourcePath.style.fill !== 'none') ? 'F1' : 'F0',
+          camPos.join(','),
+          SurfaceMapper._rcMatKey(options.vpMatrix),
+          SurfaceMapper._rcMatKey(options.sourceMatrix),
+          SurfaceMapper._rcVertsChecksum(sourcePath.localVertices),
+          JSON.stringify([options.offsetU, options.offsetV, options.offsetN,
+            options.mappingMode, options.scaleU, options.scaleV, options.rotation,
+            options.axisU, options.axisV, options.overflowModeU, options.overflowModeV,
+            options.surfaceType, options.referenceBounds]),
+          surfGeomKey
+        ].join('|');
+        const cached = SurfaceMapper._rcCacheLookup(sourcePath, cacheKey,
+          (pr) => surfacePointN(pr.u, pr.v));
+        if (cached) return cached;
+
+        // --- 1. Flatten source subpaths to UV polylines (unwrapped) -----
+        const subpaths = [];
+        let cur = null, subIdx = -1;
+        const uvAtT = (seg, t) => {
+          const mt = 1 - t;
+          const sp = [
+            mt * mt * mt * seg.p0[0] + 3 * mt * mt * t * seg.p1[0] + 3 * mt * t * t * seg.p2[0] + t * t * t * seg.p3[0],
+            mt * mt * mt * seg.p0[1] + 3 * mt * mt * t * seg.p1[1] + 3 * mt * t * t * seg.p2[1] + t * t * t * seg.p3[1],
+            mt * mt * mt * (seg.p0[2] || 0) + 3 * mt * mt * t * (seg.p1[2] || 0) + 3 * mt * t * t * (seg.p2[2] || 0) + t * t * t * (seg.p3[2] || 0)
+          ];
+          return toUV(sp);
+        };
+        sourceSegs.forEach((seg, sIdx) => {
+          const isNew = (sIdx === 0 || seg.command === 'M');
+          if (isNew) {
+            if (cur && cur.pts.length >= 2) subpaths.push(cur);
+            subIdx++;
+            cur = { pts: [], closed: !!(sourcePath.subPathData?.[subIdx]?.closed) };
+          }
+          // Stage 5: straightness probe — if the segment's interior maps
+          // onto the UV chord (straight rect/polygon edges under the affine
+          // decal/stretch mapping), its endpoints are EXACT in UV; skip the
+          // subdivision. Screen smoothness of the bent result comes from
+          // the adaptive refinement of path edges at mapping time.
+          const uv0 = uvAtT(seg, 0), uv1 = uvAtT(seg, 1);
+          const chordU = uv1[0] - uv0[0], chordV = uv1[1] - uv0[1];
+          const chord2 = chordU * chordU + chordV * chordV;
+          let straight = chord2 > 0;
+          if (straight) {
+            for (const t of [1 / 3, 2 / 3]) {
+              const m = uvAtT(seg, t);
+              const cross = (m[0] - uv0[0]) * chordV - (m[1] - uv0[1]) * chordU;
+              if (cross * cross > 1e-8 * chord2 * chord2) { straight = false; break; }
+            }
+          }
+          const segRes = straight ? 1 : SUBDIV;
+          const startI = cur.pts.length ? 1 : 0;
+          for (let i = startI; i <= segRes; i++) {
+            const [u, v] = (i === 0) ? uv0 : (i === segRes ? uv1 : uvAtT(seg, i / segRes));
+            const prev = cur.pts[cur.pts.length - 1];
+            if (!prev || Math.abs(prev[0] - u) > 1e-12 || Math.abs(prev[1] - v) > 1e-12) {
+              cur.pts.push([u, v]);
+            }
+          }
+        });
+        if (cur && cur.pts.length >= 2) subpaths.push(cur);
+        if (!subpaths.length) return [];
+
+        // Subject rings: closed → all 'path' edges; open → fill via an
+        // implicit closing edge tagged 'closure' (SVG fill semantics),
+        // which never becomes a stroke.
+        const subjectRings = subpaths.map(sp => {
+          const pts = sp.pts.slice();
+          const first = pts[0], last = pts[pts.length - 1];
+          if (pts.length > 1 &&
+            Math.abs(first[0] - last[0]) < 1e-12 && Math.abs(first[1] - last[1]) < 1e-12) pts.pop();
+          const srcs = pts.map(() => 'path');
+          if (!sp.closed) srcs[srcs.length - 1] = 'closure';
+          return { pts, srcs };
+        }).filter(r => r.pts.length >= 3);
+        if (!subjectRings.length) return [];
+
+        // --- 2. Silhouette field over the padded UV bbox ----------------
+        let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
+        for (const r of subjectRings) {
+          for (const [u, v] of r.pts) {
+            if (u < uMin) uMin = u; if (u > uMax) uMax = u;
+            if (v < vMin) vMin = v; if (v > vMax) vMax = v;
+          }
+        }
+        ({ uMin, uMax, vMin, vMax } = SilhouetteField._padDomain(uMin, uMax, vMin, vMax));
+        // Stage 5b (v20260704e): SHARED field cache per surface.
+        // Group mappings run this builder once per child, but the silhouette
+        // field depends only on (surface geometry, camera, offsetN, wrap
+        // modes) and the UV domain — never on the child's own shape. The
+        // field+region are cached on the surface object over the running
+        // UNION of requested domains, so N children (Earth: 147) trigger ONE
+        // field build per frame instead of N. A region built on a larger
+        // domain is equally valid for clipping any subject inside it.
+        const fieldKey = [
+          camPos.join(','), RC_GRID_N, options.offsetN || 0,
+          overflowModeU, overflowModeV, surfGeomKey
+        ].join('|');
+        let field = null, region = null;
+        const fc = surfacePath ? surfacePath._rcFieldCache : null;
+        if (fc && fc.key === fieldKey &&
+          uMin >= fc.domain.uMin && uMax <= fc.domain.uMax &&
+          vMin >= fc.domain.vMin && vMax <= fc.domain.vMax) {
+          // Probe-validate (2 world-space samples) before trusting it.
+          let ok = true;
+          for (const pr of fc.probes) {
+            const w = surfacePointN(pr.u, pr.v);
+            if (!w || Math.abs(w[0] - pr.w[0]) > 1e-9 ||
+              Math.abs(w[1] - pr.w[1]) > 1e-9 || Math.abs(w[2] - pr.w[2]) > 1e-9) { ok = false; break; }
+          }
+          if (ok) { field = fc.field; region = fc.region; }
+        }
+        if (!field) {
+          const dom = surfacePath && surfacePath._rcFieldDomain;
+          const uni = dom ? {
+            uMin: Math.min(dom.uMin, uMin), uMax: Math.max(dom.uMax, uMax),
+            vMin: Math.min(dom.vMin, vMin), vMax: Math.max(dom.vMax, vMax)
+          } : { uMin, uMax, vMin, vMax };
+          field = SilhouetteField.buildFromPoints(
+            (u, v) => surfacePointN(u, v), camPos, uni.uMin, uni.uMax, uni.vMin, uni.vMax, RC_GRID_N);
+          region = SilhouetteField.buildFrontRegion(field);
+          if (surfacePath) {
+            surfacePath._rcFieldDomain = uni;
+            surfacePath._rcFieldCache = {
+              key: fieldKey, domain: uni, field, region,
+              probes: [
+                { u: (uni.uMin + uni.uMax) / 2, v: (uni.vMin + uni.vMax) / 2 },
+                { u: uni.uMin + 0.23 * (uni.uMax - uni.uMin), v: uni.vMin + 0.71 * (uni.vMax - uni.vMin) }
+              ].map(p => ({ u: p.u, v: p.v, w: [...surfacePointN(p.u, p.v)] }))
+            };
+          }
+        }
+
+        // --- 3. Domain cuts: open rail/profile in around mode -----------
+        // The surface is genuinely discontinuous at integer u (or v), so
+        // the subject is pre-cut into period bands; band edges are plain
+        // 'domain' clip boundaries — no seam special-casing downstream.
+        let subjectGroups = [subjectRings];
+        const needCutU = mapAroundU && !railIsClosed;
+        const needCutV = mapAroundV && !profileIsClosed;
+        if (needCutU || needCutV) {
+          const bandsFor = (lo, hi) => {
+            const out = [];
+            for (let k = Math.floor(lo); k < Math.ceil(hi); k++) out.push([k, k + 1]);
+            return out;
+          };
+          const uBands = needCutU ? bandsFor(uMin, uMax) : [[uMin - 1, uMax + 1]];
+          const vBands = needCutV ? bandsFor(vMin, vMax) : [[vMin - 1, vMax + 1]];
+          const groups = [];
+          for (const [ua, ub] of uBands) {
+            for (const [va, vb] of vBands) {
+              const band = {
+                pts: [[ua, va], [ub, va], [ub, vb], [ua, vb]],
+                srcs: ['domain', 'domain', 'domain', 'domain']
+              };
+              const cut = PolyClip.split(subjectRings, [band]);
+              if (cut.front.length) groups.push(cut.front);
+            }
+          }
+          subjectGroups = groups;
+        }
+
+        // --- 4. Clip against F -------------------------------------------
+        const frontRings = [], backRings = [];
+        for (const grp of subjectGroups) {
+          const res = PolyClip.split(grp, region.rings);
+          frontRings.push(...res.front);
+          backRings.push(...res.back);
+        }
+
+        // --- 5. Map rings to screen --------------------------------------
+        // Path edges are already at SUBDIV resolution; silhouette/domain
+        // edges are straight in UV but curved on screen → midpoint-refine
+        // to ~1.2 FRAME units.
+        const TOL2 = 1.2 * 1.2, MAXD = 5;
+        const mapUV = (u, v) => toScreen(surfacePointN(u, v));
+        const emitRing = (ring) => {
+          const P = ring.pts, S = ring.srcs, n = P.length;
+          const outPts = [], outSrcs = [];
+          const refine = (a, b, sa, sb, depth, tag) => {
+            if (depth >= MAXD) return;
+            const mu = (a[0] + b[0]) / 2, mv = (a[1] + b[1]) / 2;
+            const sm = mapUV(mu, mv);
+            if (!sm) return;
+            const ex = (sa.x + sb.x) / 2 - sm.x, ey = (sa.y + sb.y) / 2 - sm.y;
+            if (ex * ex + ey * ey <= TOL2) return;
+            refine(a, [mu, mv], sa, sm, depth + 1, tag);
+            outPts.push(sm); outSrcs.push(tag);
+            refine([mu, mv], b, sm, sb, depth + 1, tag);
+          };
+          for (let i = 0; i < n; i++) {
+            const a = P[i], b = P[(i + 1) % n];
+            const sa = mapUV(a[0], a[1]), sb = mapUV(b[0], b[1]);
+            if (!sa) continue; // behind camera — degenerate, skip vertex
+            outPts.push(sa); outSrcs.push(S[i]);
+            // Stage 5: refine ALL edges (path edges included — coarse
+            // straight-segment flattening relies on this for the bent
+            // on-screen shape; already-dense edges exit after one probe).
+            if (sb) refine(a, b, sa, sb, 0, S[i]);
+          }
+          return outPts.length >= 3 ? { pts: outPts, srcs: outSrcs } : null;
+        };
+
+        // --- 6. Package fragments: one per connected component ------------
+        // (outer ring + its holes), per layer. Compound d with evenodd.
+        //
+        // Strokes (v20260704d): with fully split faces, a FILLED source
+        // strokes its complete visible outline — silhouette and domain
+        // edges included — so each face reads as a cleanly outlined piece
+        // and stroke joints at crossings are continuous. Runs break ONLY
+        // at an open subpath's implicit 'closure' edge (never stroked,
+        // v20260704b). Stroke-only sources (fill: none) keep path-edge
+        // strokes so line art gains no phantom horizon lines.
+        const fillActive = !!(sourcePath.style && sourcePath.style.fill &&
+          sourcePath.style.fill !== 'none');
+        const strokeEdge = (src) => fillActive ? (src !== 'closure') : (src === 'path');
+        const fragments = [];
+        const packageLayer = (rings, layer) => {
+          if (!rings.length) return;
+          const mapped = [];
+          rings.forEach(r => {
+            const m = emitRing(r);
+            if (m) mapped.push({ uv: r, m });
+          });
+          if (!mapped.length) return;
+          const depths = mapped.map((r, i) => {
+            let d = 0;
+            const p = r.uv.pts[0];
+            mapped.forEach((o, j) => {
+              if (j !== i && PolyClip._evenOddInside(p[0], p[1], [o.uv])) d++;
+            });
+            return d;
+          });
+          const outers = [];
+          mapped.forEach((r, i) => { if (depths[i] % 2 === 0) outers.push({ idx: i, holes: [] }); });
+          mapped.forEach((r, i) => {
+            if (depths[i] % 2 === 1) {
+              for (const o of outers) {
+                if (depths[o.idx] === depths[i] - 1 &&
+                  PolyClip._evenOddInside(r.uv.pts[0][0], r.uv.pts[0][1], [mapped[o.idx].uv])) {
+                  o.holes.push(i);
+                  break;
+                }
+              }
+            }
+          });
+          for (const o of outers) {
+            let d = '', zSum = 0, count = 0;
+            const strokes = [];
+            for (const ri of [o.idx, ...o.holes]) {
+              const m = mapped[ri].m;
+              const nseg = m.pts.length;
+              m.pts.forEach((p, i) => {
+                d += (i ? 'L ' : 'M ') + p.x + ' ' + p.y + ' ';
+                zSum += p.z; count++;
+              });
+              d += 'Z ';
+              // Stroke runs: cyclic maximal runs of 'path' edges
+              let anchor = -1;
+              for (let i = 0; i < nseg; i++) {
+                if (!strokeEdge(m.srcs[i])) { anchor = i; break; }
+              }
+              if (anchor === -1) {
+                // Fully front/back ring: one closed stroke loop
+                let sd = '';
+                m.pts.forEach((p, i) => { sd += (i ? 'L ' : 'M ') + p.x + ' ' + p.y + ' '; });
+                sd += 'L ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
+                strokes.push(null, sd);
+              } else {
+                let run = null;
+                for (let k = 1; k <= nseg; k++) {
+                  const i = (anchor + k) % nseg;
+                  if (strokeEdge(m.srcs[i])) {
+                    const p1 = m.pts[i], p2 = m.pts[(i + 1) % nseg];
+                    if (!run) run = 'M ' + p1.x + ' ' + p1.y + ' ';
+                    run += 'L ' + p2.x + ' ' + p2.y + ' ';
+                  } else if (run) {
+                    strokes.push(null, run);
+                    run = null;
+                  }
+                }
+                if (run) strokes.push(null, run);
+              }
+            }
+            if (!count) continue;
+            fragments.push({
+              d: d.trim(), zSum, count, avgZ: zSum / count,
+              type: 'split', layer, subpathIdx: 0,
+              strokes, useNonzero: false,
+              startUV: null, endUV: null,
+              startIsCrossing: false, endIsCrossing: false
+            });
+          }
+        };
+        packageLayer(frontRings, 'front');
+        packageLayer(backRings, 'back');
+        if (typeof debugLog === 'function') {
+          debugLog(`[RC] surfaceMapped: ${fragments.length} fragments (F rings=${region.rings.length}, loops=${field.stats.closedLoops}, arcs=${field.stats.openArcs}, grid=${field.stats.nu}x${field.stats.nv}) ${(performance.now() - t0).toFixed(1)}ms`);
+        }
+        // Stage 5: cache with 3 world-space probes spread across the domain.
+        SurfaceMapper._rcCacheStore(sourcePath, cacheKey,
+          [[(uMin + uMax) / 2, (vMin + vMax) / 2],
+          [uMin + 0.17 * (uMax - uMin), vMin + 0.83 * (vMax - vMin)],
+          [uMin + 0.83 * (uMax - uMin), vMin + 0.29 * (vMax - vMin)]]
+            .map(([u, v]) => ({ u, v, w: [...surfacePointN(u, v)] })),
+          fragments);
+        return fragments;
+      }
+
+      // Region-clip fragment builder for the spline-flow pipeline
+      // (Stage 4, v20260704a). The mapped ribbon is parameterized by the
+      // source plane itself, so field and clipping live directly in
+      // source-local (x, y) coordinates — this is the v20260615b TODO
+      // ("trace along the source rectangle's opposite edge") in its
+      // general form. The silhouette scalar g is computed from the TRUE
+      // mapped-sheet normal via finite differences of world positions
+      // (project().world), replacing the legacy |v|,|w| frame blend —
+      // bend, rigid, matchTarget and source rotations are all handled
+      // transparently because everything goes through project().
+      // The field domain is the source's own dominant PLANE: the two
+      // local axes with the largest spans (e.g. XY for upright sources,
+      // XZ for sources lying flat — legacy maps local z to sideways
+      // displacement, so ground-plane sources are common). The remaining
+      // axis is held at its mid value; truly non-planar sources degrade
+      // to that plane (best-effort, same spirit as legacy per-vertex z).
+      static _buildSplineFlowRC(ctx) {
+        const { sourcePath, targetPath, options, camPos, segments, project,
+          mapAround, rigidMode } = ctx;
+        const t0 = performance.now();
+        const RES = options.resolution || 16;
+
+        // --- Stage 5 fragment cache (v20260704c) ---------------------------
+        const cacheKey = [
+          'sf', RC_GRID_N, RES,
+          // Fill state changes stroke-run extraction (v20260704d)
+          (sourcePath.style && sourcePath.style.fill && sourcePath.style.fill !== 'none') ? 'F1' : 'F0',
+          camPos.join(','),
+          SurfaceMapper._rcMatKey(options.vpMatrix),
+          SurfaceMapper._rcMatKey(options.sourceMatrix),
+          SurfaceMapper._rcMatKey(options.mappingAnchorWorldMatrix),
+          SurfaceMapper._rcMatKey(ctx.tgtWorldMatrix),
+          SurfaceMapper._rcVertsChecksum(sourcePath.localVertices),
+          SurfaceMapper._rcVertsChecksum(targetPath.localVertices),
+          JSON.stringify([options.hOffset, options.targetOffset, options.scaleU,
+            options.scaleV, options.rotation, options.rotationX, options.rotationY,
+            options.overflowMode, options.matchTarget, options.bendAlong,
+            options.bankFactor, options.upDir, options.twist, options.axisU,
+            options.axisV, options.algorithm])
+        ].join('|');
+        const cached = SurfaceMapper._rcCacheLookup(sourcePath, cacheKey,
+          (pr) => { const p = project(pr.p); return (p && p.world) ? p.world : null; });
+        if (cached) return cached;
+
+        // --- 1. Flatten source subpaths in source-local 3D ---------------
+        const rawSubpaths = [];
+        let cur = null, lastSubIdx = null;
+        const mins = [Infinity, Infinity, Infinity], maxs = [-Infinity, -Infinity, -Infinity];
+        segments.forEach((seg) => {
+          const sIdx = seg.subPathIdx || 0;
+          if (cur === null || seg.command === 'M' || sIdx !== lastSubIdx) {
+            if (cur && cur.pts.length >= 2) rawSubpaths.push(cur);
+            cur = { pts: [], closed: !!(sourcePath.subPathData?.[sIdx]?.closed) };
+            lastSubIdx = sIdx;
+          }
+          // Stage 5: straight segments are EXACT in source space with just
+          // their endpoints — subdividing them only ever served on-screen
+          // smoothness of the bent result, which the adaptive screen
+          // refinement now provides for path edges too. This shrinks the
+          // clipper's input massively for polygonal sources.
+          // getBezierSegments() normalizes everything to cubics, so detect
+          // straightness by control-point collinearity (with an in-chord
+          // parameter check so on-line overshoots still get sampled).
+          let straight = seg.type === 'L';
+          if (!straight && seg.p0 && seg.p3) {
+            const dx = seg.p3[0] - seg.p0[0], dy = seg.p3[1] - seg.p0[1], dz = (seg.p3[2] || 0) - (seg.p0[2] || 0);
+            const len2 = dx * dx + dy * dy + dz * dz;
+            if (len2 > 1e-24) {
+              straight = true;
+              for (const c of [seg.p1, seg.p2]) {
+                const ex = c[0] - seg.p0[0], ey = c[1] - seg.p0[1], ez = (c[2] || 0) - (seg.p0[2] || 0);
+                const cx = ey * dz - ez * dy, cy = ez * dx - ex * dz, cz = ex * dy - ey * dx;
+                const s = (ex * dx + ey * dy + ez * dz) / len2;
+                if (cx * cx + cy * cy + cz * cz > 1e-8 * len2 * len2 || s < -0.05 || s > 1.05) {
+                  straight = false;
+                  break;
+                }
+              }
+            }
+          }
+          const segRes = straight ? 1 : RES;
+          const startI = cur.pts.length ? 1 : 0;
+          for (let i = startI; i <= segRes; i++) {
+            const p = SurfaceMapper.evaluateCurvePoint(seg, i / segRes);
+            const p3 = [p[0], p[1], p[2] || 0];
+            for (let ax = 0; ax < 3; ax++) {
+              if (p3[ax] < mins[ax]) mins[ax] = p3[ax];
+              if (p3[ax] > maxs[ax]) maxs[ax] = p3[ax];
+            }
+            const prev = cur.pts[cur.pts.length - 1];
+            if (!prev || Math.abs(prev[0] - p3[0]) > 1e-12 ||
+              Math.abs(prev[1] - p3[1]) > 1e-12 || Math.abs(prev[2] - p3[2]) > 1e-12) {
+              cur.pts.push(p3);
+            }
+          }
+        });
+        if (cur && cur.pts.length >= 2) rawSubpaths.push(cur);
+        if (!rawSubpaths.length) return [];
+
+        // Dominant plane: the two axes with the largest spans, in natural
+        // order; the third axis is pinned to its mid value.
+        const spans = [maxs[0] - mins[0], maxs[1] - mins[1], maxs[2] - mins[2]];
+        let axDrop = 0;
+        if (spans[1] <= spans[0] && spans[1] <= spans[2]) axDrop = 1;
+        else if (spans[2] <= spans[0] && spans[2] <= spans[1]) axDrop = 2;
+        const axS = axDrop === 0 ? 1 : 0;
+        const axT = axDrop === 2 ? 1 : 2;
+        const axConst = (mins[axDrop] + maxs[axDrop]) / 2;
+        const srcPtOf = (s, t) => {
+          const p = [0, 0, 0];
+          p[axDrop] = axConst;
+          p[axS] = s;
+          p[axT] = t;
+          return p;
+        };
+        const subpaths = rawSubpaths.map(sp => ({
+          closed: sp.closed,
+          pts: sp.pts.map(p => [p[axS], p[axT]])
+        }));
+
+        const subjectRings = subpaths.map(sp => {
+          const pts = sp.pts.slice();
+          const first = pts[0], last = pts[pts.length - 1];
+          if (pts.length > 1 &&
+            Math.abs(first[0] - last[0]) < 1e-12 && Math.abs(first[1] - last[1]) < 1e-12) pts.pop();
+          const srcs = pts.map(() => 'path');
+          if (!sp.closed) srcs[srcs.length - 1] = 'closure';
+          return { pts, srcs };
+        }).filter(r => r.pts.length >= 3);
+        if (!subjectRings.length) return [];
+
+        // --- 2. Field over the padded source bbox ------------------------
+        let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+        for (const r of subjectRings) {
+          for (const [x, y] of r.pts) {
+            if (x < xMin) xMin = x; if (x > xMax) xMax = x;
+            if (y < yMin) yMin = y; if (y > yMax) yMax = y;
+          }
+        }
+        ({ uMin: xMin, uMax: xMax, vMin: yMin, vMax: yMax } =
+          SilhouetteField._padDomain(xMin, xMax, yMin, yMax));
+        const worldAt = (x, y) => {
+          const p = project(srcPtOf(x, y));
+          return (p && p.world) ? p.world : null;
+        };
+        // Stage 5: grid-batched field — ONE projection per node, normals
+        // from neighbor differences (replaces the 3-projection
+        // finite-difference evalG of Stage 4).
+        const field = SilhouetteField.buildFromPoints(
+          worldAt, camPos, xMin, xMax, yMin, yMax, RC_GRID_N);
+        const region = SilhouetteField.buildFrontRegion(field);
+
+        // --- 3. Domain cuts: around mode on an OPEN target ---------------
+        // u is affine in source (x, y); the preimages of integer u are
+        // straight lines. Fit u(x,y) from three probes (project().uGeo)
+        // and pre-cut the subject into period bands tagged 'domain'.
+        let subjectGroups = [subjectRings];
+        const targetClosed = !!(targetPath.loop || targetPath.subPathData?.[0]?.closed);
+        if (mapAround && !targetClosed && !rigidMode) {
+          const p00 = project(srcPtOf(xMin, yMin));
+          const p10 = project(srcPtOf(xMin + 1, yMin));
+          const p01 = project(srcPtOf(xMin, yMin + 1));
+          if (p00 && p10 && p01 && p00.uGeo != null && p10.uGeo != null && p01.uGeo != null) {
+            const ua = p00.uGeo, ub = p10.uGeo - ua, uc = p01.uGeo - ua;
+            const uOf = (x, y) => ua + ub * (x - xMin) + uc * (y - yMin);
+            const us = [uOf(xMin, yMin), uOf(xMax, yMin), uOf(xMin, yMax), uOf(xMax, yMax)];
+            const uLo = Math.min(...us), uHi = Math.max(...us);
+            const grad2 = ub * ub + uc * uc;
+            if (grad2 > 1e-18 && uHi - uLo > 1e-9) {
+              const cx = (xMin + xMax) / 2, cy = (yMin + yMax) / 2;
+              const gLen = Math.sqrt(grad2);
+              const ox = -uc / gLen, oy = ub / gLen;
+              const L = Math.hypot(xMax - xMin, yMax - yMin) * 2;
+              const foot = (k) => {
+                const t = (k - uOf(cx, cy)) / grad2;
+                return [cx + ub * t, cy + uc * t];
+              };
+              const groups = [];
+              for (let k = Math.floor(uLo); k < Math.ceil(uHi); k++) {
+                const f0 = foot(k), f1 = foot(k + 1);
+                const band = {
+                  pts: [
+                    [f0[0] + ox * L, f0[1] + oy * L], [f0[0] - ox * L, f0[1] - oy * L],
+                    [f1[0] - ox * L, f1[1] - oy * L], [f1[0] + ox * L, f1[1] + oy * L]
+                  ],
+                  srcs: ['domain', 'domain', 'domain', 'domain']
+                };
+                const cutR = PolyClip.split(subjectRings, [band]);
+                if (cutR.front.length) groups.push(cutR.front);
+              }
+              if (groups.length) subjectGroups = groups;
+            }
+          }
+        }
+
+        // --- 4. Clip against F --------------------------------------------
+        const frontRings = [], backRings = [];
+        for (const grp of subjectGroups) {
+          const res = PolyClip.split(grp, region.rings);
+          frontRings.push(...res.front);
+          backRings.push(...res.back);
+        }
+
+        // --- 5. Map rings to screen ----------------------------------------
+        const TOL2 = 1.2 * 1.2, MAXD = 5;
+        const mapPt = (x, y) => {
+          const p = project(srcPtOf(x, y));
+          if (!p) return null;
+          return { x: (p[0] * FRAME_SIZE) / 2, y: (-p[1] * FRAME_SIZE) / 2, z: p[2] };
+        };
+        const emitRing = (ring) => {
+          const P = ring.pts, S = ring.srcs, n = P.length;
+          const outPts = [], outSrcs = [];
+          const refine = (a, b, sa, sb, depth, tag) => {
+            if (depth >= MAXD) return;
+            const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+            const sm = mapPt(mx, my);
+            if (!sm) return;
+            const ex = (sa.x + sb.x) / 2 - sm.x, ey = (sa.y + sb.y) / 2 - sm.y;
+            if (ex * ex + ey * ey <= TOL2) return;
+            refine(a, [mx, my], sa, sm, depth + 1, tag);
+            outPts.push(sm); outSrcs.push(tag);
+            refine([mx, my], b, sm, sb, depth + 1, tag);
+          };
+          for (let i = 0; i < n; i++) {
+            const a = P[i], b = P[(i + 1) % n];
+            const sa = mapPt(a[0], a[1]), sb = mapPt(b[0], b[1]);
+            if (!sa) continue;
+            outPts.push(sa); outSrcs.push(S[i]);
+            // Stage 5: refine ALL edges (path edges included — coarse
+            // straight-segment flattening relies on this for the bent
+            // on-screen shape; already-dense edges exit after one probe).
+            if (sb) refine(a, b, sa, sb, 0, S[i]);
+          }
+          return outPts.length >= 3 ? { pts: outPts, srcs: outSrcs } : null;
+        };
+
+        // --- 6. Package fragments (spline-flow consumer contract) ----------
+        // { d, zSum, count, avgZ, layer, type, strokes[], bounds, zBounds };
+        // fill-rule is nonzero downstream — PolyClip's interior-left ring
+        // orientation keeps outers and holes opposite, which survives the
+        // (fold-free, per-fragment) mapping to screen.
+        //
+        // Strokes (v20260704d): filled sources stroke their complete
+        // visible outline (silhouette/domain edges included); runs break
+        // only at an open subpath's implicit 'closure' edge. Stroke-only
+        // sources keep path-edge strokes. See the surface-mapping builder
+        // for the full rationale.
+        const fillActive = !!(sourcePath.style && sourcePath.style.fill &&
+          sourcePath.style.fill !== 'none');
+        const strokeEdge = (src) => fillActive ? (src !== 'closure') : (src === 'path');
+
+        // Smooth (Curve Fit) mode (v20260704e): the legacy smooth algorithm
+        // emitted fitted Bézier output; RC previously emitted polylines,
+        // which read as faceted at large stroke widths / close zoom. Path
+        // edges are now emitted as non-uniform Catmull-Rom cubics through
+        // the refined points (interpolating — accuracy preserved), while
+        // silhouette/domain/closure edges stay polylines so front/back
+        // fragments keep bit-identical shared boundaries.
+        const smoothMode = options.algorithm === 'smooth';
+        const edgeCmds = (m) => {
+          const n = m.pts.length;
+          const cmds = new Array(n);
+          for (let i = 0; i < n; i++) {
+            const p1 = m.pts[i], p2 = m.pts[(i + 1) % n];
+            if (smoothMode && m.srcs[i] === 'path') {
+              const p0 = m.pts[(i - 1 + n) % n], p3 = m.pts[(i + 2) % n];
+              const d01 = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+              const d12 = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+              const d23 = Math.hypot(p3.x - p2.x, p3.y - p2.y);
+              // Non-uniform Catmull-Rom tangents (chord-length weighted, so
+              // mixed sparse/dense point spacing does not overshoot)
+              const a = d12 / ((d01 + d12) || 1), b = d12 / ((d12 + d23) || 1);
+              const c1x = p1.x + (p2.x - p0.x) * a / 3, c1y = p1.y + (p2.y - p0.y) * a / 3;
+              const c2x = p2.x - (p3.x - p1.x) * b / 3, c2y = p2.y - (p3.y - p1.y) * b / 3;
+              cmds[i] = 'C ' + c1x + ' ' + c1y + ' ' + c2x + ' ' + c2y + ' ' + p2.x + ' ' + p2.y + ' ';
+            } else {
+              cmds[i] = 'L ' + p2.x + ' ' + p2.y + ' ';
+            }
+          }
+          return cmds;
+        };
+        const fragments = [];
+        const packageLayer = (rings, layer) => {
+          if (!rings.length) return;
+          const mapped = [];
+          rings.forEach(r => {
+            const m = emitRing(r);
+            if (m) mapped.push({ uv: r, m });
+          });
+          if (!mapped.length) return;
+          const depths = mapped.map((r, i) => {
+            let d = 0;
+            const p = r.uv.pts[0];
+            mapped.forEach((o, j) => {
+              if (j !== i && PolyClip._evenOddInside(p[0], p[1], [o.uv])) d++;
+            });
+            return d;
+          });
+          const outers = [];
+          mapped.forEach((r, i) => { if (depths[i] % 2 === 0) outers.push({ idx: i, holes: [] }); });
+          mapped.forEach((r, i) => {
+            if (depths[i] % 2 === 1) {
+              for (const o of outers) {
+                if (depths[o.idx] === depths[i] - 1 &&
+                  PolyClip._evenOddInside(r.uv.pts[0][0], r.uv.pts[0][1], [mapped[o.idx].uv])) {
+                  o.holes.push(i);
+                  break;
+                }
+              }
+            }
+          });
+          for (const o of outers) {
+            let d = '', zSum = 0, count = 0;
+            const strokes = [];
+            const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+            const zBounds = { minZ: Infinity, maxZ: -Infinity };
+            for (const ri of [o.idx, ...o.holes]) {
+              const m = mapped[ri].m;
+              const nseg = m.pts.length;
+              // Per-edge commands shared by fill and strokes, so their
+              // geometry coincides exactly (Catmull-Rom in smooth mode).
+              const cmds = edgeCmds(m);
+              d += 'M ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
+              for (let i = 0; i < nseg; i++) d += cmds[i];
+              d += 'Z ';
+              m.pts.forEach((p) => {
+                zSum += p.z; count++;
+                if (p.x < bounds.minX) bounds.minX = p.x;
+                if (p.x > bounds.maxX) bounds.maxX = p.x;
+                if (p.y < bounds.minY) bounds.minY = p.y;
+                if (p.y > bounds.maxY) bounds.maxY = p.y;
+                if (p.z < zBounds.minZ) zBounds.minZ = p.z;
+                if (p.z > zBounds.maxZ) zBounds.maxZ = p.z;
+              });
+              let anchor = -1;
+              for (let i = 0; i < nseg; i++) {
+                if (!strokeEdge(m.srcs[i])) { anchor = i; break; }
+              }
+              if (anchor === -1) {
+                let sd = 'M ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
+                for (let i = 0; i < nseg; i++) sd += cmds[i];
+                strokes.push(null, sd);
+              } else {
+                let run = null;
+                for (let k = 1; k <= nseg; k++) {
+                  const i = (anchor + k) % nseg;
+                  if (strokeEdge(m.srcs[i])) {
+                    const p1 = m.pts[i];
+                    if (!run) run = 'M ' + p1.x + ' ' + p1.y + ' ';
+                    run += cmds[i];
+                  } else if (run) {
+                    strokes.push(null, run);
+                    run = null;
+                  }
+                }
+                if (run) strokes.push(null, run);
+              }
+            }
+            if (!count) continue;
+            fragments.push({
+              d: d.trim(), zSum, count, avgZ: zSum / count,
+              type: 'split', layer, strokes,
+              bounds, zBounds
+            });
+          }
+        };
+        packageLayer(frontRings, 'front');
+        packageLayer(backRings, 'back');
+        if (typeof debugLog === 'function') {
+          debugLog(`[RC] splineFlow: ${fragments.length} fragments (F rings=${region.rings.length}, loops=${field.stats.closedLoops}, arcs=${field.stats.openArcs}, grid=${field.stats.nu}x${field.stats.nv}) ${(performance.now() - t0).toFixed(1)}ms`);
+        }
+        // Stage 5: cache with 3 world-space probes (source-space points
+        // through the live mapping).
+        SurfaceMapper._rcCacheStore(sourcePath, cacheKey,
+          [[(xMin + xMax) / 2, (yMin + yMax) / 2],
+          [xMin + 0.17 * (xMax - xMin), yMin + 0.83 * (yMax - yMin)],
+          [xMin + 0.83 * (xMax - xMin), yMin + 0.29 * (yMax - yMin)]]
+            .map(([x, y]) => { const w = worldAt(x, y); return { p: srcPtOf(x, y), w: w ? [...w] : [0, 0, 0] }; }),
+          fragments);
+        return fragments;
+      }
     }
+
+    // =====================================================================
+    // SilhouetteField — Region-Clip Silhouette experiment, Stage 1
+    // (v20260703k, see the region-clip implementation plan)
+    //
+    // Samples the silhouette scalar field g(u,v) = N·(eye − S) on a grid
+    // over a parameter-domain box, extracts ALL g = 0 contours via marching
+    // squares (asymptotic decider on saddle cells), polishes each crossing
+    // by bisection along its grid edge, and links the segments into closed
+    // loops / boundary-terminated open arcs.
+    //
+    // Pure geometry: no DOM access except in the dev overlay helpers at the
+    // bottom. Consumers: RC_DEBUG_CONTOURS overlay (Stage 1), PolyClip
+    // region clipping (Stage 3+). Run SilhouetteField.selfTest() in the
+    // console to validate the extraction on synthetic fields.
+    // =====================================================================
+    class SilhouetteField {
+
+      // Build the field over [uMin,uMax] × [vMin,vMax].
+      //   evalG(u, v) → scalar; return NaN for invalid/degenerate samples
+      //   (e.g. revolve poles) — cells touching NaN are excluded and
+      //   contours terminate cleanly at their border.
+      // Returns:
+      //   { loops: [{ pts: [[u,v],…], closed }], signAt(u,v), stats,
+      //     uMin, uMax, vMin, vMax, nu, nv }
+      // Proportional grid: gridN cells along the longer axis so cells stay
+      // near-square.
+      static _gridDims(uMin, uMax, vMin, vMax, gridN) {
+        const spanU = uMax - uMin, spanV = vMax - vMin;
+        let nu, nv;
+        if (spanU >= spanV) {
+          nu = Math.max(8, Math.round(gridN));
+          nv = Math.max(8, Math.min(nu, Math.round(nu * spanV / spanU)));
+        } else {
+          nv = Math.max(8, Math.round(gridN));
+          nu = Math.max(8, Math.min(nv, Math.round(nv * spanU / spanV)));
+        }
+        return { nu, nv, du: spanU / nu, dv: spanV / nv };
+      }
+
+      static build(evalG, uMin, uMax, vMin, vMax, gridN) {
+        const t0 = performance.now();
+        const dims = SilhouetteField._gridDims(uMin, uMax, vMin, vMax, gridN);
+        const { nu, nv, du, dv } = dims;
+        const uAt = (i) => uMin + i * du;
+        const vAt = (j) => vMin + j * dv;
+
+        // Sample the scalar grid directly.
+        const g = new Float64Array((nu + 1) * (nv + 1));
+        const idx = (i, j) => j * (nu + 1) + i;
+        for (let j = 0; j <= nv; j++) {
+          for (let i = 0; i <= nu; i++) {
+            g[idx(i, j)] = evalG(uAt(i), vAt(j));
+          }
+        }
+        return SilhouetteField._finish(g, dims, uMin, uMax, vMin, vMax, uAt, vAt, evalG, t0);
+      }
+
+      // Stage 5 fast path: sample the WORLD-POSITION grid once (a single
+      // surface/projection evaluation per node) and derive normals from
+      // grid-neighbor differences — the same pattern as the WebGPU
+      // SILHOUETTE_DOTS pipeline. g = (dPdu × dPdv)·(camPos − P).
+      // Crossings then use linear interpolation of g along cell edges
+      // (no polish evaluations). ~5× fewer evaluations than build() with
+      // a finite-difference evalG at equal grid resolution.
+      //   pointAt(u, v) → [x,y,z] world position, or null (invalid → NaN).
+      static buildFromPoints(pointAt, camPos, uMin, uMax, vMin, vMax, gridN) {
+        const t0 = performance.now();
+        const dims = SilhouetteField._gridDims(uMin, uMax, vMin, vMax, gridN);
+        const { nu, nv, du, dv } = dims;
+        const uAt = (i) => uMin + i * du;
+        const vAt = (j) => vMin + j * dv;
+        const W = nu + 1, H = nv + 1;
+        const idx = (i, j) => j * W + i;
+
+        // 1. World-position grid (single evaluation per node)
+        const Px = new Float64Array(W * H), Py = new Float64Array(W * H), Pz = new Float64Array(W * H);
+        const ok = new Uint8Array(W * H);
+        for (let j = 0; j < H; j++) {
+          for (let i = 0; i < W; i++) {
+            const p = pointAt(uAt(i), vAt(j));
+            const k = idx(i, j);
+            if (p && isFinite(p[0]) && isFinite(p[1]) && isFinite(p[2])) {
+              Px[k] = p[0]; Py[k] = p[1]; Pz[k] = p[2];
+              ok[k] = 1;
+            }
+          }
+        }
+
+        // 2. g from neighbor-difference normals (central where possible)
+        const g = new Float64Array(W * H);
+        const cx = camPos[0], cy = camPos[1], cz = camPos[2];
+        for (let j = 0; j < H; j++) {
+          for (let i = 0; i < W; i++) {
+            const k = idx(i, j);
+            const iA = idx(Math.max(0, i - 1), j), iB = idx(Math.min(nu, i + 1), j);
+            const jA = idx(i, Math.max(0, j - 1)), jB = idx(i, Math.min(nv, j + 1));
+            if (!ok[k] || !ok[iA] || !ok[iB] || !ok[jA] || !ok[jB]) { g[k] = NaN; continue; }
+            const ax = Px[iB] - Px[iA], ay = Py[iB] - Py[iA], az = Pz[iB] - Pz[iA];
+            const bx = Px[jB] - Px[jA], by = Py[jB] - Py[jA], bz = Pz[jB] - Pz[jA];
+            const nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+            if (nx * nx + ny * ny + nz * nz < 1e-24) { g[k] = NaN; continue; }
+            g[k] = nx * (cx - Px[k]) + ny * (cy - Py[k]) + nz * (cz - Pz[k]);
+          }
+        }
+        return SilhouetteField._finish(g, dims, uMin, uMax, vMin, vMax, uAt, vAt, null, t0);
+      }
+
+      // Shared core: marching squares + linking + classification over a
+      // sampled g grid. evalG present → crossings bisection-polished along
+      // edges; evalG null → linear interpolation of the grid values.
+      static _finish(g, dims, uMin, uMax, vMin, vMax, uAt, vAt, evalG, t0) {
+        const { nu, nv, du, dv } = dims;
+        const idx = (i, j) => j * (nu + 1) + i;
+
+        // --- Edge crossings (cached per edge key) -------------------------
+        // Key: 'H:i:j' = horizontal edge (i,j)→(i+1,j)
+        //      'V:i:j' = vertical   edge (i,j)→(i,j+1)
+        // Sharing crossings by key makes segment linking exact (no epsilon
+        // matching) and gives adjacent cells bit-identical contour points.
+        const crossings = new Map();
+        const edgeCrossing = (type, i, j) => {
+          const key = type + ':' + i + ':' + j;
+          let c = crossings.get(key);
+          if (c) return c;
+          let uA, vA, uB, vB, gA, gB;
+          if (type === 'H') {
+            uA = uAt(i); vA = vAt(j); uB = uAt(i + 1); vB = vA;
+            gA = g[idx(i, j)]; gB = g[idx(i + 1, j)];
+          } else {
+            uA = uAt(i); vA = vAt(j); uB = uA; vB = vAt(j + 1);
+            gA = g[idx(i, j)]; gB = g[idx(i, j + 1)];
+          }
+          let t;
+          if (evalG) {
+            // Bisection along the edge: 8 iterations → crossing located to
+            // 1/256 of a cell.
+            let a = 0, b = 1, ga = gA;
+            for (let it = 0; it < 8; it++) {
+              const m = (a + b) / 2;
+              const gm = evalG(uA + (uB - uA) * m, vA + (vB - vA) * m);
+              if (!isFinite(gm)) break;
+              if (gm === 0) { a = m; b = m; break; }
+              if ((ga >= 0) !== (gm >= 0)) { b = m; } else { a = m; ga = gm; }
+            }
+            t = (a + b) / 2;
+          } else {
+            // Linear interpolation of the sampled values (grid-batched
+            // mode): first-order accurate, no extra evaluations.
+            const denom = gA - gB;
+            t = Math.abs(denom) > 1e-300 ? gA / denom : 0.5;
+            if (t < 1e-6) t = 1e-6;
+            if (t > 1 - 1e-6) t = 1 - 1e-6;
+          }
+          c = { key, u: uA + (uB - uA) * t, v: vA + (vB - vA) * t };
+          crossings.set(key, c);
+          return c;
+        };
+
+        // --- 3. Marching squares → segments ------------------------------
+        // Corner bits: b0=(i,j) b1=(i+1,j) b2=(i+1,j+1) b3=(i,j+1), set when
+        // g >= 0 (front-facing). Cells with any NaN corner are skipped, so
+        // contours dead-end at the invalid region's border (handled as open
+        // arcs by the linker below).
+        const segs = [];
+        for (let j = 0; j < nv; j++) {
+          for (let i = 0; i < nu; i++) {
+            const g00 = g[idx(i, j)], g10 = g[idx(i + 1, j)];
+            const g11 = g[idx(i + 1, j + 1)], g01 = g[idx(i, j + 1)];
+            if (!isFinite(g00) || !isFinite(g10) || !isFinite(g11) || !isFinite(g01)) continue;
+            const code = (g00 >= 0 ? 1 : 0) | (g10 >= 0 ? 2 : 0)
+                       | (g11 >= 0 ? 4 : 0) | (g01 >= 0 ? 8 : 0);
+            if (code === 0 || code === 15) continue;
+            const B = () => edgeCrossing('H', i, j);       // bottom (g00–g10)
+            const T = () => edgeCrossing('H', i, j + 1);   // top    (g01–g11)
+            const L = () => edgeCrossing('V', i, j);       // left   (g00–g01)
+            const R = () => edgeCrossing('V', i + 1, j);   // right  (g10–g11)
+            const emit = (ca, cb) => segs.push({ a: ca, b: cb });
+            switch (code) {
+              case 1: case 14: emit(L(), B()); break;  // corner (i,j) isolated
+              case 2: case 13: emit(B(), R()); break;  // corner (i+1,j) isolated
+              case 4: case 11: emit(R(), T()); break;  // corner (i+1,j+1) isolated
+              case 8: case 7: emit(T(), L()); break;   // corner (i,j+1) isolated
+              case 3: case 12: emit(L(), R()); break;  // horizontal split
+              case 6: case 9: emit(B(), T()); break;   // vertical split
+              case 5: case 10: {
+                // Saddle cell — two contour segments; the asymptotic decider
+                // (sign of the bilinear interpolant at the cell center)
+                // resolves which corner pairs the contours separate.
+                const centerPos = (g00 + g10 + g11 + g01) / 4 >= 0;
+                const posDiagIsMain = (code === 5); // g00 & g11 positive
+                if (posDiagIsMain === centerPos) {
+                  emit(B(), R()); emit(T(), L());
+                } else {
+                  emit(L(), B()); emit(R(), T());
+                }
+                break;
+              }
+            }
+          }
+        }
+
+        // --- 4. Link segments into loops / open arcs ---------------------
+        // Every edge key is incident to at most 2 segments (one per adjacent
+        // cell), so linking is a plain walk over shared keys — no geometry
+        // comparisons, no epsilons. Keys with 1 incident segment are terminals
+        // (domain boundary or NaN-region border) → open arcs.
+        const byKey = new Map();
+        segs.forEach((s, si) => {
+          for (const c of [s.a, s.b]) {
+            let arr = byKey.get(c.key);
+            if (!arr) byKey.set(c.key, arr = []);
+            arr.push(si);
+          }
+        });
+        const used = new Uint8Array(segs.length);
+        const loops = [];
+        const nextSeg = (key, fromSi) => {
+          const arr = byKey.get(key);
+          if (!arr || arr.length !== 2) return -1;
+          return arr[0] === fromSi ? arr[1] : arr[0];
+        };
+        const traceFrom = (si, startCrossing) => {
+          const pts = [[startCrossing.u, startCrossing.v]];
+          let cur = si;
+          let entry = startCrossing;
+          while (cur !== -1 && !used[cur]) {
+            used[cur] = 1;
+            const s = segs[cur];
+            const exit = (s.a.key === entry.key) ? s.b : s.a;
+            pts.push([exit.u, exit.v]);
+            cur = nextSeg(exit.key, cur);
+            entry = exit;
+          }
+          return pts;
+        };
+        // Open arcs first: start every walk at a terminal so an arc is never
+        // split in two by an unlucky mid-arc seed.
+        segs.forEach((s, si) => {
+          if (used[si]) return;
+          const aTerm = byKey.get(s.a.key).length === 1;
+          const bTerm = byKey.get(s.b.key).length === 1;
+          if (!aTerm && !bTerm) return;
+          const pts = traceFrom(si, aTerm ? s.a : s.b);
+          if (pts.length >= 2) loops.push({ pts, closed: false });
+        });
+        // Remaining segments belong to closed loops.
+        segs.forEach((s, si) => {
+          if (used[si]) return;
+          const pts = traceFrom(si, s.a);
+          if (pts.length >= 4) {
+            const first = pts[0], last = pts[pts.length - 1];
+            if (first[0] === last[0] && first[1] === last[1]) pts.pop();
+            loops.push({ pts, closed: true });
+          }
+        });
+
+        // --- 5. Point classification (bilinear sign) ----------------------
+        const signAt = (u, v) => {
+          const x = Math.max(0, Math.min(nu - 1e-9, (u - uMin) / du));
+          const y = Math.max(0, Math.min(nv - 1e-9, (v - vMin) / dv));
+          const i = Math.floor(x), j = Math.floor(y);
+          const fx = x - i, fy = y - j;
+          const val = g[idx(i, j)] * (1 - fx) * (1 - fy)
+            + g[idx(i + 1, j)] * fx * (1 - fy)
+            + g[idx(i, j + 1)] * (1 - fx) * fy
+            + g[idx(i + 1, j + 1)] * fx * fy;
+          return val >= 0 ? 1 : -1;
+        };
+
+        const stats = {
+          nu, nv,
+          samples: (nu + 1) * (nv + 1),
+          segments: segs.length,
+          closedLoops: loops.filter(l => l.closed).length,
+          openArcs: loops.filter(l => !l.closed).length,
+          ms: +(performance.now() - t0).toFixed(2)
+        };
+        SilhouetteField.lastStats = stats;
+        // uMaxGrid/vMaxGrid: the EXACT floating-point coordinates of the
+        // last grid line (uMin + nu·du may differ from uMax in the last
+        // ulp). Region assembly must compare arc endpoints against these.
+        return {
+          loops, signAt, stats, uMin, uMax, vMin, vMax, nu, nv,
+          uMaxGrid: uAt(nu), vMaxGrid: vAt(nv)
+        };
+      }
+
+      // ------------------------------------------------------------------
+      // Region assembly (Stage 3): build the front-facing region F = {g≥0}
+      // restricted to the field's domain box, as rings consumable by
+      // PolyClip (evenodd semantics; orientation normalized downstream).
+      //   - closed contour loops become rings tagged 'silhouette';
+      //   - open arcs are closed along the domain box perimeter through
+      //     the stretches where g ≥ 0, walking corners, tagged 'domain';
+      //   - with no arcs at all, the box ring itself is included iff the
+      //     perimeter is front-facing (majority of 8 samples).
+      // Returns { rings }. rings === [] means F is empty in this domain.
+      // ------------------------------------------------------------------
+      static buildFrontRegion(field) {
+        const { loops, signAt } = field;
+        const u0 = field.uMin, v0 = field.vMin;
+        const u1 = field.uMaxGrid, v1 = field.vMaxGrid;
+        const rings = [];
+        const arcs = [];
+        for (const L of loops) {
+          if (L.closed) {
+            if (L.pts.length >= 3) {
+              rings.push({ pts: L.pts.map(p => p.slice()), srcs: L.pts.map(() => 'silhouette') });
+            }
+          } else {
+            arcs.push(L);
+          }
+        }
+        const spanU = u1 - u0, spanV = v1 - v0;
+        const perim = 2 * (spanU + spanV);
+        const eps = 1e-9 * Math.max(spanU, spanV);
+
+        // Perimeter arc-length parameterization, CCW from (u0,v0):
+        // bottom → right → top → left.
+        const sOf = (p) => {
+          if (Math.abs(p[1] - v0) <= eps) return p[0] - u0;
+          if (Math.abs(p[0] - u1) <= eps) return spanU + (p[1] - v0);
+          if (Math.abs(p[1] - v1) <= eps) return spanU + spanV + (u1 - p[0]);
+          if (Math.abs(p[0] - u0) <= eps) return 2 * spanU + spanV + (v1 - p[1]);
+          return -1; // not on the perimeter (NaN-region border arc)
+        };
+        const ptAtS = (s) => {
+          s = ((s % perim) + perim) % perim;
+          if (s <= spanU) return [u0 + s, v0];
+          s -= spanU;
+          if (s <= spanV) return [u1, v0 + s];
+          s -= spanV;
+          if (s <= spanU) return [u1 - s, v1];
+          s -= spanU;
+          return [u0, v1 - s];
+        };
+
+        // Nodes: arc endpoints located on the perimeter.
+        const nodes = [];
+        arcs.forEach((a) => {
+          const pA = a.pts[0], pB = a.pts[a.pts.length - 1];
+          const sA = sOf(pA), sB = sOf(pB);
+          if (sA < 0 || sB < 0) {
+            a._dropped = true; // NaN-border arc — best-effort: ignore
+            if (typeof debugLog === 'function') debugLog('[RC] buildFrontRegion: dropped non-perimeter arc');
+            return;
+          }
+          nodes.push({ s: sA, pt: pA });
+          nodes.push({ s: sB, pt: pB });
+        });
+        const liveArcs = arcs.filter(a => !a._dropped);
+
+        if (nodes.length === 0) {
+          // No boundary crossings: the perimeter is uniformly one side.
+          let pos = 0, neg = 0;
+          for (let k = 0; k < 8; k++) {
+            const p = ptAtS((k + 0.37) * perim / 8);
+            if (signAt(p[0], p[1]) >= 0) pos++; else neg++;
+          }
+          if (pos >= neg) {
+            rings.push({
+              pts: [[u0, v0], [u1, v0], [u1, v1], [u0, v1]],
+              srcs: ['domain', 'domain', 'domain', 'domain']
+            });
+          }
+          return { rings };
+        }
+
+        nodes.sort((a, b) => a.s - b.s);
+
+        // Boundary pieces: the arcs themselves + the perimeter intervals
+        // between consecutive nodes where g ≥ 0 (corner points included).
+        const pieces = [];
+        liveArcs.forEach(a => pieces.push({ pts: a.pts, kind: 'silhouette' }));
+        const cornerS = [0, spanU, spanU + spanV, 2 * spanU + spanV];
+        const nN = nodes.length;
+        for (let k = 0; k < nN; k++) {
+          const A = nodes[k], B = nodes[(k + 1) % nN];
+          const sB = (k === nN - 1) ? B.s + perim : B.s;
+          if (sB - A.s < 1e-12) continue; // coincident endpoints
+          const midP = ptAtS((A.s + sB) / 2);
+          if (signAt(midP[0], midP[1]) < 0) continue; // outside F
+          const pts = [A.pt.slice()];
+          const cs = [];
+          for (const base of [0, perim]) {
+            for (const c of cornerS) {
+              const s = c + base;
+              if (s > A.s + 1e-12 && s < sB - 1e-12) cs.push(s);
+            }
+          }
+          cs.sort((x, y) => x - y).forEach(s => pts.push(ptAtS(s)));
+          pts.push(B.pt.slice());
+          pieces.push({ pts, kind: 'domain' });
+        }
+
+        // Link pieces into closed rings by exact endpoint matching
+        // (interval endpoints reuse the arcs' own endpoint values, so keys
+        // match exactly — no epsilon).
+        const key = (p) => p[0] + ',' + p[1];
+        const adj = new Map();
+        pieces.forEach((pc, pi) => {
+          for (const end of [pc.pts[0], pc.pts[pc.pts.length - 1]]) {
+            const k = key(end);
+            let arr = adj.get(k);
+            if (!arr) adj.set(k, arr = []);
+            arr.push(pi);
+          }
+        });
+        const used = new Uint8Array(pieces.length);
+        pieces.forEach((pc, pi) => {
+          if (used[pi]) return;
+          const ringPts = [], ringSrcs = [];
+          const startKey = key(pc.pts[0]);
+          let cur = pi, entry = startKey, closed = false;
+          let guard = pieces.length + 1;
+          while (guard-- > 0) {
+            used[cur] = 1;
+            const P = pieces[cur];
+            const kA = key(P.pts[0]), kB = key(P.pts[P.pts.length - 1]);
+            const plist = (entry === kA) ? P.pts : [...P.pts].reverse();
+            for (let i = 0; i < plist.length - 1; i++) {
+              ringPts.push(plist[i].slice());
+              ringSrcs.push(P.kind);
+            }
+            const exitKey = (entry === kA) ? kB : kA;
+            if (exitKey === startKey) { closed = true; break; }
+            const cands = (adj.get(exitKey) || []).filter(i2 => !used[i2]);
+            if (!cands.length) break;
+            cur = cands[0];
+            entry = exitKey;
+          }
+          if (closed && ringPts.length >= 3) {
+            rings.push({ pts: ringPts, srcs: ringSrcs });
+          } else if (!closed && typeof debugLog === 'function') {
+            debugLog('[RC] buildFrontRegion: unclosed boundary chain dropped (' + ringPts.length + ' pts)');
+          }
+        });
+        return { rings };
+      }
+
+      // ------------------------------------------------------------------
+      // Dev overlay (RC_DEBUG_CONTOURS) — collectors called from the two
+      // mapping generators, flush called once per frame from render().
+      // ------------------------------------------------------------------
+
+      // Surface-mapping pipeline: field over the mapped path's UV bbox.
+      static collectSurfaceMappingOverlay(ctx) {
+        const { sourceSegs, toUV, surfaceNormalAt, surfacePointN, toScreen, camPos } = ctx;
+        // UV bounding box of the mapped source path (unwrapped coordinates —
+        // around-mode wrapping happens inside surfacePoint, so the field
+        // lives on the covering space and seams are not special).
+        let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
+        sourceSegs.forEach(seg => {
+          for (let k = 0; k <= 4; k++) {
+            const t = k / 4, mt = 1 - t;
+            const p = [
+              mt * mt * mt * seg.p0[0] + 3 * mt * mt * t * seg.p1[0] + 3 * mt * t * t * seg.p2[0] + t * t * t * seg.p3[0],
+              mt * mt * mt * seg.p0[1] + 3 * mt * mt * t * seg.p1[1] + 3 * mt * t * t * seg.p2[1] + t * t * t * seg.p3[1],
+              mt * mt * mt * (seg.p0[2] || 0) + 3 * mt * mt * t * (seg.p1[2] || 0) + 3 * mt * t * t * (seg.p2[2] || 0) + t * t * t * (seg.p3[2] || 0)
+            ];
+            const [u, v] = toUV(p);
+            if (u < uMin) uMin = u; if (u > uMax) uMax = u;
+            if (v < vMin) vMin = v; if (v > vMax) vMax = v;
+          }
+        });
+        if (!isFinite(uMin)) return;
+        ({ uMin, uMax, vMin, vMax } = SilhouetteField._padDomain(uMin, uMax, vMin, vMax));
+
+        // Stage 5: same grid-batched field as the RC pipeline, so the
+        // overlay shows exactly the contours the clipper uses.
+        const field = SilhouetteField.buildFromPoints(
+          (u, v) => surfacePointN(u, v), camPos, uMin, uMax, vMin, vMax, RC_GRID_N);
+        field.loops.forEach(loop => {
+          let d = '', pen = false;
+          loop.pts.forEach(([u, v]) => {
+            const sp = toScreen(surfacePointN(u, v));
+            if (!sp) { pen = false; return; }
+            d += (pen ? 'L ' : 'M ') + sp.x + ' ' + sp.y + ' ';
+            pen = true;
+          });
+          if (loop.closed && d) d += 'Z';
+          if (d) SilhouetteField._overlayPaths.push(d);
+        });
+      }
+
+      // Spline-flow pipeline: field over the source path's local-space bbox,
+      // evaluated through project() which carries the silhouette dot product.
+      // (Field plane is z=0 of source space — matches flat 2D sources; 3D
+      // sources' w-displacement is a Stage 4 refinement.)
+      static collectSplineFlowOverlay(ctx) {
+        const { segments, project } = ctx;
+        let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+        segments.forEach(seg => {
+          const pts = seg.type === 'L' ? [seg.pStart, seg.pEnd] : [seg.p0, seg.p1, seg.p2, seg.p3];
+          pts.forEach(p => {
+            if (p[0] < xMin) xMin = p[0]; if (p[0] > xMax) xMax = p[0];
+            if (p[1] < yMin) yMin = p[1]; if (p[1] > yMax) yMax = p[1];
+          });
+        });
+        if (!isFinite(xMin)) return;
+        ({ uMin: xMin, uMax: xMax, vMin: yMin, vMax: yMax } =
+          SilhouetteField._padDomain(xMin, xMax, yMin, yMax));
+
+        // Stage 5: grid-batched world positions with neighbor-difference
+        // normals (matches the RC pipeline's field; project().world is
+        // exposed under RC_DEBUG_CONTOURS too).
+        const field = SilhouetteField.buildFromPoints(
+          (x, y) => { const p = project([x, y, 0]); return (p && p.world) ? p.world : null; },
+          camPos, xMin, xMax, yMin, yMax, RC_GRID_N);
+        field.loops.forEach(loop => {
+          let d = '', pen = false;
+          loop.pts.forEach(([x, y]) => {
+            const p = project([x, y, 0]);
+            if (!p) { pen = false; return; }
+            const sx = (p[0] * FRAME_SIZE) / 2;
+            const sy = (-p[1] * FRAME_SIZE) / 2;
+            d += (pen ? 'L ' : 'M ') + sx + ' ' + sy + ' ';
+            pen = true;
+          });
+          if (loop.closed && d) d += 'Z';
+          if (d) SilhouetteField._overlayPaths.push(d);
+        });
+      }
+
+      // Pad the domain box and guard against degenerate (zero-span) axes.
+      static _padDomain(uMin, uMax, vMin, vMax) {
+        const pad = 0.06 * Math.max(uMax - uMin, vMax - vMin, 1e-6);
+        uMin -= pad; uMax += pad; vMin -= pad; vMax += pad;
+        const minSpan = 0.02 * Math.max(uMax - uMin, vMax - vMin, 0.5);
+        if (uMax - uMin < minSpan) { const c = (uMin + uMax) / 2; uMin = c - minSpan / 2; uMax = c + minSpan / 2; }
+        if (vMax - vMin < minSpan) { const c = (vMin + vMax) / 2; vMin = c - minSpan / 2; vMax = c + minSpan / 2; }
+        return { uMin, uMax, vMin, vMax };
+      }
+
+      // Draw all collected contour polylines into an overlay group appended
+      // last in mainGroup (always on top). Called once per frame at the end
+      // of render(); with the flag off it removes the group and is a no-op
+      // DOM-wise. Never throws (render() must not die because of a dev aid).
+      static _flushOverlay(parentGroup) {
+        try {
+          let grp = document.getElementById('rcContourOverlay');
+          if (!RC_DEBUG_CONTOURS) {
+            if (grp) grp.remove();
+            return;
+          }
+          if (!grp) {
+            grp = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            grp.setAttribute('id', 'rcContourOverlay');
+            grp.setAttribute('pointer-events', 'none');
+          }
+          parentGroup.appendChild(grp); // re-append → stays on top
+          while (grp.firstChild) grp.removeChild(grp.firstChild);
+          for (const d of SilhouetteField._overlayPaths) {
+            const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            el.setAttribute('d', d);
+            el.setAttribute('fill', 'none');
+            el.setAttribute('stroke', 'var(--accent-color)');
+            el.setAttribute('stroke-width', '1.5');
+            el.setAttribute('vector-effect', 'non-scaling-stroke');
+            el.setAttribute('stroke-opacity', '0.9');
+            grp.appendChild(el);
+          }
+        } catch (e) {
+          console.error('[RC] contour overlay flush failed:', e);
+        } finally {
+          SilhouetteField._overlayPaths.length = 0;
+        }
+      }
+
+      // Console self-test on synthetic fields with known topology.
+      static selfTest() {
+        const results = [];
+        const t = (name, ok, detail) => results.push({ test: name, ok: ok ? 'PASS' : 'FAIL', detail: detail || '' });
+
+        // 1. Single circle → exactly one closed loop, radially accurate
+        let f = SilhouetteField.build((u, v) => 0.04 - ((u - 0.5) ** 2 + (v - 0.5) ** 2), 0, 1, 0, 1, 64);
+        t('circle: 1 closed loop', f.loops.length === 1 && f.loops[0].closed,
+          `loops=${f.stats.closedLoops} arcs=${f.stats.openArcs}`);
+        if (f.loops.length === 1) {
+          let err = 0;
+          f.loops[0].pts.forEach(([u, v]) => {
+            err = Math.max(err, Math.abs(Math.hypot(u - 0.5, v - 0.5) - 0.2));
+          });
+          t('circle: radial error < 1e-3', err < 1e-3, `maxErr=${err.toExponential(2)}`);
+        }
+
+        // 2. Two disjoint blobs → two closed loops (the multi-horizon case)
+        f = SilhouetteField.build((u, v) => 0.015 - Math.min(
+          (u - 0.3) ** 2 + (v - 0.3) ** 2, (u - 0.72) ** 2 + (v - 0.72) ** 2), 0, 1, 0, 1, 64);
+        t('two blobs: 2 closed loops', f.stats.closedLoops === 2 && f.stats.openArcs === 0,
+          `loops=${f.stats.closedLoops} arcs=${f.stats.openArcs}`);
+
+        // 3. Half-plane → one open arc terminating on the domain boundary
+        f = SilhouetteField.build((u, v) => u - 0.5, 0, 1, 0, 1, 32);
+        t('half-plane: 1 open arc', f.loops.length === 1 && !f.loops[0].closed,
+          `loops=${f.stats.closedLoops} arcs=${f.stats.openArcs}`);
+
+        // 4. signAt classification
+        t('signAt: front/back classification',
+          f.signAt(0.9, 0.5) === 1 && f.signAt(0.1, 0.5) === -1);
+
+        // 5. NaN region tolerated (degenerate normals): loop away from the
+        //    NaN quadrant still extracted, no crash
+        f = SilhouetteField.build((u, v) => (u > 0.8 && v > 0.8) ? NaN :
+          0.04 - ((u - 0.4) ** 2 + (v - 0.4) ** 2), 0, 1, 0, 1, 48);
+        t('NaN cells: loop extracted, no crash', f.stats.closedLoops === 1,
+          `loops=${f.stats.closedLoops} arcs=${f.stats.openArcs}`);
+
+        // 6. Anisotropic domain (wide U span) keeps proportional grid sane
+        f = SilhouetteField.build((u, v) => 0.04 - ((u - 1.5) ** 2 + (v - 0.5) ** 2), -1, 4, 0, 1, 96);
+        t('anisotropic domain: 1 loop', f.stats.closedLoops === 1,
+          `grid=${f.stats.nu}x${f.stats.nv}`);
+
+        console.table(results);
+        const pass = results.every(r => r.ok === 'PASS');
+        console.log(pass ? '[SilhouetteField] selfTest: ALL PASS' : '[SilhouetteField] selfTest: FAILURES — see table');
+        return pass;
+      }
+    }
+    // Static state for the dev overlay (assigned outside the class body for
+    // maximum parser compatibility).
+    SilhouetteField._overlayPaths = [];
+    SilhouetteField.lastStats = null;
+
+    // =====================================================================
+    // PolyClip — Region-Clip Silhouette experiment, Stage 2
+    // (v20260703l, see the region-clip implementation plan)
+    //
+    // Snap-rounded polygon boolean specialized for the region-clip pipeline:
+    // splits a subject polygon (the mapped source path, as flattened rings)
+    // against a region polygon-with-holes (the front-facing set F from
+    // SilhouetteField) into FRONT (subject ∩ F) and BACK (subject − F)
+    // parts in ONE pass, so both sides share bit-identical boundary
+    // geometry along the silhouette (no hairline gaps between layers).
+    //
+    // Robustness strategy:
+    //   - All coordinates are snapped to a 2^20 integer lattice over the
+    //     combined bounding box before any intersection math. Orientation
+    //     tests on lattice ints are EXACT in float64 (|terms| < 2^42), so
+    //     vertex-on-edge and collinear-overlap cases are decided exactly,
+    //     not by epsilon.
+    //   - Classification is per-sub-edge (even-odd midpoint test), never
+    //     propagated entry/exit parity — one bad crossing cannot corrupt
+    //     the rest of the result (the classic Greiner–Hormann failure).
+    //   - Ring assembly is a planar walk with a rightmost-turn rule at
+    //     junction vertices; any walk that cannot close falls back to a
+    //     forced straight close (tracked in stats, never a crash).
+    //
+    // Input contract: each polygon's rings must be simple and properly
+    // nested (holes inside outers, sibling outers disjoint) — the natural
+    // shape of path fills with holes. Rings that CROSS each other within
+    // one polygon have no consistent interior-left interpretation; results
+    // degrade to best-effort (tracked via stats.forceClosed, never a crash).
+    //
+    // Pure geometry: no DOM, no app state. Console tests:
+    //   PolyClip.selfTest()      — fixture suite
+    //   PolyClip.fuzzTest(500)   — seeded randomized stress test
+    // =====================================================================
+    class PolyClip {
+
+      // ------------------------------------------------------------------
+      // Main entry. One subject (array of closed rings, evenodd semantics)
+      // against one region (array of closed rings, evenodd semantics).
+      //   subjectRings: [ [ [u,v], ... ], ... ]
+      //   regionRings:  [ [ [u,v], ... ] or { pts: [[u,v],...], srcs: [tag,...] } ]
+      //     srcs[i] tags the edge pts[i] → pts[(i+1)%n]; default 'silhouette'.
+      // Returns:
+      //   { front: [ { pts, srcs } ], back: [ { pts, srcs } ], stats }
+      //   Output ring edge pts[i]→pts[i+1] has provenance srcs[i]
+      //   ('path' for subject pieces, region tag otherwise). Outer rings are
+      //   CCW and holes CW (interior-left), so both evenodd and nonzero SVG
+      //   fill rules render them correctly.
+      // ------------------------------------------------------------------
+      static split(subjectRings, regionRings, opts = {}) {
+        const stats = { crossings: 0, subEdges: 0, forceClosed: 0, droppedRings: 0 };
+
+        // --- 0. Normalize input shapes -----------------------------------
+        const subjIn = (subjectRings || []).map(r => Array.isArray(r) ? { pts: r, srcs: null } : r);
+        const regIn = (regionRings || []).map(r => Array.isArray(r) ? { pts: r, srcs: null } : r);
+
+        // --- 1. Snap transform over the combined bbox --------------------
+        const T = PolyClip._snapTransform([...subjIn, ...regIn]);
+        if (!T) return { front: [], back: [], stats };
+
+        const subj = PolyClip._snapRings(subjIn, T, 'path', stats);
+        const reg = PolyClip._snapRings(regIn, T, 'silhouette', stats);
+
+        if (subj.length === 0) return { front: [], back: [], stats };
+
+        // Orient rings interior-left by evenodd nesting depth
+        PolyClip._normalizeOrientation(subj);
+        PolyClip._normalizeOrientation(reg);
+
+        // --- 2. All subject-edge × region-edge intersections -------------
+        // Split points are accumulated per edge, keyed by squared param.
+        PolyClip._computeIntersections(subj, reg, stats);
+
+        // --- 3. Build sub-edges -------------------------------------------
+        const subjEdges = PolyClip._buildSubEdges(subj);
+        const regEdges = PolyClip._buildSubEdges(reg);
+        stats.subEdges = subjEdges.length + regEdges.length;
+
+        // --- 4. Classify sub-edges, one evaluation per CHAIN ---------------
+        // Classification is constant along a ring BETWEEN boundary contacts
+        // (crossings, collinear-overlap ends, vertex-on-boundary — all are
+        // chain boundaries by construction), so it is evaluated once per
+        // chain on the chain's longest edge and assigned to every edge in
+        // it. This is grouping, not parity propagation: every chain is
+        // still classified independently (v20260704e — the per-sub-edge
+        // version was the clip hotspot on many-vertex sources).
+        // Subject piece vs region: 1 = inside F (front), -1 = outside
+        // (back), 0 = ON the boundary; 'offset' mode resolves 0 by the
+        // subject's own interior side. Region piece vs subject: kept only
+        // when strictly inside ('zero' mode excludes coincident edges).
+        PolyClip._classifyChains(subjEdges, reg, 'offset');
+        PolyClip._classifyChains(regEdges, subj, 'zero');
+        const frontEdges = [], backEdges = [];
+        for (const e of subjEdges) {
+          // Subject edges keep their caller-provided tag (default 'path';
+          // e.g. 'closure' marks an open subpath's implicit closing edge,
+          // which fills use but strokes must skip).
+          if (e.side >= 0) frontEdges.push({ x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, src: e.src });
+          if (e.side < 0) backEdges.push({ x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, src: e.src });
+        }
+        for (const e of regEdges) {
+          if (e.side > 0) {
+            // Forward for front (∂F oriented interior-left of F)…
+            frontEdges.push({ x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, src: e.src });
+            // …reversed for back (∂F bounds the complement there).
+            backEdges.push({ x1: e.x2, y1: e.y2, x2: e.x1, y2: e.y1, src: e.src });
+          }
+        }
+
+        // --- 5. Assemble rings --------------------------------------------
+        const front = PolyClip._assemble(frontEdges, stats);
+        const back = PolyClip._assemble(backEdges, stats);
+
+        // --- 6. Un-snap back to caller coordinates -------------------------
+        const unsnap = (rings) => rings.map(r => ({
+          pts: r.pts.map(([x, y]) => [T.u0 + x / T.s, T.v0 + y / T.s]),
+          srcs: r.srcs
+        }));
+        return { front: unsnap(front), back: unsnap(back), stats };
+      }
+
+      // Split an OPEN polyline against the region: returns classified pieces
+      // (no fills — stroke material for open subpaths).
+      //   { front: [ [ [u,v],... ] ], back: [ ... ] }
+      static splitPolyline(pts, regionRings, opts = {}) {
+        const regIn = (regionRings || []).map(r => Array.isArray(r) ? { pts: r, srcs: null } : r);
+        const T = PolyClip._snapTransform([{ pts }, ...regIn]);
+        if (!T) return { front: [], back: [] };
+        const reg = PolyClip._snapRings(regIn, T, 'silhouette', { droppedRings: 0 });
+        PolyClip._normalizeOrientation(reg);
+        // Snap the polyline (open — do not join last to first)
+        const snapped = [];
+        for (const [u, v] of pts) {
+          const x = Math.round((u - T.u0) * T.s), y = Math.round((v - T.v0) * T.s);
+          const prev = snapped[snapped.length - 1];
+          if (!prev || prev[0] !== x || prev[1] !== y) snapped.push([x, y]);
+        }
+        if (snapped.length < 2) return { front: [], back: [] };
+        // Split each segment at region crossings, classify midpoints,
+        // accumulate maximal same-side runs.
+        const runs = { front: [], back: [] };
+        let curPts = null, curSide = 0;
+        const flush = () => {
+          if (curPts && curPts.length >= 2) runs[curSide >= 0 ? 'front' : 'back'].push(curPts);
+          curPts = null;
+        };
+        for (let i = 0; i < snapped.length - 1; i++) {
+          const a = snapped[i], b = snapped[i + 1];
+          const cuts = PolyClip._segmentCutsVsRegion(a, b, reg);
+          let prev = a;
+          for (const pt of [...cuts, b]) {
+            if (pt[0] === prev[0] && pt[1] === prev[1]) continue;
+            const e = { x1: prev[0], y1: prev[1], x2: pt[0], y2: pt[1] };
+            const side = PolyClip._sideOfRegion(e, reg, 'offset');
+            if (!curPts || (side >= 0) !== (curSide >= 0)) {
+              flush();
+              curPts = [prev.slice()];
+              curSide = side;
+            }
+            curPts.push(pt.slice());
+            prev = pt;
+          }
+        }
+        flush();
+        const unsnap = (p) => p.map(([x, y]) => [T.u0 + x / T.s, T.v0 + y / T.s]);
+        return { front: runs.front.map(unsnap), back: runs.back.map(unsnap) };
+      }
+
+      // ------------------------------------------------------------------
+      // Internals
+      // ------------------------------------------------------------------
+
+      // Lattice: 2^20 steps across the larger side of the combined bbox.
+      static _snapTransform(ringObjs) {
+        let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
+        for (const r of ringObjs) {
+          for (const [u, v] of r.pts) {
+            if (!isFinite(u) || !isFinite(v)) continue;
+            if (u < uMin) uMin = u; if (u > uMax) uMax = u;
+            if (v < vMin) vMin = v; if (v > vMax) vMax = v;
+          }
+        }
+        if (!isFinite(uMin)) return null;
+        const span = Math.max(uMax - uMin, vMax - vMin, 1e-12);
+        return { u0: uMin, v0: vMin, s: PolyClip.SNAP / span };
+      }
+
+      // Snap rings to the lattice; dedupe consecutive duplicates; drop
+      // degenerate rings. Per-edge source tags survive vertex dedupe.
+      static _snapRings(ringObjs, T, defaultSrc, stats) {
+        const out = [];
+        for (const r of ringObjs) {
+          const pts = [], srcs = [];
+          const n = r.pts.length;
+          for (let i = 0; i < n; i++) {
+            const x = Math.round((r.pts[i][0] - T.u0) * T.s);
+            const y = Math.round((r.pts[i][1] - T.v0) * T.s);
+            const src = (r.srcs && r.srcs[i]) || defaultSrc;
+            const prev = pts[pts.length - 1];
+            if (prev && prev[0] === x && prev[1] === y) {
+              // collapsed vertex — its edge tag merges into the previous edge
+              continue;
+            }
+            pts.push([x, y]); srcs.push(src);
+          }
+          // Remove closing duplicate
+          while (pts.length > 1 &&
+            pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) {
+            pts.pop(); srcs.pop();
+          }
+          if (pts.length >= 3) {
+            out.push({ pts, srcs, splits: pts.map(() => []) });
+          } else if (stats) {
+            stats.droppedRings++;
+          }
+        }
+        return out;
+      }
+
+      // 2 × signed area of an integer ring (exact for our magnitudes).
+      static _ringArea2(pts) {
+        let a = 0;
+        for (let i = 0, n = pts.length; i < n; i++) {
+          const p = pts[i], q = pts[(i + 1) % n];
+          a += p[0] * q[1] - q[0] * p[1];
+        }
+        return a;
+      }
+
+      // Orient rings interior-left: evenodd nesting depth even → CCW (outer),
+      // odd → CW (hole). Depth is counted against the OTHER rings of the
+      // same polygon using a half-open ray cast from a ring vertex.
+      static _normalizeOrientation(rings) {
+        rings.forEach((r, ri) => {
+          let depth = 0;
+          const p = r.pts[0];
+          rings.forEach((o, oi) => {
+            if (oi !== ri && PolyClip._evenOddInside(p[0], p[1], [o])) depth++;
+          });
+          const area2 = PolyClip._ringArea2(r.pts);
+          const wantCCW = (depth % 2 === 0);
+          if ((area2 > 0) !== wantCCW && area2 !== 0) {
+            r.pts.reverse();
+            // Edge i was pts[i]→pts[i+1]; after reversing the vertex list,
+            // reversed edge j connects the points of ORIGINAL edge n−2−j,
+            // so the tag array must be reversed and then rotated LEFT by
+            // one (v20260704b fix — rotating right shifted every tag two
+            // edges off, visibly stroking open paths' implicit closure).
+            r.srcs.reverse();
+            r.srcs.push(r.srcs.shift());
+            r.splits = r.pts.map(() => []);
+          }
+        });
+      }
+
+      // Exact orientation of c relative to segment a→b (lattice ints).
+      static _orient(ax, ay, bx, by, cx, cy) {
+        return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      }
+
+      static _onSegment(ax, ay, bx, by, px, py) {
+        if (PolyClip._orient(ax, ay, bx, by, px, py) !== 0) return false;
+        return Math.min(ax, bx) <= px && px <= Math.max(ax, bx)
+          && Math.min(ay, by) <= py && py <= Math.max(ay, by);
+      }
+
+      // All pairwise intersections between subject and region edges.
+      // Split points are stored on both polygons' edges (as points; ordering
+      // by param happens in _buildSubEdges).
+      static _computeIntersections(subj, reg, stats) {
+        const addSplit = (ring, ei, x, y) => {
+          const a = ring.pts[ei], b = ring.pts[(ei + 1) % ring.pts.length];
+          if (x === a[0] && y === a[1]) { markVertex(ring, ei); return; }
+          if (x === b[0] && y === b[1]) { markVertex(ring, (ei + 1) % ring.pts.length); return; }
+          ring.splits[ei].push([x, y]);
+        };
+        // A ring VERTEX lying exactly on the other polygon's boundary is a
+        // chain boundary too (the ring may cross sides through it even
+        // though no sub-edge split is inserted) — required for the
+        // chain-level classification's uniformity invariant (v20260704e).
+        const markVertex = (ring, vi) => {
+          if (!ring.vertexSplits) ring.vertexSplits = new Set();
+          ring.vertexSplits.add(vi);
+        };
+        for (const S of subj) {
+          const sn = S.pts.length;
+          for (let i = 0; i < sn; i++) {
+            const a1 = S.pts[i], a2 = S.pts[(i + 1) % sn];
+            for (const R of reg) {
+              const rn = R.pts.length;
+              for (let j = 0; j < rn; j++) {
+                const b1 = R.pts[j], b2 = R.pts[(j + 1) % rn];
+                // Quick bbox reject
+                if (Math.max(a1[0], a2[0]) < Math.min(b1[0], b2[0]) ||
+                    Math.min(a1[0], a2[0]) > Math.max(b1[0], b2[0]) ||
+                    Math.max(a1[1], a2[1]) < Math.min(b1[1], b2[1]) ||
+                    Math.min(a1[1], a2[1]) > Math.max(b1[1], b2[1])) continue;
+                const o1 = PolyClip._orient(a1[0], a1[1], a2[0], a2[1], b1[0], b1[1]);
+                const o2 = PolyClip._orient(a1[0], a1[1], a2[0], a2[1], b2[0], b2[1]);
+                const o3 = PolyClip._orient(b1[0], b1[1], b2[0], b2[1], a1[0], a1[1]);
+                const o4 = PolyClip._orient(b1[0], b1[1], b2[0], b2[1], a2[0], a2[1]);
+
+                if (o1 === 0 && o2 === 0) {
+                  // Collinear overlap: each endpoint inside the other segment splits it
+                  if (PolyClip._onSegment(a1[0], a1[1], a2[0], a2[1], b1[0], b1[1])) addSplit(S, i, b1[0], b1[1]);
+                  if (PolyClip._onSegment(a1[0], a1[1], a2[0], a2[1], b2[0], b2[1])) addSplit(S, i, b2[0], b2[1]);
+                  if (PolyClip._onSegment(b1[0], b1[1], b2[0], b2[1], a1[0], a1[1])) addSplit(R, j, a1[0], a1[1]);
+                  if (PolyClip._onSegment(b1[0], b1[1], b2[0], b2[1], a2[0], a2[1])) addSplit(R, j, a2[0], a2[1]);
+                  continue;
+                }
+                // Vertex-on-edge (exact)
+                if (o1 === 0 && PolyClip._onSegment(a1[0], a1[1], a2[0], a2[1], b1[0], b1[1])) addSplit(S, i, b1[0], b1[1]);
+                if (o2 === 0 && PolyClip._onSegment(a1[0], a1[1], a2[0], a2[1], b2[0], b2[1])) addSplit(S, i, b2[0], b2[1]);
+                if (o3 === 0 && PolyClip._onSegment(b1[0], b1[1], b2[0], b2[1], a1[0], a1[1])) addSplit(R, j, a1[0], a1[1]);
+                if (o4 === 0 && PolyClip._onSegment(b1[0], b1[1], b2[0], b2[1], a2[0], a2[1])) addSplit(R, j, a2[0], a2[1]);
+
+                // Proper crossing
+                if (((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0)) &&
+                    ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0))) {
+                  // Param along subject edge from the exact orientation values:
+                  // t = o3 / (o3 − o4) ∈ (0,1)
+                  const t = o3 / (o3 - o4);
+                  const x = Math.round(a1[0] + t * (a2[0] - a1[0]));
+                  const y = Math.round(a1[1] + t * (a2[1] - a1[1]));
+                  addSplit(S, i, x, y);
+                  addSplit(R, j, x, y);
+                  if (stats) stats.crossings++;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Cut points of one segment vs region edges (for open polylines).
+      static _segmentCutsVsRegion(a, b, reg) {
+        const cuts = [];
+        for (const R of reg) {
+          const rn = R.pts.length;
+          for (let j = 0; j < rn; j++) {
+            const b1 = R.pts[j], b2 = R.pts[(j + 1) % rn];
+            const o1 = PolyClip._orient(a[0], a[1], b[0], b[1], b1[0], b1[1]);
+            const o2 = PolyClip._orient(a[0], a[1], b[0], b[1], b2[0], b2[1]);
+            const o3 = PolyClip._orient(b1[0], b1[1], b2[0], b2[1], a[0], a[1]);
+            const o4 = PolyClip._orient(b1[0], b1[1], b2[0], b2[1], b[0], b[1]);
+            if (((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0)) &&
+                ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0))) {
+              const t = o3 / (o3 - o4);
+              cuts.push([Math.round(a[0] + t * (b[0] - a[0])), Math.round(a[1] + t * (b[1] - a[1])), t]);
+            } else if (o1 === 0 && PolyClip._onSegment(a[0], a[1], b[0], b[1], b1[0], b1[1])) {
+              const t = Math.abs(b[0] - a[0]) >= Math.abs(b[1] - a[1])
+                ? (b1[0] - a[0]) / ((b[0] - a[0]) || 1) : (b1[1] - a[1]) / ((b[1] - a[1]) || 1);
+              cuts.push([b1[0], b1[1], t]);
+            }
+          }
+        }
+        cuts.sort((p, q) => p[2] - q[2]);
+        // dedupe
+        const out = [];
+        for (const c of cuts) {
+          const prev = out[out.length - 1];
+          if (!prev || prev[0] !== c[0] || prev[1] !== c[1]) out.push([c[0], c[1]]);
+        }
+        return out;
+      }
+
+      // Expand rings + accumulated splits into flat sub-edge lists.
+      // Each sub-edge carries ringIdx and a chainStart flag (true when its
+      // start point is a boundary contact: an inserted split point or a
+      // vertex marked by markVertex) for chain-level classification.
+      static _buildSubEdges(rings) {
+        const edges = [];
+        rings.forEach((r, ringIdx) => {
+          const n = r.pts.length;
+          for (let i = 0; i < n; i++) {
+            const a = r.pts[i], b = r.pts[(i + 1) % n];
+            const src = r.srcs[i];
+            const vSplit = r.vertexSplits ? r.vertexSplits.has(i) : false;
+            let chain = [a];
+            if (r.splits[i].length) {
+              // order split points along the edge by dominant axis
+              const dx = b[0] - a[0], dy = b[1] - a[1];
+              const key = Math.abs(dx) >= Math.abs(dy)
+                ? (p) => (p[0] - a[0]) * Math.sign(dx || 1)
+                : (p) => (p[1] - a[1]) * Math.sign(dy || 1);
+              const sorted = r.splits[i].slice().sort((p, q) => key(p) - key(q));
+              for (const p of sorted) chain.push(p);
+            }
+            chain.push(b);
+            for (let k = 0; k < chain.length - 1; k++) {
+              const p = chain[k], q = chain[k + 1];
+              if (p[0] === q[0] && p[1] === q[1]) continue;
+              edges.push({
+                x1: p[0], y1: p[1], x2: q[0], y2: q[1], src, ringIdx,
+                chainStart: k > 0 || vSplit
+              });
+            }
+          }
+        });
+        return edges;
+      }
+
+      // Classify sub-edges one evaluation per chain (v20260704e).
+      // Chains are maximal cyclic runs of a ring's sub-edges not separated
+      // by boundary contacts; classification is provably constant within a
+      // chain, so it is evaluated once (on the longest edge, farthest from
+      // contact degeneracies) and assigned to every edge. Each chain is
+      // still evaluated INDEPENDENTLY — grouping, not parity propagation.
+      static _classifyChains(edges, otherRings, onMode) {
+        const byRing = new Map();
+        for (const e of edges) {
+          let arr = byRing.get(e.ringIdx);
+          if (!arr) byRing.set(e.ringIdx, arr = []);
+          arr.push(e);
+        }
+        for (const ringEdges of byRing.values()) {
+          const n = ringEdges.length;
+          const starts = [];
+          for (let i = 0; i < n; i++) {
+            if (ringEdges[i].chainStart) starts.push(i);
+          }
+          const chains = [];
+          if (!starts.length) {
+            chains.push(ringEdges);
+          } else {
+            for (let s = 0; s < starts.length; s++) {
+              const a = starts[s], b = starts[(s + 1) % starts.length];
+              const chain = [];
+              let i = a;
+              do {
+                chain.push(ringEdges[i]);
+                i = (i + 1) % n;
+              } while (i !== b);
+              chains.push(chain);
+            }
+          }
+          for (const chain of chains) {
+            let best = chain[0], bl = -1;
+            for (const e of chain) {
+              const l = (e.x2 - e.x1) * (e.x2 - e.x1) + (e.y2 - e.y1) * (e.y2 - e.y1);
+              if (l > bl) { bl = l; best = e; }
+            }
+            const side = PolyClip._sideOfRegion(best, otherRings, onMode);
+            for (const e of chain) e.side = side;
+          }
+        }
+      }
+
+      // Which side of `rings` a sub-edge lies on, decided at its midpoint:
+      //   1 inside, -1 outside. Midpoints are first tested for exact
+      //   on-boundary coincidence in DOUBLED coordinates (stays integer-exact).
+      // onMode controls the on-boundary result:
+      //   'zero'   → return 0 (caller excludes the edge)
+      //   'offset' → classify a point a quarter lattice unit to the LEFT of
+      //              the edge (the edge owner's interior side, since rings are
+      //              interior-left oriented) — never returns 0.
+      static _sideOfRegion(e, rings, onMode) {
+        const mx2 = e.x1 + e.x2, my2 = e.y1 + e.y2; // doubled midpoint
+        for (const R of rings) {
+          const n = R.pts.length;
+          for (let j = 0; j < n; j++) {
+            const b1 = R.pts[j], b2 = R.pts[(j + 1) % n];
+            if (PolyClip._onSegment(2 * b1[0], 2 * b1[1], 2 * b2[0], 2 * b2[1], mx2, my2)) {
+              if (onMode === 'zero') return 0;
+              const dx = e.x2 - e.x1, dy = e.y2 - e.y1;
+              const len = Math.hypot(dx, dy) || 1;
+              const px = mx2 / 2 - (dy / len) * 0.25;
+              const py = my2 / 2 + (dx / len) * 0.25;
+              return PolyClip._evenOddInside(px, py, rings) ? 1 : -1;
+            }
+          }
+        }
+        return PolyClip._evenOddInside(mx2 / 2, my2 / 2, rings) ? 1 : -1;
+      }
+
+      // Even-odd point-in-rings (half-open rule; px,py may be half-integers).
+      static _evenOddInside(px, py, rings) {
+        let inside = false;
+        for (const R of rings) {
+          const n = R.pts.length;
+          for (let j = 0; j < n; j++) {
+            const [x1, y1] = R.pts[j], [x2, y2] = R.pts[(j + 1) % n];
+            if ((y1 > py) !== (y2 > py)) {
+              const xint = x1 + (py - y1) * (x2 - x1) / (y2 - y1);
+              if (xint > px) inside = !inside;
+            }
+          }
+        }
+        return inside;
+      }
+
+      // Assemble directed edges into rings. At junction vertices the walk
+      // takes the rightmost turn (smallest clockwise angle from the reversed
+      // incoming direction), which traces interior-left faces consistently.
+      static _assemble(edges, stats) {
+        const outMap = new Map(); // "x,y" → [edgeIdx…]
+        edges.forEach((e, i) => {
+          e.used = false;
+          const k = e.x1 + ',' + e.y1;
+          let arr = outMap.get(k);
+          if (!arr) outMap.set(k, arr = []);
+          arr.push(i);
+        });
+        const rings = [];
+        const TWO_PI = Math.PI * 2;
+        for (let s = 0; s < edges.length; s++) {
+          if (edges[s].used) continue;
+          const pts = [], srcs = [];
+          let cur = s;
+          let guard = edges.length + 1;
+          while (guard-- > 0) {
+            const e = edges[cur];
+            e.used = true;
+            pts.push([e.x1, e.y1]);
+            srcs.push(e.src);
+            const k = e.x2 + ',' + e.y2;
+            const cands = (outMap.get(k) || []).filter(i => !edges[i].used);
+            // Ring closes when we return to the seed edge's tail.
+            if (e.x2 === edges[s].x1 && e.y2 === edges[s].y1) { cur = -1; break; }
+            if (cands.length === 0) { cur = -2; break; }
+            let next = cands[0];
+            if (cands.length > 1) {
+              // Rightmost turn: smallest clockwise offset from reversed incoming
+              const refA = Math.atan2(-(e.y2 - e.y1), -(e.x2 - e.x1));
+              let best = Infinity;
+              for (const i of cands) {
+                const c = edges[i];
+                const a = Math.atan2(c.y2 - c.y1, c.x2 - c.x1);
+                let off = refA - a;
+                while (off <= 1e-12) off += TWO_PI;
+                while (off > TWO_PI) off -= TWO_PI;
+                if (off < best) { best = off; next = i; }
+              }
+            }
+            cur = next;
+          }
+          if (cur === -2 || guard < 0) {
+            // Dead end / runaway: force-close (never crash; tracked)
+            if (stats) stats.forceClosed++;
+          }
+          if (pts.length >= 3) rings.push({ pts, srcs });
+        }
+        return rings;
+      }
+
+      // ------------------------------------------------------------------
+      // Tests
+      // ------------------------------------------------------------------
+
+      // Signed area (evenodd-consistent when rings are interior-left oriented)
+      static _areaOf(rings) {
+        let a = 0;
+        for (const r of rings) a += PolyClip._ringArea2(r.pts.map(p => p)) / 2;
+        return a;
+      }
+      static _areaOfUV(rings) {
+        let a = 0;
+        for (const r of rings) {
+          let s = 0;
+          const n = r.pts.length;
+          for (let i = 0; i < n; i++) {
+            const p = r.pts[i], q = r.pts[(i + 1) % n];
+            s += p[0] * q[1] - q[0] * p[1];
+          }
+          a += s / 2;
+        }
+        return a;
+      }
+
+      // Simplicity check: no proper self-intersection within one ring
+      // (shared endpoints between adjacent edges excluded).
+      static _ringIsSimple(pts) {
+        const n = pts.length;
+        for (let i = 0; i < n; i++) {
+          const a1 = pts[i], a2 = pts[(i + 1) % n];
+          for (let j = i + 1; j < n; j++) {
+            if (j === i || (j + 1) % n === i || (i + 1) % n === j) continue;
+            const b1 = pts[j], b2 = pts[(j + 1) % n];
+            const o1 = (a2[0]-a1[0])*(b1[1]-a1[1]) - (a2[1]-a1[1])*(b1[0]-a1[0]);
+            const o2 = (a2[0]-a1[0])*(b2[1]-a1[1]) - (a2[1]-a1[1])*(b2[0]-a1[0]);
+            const o3 = (b2[0]-b1[0])*(a1[1]-b1[1]) - (b2[1]-b1[1])*(a1[0]-b1[0]);
+            const o4 = (b2[0]-b1[0])*(a2[1]-b1[1]) - (b2[1]-b1[1])*(a2[0]-b1[0]);
+            if (((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0)) &&
+                ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0))) return false;
+          }
+        }
+        return true;
+      }
+
+      static selfTest() {
+        const results = [];
+        const t = (name, ok, detail) => results.push({ test: name, ok: ok ? 'PASS' : 'FAIL', detail: detail || '' });
+        const sq = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+        const near = (a, b, tol) => Math.abs(a - b) <= tol;
+
+        // 1. Half-overlapping squares: subject [0,2]², region x ≥ 1
+        {
+          const r = PolyClip.split([sq(0, 0, 2, 2)], [sq(1, -1, 3, 3)]);
+          const af = PolyClip._areaOfUV(r.front), ab = PolyClip._areaOfUV(r.back);
+          t('half overlap: areas 2+2', near(af, 2, 0.01) && near(ab, 2, 0.01),
+            `front=${af.toFixed(3)} back=${ab.toFixed(3)}`);
+          t('half overlap: 1 ring each', r.front.length === 1 && r.back.length === 1,
+            `f=${r.front.length} b=${r.back.length} forceClosed=${r.stats.forceClosed}`);
+          // Shared-edge exactness: silhouette edges of front and back are the
+          // same point pairs (reversed)
+          const silEdges = (rings) => {
+            const set = [];
+            rings.forEach(rg => rg.pts.forEach((p, i) => {
+              if (rg.srcs[i] !== 'path') {
+                const q = rg.pts[(i + 1) % rg.pts.length];
+                set.push([p, q].map(v => v.join(':')).sort().join('|'));
+              }
+            }));
+            return set.sort().join(';');
+          };
+          t('half overlap: shared silhouette edges bit-equal',
+            silEdges(r.front) === silEdges(r.back) && silEdges(r.front).length > 0);
+        }
+
+        // 2. Concave subject (L-shape) vs square region
+        {
+          const L = [[0, 0], [3, 0], [3, 1], [1, 1], [1, 3], [0, 3]];
+          const r = PolyClip.split([L], [sq(0.5, -1, 2, 4)]);
+          const af = PolyClip._areaOfUV(r.front), ab = PolyClip._areaOfUV(r.back);
+          // L area = 5; region strip x∈[0.5,2]: front = 1.5·1 (bottom part x 0.5→2)
+          //  + 0.5·2 (vertical arm x 0.5→1, y 1→3) = 1.5 + 1 = 2.5
+          t('L-shape: area conserved', near(af + ab, 5, 0.01) && near(af, 2.5, 0.01),
+            `front=${af.toFixed(3)} back=${ab.toFixed(3)}`);
+        }
+
+        // 3. Vertex exactly on region edge
+        {
+          const dia = [[1, 0], [2, 1], [1, 2], [0, 1]]; // diamond, vertex (1,0) on region top edge y=0
+          const r = PolyClip.split([dia], [sq(-1, -2, 3, 0)]);
+          const af = PolyClip._areaOfUV(r.front), ab = PolyClip._areaOfUV(r.back);
+          t('vertex-on-edge: no crash, subject all back', near(af, 0, 0.01) && near(ab, 2, 0.01),
+            `front=${af.toFixed(3)} back=${ab.toFixed(3)} forceClosed=${r.stats.forceClosed}`);
+        }
+
+        // 4. Collinear shared edge: subject and region share edge x=1
+        {
+          const r = PolyClip.split([sq(0, 0, 1, 1)], [sq(1, 0, 2, 1)]);
+          const af = PolyClip._areaOfUV(r.front), ab = PolyClip._areaOfUV(r.back);
+          t('collinear shared edge: subject stays whole', near(af + ab, 1, 0.01),
+            `front=${af.toFixed(3)} back=${ab.toFixed(3)} forceClosed=${r.stats.forceClosed}`);
+        }
+
+        // 5. Subject fully inside region
+        {
+          const r = PolyClip.split([sq(1, 1, 2, 2)], [sq(0, 0, 3, 3)]);
+          t('fully inside: front only', near(PolyClip._areaOfUV(r.front), 1, 0.01) && r.back.length === 0,
+            `front=${PolyClip._areaOfUV(r.front).toFixed(3)} backRings=${r.back.length}`);
+        }
+
+        // 6. Subject fully outside region
+        {
+          const r = PolyClip.split([sq(5, 5, 6, 6)], [sq(0, 0, 3, 3)]);
+          t('fully outside: back only', r.front.length === 0 && near(PolyClip._areaOfUV(r.back), 1, 0.01),
+            `frontRings=${r.front.length} back=${PolyClip._areaOfUV(r.back).toFixed(3)}`);
+        }
+
+        // 7. Region with a hole; subject covers the hole
+        {
+          const region = [sq(0, 0, 4, 4), sq(1.5, 1.5, 2.5, 2.5)]; // outer + hole (evenodd)
+          const r = PolyClip.split([sq(1, 1, 3, 3)], region);
+          const af = PolyClip._areaOfUV(r.front), ab = PolyClip._areaOfUV(r.back);
+          // subject 2×2 = 4; hole 1×1 → front 3, back 1
+          t('region hole: front 3 / back 1', near(af, 3, 0.01) && near(ab, 1, 0.01),
+            `front=${af.toFixed(3)} back=${ab.toFixed(3)}`);
+        }
+
+        // 8. Subject donut (outer + hole) split by half-plane region
+        {
+          const subject = [sq(0, 0, 4, 4), sq(1, 1, 3, 3)]; // area 16-4 = 12
+          const r = PolyClip.split(subject, [sq(2, -1, 5, 5)]);
+          const af = PolyClip._areaOfUV(r.front), ab = PolyClip._areaOfUV(r.back);
+          t('subject donut: 6+6', near(af, 6, 0.02) && near(ab, 6, 0.02),
+            `front=${af.toFixed(3)} back=${ab.toFixed(3)}`);
+        }
+
+        // 9. Open polyline crossing the region
+        {
+          const r = PolyClip.splitPolyline([[-1, 0.5], [4, 0.5]], [sq(0, 0, 3, 3)]);
+          const len = (p) => p.reduce((s, pts) => {
+            for (let i = 0; i < pts.length - 1; i++) s += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+            return s;
+          }, 0);
+          t('polyline: front 3 / back 2', near(len(r.front), 3, 0.01) && near(len(r.back), 2, 0.01),
+            `front=${len(r.front).toFixed(3)} back=${len(r.back).toFixed(3)}`);
+        }
+
+        // 10. Provenance tags: front ring alternates path and silhouette
+        {
+          const r = PolyClip.split([sq(0, 0, 2, 2)], [sq(1, -1, 3, 3)]);
+          const tags = new Set();
+          r.front.forEach(rg => rg.srcs.forEach(s => tags.add(s)));
+          t('provenance: path + silhouette present', tags.has('path') && tags.has('silhouette'),
+            [...tags].join(','));
+        }
+
+        // 11. Tag alignment survives orientation reversal (v20260704b
+        // regression): a CW-wound subject gets reversed by normalization;
+        // its 'closure' tag must stay on the SAME geometric edge —
+        // (1,0)–(0,0) here — or open paths render with a stroked closure.
+        {
+          const subject = [{ pts: [[0, 0], [0, 1], [1, 1], [1, 0]], srcs: ['path', 'path', 'path', 'closure'] }];
+          const r = PolyClip.split(subject, [sq(-5, -5, 5, 5)]);
+          const found = [];
+          (r.front[0] ? [r.front[0]] : []).forEach(rg => {
+            rg.srcs.forEach((s, i) => {
+              if (s === 'closure') {
+                const a = rg.pts[i], b = rg.pts[(i + 1) % rg.pts.length];
+                found.push([a, b]);
+              }
+            });
+          });
+          // Tolerance covers snap rounding (~1e-5 on this domain span)
+          const onBottom = found.length === 1 && found[0].every(p =>
+            Math.abs(p[1]) < 1e-4 && (Math.abs(p[0]) < 1e-4 || Math.abs(p[0] - 1) < 1e-4));
+          t('reversal keeps closure tag on its edge', onBottom,
+            JSON.stringify(found.map(e => e.map(p => p.map(v => +v.toFixed(2))))));
+        }
+
+        console.table(results);
+        const pass = results.every(r => r.ok === 'PASS');
+        console.log(pass ? '[PolyClip] selfTest: ALL PASS' : '[PolyClip] selfTest: FAILURES — see table');
+        return pass;
+      }
+
+      // Randomized stress test with a seeded PRNG (reproducible).
+      // Inputs follow the documented precondition: rings of one polygon are
+      // star-shaped (hence simple) and properly nested — holes strictly
+      // inside their outer, sibling outers disjoint. (Crossing subpaths of
+      // one polygon have no well-defined interior-left interpretation and
+      // are out of contract; real dim source paths are nested fills.)
+      static fuzzTest(iterations = 500, seed = 12345) {
+        let state = seed >>> 0;
+        const rnd = () => {
+          state |= 0; state = (state + 0x6D2B79F5) | 0;
+          let z = Math.imul(state ^ (state >>> 15), 1 | state);
+          z = (z + Math.imul(z ^ (z >>> 7), 61 | z)) ^ z;
+          return ((z ^ (z >>> 14)) >>> 0) / 4294967296;
+        };
+        // Star-shaped blob: radius ∈ [0.35, 1.35]·rBase around (cx, cy)
+        const blob = (cx, cy, rBase, nPts) => {
+          const pts = [];
+          for (let i = 0; i < nPts; i++) {
+            const a = (i / nPts) * Math.PI * 2;
+            const r = rBase * (0.35 + rnd());
+            pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+          }
+          return pts;
+        };
+        // Polygon = outer blob (+30% nested hole, +20% disjoint second outer).
+        // Hole rBase·0.2 → max hole radius 0.27·rBase < min outer radius
+        // 0.35·rBase, so nesting is guaranteed. Second outer at distance 8
+        // with rBase ≤ 2.7·max — disjoint by construction.
+        const makePoly = (cx, cy, rBase) => {
+          const rings = [blob(cx, cy, rBase, 5 + Math.floor(rnd() * 12))];
+          if (rnd() < 0.3) rings.push(blob(cx, cy, rBase * 0.2, 4 + Math.floor(rnd() * 8)));
+          if (rnd() < 0.2) rings.push(blob(cx + 8, cy, 0.5 + rnd() * 1.5, 5 + Math.floor(rnd() * 8)));
+          return rings;
+        };
+        let crashes = 0, areaFailures = 0, forceClosedTotal = 0, nonSimple = 0, maxRelErr = 0;
+        for (let it = 0; it < iterations; it++) {
+          const subject = makePoly(rnd() * 4, rnd() * 4, 1 + rnd() * 2);
+          const region = makePoly(rnd() * 4, rnd() * 4, 1 + rnd() * 2.5);
+          try {
+            const r = PolyClip.split(subject, region);
+            forceClosedTotal += r.stats.forceClosed;
+            // Area conservation: front + back must equal the subject's own
+            // evenodd area (computed by clipping against an all-covering box).
+            const span = 24;
+            const all = PolyClip.split(subject, [[[-span, -span], [span, -span], [span, span], [-span, span]]]);
+            const aSub = PolyClip._areaOfUV(all.front);
+            const err = Math.abs(PolyClip._areaOfUV(r.front) + PolyClip._areaOfUV(r.back) - aSub);
+            const rel = err / Math.max(Math.abs(aSub), 1e-9);
+            if (rel > maxRelErr) maxRelErr = rel;
+            if (rel > 0.005) {
+              areaFailures++;
+              if (areaFailures <= 3) console.warn(`[fuzz ${it}] area err rel=${rel.toFixed(5)} (front=${PolyClip._areaOfUV(r.front).toFixed(3)} back=${PolyClip._areaOfUV(r.back).toFixed(3)} subj=${aSub.toFixed(3)})`);
+            }
+            for (const ring of [...r.front, ...r.back]) {
+              if (!PolyClip._ringIsSimple(ring.pts)) {
+                nonSimple++;
+                if (nonSimple <= 3) console.warn(`[fuzz ${it}] non-simple output ring (${ring.pts.length} pts)`);
+                break;
+              }
+            }
+          } catch (e) {
+            crashes++;
+            if (crashes <= 3) console.error(`[fuzz ${it}] threw:`, e.message);
+          }
+        }
+        const ok = crashes === 0 && areaFailures === 0 && nonSimple === 0;
+        console.log(`[PolyClip] fuzzTest(${iterations}, seed=${seed}): ` +
+          (ok ? 'ALL PASS' : 'FAILURES') +
+          ` — crashes=${crashes} areaFailures=${areaFailures} nonSimpleRings=${nonSimple} forceClosed=${forceClosedTotal} maxRelAreaErr=${maxRelErr.toExponential(2)}`);
+        return ok;
+      }
+    }
+    PolyClip.SNAP = 1 << 20;
+
 
 
     class Camera {
@@ -19956,6 +22257,7 @@
                 fragments.forEach(frag => {
                   if (!frag.d && (!frag.strokes || frag.strokes.length === 0)) return;
                   const fragGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                  const _effSF2 = getEffectiveStyle(this);
 
                   // Draw fill (skip stroke-only fragments — seam-boundary slivers
                   // whose Z-close creates artifacts at surface edges)
@@ -19976,7 +22278,6 @@
                   }
 
                   // Draw strokes (open paths for correct silhouette-edge visibility)
-                  const _effSF2 = getEffectiveStyle(this);
                   if (this.style.stroke && this.style.stroke !== 'none' && frag.strokes) {
                     const strokeWidth = getEffectiveStrokeWidth(_effSF2['stroke-width'] || (2 / FRAME_SIZE).toString());
                     // Merge consecutive stroke fragments into continuous paths to
@@ -33279,7 +35580,16 @@
       }
       if (!renderRequested) {
         renderRequested = true;
-        requestAnimationFrame(render);
+        requestAnimationFrame(() => render().catch((err) => {
+          // A crashed render must release the async guards, otherwise every
+          // future requestRender() becomes a silent no-op (frozen canvas until
+          // reload) and the failure is invisible. Log loudly, release, and let
+          // the next interaction re-trigger rendering (no auto-reschedule, so a
+          // persistent crash can't hot-loop at 60fps).
+          console.error('[render] Render crashed:', err);
+          renderInProgress = false;
+          renderPending = false;
+        }));
       }
     };
 
@@ -33695,6 +36005,11 @@
         console.log('%c[debugRender] Render cycle — no debug messages.', 'color: #999');
         _debugRenderActive = false;
       }
+      // --- RC debug: silhouette contour overlay (dev-only, v20260703k) ---
+      // No-op (and removes its group) when RC_DEBUG_CONTOURS is false;
+      // never throws.
+      SilhouetteField._flushOverlay(mainGroup);
+
       // --- End of render: release async guard and schedule next frame ---
       renderInProgress = false;
       renderPending = false;  // Clear any queued re-render (we're about to render anyway)
@@ -40333,6 +42648,20 @@
         animationCb.addEventListener('change', (e) => {
           setAnimationEnabled(e.target.checked);
           saveSettings({ animationEnabled: e.target.checked });
+        });
+      }
+
+      // Region-clip silhouette experiment checkbox (v20260703m).
+      // Deliberately NOT persisted via saveSettings: the flag is
+      // runtime-only per the region-clip plan — every session starts on
+      // the legacy pipeline, and rollback is always one unchecked box
+      // (or RC_SILHOUETTE = false in the console) away.
+      const rcSilhouetteCb = document.getElementById('rcSilhouetteCb');
+      if (rcSilhouetteCb) {
+        rcSilhouetteCb.checked = RC_SILHOUETTE;
+        rcSilhouetteCb.addEventListener('change', (e) => {
+          RC_SILHOUETTE = e.target.checked;
+          requestRender();
         });
       }
 

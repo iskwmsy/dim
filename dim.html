@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260704e -->
+<!-- dim v20260704j -->
 
 <!--
   MIT License
@@ -5716,8 +5716,9 @@
                       <input type="number" id="pivotRotZInput" step="1" />
                     </div>
                   </div>
-                  <div class="prop-row prop-row-plain">
-                    <button id="resetPivotBtn" class="ui-btn" style="width: 100%;">Reset Pivot</button>
+                  <div class="prop-row prop-row-plain" style="display: flex; gap: 4px;">
+                    <button id="resetPivotBtn" class="ui-btn" style="flex: 1;">Reset Pivot</button>
+                    <button id="bakePivotShiftBtn" class="ui-btn" style="flex: 1;" title="Fold the hidden pivot compensation into Position (no visual change)">Bake Pivot</button>
                   </div>
 
                   <div id="vertexProperties">
@@ -10127,6 +10128,7 @@
           targetObject: selectedObject,
           startPivot: [...(selectedObject.pivot || [0, 0, 0])],
           startPos: [...selectedObject.position],
+          startPivotShift: [...(selectedObject.pivotShift || [0, 0, 0])],
           startPivotRot: [...(selectedObject.pivotRotation || [0, 0, 0])]
         };
         // Capture "before" snapshot for this new session
@@ -10232,6 +10234,7 @@
         // Revert to session start
         selectedObject.pivot = [...pivotToolSession.startPivot];
         selectedObject.position = [...pivotToolSession.startPos];
+        selectedObject.pivotShift = [...(pivotToolSession.startPivotShift || [0, 0, 0])];
         selectedObject.pivotRotation = [...pivotToolSession.startPivotRot];
         updatePropertiesPanel();
         updatePivotToolUI();
@@ -21107,6 +21110,35 @@
       }
     };
 
+    // The pivot's world-anchor point in parent space. pivotShift absorbs pivot-edit
+    // compensation so obj.position stays a pure user value (see research/pivotshift_plan.md).
+    const getPivotAnchor = (obj) => {
+      const sh = obj.pivotShift || [0, 0, 0];
+      return [obj.position[0] + sh[0], obj.position[1] + sh[1], obj.position[2] + sh[2]];
+    };
+
+    // Solve  position + pivotShift − R·orientedS·pivot = tcol  for position, using the
+    // object's CURRENT rotation/scale and its retained pivot/pivotShift/pivotRotation.
+    // Needed when re-deriving a transform from a decomposed matrix (group/ungroup/tree
+    // drop): the raw translation column is NOT the position when pivot or pivotShift
+    // is nonzero.
+    const positionFromMatrixTranslation = (obj, tcol) => {
+      const pv = obj.pivot || [0, 0, 0];
+      const sh = obj.pivotShift || [0, 0, 0];
+      if (!pv[0] && !pv[1] && !pv[2] && !sh[0] && !sh[1] && !sh[2]) return [...tcol];
+      const S = createScaleMatrix(obj.scale[0], obj.scale[1], obj.scale[2]);
+      const RP = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
+      const invRP = [
+        [RP[0][0], RP[1][0], RP[2][0], 0],
+        [RP[0][1], RP[1][1], RP[2][1], 0],
+        [RP[0][2], RP[1][2], RP[2][2], 0],
+        [0, 0, 0, 1]
+      ];
+      const orientedS = matrixMultiply(RP, matrixMultiply(S, invRP));
+      const pivTerm = vectorApplyMatrix(pv, matrixMultiply(obj.rotationMatrix, orientedS));
+      return [tcol[0] + pivTerm[0] - sh[0], tcol[1] + pivTerm[1] - sh[1], tcol[2] + pivTerm[2] - sh[2]];
+    };
+
     class Group {
       constructor(name) {
         this.name = name;
@@ -21129,6 +21161,7 @@
         this.style = {}; // Initialize empty style for inheritance
         this.pivot = [0, 0, 0]; // Pivot point
         this.pivotRotation = [0, 0, 0]; // Pivot Rotation (Euler degrees)
+        this.pivotShift = [0, 0, 0]; // Hidden pivot-edit compensation; anchor = position + pivotShift
         this.faceCamera = { x: false, y: false, plane: false };
 
         // Phase 1: Surface Mapping Constraint
@@ -21206,7 +21239,9 @@
       }
 
       getLocalMatrix() {
-        const T = createTranslationMatrix(this.position[0], this.position[1], this.position[2]);
+        // Anchor = position + pivotShift (hidden compensation; position stays a pure user value)
+        const _sh = this.pivotShift || [0, 0, 0];
+        const T = createTranslationMatrix(this.position[0] + _sh[0], this.position[1] + _sh[1], this.position[2] + _sh[2]);
         const S = createScaleMatrix(this.scale[0], this.scale[1], this.scale[2]);
         const TPivot = createTranslationMatrix(-this.pivot[0], -this.pivot[1], -this.pivot[2]);
         const RPivot = matrixFromEuler(this.pivotRotation || [0, 0, 0]);
@@ -21226,7 +21261,7 @@
           const viewDir = this.faceCamera.plane
             ? vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target))
             : null;
-          R = getBillboardRotation(this.position, activeCamera.position, this.faceCamera.x, this.faceCamera.y, viewDir);
+          R = getBillboardRotation([this.position[0] + _sh[0], this.position[1] + _sh[1], this.position[2] + _sh[2]], activeCamera.position, this.faceCamera.x, this.faceCamera.y, viewDir);
         }
 
         return matrixMultiply(T, matrixMultiply(R, matrixMultiply(orientedS, TPivot)));
@@ -21404,6 +21439,7 @@
         this.style = style;
         this.pivot = [0, 0, 0]; // Pivot point
         this.pivotRotation = [0, 0, 0]; // Pivot Rotation (Euler angles)
+        this.pivotShift = [0, 0, 0]; // Hidden pivot-edit compensation; anchor = position + pivotShift
 
         this.parent = null; // Phase 2: Hierarchical support
         this.visible = true; // New visibility attribute
@@ -21578,7 +21614,9 @@
       }
 
       getLocalMatrix() {
-        const T = createTranslationMatrix(this.position[0], this.position[1], this.position[2]);
+        // Anchor = position + pivotShift (hidden compensation; position stays a pure user value)
+        const _sh = this.pivotShift || [0, 0, 0];
+        const T = createTranslationMatrix(this.position[0] + _sh[0], this.position[1] + _sh[1], this.position[2] + _sh[2]);
         const S = createScaleMatrix(this.scale[0], this.scale[1], this.scale[2]);
         const TPivot = createTranslationMatrix(-this.pivot[0], -this.pivot[1], -this.pivot[2]);
         const RPivot = matrixFromEuler(this.pivotRotation || [0, 0, 0]);
@@ -21597,7 +21635,7 @@
           const viewDir = this.faceCamera.plane
             ? vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target))
             : null;
-          R = getBillboardRotation(this.position, activeCamera.position, this.faceCamera.x, this.faceCamera.y, viewDir);
+          R = getBillboardRotation([this.position[0] + _sh[0], this.position[1] + _sh[1], this.position[2] + _sh[2]], activeCamera.position, this.faceCamera.x, this.faceCamera.y, viewDir);
         }
 
         return matrixMultiply(T, matrixMultiply(R, matrixMultiply(orientedS, TPivot)));
@@ -28412,11 +28450,11 @@
         }
       } else if (currentTool === 'pivot') {
         // Place gizmo at the pivot's world position.
-        // The rendering model is T(pos) * R * S * T(-pivot), so local point 'pivot'
-        // maps to: pos + R*S*(pivot - pivot) = pos.
-        // Since setObjectPivot compensates position (P' = P + R*S*deltaPivot),
-        // obj.position IS the pivot's world position.
-        gizmoPosition = obj.position;
+        // The rendering model is T(pos + pivotShift) * R * S * T(-pivot), so local point
+        // 'pivot' maps to: (pos + pivotShift) + R*S*(pivot - pivot) = pos + pivotShift.
+        // setObjectPivot writes its compensation into pivotShift, so the anchor
+        // (pos + pivotShift) IS the pivot's world position.
+        gizmoPosition = getPivotAnchor(obj);
         if (gizmoMode === 'local') {
           const RPivot = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
           R = matrixMultiply(obj.rotationMatrix, RPivot);
@@ -28424,8 +28462,9 @@
           R = createIdentityMatrix();
         }
       } else {
-        // Always place gizmo at the PRIMARY (last selected) object's position
-        gizmoPosition = obj.position;
+        // Always place gizmo at the PRIMARY (last selected) object's anchor
+        // (position + pivotShift — the visual rotation/scale center)
+        gizmoPosition = getPivotAnchor(obj);
         if (gizmoMode === 'local') {
           const RPivot = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
           R = matrixMultiply(obj.rotationMatrix, RPivot); // Use R * RP for visual orientation
@@ -28463,6 +28502,9 @@
         if (selectionGizmoElements.planarBars) {
           selectionGizmoElements.planarBars.forEach((b) => (b.style.display = 'none'));
         }
+        if (selectionGizmoElements.positionDot) {
+          selectionGizmoElements.positionDot.style.display = 'none';
+        }
         return;
       }
 
@@ -28487,6 +28529,19 @@
         circle.style.cursor = 'pointer';
         selectionGizmoGroup.appendChild(circle);
         selectionGizmoElements.uniformCircle = circle;
+      }
+
+      // Initialize the pivot-tool "object position" dot — a passive indicator at
+      // obj.position, the pivot anchor's zero-shift home (see getPivotAnchor)
+      if (!selectionGizmoElements.positionDot) {
+        const dot = document.createElementNS(svgNS, 'circle');
+        dot.setAttribute('fill', '#c9c9c9');
+        dot.setAttribute('fill-opacity', '0.85');
+        dot.setAttribute('stroke', '#999999');
+        dot.setAttribute('stroke-width', '1');
+        dot.style.pointerEvents = 'none'; // display only — never captures pivot drags
+        selectionGizmoGroup.appendChild(dot);
+        selectionGizmoElements.positionDot = dot;
       }
 
       // Initialize screen-rotation circle (large gray ring, rotate tool only)
@@ -28810,6 +28865,9 @@
       }
 
       // Center Circle — Scale (uniform), Pivot (free-move), Move (free-move)
+      if (selectionGizmoElements.positionDot) {
+        selectionGizmoElements.positionDot.style.display = 'none'; // re-shown by the pivot branch
+      }
       if (showScaleGizmo) {
         const uniformCircle = selectionGizmoElements.uniformCircle;
         uniformCircle.setAttribute('cx', originX);
@@ -28831,6 +28889,20 @@
         uniformCircle.setAttribute('data-axis', 'pivot-free');
         uniformCircle.style.display = 'block';
         topElements.push({ el: uniformCircle, z: tOrigin[2] + 0.001 });
+
+        // Passive lighter-gray dot at the object's POSITION — the pivot anchor's
+        // zero-shift home. It diverges from the center circle once the pivot is
+        // edited; with Snap to Point on, dragging the pivot back onto it restores
+        // the original anchor (pivotShift returns to zero).
+        const posDot = selectionGizmoElements.positionDot;
+        const tPos = transformVertex(obj.position, vpMatrix);
+        if (tPos) {
+          posDot.setAttribute('cx', (tPos[0] * FRAME_SIZE) / 2);
+          posDot.setAttribute('cy', (-tPos[1] * FRAME_SIZE) / 2);
+          posDot.setAttribute('r', 7 / mainScale);
+          posDot.style.display = 'block';
+          sortedElements.push({ el: posDot, z: tPos[2] - 0.001 });
+        }
       } else if (showMoveGizmo) {
         // Move Free-Move Center Circle — camera-plane unconstrained translate
         const uniformCircle = selectionGizmoElements.uniformCircle;
@@ -31046,17 +31118,17 @@
               const invNewParentWorld = matrixInverse(newParent.getWorldMatrix());
               const newLocalMatrix = matrixMultiply(invNewParentWorld, oldWorldMatrix);
               const decomposed = decomposeMatrix(newLocalMatrix);
-              draggedTreeObj.position = decomposed.position;
               draggedTreeObj.rotationEuler = decomposed.rotation;
               draggedTreeObj.rotationMatrix = decomposed.rotationMatrix;
               draggedTreeObj.scale = decomposed.scale;
+              draggedTreeObj.position = positionFromMatrixTranslation(draggedTreeObj, decomposed.position);
             } else {
               // Moving to root: local = world
               const decomposed = decomposeMatrix(oldWorldMatrix);
-              draggedTreeObj.position = decomposed.position;
               draggedTreeObj.rotationEuler = decomposed.rotation;
               draggedTreeObj.rotationMatrix = decomposed.rotationMatrix;
               draggedTreeObj.scale = decomposed.scale;
+              draggedTreeObj.position = positionFromMatrixTranslation(draggedTreeObj, decomposed.position);
             }
           }
 
@@ -33051,8 +33123,10 @@
       // Check if pivot actually changed
       if (Math.abs(deltaPivot[0]) < 0.0001 && Math.abs(deltaPivot[1]) < 0.0001 && Math.abs(deltaPivot[2]) < 0.0001) return;
 
-      // Position Compensation: P' = P + (R * orientedS) * (Pivot' - Pivot)
+      // Compensation: pivotShift' = pivotShift + (R * orientedS) * (Pivot' - Pivot)
       // orientedS = RPivot * S * invRPivot  (matches getLocalMatrix exactly)
+      // The compensation goes into the hidden pivotShift so obj.position (and any
+      // authored position keyframes) never change when the pivot is edited.
       const S = createScaleMatrix(obj.scale[0], obj.scale[1], obj.scale[2]);
       const RPivot = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
       // Inverse of an orthogonal matrix is its transpose
@@ -33066,7 +33140,7 @@
       const RS = matrixMultiply(obj.rotationMatrix, orientedS);
       const positionDelta = vectorApplyMatrix(deltaPivot, RS);
 
-      obj.position = vectorAdd(obj.position, positionDelta);
+      obj.pivotShift = vectorAdd(obj.pivotShift || [0, 0, 0], positionDelta);
       obj.pivot = newPivot;
 
       updatePropertiesPanel();
@@ -33667,6 +33741,29 @@
       });
     }
 
+    // Bake Pivot: fold the hidden pivotShift compensation into position (visual no-op).
+    // Restores the pre-pivotShift property that position == the pivot's world coordinate.
+    const bakePivotShiftBtn = document.getElementById('bakePivotShiftBtn');
+    if (bakePivotShiftBtn) {
+      bakePivotShiftBtn.addEventListener('click', () => {
+        if (!selectedObject) return;
+        const sh = selectedObject.pivotShift || [0, 0, 0];
+        if (Math.abs(sh[0]) < 1e-9 && Math.abs(sh[1]) < 1e-9 && Math.abs(sh[2]) < 1e-9) return;
+        // Refuse when position/pivot are keyframed: baking rewrites position,
+        // which would change the meaning of the authored keys
+        const objTracks = animationTimeline.tracks.get(selectedObject.name);
+        if (objTracks && ['posX', 'posY', 'posZ', 'pivX', 'pivY', 'pivZ'].some(p => objTracks.has(p) && objTracks.get(p).length > 0)) {
+          alert('Cannot bake pivot into position: this object has position or pivot keyframes.');
+          return;
+        }
+        pushUndoStateCoalesced();
+        selectedObject.position = vectorAdd(selectedObject.position, sh);
+        selectedObject.pivotShift = [0, 0, 0];
+        updatePropertiesPanel();
+        requestRender();
+      });
+    }
+
 
 
     // --- Duplicate Selection Logic ---
@@ -33684,6 +33781,7 @@
         newGroup.lock = obj.lock;
         newGroup.pivot = [...obj.pivot];
         newGroup.pivotRotation = [...obj.pivotRotation];
+        newGroup.pivotShift = [...(obj.pivotShift || [0, 0, 0])];
         newGroup.faceCamera = { ...obj.faceCamera };
         newGroup.zSortChildren = obj.zSortChildren;
         newGroup.zSortMode = obj.zSortMode;
@@ -33739,6 +33837,7 @@
         // Copy transform extras
         newPath.pivot = [...obj.pivot];
         newPath.pivotRotation = [...obj.pivotRotation];
+        newPath.pivotShift = [...(obj.pivotShift || [0, 0, 0])];
         newPath.faceCamera = { ...obj.faceCamera };
         newPath.visible = obj.visible;
         newPath.lock = obj.lock;
@@ -35877,7 +35976,8 @@
             gridGroupXY.style.display = 'block';
             // Apply offset along local Z
 
-            const T = createTranslationMatrix(selectedObject.position[0], selectedObject.position[1], selectedObject.position[2]);
+            const _wpAnchor = getPivotAnchor(selectedObject);
+            const T = createTranslationMatrix(_wpAnchor[0], _wpAnchor[1], _wpAnchor[2]);
             const T_offset = createTranslationMatrix(0, 0, wpOffset);
 
             let modelMatrix = matrixMultiply(T, selectedObject.rotationMatrix);
@@ -37631,10 +37731,11 @@
             if (currentTool === 'pivot') {
               dragMode = 'translate-pivot-free';
               lockedAxis = 'pivot-free';
-              // obj.position IS the pivot's world position (setObjectPivot compensates)
-              dragStartWorldPosition = selectedObject.position;
+              // Pivot anchor = position + pivotShift (setObjectPivot writes compensation into pivotShift)
+              dragStartWorldPosition = getPivotAnchor(selectedObject);
               selectedObject.dragStartPos = [...selectedObject.position];
               selectedObject._dragStartPivot = [...(selectedObject.pivot || [0, 0, 0])];
+              selectedObject._dragStartPivotShift = [...(selectedObject.pivotShift || [0, 0, 0])];
             } else handledByGizmo = false;
           } else if (clickedGizmoAxis === 'move-free') {
             // Move free-translate center circle (camera-plane)
@@ -37649,10 +37750,11 @@
             if (currentTool === 'pivot') {
               dragMode = 'translate-pivot-planar';
               lockedAxis = clickedGizmoAxis.split('-')[1]; // 'xy', 'yz', 'xz'
-              // obj.position IS the pivot's world position (setObjectPivot compensates)
-              dragStartWorldPosition = selectedObject.position;
+              // Pivot anchor = position + pivotShift (setObjectPivot writes compensation into pivotShift)
+              dragStartWorldPosition = getPivotAnchor(selectedObject);
               selectedObject.dragStartPos = [...selectedObject.position];
               selectedObject._dragStartPivot = [...(selectedObject.pivot || [0, 0, 0])];
+              selectedObject._dragStartPivotShift = [...(selectedObject.pivotShift || [0, 0, 0])];
             } else if (currentTool === 'select' || (currentTool === 'directSelect' && !selectedVertexInfo)) {
               dragMode = 'translate-planar';
               lockedAxis = clickedGizmoAxis.split('-')[1]; // 'xy', 'yz', 'xz'
@@ -37663,10 +37765,11 @@
             if (currentTool === 'pivot') {
               dragMode = 'translate-pivot';
               lockedAxis = clickedGizmoAxis;
-              // obj.position IS the pivot's world position (setObjectPivot compensates)
-              dragStartWorldPosition = selectedObject.position;
+              // Pivot anchor = position + pivotShift (setObjectPivot writes compensation into pivotShift)
+              dragStartWorldPosition = getPivotAnchor(selectedObject);
               selectedObject.dragStartPos = [...selectedObject.position];
               selectedObject._dragStartPivot = [...(selectedObject.pivot || [0, 0, 0])];
+              selectedObject._dragStartPivotShift = [...(selectedObject.pivotShift || [0, 0, 0])];
             } else if (currentTool === 'select' || (currentTool === 'directSelect' && !selectedVertexInfo)) {
               dragMode = 'translate-local';
               lockedAxis = clickedGizmoAxis;
@@ -38056,6 +38159,13 @@
         (dragMode.startsWith('translate') || dragMode === 'translate-radial')) {
         const { excludeObjects, excludeVertices } = buildSnapExcludeSet();
         _snapTargetCache = collectSnapTargets(excludeObjects, excludeVertices);
+        // Pivot drags: the object's own position (the gray dot — the anchor's
+        // zero-shift home) is a snap target, so the pivot can be returned to its
+        // origin in one gesture. Groups have no vertex targets, so this also gives
+        // grouped objects a snappable pivot home.
+        if (dragMode.startsWith('translate-pivot') && selectedObject) {
+          _snapTargetCache.push([...selectedObject.position]);
+        }
       }
 
       if (dragMode === 'marquee-select') {
@@ -39185,12 +39295,12 @@
           const pivotDelta = vectorApplyMatrix(totalWorldDelta, invRS_piv);
           const startPivot = selectedObject._dragStartPivot || [0, 0, 0];
           const newPivot = vectorAdd(startPivot, pivotDelta);
-          // Bug 4 fix: write pivot + position directly from drag-start baseline
+          // Write pivot + pivotShift directly from drag-start baseline
           // (no incremental setObjectPivot calls that accumulate error per frame)
-          const startPos = selectedObject.dragStartPos || selectedObject.position;
+          const startShift = selectedObject._dragStartPivotShift || [0, 0, 0];
           const totalPivotDelta = vectorSubtract(newPivot, startPivot);
           selectedObject.pivot = newPivot;
-          selectedObject.position = vectorAdd(startPos, vectorApplyMatrix(totalPivotDelta, RS_piv));
+          selectedObject.pivotShift = vectorAdd(startShift, vectorApplyMatrix(totalPivotDelta, RS_piv));
         }
 
         updatePropertiesPanel();
@@ -39272,11 +39382,11 @@
                 const pivotDelta = vectorApplyMatrix(totalWorldDelta, invRS_piv2);
                 const startPivot = selectedObject._dragStartPivot || [0, 0, 0];
                 const newPivot = vectorAdd(startPivot, pivotDelta);
-                // Bug 4 fix: write pivot + position directly from drag-start baseline
-                const startPos = selectedObject.dragStartPos || selectedObject.position;
+                // Write pivot + pivotShift directly from drag-start baseline
+                const startShift2 = selectedObject._dragStartPivotShift || [0, 0, 0];
                 const totalPivotDelta = vectorSubtract(newPivot, startPivot);
                 selectedObject.pivot = newPivot;
-                selectedObject.position = vectorAdd(startPos, vectorApplyMatrix(totalPivotDelta, RS_piv2));
+                selectedObject.pivotShift = vectorAdd(startShift2, vectorApplyMatrix(totalPivotDelta, RS_piv2));
               }
             }
           }
@@ -39353,11 +39463,11 @@
                 const pivotDelta = vectorApplyMatrix(totalWorldDelta, invRS_piv3);
                 const startPivot = selectedObject._dragStartPivot || [0, 0, 0];
                 const newPivot = vectorAdd(startPivot, pivotDelta);
-                // Bug 4 fix: write pivot + position directly from drag-start baseline
-                const startPos = selectedObject.dragStartPos || selectedObject.position;
+                // Write pivot + pivotShift directly from drag-start baseline
+                const startShift3 = selectedObject._dragStartPivotShift || [0, 0, 0];
                 const totalPivotDelta = vectorSubtract(newPivot, startPivot);
                 selectedObject.pivot = newPivot;
-                selectedObject.position = vectorAdd(startPos, vectorApplyMatrix(totalPivotDelta, RS_piv3));
+                selectedObject.pivotShift = vectorAdd(startShift3, vectorApplyMatrix(totalPivotDelta, RS_piv3));
               }
             }
           }
@@ -41785,9 +41895,11 @@
 
         // Calculate Local Position relative to Group
         // Since Group is at 'centroid' with no rotation/scale initially:
+        // worldPos is the matrix translation column — recover position from it
+        // (accounts for pivot and pivotShift, which the raw column does not include)
         const newLocalPos = vectorSubtract(worldPos, centroid);
 
-        obj.position = newLocalPos;
+        obj.position = positionFromMatrixTranslation(obj, newLocalPos);
         // obj.rotation/scale remain same as Group has identity rotation/scale initially
         // If objects had parent transforms, we'd need more complex matrix math here.
         // Assuming root-level objects or same-transform parent objects.
@@ -41824,10 +41936,12 @@
         const decomposed = decomposeMatrix(childLocalMatrix);
 
         // 2. Update Child Transform
-        child.position = decomposed.position;
+        // (rotation/scale first — position recovery from the translation column
+        // depends on the NEW rotation/scale and the retained pivot/pivotShift)
         child.rotationEuler = decomposed.rotation;
         child.rotationMatrix = decomposed.rotationMatrix;
         child.scale = decomposed.scale;
+        child.position = positionFromMatrixTranslation(child, decomposed.position);
 
         // 3. Reparent
         targetGroup.remove(child);
@@ -43186,6 +43300,7 @@
         lock: obj.lock,
         pivot: obj.pivot,
         pivotRotation: obj.pivotRotation,
+        pivotShift: obj.pivotShift || [0, 0, 0],
         style: obj.style,
         faceCamera: obj.faceCamera
       };
@@ -43321,6 +43436,7 @@
       if (data.lock !== undefined) obj.lock = data.lock;
       if (data.pivot) obj.pivot = [...data.pivot];
       if (data.pivotRotation) obj.pivotRotation = [...data.pivotRotation];
+      if (data.pivotShift) obj.pivotShift = [...data.pivotShift];
       if (data.faceCamera) obj.faceCamera = { ...data.faceCamera };
 
       if (data.style) {
@@ -44386,18 +44502,16 @@
             _tlOriginalValues.set(origKey, Array.isArray(origVal) ? [...origVal] : origVal);
           }
         }
-        // Bug 5 fix (Option A): if this is a pivot track, also snapshot position
-        // baseline so tlApplyFrame can use absolute compensation even when no
-        // position track exists.
-        if (property === 'pivot_x' || property === 'pivot_y' || property === 'pivot_z') {
-          for (const posProp of ['position_x', 'position_y', 'position_z']) {
-            const posOrigKey = objectName + '::' + posProp;
-            if (!_tlOriginalValues.has(posOrigKey)) {
-              const posOrigVal = _tlReadPropertyValue(objectName, posProp);
-              if (posOrigVal !== null) {
-                _tlOriginalValues.set(posOrigKey, posOrigVal);
-              }
-            }
+        // Pivot tracks also need the rest pivotShift baseline: the derived shift
+        // (tlDeriveAnimatedPivotShift) accumulates on top of it.
+        if (property === 'pivX' || property === 'pivY' || property === 'pivZ') {
+          const shObj = _tlFindObjectByName(objectName);
+          if (shObj) {
+            const sh = shObj.pivotShift || [0, 0, 0];
+            ['pshX', 'pshY', 'pshZ'].forEach((k, i) => {
+              const shKey = objectName + '::' + k;
+              if (!_tlOriginalValues.has(shKey)) _tlOriginalValues.set(shKey, sh[i]);
+            });
           }
         }
       }
@@ -44430,6 +44544,20 @@
         if (_tlOriginalValues.has(origKey)) {
           _tlWritePropertyValue(objectName, property, _tlOriginalValues.get(origKey));
           _tlOriginalValues.delete(origKey);
+        }
+        // When the last pivot track goes away, restore the rest pivotShift too
+        if ((property === 'pivX' || property === 'pivY' || property === 'pivZ') &&
+            !['pivX', 'pivY', 'pivZ'].some(p => objTracks.has(p))) {
+          const shObj = _tlFindObjectByName(objectName);
+          const bx = _tlOriginalValues.get(objectName + '::pshX');
+          const by = _tlOriginalValues.get(objectName + '::pshY');
+          const bz = _tlOriginalValues.get(objectName + '::pshZ');
+          if (shObj && bx !== undefined) {
+            shObj.pivotShift = [bx, by !== undefined ? by : 0, bz !== undefined ? bz : 0];
+          }
+          _tlOriginalValues.delete(objectName + '::pshX');
+          _tlOriginalValues.delete(objectName + '::pshY');
+          _tlOriginalValues.delete(objectName + '::pshZ');
         }
       }
       const isAlwaysVisible = objectName === '__camera__' || (selectedObject && selectedObject.name === objectName);
@@ -44672,6 +44800,100 @@
       };
     };
 
+    // --- Derived pivot-shift --------------------------------------------------
+    // The compensation for ANIMATED pivot changes is not stored as keyframes; it is
+    // derived from the pivot tracks with the object's pose (rotation/scale) frozen
+    // at each pivot key's frame. Freezing is what makes rolling work: a pivot switch
+    // is compensated with the pose at the moment of the switch and never re-evaluated
+    // against the live rotation (the source of the old rolling-cube drift — see
+    // research/pivotshift_plan.md). Between pivot keys an interpolating pivot is
+    // compensated with the pose at the CURRENT frame, which cancels exactly while
+    // the pose holds still and converges to the frozen value at the segment's end key.
+    // Being a pure function of track data + rest baselines, it is scrub-safe and
+    // self-heals when rotation/scale/pivot keys are later moved or re-valued.
+    const tlDeriveAnimatedPivotShift = (objectName, objTracks, obj, frame) => {
+      const pivKfs = [objTracks.get('pivX'), objTracks.get('pivY'), objTracks.get('pivZ')];
+      if (!pivKfs[0] && !pivKfs[1] && !pivKfs[2]) return null;
+
+      // Rest baselines (snapshotted at track creation or scene load); live values are
+      // only a fallback and may already be animated.
+      const orig = (suffix, fallback) => {
+        const v = _tlOriginalValues.get(objectName + '::' + suffix);
+        return v !== undefined ? v : fallback;
+      };
+      const liveEuler = obj.rotationEuler || matrixToEuler(obj.rotationMatrix);
+      const liveScale = obj.scale || [1, 1, 1];
+      const restPivot = [
+        orig('pivX', obj.pivot ? obj.pivot[0] : 0),
+        orig('pivY', obj.pivot ? obj.pivot[1] : 0),
+        orig('pivZ', obj.pivot ? obj.pivot[2] : 0)
+      ];
+      const restShift = [orig('pshX', 0), orig('pshY', 0), orig('pshZ', 0)];
+      const restEuler = [orig('rotX', liveEuler[0]), orig('rotY', liveEuler[1]), orig('rotZ', liveEuler[2])];
+      const restScale = [orig('sclX', liveScale[0]), orig('sclY', liveScale[1]), orig('sclZ', liveScale[2])];
+      const rotKfs = [objTracks.get('rotX'), objTracks.get('rotY'), objTracks.get('rotZ')];
+      const sclKfs = [objTracks.get('sclX'), objTracks.get('sclY'), objTracks.get('sclZ')];
+
+      const trackVal = (kfs, f, rest) => {
+        if (!kfs || kfs.length === 0) return rest;
+        const v = tlInterpolate(kfs, f);
+        return v === null ? rest : v;
+      };
+      const pivotAt = (f) => [
+        trackVal(pivKfs[0], f, restPivot[0]),
+        trackVal(pivKfs[1], f, restPivot[1]),
+        trackVal(pivKfs[2], f, restPivot[2])
+      ];
+      // R * orientedS at frame f (orientedS = RP * S * invRP, matching getLocalMatrix)
+      const poseAt = (f) => {
+        const R = matrixFromEuler([
+          trackVal(rotKfs[0], f, restEuler[0]),
+          trackVal(rotKfs[1], f, restEuler[1]),
+          trackVal(rotKfs[2], f, restEuler[2])
+        ]);
+        const S = createScaleMatrix(
+          trackVal(sclKfs[0], f, restScale[0]),
+          trackVal(sclKfs[1], f, restScale[1]),
+          trackVal(sclKfs[2], f, restScale[2])
+        );
+        const RP = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
+        const invRP = [
+          [RP[0][0], RP[1][0], RP[2][0], 0],
+          [RP[0][1], RP[1][1], RP[2][1], 0],
+          [RP[0][2], RP[1][2], RP[2][2], 0],
+          [0, 0, 0, 1]
+        ];
+        return matrixMultiply(R, matrixMultiply(RP, matrixMultiply(S, invRP)));
+      };
+
+      // Pivot "events" = union of pivot key frames, ascending
+      const eventFrames = new Set();
+      for (const kfs of pivKfs) {
+        if (kfs) for (const k of kfs) eventFrames.add(k.frame);
+      }
+      const events = [...eventFrames].sort((a, b) => a - b);
+
+      let shift = [...restShift];
+      let prevP = restPivot;
+      for (const f of events) {
+        if (f > frame) break;
+        const P = pivotAt(f);
+        const dP = vectorSubtract(P, prevP);
+        if (Math.abs(dP[0]) > 1e-9 || Math.abs(dP[1]) > 1e-9 || Math.abs(dP[2]) > 1e-9) {
+          shift = vectorAdd(shift, vectorApplyMatrix(dP, poseAt(f)));
+        }
+        prevP = P;
+      }
+      // Partial segment: pivot interpolating toward its next key — compensate with
+      // the pose at the current frame.
+      const Pnow = pivotAt(frame);
+      const dNow = vectorSubtract(Pnow, prevP);
+      if (Math.abs(dNow[0]) > 1e-9 || Math.abs(dNow[1]) > 1e-9 || Math.abs(dNow[2]) > 1e-9) {
+        shift = vectorAdd(shift, vectorApplyMatrix(dNow, poseAt(frame)));
+      }
+      return shift;
+    };
+
     // --- Apply Frame — sets object/camera properties from interpolated keyframes ---
     const tlApplyFrame = (frame) => {
       for (const [objectName, objTracks] of animationTimeline.tracks) {
@@ -44769,7 +44991,6 @@
         if (!obj.scale) obj.scale = [1, 1, 1];
         let rotChanged = false;
         let newPivot = null;
-        const positionOverridden = [false, false, false];
         for (const [prop, keyframes] of objTracks) {
           const val = tlInterpolate(keyframes, frame);
           if (val === null) continue;
@@ -44779,7 +45000,6 @@
             const { vecProp, vecIdx } = paramDef;
             if (vecProp === 'position') {
               obj.position[vecIdx] = val;
-              positionOverridden[vecIdx] = true;
             } else if (vecProp === 'rotation') {
               if (!obj.rotationEuler) obj.rotationEuler = matrixToEuler(obj.rotationMatrix);
               obj.rotationEuler[vecIdx] = val;
@@ -44795,55 +45015,13 @@
         if (rotChanged) {
           obj.rotationMatrix = matrixFromEuler(obj.rotationEuler);
         }
-        // Apply pivot with absolute position compensation (Bug 5+6 fix)
-        // Replaces incremental delta from live obj.pivot (which accumulated drift)
-        // with an absolute offset from the pre-animation rest baseline.
+        // Apply animated pivot. The compensating pivotShift is DERIVED from track
+        // data with the pose frozen at each pivot key's frame — position is never
+        // touched (it is a pure user channel; see tlDeriveAnimatedPivotShift).
         if (newPivot) {
-          // Bug 6: early-exit if all three position axes are keyframed —
-          // authored positions fully own the world position; no compensation needed.
-          if (positionOverridden[0] && positionOverridden[1] && positionOverridden[2]) {
-            obj.pivot = newPivot;
-          } else {
-            // Read pre-animation pivot baseline from _tlOriginalValues
-            // (snapshotted by tlAddKeyframe when the pivot track was first created)
-            const origPivX = _tlOriginalValues.get(objectName + '::pivot_x');
-            const origPivY = _tlOriginalValues.get(objectName + '::pivot_y');
-            const origPivZ = _tlOriginalValues.get(objectName + '::pivot_z');
-            const basePivot = [
-              origPivX !== undefined ? origPivX : (obj.pivot?.[0] ?? 0),
-              origPivY !== undefined ? origPivY : (obj.pivot?.[1] ?? 0),
-              origPivZ !== undefined ? origPivZ : (obj.pivot?.[2] ?? 0)
-            ];
-            // Absolute delta from rest pivot — idempotent, no per-frame accumulation
-            const deltaPivot = vectorSubtract(newPivot, basePivot);
-            if (Math.abs(deltaPivot[0]) > 0.0001 || Math.abs(deltaPivot[1]) > 0.0001 || Math.abs(deltaPivot[2]) > 0.0001) {
-              const S = createScaleMatrix(obj.scale[0], obj.scale[1], obj.scale[2]);
-              const RPivotAnim = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
-              const invRPivotAnim = [
-                [RPivotAnim[0][0], RPivotAnim[1][0], RPivotAnim[2][0], 0],
-                [RPivotAnim[0][1], RPivotAnim[1][1], RPivotAnim[2][1], 0],
-                [RPivotAnim[0][2], RPivotAnim[1][2], RPivotAnim[2][2], 0],
-                [0, 0, 0, 1]
-              ];
-              const orientedSAnim = matrixMultiply(RPivotAnim, matrixMultiply(S, invRPivotAnim));
-              const RS = matrixMultiply(obj.rotationMatrix, orientedSAnim);
-              const posDelta = vectorApplyMatrix(deltaPivot, RS);
-              const posPropNames = ['position_x', 'position_y', 'position_z'];
-              for (let i = 0; i < 3; i++) {
-                if (!positionOverridden[i]) {
-                  // Bug 5 fix: absolute assignment from rest baseline — not additive.
-                  // Position baseline was snapshotted at pivot-track creation time.
-                  const origPos = _tlOriginalValues.get(objectName + '::' + posPropNames[i]);
-                  if (origPos !== undefined) {
-                    obj.position[i] = origPos + posDelta[i];
-                  }
-                  // else: no baseline available (should not occur with Option A snapshot)
-                }
-                // positionOverridden[i] == true → keyframed position owns this axis
-              }
-            }
-            obj.pivot = newPivot;
-          }
+          obj.pivot = newPivot;
+          const derivedShift = tlDeriveAnimatedPivotShift(objectName, objTracks, obj, frame);
+          if (derivedShift) obj.pivotShift = derivedShift;
         }
 
         // --- Parametric shape params ---
@@ -46868,6 +47046,14 @@
           });
         }
       }
+      // Rest-value baselines. Scenes are often saved with the playhead
+      // mid-animation, so the serialized objects are NOT at rest — without these,
+      // an importer cannot reconstruct the pre-animation state (the pivotShift
+      // derivation and restore-on-track-delete both depend on them).
+      data.originalValues = {};
+      for (const [key, val] of _tlOriginalValues) {
+        data.originalValues[key] = Array.isArray(val) ? [...val] : val;
+      }
       return data;
     };
 
@@ -46933,6 +47119,37 @@
             }));
           }
           animationTimeline.tracks.set(objectName, objMap);
+        }
+      }
+      // Restore rest-value baselines. A fresh import must not inherit baselines
+      // from the previously loaded scene (same-named objects would collide).
+      _tlOriginalValues.clear();
+      if (data.originalValues) {
+        for (const [key, val] of Object.entries(data.originalValues)) {
+          _tlOriginalValues.set(key, Array.isArray(val) ? [...val] : val);
+        }
+      }
+      // Fallback for files saved before originalValues existed: use each track's
+      // FIRST key value as the rest baseline. The live object state is NOT safe
+      // here — scenes are often saved with the playhead mid-animation, so the
+      // serialized pivot/rotation/pivotShift are animated values, not rest values
+      // (using them corrupted the shift derivation of re-imported scenes).
+      // Auto-key workflows record the rest value at the first key, so this is
+      // right for authored files. pivotShift rest defaults to 0 — legacy files
+      // predate animated shift entirely.
+      for (const [objectName, objMap] of animationTimeline.tracks) {
+        for (const [prop, kfs] of objMap) {
+          const key = objectName + '::' + prop;
+          if (!_tlOriginalValues.has(key) && kfs.length > 0) {
+            const v = kfs[0].value;
+            _tlOriginalValues.set(key, Array.isArray(v) ? [...v] : v);
+          }
+        }
+        if (['pivX', 'pivY', 'pivZ'].some(p => objMap.has(p))) {
+          ['pshX', 'pshY', 'pshZ'].forEach((k) => {
+            const key = objectName + '::' + k;
+            if (!_tlOriginalValues.has(key)) _tlOriginalValues.set(key, 0);
+          });
         }
       }
       tlUpdateUI();

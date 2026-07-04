@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260704m -->
+<!-- dim v20260704p -->
 
 <!--
   MIT License
@@ -3183,6 +3183,46 @@
 
     #timelinePanel.expanded {
       height: 176px;
+      /* JS overrides this with an inline height when the panel is drag-resized */
+    }
+
+    /* Disable the height transition while actively dragging the resize handle */
+    #timelinePanel.tl-resizing {
+      transition: none;
+    }
+
+    /* --- Resize Handle (top edge; panel is bottom-pinned) --- */
+    .tl-resize-handle {
+      position: absolute;
+      top: -3px;
+      left: 0;
+      right: 0;
+      height: 7px;
+      cursor: ns-resize;
+      z-index: 501;
+      touch-action: none;
+    }
+
+    .tl-resize-handle::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 3px;
+      height: 1px;
+      background: var(--accent-color);
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+
+    .tl-resize-handle:hover::after,
+    #timelinePanel.tl-resizing .tl-resize-handle::after {
+      opacity: 1;
+    }
+
+    /* Resize handle only makes sense when the panel is expanded */
+    #timelinePanel.collapsed .tl-resize-handle {
+      display: none;
     }
 
     /* --- Header Bar --- */
@@ -3773,6 +3813,16 @@
       width: 100%;
       height: 100%;
       fill: currentColor;
+    }
+
+    /* --- Marquee (drag-box) keyframe selection ---
+       Mirrors the canvas marquee aesthetics: 10% accent fill + 1px accent border. */
+    .tl-marquee {
+      position: absolute;
+      z-index: 5; /* above keyframes (1), below playhead (10) */
+      background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+      border: 1px solid var(--accent-color);
+      pointer-events: none;
     }
 
     /* --- Keyframe Context Menu (Popover + Anchor Positioning) --- */
@@ -6755,6 +6805,8 @@
        ANIMATION TIMELINE PANEL
        ═══════════════════════════════════════════ -->
   <div id="timelinePanel" class="collapsed">
+    <!-- Drag-to-resize handle (top edge) -->
+    <div class="tl-resize-handle" id="tlResizeHandle" title="Drag to resize timeline"></div>
     <!-- Header / Transport Bar -->
     <div class="tl-header" id="tlHeader">
       <span class="tl-header-title">Timeline</span>
@@ -6897,7 +6949,10 @@
             <option value="easeOutBounce">easeOutBounce</option>
             <option value="easeInOutBounce">easeInOutBounce</option>
           </select>
-          <button id="tlCurveClose" type="button" title="Close" style="margin-left:auto; background:none; border:none; cursor:pointer; padding:2px 4px; font-size:16px; color:var(--text-muted); line-height:1;">&times;</button>
+          <button id="tlCurveExport" type="button" class="tl-curve-pt-btn" style="margin-left:auto;" title="Export curve to .json file"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 10V2"/><path d="M5 5l3-3 3 3"/><path d="M3 13h10"/></svg></button>
+          <button id="tlCurveImport" type="button" class="tl-curve-pt-btn" title="Import curve from .json file"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/><path d="M3 13h10"/></svg></button>
+          <input class="hidden" type="file" id="tlCurveImportInput" accept=".json,application/json" />
+          <button id="tlCurveClose" type="button" title="Close" style="background:none; border:none; cursor:pointer; padding:2px 4px; font-size:16px; color:var(--text-muted); line-height:1;">&times;</button>
         </div>
         <div class="tl-curve-toolbar">
           <label>Curve</label>
@@ -42713,11 +42768,16 @@
     let projectionType = 'perspective';
 
     // --- Update --timeline-height CSS variable for panel layout ---
+    // Expanded panel height (px) — session-only, adjustable via the drag handle.
+    const _TL_MIN_HEIGHT = 120;
+    let _tlExpandedHeight = 176;
+    const _tlMaxHeight = () => Math.max(_TL_MIN_HEIGHT, window.innerHeight - 120);
+
     const updateTimelineHeight = () => {
       const panel = document.getElementById('timelinePanel');
       let h = 0;
       if (panel && getComputedStyle(panel).display !== 'none') {
-        h = panel.classList.contains('expanded') ? 176 : 32;
+        h = panel.classList.contains('expanded') ? _tlExpandedHeight : 32;
       }
       document.documentElement.style.setProperty('--timeline-height', h + 'px');
     };
@@ -42794,12 +42854,58 @@
       if (e.target.closest('.tl-transport-btn') || e.target.closest('.tl-frame-display')) return;
       tlExpanded = !tlExpanded;
       tlPanel.className = tlExpanded ? 'expanded' : 'collapsed';
+      // Apply the (possibly drag-adjusted) height when expanded; clear it so the
+      // .collapsed 32px rule takes over when collapsed.
+      tlPanel.style.height = tlExpanded ? _tlExpandedHeight + 'px' : '';
       updateTimelineHeight();
       if (tlExpanded) {
         setTimeout(() => {
           tlDrawRuler();
           tlRenderTracks();
         }, 220); // Wait for CSS transition
+      }
+    });
+
+    // --- Drag-to-resize (top edge) ---
+    const tlResizeHandle = document.getElementById('tlResizeHandle');
+    let _tlResizing = false;
+    tlResizeHandle.addEventListener('pointerdown', (e) => {
+      if (!tlExpanded) return; // handle is hidden when collapsed, but guard anyway
+      e.preventDefault();
+      _tlResizing = true;
+      tlPanel.classList.add('tl-resizing');
+      document.body.style.cursor = 'ns-resize';
+      tlResizeHandle.setPointerCapture(e.pointerId);
+    });
+    tlResizeHandle.addEventListener('pointermove', (e) => {
+      if (!_tlResizing) return;
+      // Panel is bottom-pinned, so its height = distance from pointer to viewport bottom.
+      const newH = Math.max(_TL_MIN_HEIGHT, Math.min(_tlMaxHeight(), window.innerHeight - e.clientY));
+      _tlExpandedHeight = newH;
+      tlPanel.style.height = newH + 'px';
+      updateTimelineHeight(); // live-update side panels / tool drawer / HUD var
+    });
+    const _tlEndResize = (e) => {
+      if (!_tlResizing) return;
+      _tlResizing = false;
+      tlPanel.classList.remove('tl-resizing');
+      document.body.style.cursor = '';
+      if (e && e.pointerId != null && tlResizeHandle.hasPointerCapture(e.pointerId)) {
+        tlResizeHandle.releasePointerCapture(e.pointerId);
+      }
+      tlDrawRuler();
+      if (typeof requestRender === 'function') requestRender(); // reposition camera HUD bars
+    };
+    tlResizeHandle.addEventListener('pointerup', _tlEndResize);
+    tlResizeHandle.addEventListener('pointercancel', _tlEndResize);
+
+    // Keep the height within bounds when the viewport shrinks.
+    window.addEventListener('resize', () => {
+      const clamped = Math.max(_TL_MIN_HEIGHT, Math.min(_tlMaxHeight(), _tlExpandedHeight));
+      if (clamped !== _tlExpandedHeight) {
+        _tlExpandedHeight = clamped;
+        if (tlExpanded) tlPanel.style.height = clamped + 'px';
+        updateTimelineHeight();
       }
     });
 
@@ -42827,6 +42933,9 @@
     const tlCurveMirrorV = document.getElementById('tlCurveMirrorV');
     const tlCurveCopy = document.getElementById('tlCurveCopy');
     const tlCurvePaste = document.getElementById('tlCurvePaste');
+    const tlCurveExport = document.getElementById('tlCurveExport');
+    const tlCurveImport = document.getElementById('tlCurveImport');
+    const tlCurveImportInput = document.getElementById('tlCurveImportInput');
     let _activeCurveKf = null;
     Object.defineProperty(window, '_activeCurveKf', { get: () => _activeCurveKf, configurable: true });
     let _ceSelectedIdx = 0;  // index into kf.cubicBezier (which handle is selected)
@@ -43390,6 +43499,111 @@
       sceneObjects.forEach(obj => updateVisualsRecursive(obj));
       tlRenderTracks();
       tlUpdateTrackInputs();
+    });
+
+    // --- Export / Import animation curve as .json ---
+    const _CURVE_FILE_FORMAT = 'dim-anim-curve';
+    const _CURVE_ALGOS = ['bezier', 'linear', 'bspline', 'bspline2'];
+
+    // Coerce arbitrary parsed JSON into { points:[[x,y],...], algorithm } or null if invalid.
+    // Lenient: accepts the full envelope, a bare {points, algorithm}, or a raw points array.
+    const _parseCurvePayload = (data) => {
+      let rawPts, algo;
+      if (Array.isArray(data)) {
+        rawPts = data;                     // raw points array
+      } else if (data && typeof data === 'object') {
+        rawPts = data.points;
+        algo = data.algorithm;
+      } else {
+        return null;
+      }
+      // Require actual source points — reject unrelated/empty files before the
+      // _migrateBezierData fallback silently turns them into a default curve.
+      if (!Array.isArray(rawPts) || rawPts.length === 0) return null;
+      // Migrate/normalize points (also handles old flat [x1,y1,x2,y2] format)
+      const pts = _migrateBezierData(rawPts);
+      // Validate: array of [number, number]
+      if (!Array.isArray(pts) || pts.length === 0) return null;
+      for (const p of pts) {
+        if (!Array.isArray(p) || p.length < 2 ||
+            typeof p[0] !== 'number' || !isFinite(p[0]) ||
+            typeof p[1] !== 'number' || !isFinite(p[1])) {
+          return null;
+        }
+      }
+      const cleanPts = pts.map(p => [Math.max(0, Math.min(1, p[0])), p[1]]);
+      const algorithm = _CURVE_ALGOS.includes(algo) ? algo : 'bezier';
+      return { points: cleanPts, algorithm };
+    };
+
+    // Export the active curve to a downloaded .json file
+    tlCurveExport.addEventListener('click', () => {
+      if (!_activeCurveKf) return;
+      const algorithm = _activeCurveKf.curveAlgorithm || 'bezier';
+      const points = _activeCurveKf.cubicBezier.map(p => [...p]);
+      const payload = {
+        format: _CURVE_FILE_FORMAT,
+        version: 1,
+        algorithm,
+        points
+      };
+      const jsonStr = JSON.stringify(payload, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const presetName = _matchPreset(points, algorithm);
+      a.download = `dim_curve_${presetName}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Fix for Chrome: Delay revocation to ensure download starts
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+
+    // Import button opens the hidden file picker
+    tlCurveImport.addEventListener('click', () => {
+      if (!_activeCurveKf) return;
+      tlCurveImportInput.click();
+    });
+
+    // File chosen — parse, validate, and apply like paste
+    tlCurveImportInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      // Reset immediately so re-importing the same file re-fires 'change'
+      tlCurveImportInput.value = '';
+      if (!file || !_activeCurveKf) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        let parsed;
+        try {
+          parsed = JSON.parse(ev.target.result);
+        } catch (err) {
+          alert('Could not import curve: the file is not valid JSON.');
+          return;
+        }
+        const payload = _parseCurvePayload(parsed);
+        if (!payload) {
+          alert('Could not import curve: no valid curve data found in the file.');
+          return;
+        }
+        if (!_activeCurveKf) return; // editor may have closed while reading
+        pushAnimUndoState('import curve');
+        _activeCurveKf.cubicBezier = payload.points.map(p => [...p]);
+        _activeCurveKf.curveAlgorithm = payload.algorithm;
+        tlCurveAlgorithm.value = payload.algorithm;
+        // Also fill the in-memory clipboard so Paste works afterward
+        _curveClipboard = { points: payload.points.map(p => [...p]), algorithm: payload.algorithm };
+        tlCurvePaste.disabled = false;
+        _ceSelectedIdx = 0;
+        _updateCurveSvg(_activeCurveKf.cubicBezier);
+        tlCurvePreset.value = (payload.algorithm === 'bezier') ? _matchPreset(_activeCurveKf.cubicBezier) : 'custom';
+        tlApplyFrame(animationTimeline.currentFrame, true);
+        sceneObjects.forEach(obj => updateVisualsRecursive(obj));
+        tlRenderTracks();
+        tlUpdateTrackInputs();
+      };
+      reader.readAsText(file);
     });
 
     // Numeric input change handler (for selected point)
@@ -44764,6 +44978,10 @@
       if (tlPlayhead) tlPlayhead.style.left = x + 'px';
     };
 
+    // --- Playback-range handle (draggable boundary on the ruler) ---
+    let tlRangeDragging = false;   // true while dragging the range handle
+    let _tlRangeHot = false;       // hovered near the handle or dragging → accent color
+
     // --- Ruler Drawing (canvas) ---
     const tlDrawRuler = () => {
       const canvas = tlRulerCanvas;
@@ -44803,18 +45021,22 @@
 
       // Out-of-range dim overlay on ruler
       const range = animationTimeline.playbackRange;
+      const rangeX = ((range - 1) / (total - 1)) * w;
       if (range < total) {
-        const rangeX = ((range - 1) / (total - 1)) * w;
         ctx.fillStyle = 'rgba(0,0,0,0.06)';
         ctx.fillRect(rangeX, 0, w - rangeX, h);
-        // Boundary line
-        ctx.strokeStyle = 'rgba(255,100,0,0.35)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(rangeX, 0);
-        ctx.lineTo(rangeX, h);
-        ctx.stroke();
       }
+      // Draggable range handle — always visible (clamped just inside the right edge
+      // when the range is full). Grey by default, accent-blue when hovered/dragged.
+      const hx = Math.max(1, Math.min(rangeX, w - 1));
+      ctx.strokeStyle = _tlRangeHot
+        ? (getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#2645d2')
+        : 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(hx, 0);
+      ctx.lineTo(hx, h);
+      ctx.stroke();
     };
 
     // --- Track Rendering ---
@@ -45993,25 +46215,103 @@
       }
     };
 
-    // --- Ruler Scrubbing ---
-    let tlScrubbing = false;
-    const tlScrubFromEvent = (e) => {
+    // --- Playback range: shared setter (used by the number input and the drag handle) ---
+    const tlSetPlaybackRange = (val) => {
+      val = Math.max(1, Math.min(360, val));
+      animationTimeline.playbackRange = val;
+      tlPlaybackRange.value = val;
+      // Clamp current frame if beyond the new range
+      if (animationTimeline.currentFrame >= val) tlSetFrame(val - 1);
+      tlFrameInput.max = val - 1;
+      tlDrawRuler();
+      tlRenderTracks();
+    };
+
+    // Pixel X (within the ruler) of the range handle, matching tlDrawRuler.
+    const _tlRangeHandleX = (w) => {
+      const total = animationTimeline.totalFrames;
+      const range = animationTimeline.playbackRange;
+      return Math.max(1, Math.min(((range - 1) / (total - 1)) * w, w - 1));
+    };
+
+    // Set playback range from a pointer position on the ruler.
+    const _tlRangeFromEvent = (e) => {
       const rect = tlRuler.getBoundingClientRect();
       const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
       const frame = Math.round((x / rect.width) * (animationTimeline.totalFrames - 1));
+      tlSetPlaybackRange(frame + 1);
+    };
+
+    // --- Ruler Scrubbing ---
+    let tlScrubbing = false;
+
+    // Nearest keyframe frame across ALL tracks to `frame`, or null if none exist.
+    const _tlNearestKeyframeFrame = (frame) => {
+      let best = null, bestDist = Infinity;
+      for (const [, objTracks] of animationTimeline.tracks) {
+        for (const [, kfs] of objTracks) {
+          for (const k of kfs) {
+            const d = Math.abs(k.frame - frame);
+            if (d < bestDist) { bestDist = d; best = k.frame; }
+          }
+        }
+      }
+      return best;
+    };
+
+    const tlScrubFromEvent = (e) => {
+      const rect = tlRuler.getBoundingClientRect();
+      const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+      let frame = Math.round((x / rect.width) * (animationTimeline.totalFrames - 1));
+      // Shift while scrubbing → snap the playhead to the nearest keyframe.
+      if (e.shiftKey) {
+        const snap = _tlNearestKeyframeFrame(frame);
+        if (snap !== null) frame = snap;
+      }
       tlSetFrame(frame);
     };
 
     tlRuler.addEventListener('mousedown', (e) => {
-      tlStopPlayback(); // Stop playback when user scrubs the ruler
+      tlStopPlayback(); // Stop playback when the user interacts with the ruler
+      const rect = tlRuler.getBoundingClientRect();
+      // Grab the range handle if the click lands within a few px of it.
+      if (Math.abs((e.clientX - rect.left) - _tlRangeHandleX(rect.width)) <= 5) {
+        tlRangeDragging = true;
+        _tlRangeHot = true;
+        _tlRangeFromEvent(e);
+        return;
+      }
       tlScrubbing = true;
       tlScrubFromEvent(e);
     });
+
+    // Hover: highlight the handle (accent) + show the resize cursor when near it.
+    tlRuler.addEventListener('mousemove', (e) => {
+      if (tlRangeDragging || tlScrubbing) return; // active drags handled on window
+      const rect = tlRuler.getBoundingClientRect();
+      const near = Math.abs((e.clientX - rect.left) - _tlRangeHandleX(rect.width)) <= 5;
+      tlRuler.style.cursor = near ? 'ew-resize' : '';
+      if (near !== _tlRangeHot) { _tlRangeHot = near; tlDrawRuler(); }
+    });
+    tlRuler.addEventListener('mouseleave', () => {
+      if (!tlRangeDragging && _tlRangeHot) { _tlRangeHot = false; tlDrawRuler(); }
+      tlRuler.style.cursor = '';
+    });
+
     window.addEventListener('mousemove', (e) => {
+      if (tlRangeDragging) { _tlRangeFromEvent(e); return; }
       if (tlScrubbing) tlScrubFromEvent(e);
     });
-    window.addEventListener('mouseup', () => {
+    window.addEventListener('mouseup', (e) => {
       tlScrubbing = false;
+      if (tlRangeDragging) {
+        tlRangeDragging = false;
+        // Keep accent color only if released still on/near the handle.
+        const rect = tlRuler.getBoundingClientRect();
+        const near = e.clientX >= rect.left && e.clientX <= rect.right &&
+          Math.abs((e.clientX - rect.left) - _tlRangeHandleX(rect.width)) <= 5;
+        if (near !== _tlRangeHot) { _tlRangeHot = near; tlDrawRuler(); }
+      }
     });
 
     // --- Transport Controls ---
@@ -46115,17 +46415,7 @@
 
     // Playback Range input
     tlPlaybackRange.addEventListener('change', () => {
-      let val = parseInt(tlPlaybackRange.value) || 360;
-      val = Math.max(1, Math.min(360, val));
-      animationTimeline.playbackRange = val;
-      tlPlaybackRange.value = val;
-      // Clamp current frame if beyond new range
-      if (animationTimeline.currentFrame >= val) {
-        tlSetFrame(val - 1);
-      }
-      tlFrameInput.max = val - 1;
-      tlDrawRuler();
-      tlRenderTracks();
+      tlSetPlaybackRange(parseInt(tlPlaybackRange.value) || 360);
     });
     tlPlaybackRange.addEventListener('click', (e) => e.stopPropagation());
 
@@ -46185,6 +46475,117 @@
         tlApplyFrame(animationTimeline.currentFrame);
       }
     });
+
+    // --- Marquee (drag-box) multi-selection of keyframes ---
+    // Reuses the canvas marquee aesthetics and the existing tlSelectedKfs model.
+    (() => {
+      let marqueeEl = null;
+      let mqActive = false;    // pointer is down and tracking on empty track area
+      let mqDragging = false;  // moved past the dead-zone → a real marquee
+      let mqAdditive = false;  // Shift held at start → union with prior selection
+      let mqBase = null;       // snapshot of selection at drag start (for additive)
+      let mqStartX = 0, mqStartY = 0; // area-local coords
+      let mqPointerId = null;
+
+      // Re-apply .selected highlights from the current tlSelectedKfs set.
+      const mqRefreshHighlights = () => {
+        document.querySelectorAll('.tl-keyframe.selected').forEach(el => el.classList.remove('selected'));
+        for (const k of tlSelectedKfs) {
+          const ref = _tlFindKfByKey(k);
+          if (!ref) continue;
+          const el = document.querySelector(`.tl-keyframe[data-obj="${ref.objectName}"][data-prop="${ref.prop}"][data-frame="${ref.frame}"]`);
+          if (el) el.classList.add('selected');
+        }
+      };
+
+      // Bounding-box intersection test (client coords) against every visible keyframe.
+      const mqComputeHits = (l, t, r, b) => {
+        const hits = new Set();
+        tlTracksArea.querySelectorAll('.tl-keyframe').forEach(el => {
+          const kr = el.getBoundingClientRect();
+          if (kr.left <= r && kr.right >= l && kr.top <= b && kr.bottom >= t) {
+            hits.add(_kfKey(el.dataset.obj, el.dataset.prop, parseInt(el.dataset.frame)));
+          }
+        });
+        return hits;
+      };
+
+      tlTracksArea.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        // Let keyframes / segment lines run their own pointer handlers.
+        if (e.target.closest('.tl-keyframe, .tl-kf-line')) return;
+        const r = tlTracksArea.getBoundingClientRect();
+        mqActive = true;
+        mqDragging = false;
+        mqAdditive = e.shiftKey;
+        mqBase = new Set(tlSelectedKfs);
+        mqStartX = e.clientX - r.left;
+        mqStartY = e.clientY - r.top;
+        mqPointerId = e.pointerId;
+        try { tlTracksArea.setPointerCapture(e.pointerId); } catch (_) { /* non-fatal */ }
+      });
+
+      tlTracksArea.addEventListener('pointermove', (e) => {
+        if (!mqActive) return;
+        const r = tlTracksArea.getBoundingClientRect();
+        const curX = e.clientX - r.left;
+        const curY = e.clientY - r.top;
+
+        if (!mqDragging) {
+          if (Math.abs(curX - mqStartX) < 3 && Math.abs(curY - mqStartY) < 3) return;
+          mqDragging = true;
+          marqueeEl = document.createElement('div');
+          marqueeEl.className = 'tl-marquee';
+          tlTracksArea.appendChild(marqueeEl);
+          // A marquee supersedes any segment (curve) selection.
+          if (_tlSelectedSegment) {
+            if (_tlSelectedSegment.lineEl) _tlSelectedSegment.lineEl.classList.remove('selected');
+            _tlSelectedSegment = null;
+          }
+        }
+
+        const x = Math.min(mqStartX, curX);
+        const y = Math.min(mqStartY, curY);
+        const w = Math.abs(curX - mqStartX);
+        const h = Math.abs(curY - mqStartY);
+        marqueeEl.style.left = x + 'px';
+        marqueeEl.style.top = y + 'px';
+        marqueeEl.style.width = w + 'px';
+        marqueeEl.style.height = h + 'px';
+
+        // Hit-test in client coords, then rebuild the live selection.
+        const hits = mqComputeHits(r.left + x, r.top + y, r.left + x + w, r.top + y + h);
+        tlSelectedKfs.clear();
+        if (mqAdditive) for (const k of mqBase) tlSelectedKfs.add(k);
+        for (const k of hits) tlSelectedKfs.add(k);
+        mqRefreshHighlights();
+      });
+
+      const mqEnd = () => {
+        if (!mqActive) return;
+        mqActive = false;
+        if (mqPointerId != null && tlTracksArea.hasPointerCapture(mqPointerId)) {
+          tlTracksArea.releasePointerCapture(mqPointerId);
+        }
+        mqPointerId = null;
+        if (marqueeEl) { marqueeEl.remove(); marqueeEl = null; }
+
+        if (!mqDragging) {
+          // Plain click on empty area → clear selection (unless Shift).
+          if (!mqAdditive) tlClearKfSelection();
+          return;
+        }
+        mqDragging = false;
+        // Point the "last clicked" reference at one of the selected keyframes so the
+        // inline value inputs / interp dropdown have a valid anchor.
+        _tlLastClickedKf = null;
+        for (const k of tlSelectedKfs) { _tlLastClickedKf = _tlFindKfByKey(k); break; }
+        tlUpdateTrackInputs();
+      };
+
+      tlTracksArea.addEventListener('pointerup', mqEnd);
+      tlTracksArea.addEventListener('pointercancel', mqEnd);
+    })();
 
     // --- Serialization helpers ---
     const tlSerialize = () => {

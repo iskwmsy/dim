@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260704r -->
+<!-- dim v20260704s -->
 
 <!--
   MIT License
@@ -15849,14 +15849,17 @@
           const solveV = (cum, d) => {
             const P = cum[nSmp - 1];
             if (P < 1e-9) return vAnchor;  // taper collapsed to a point
-            const a = arcOfV(cum, vAnchor) + d;
-            if (mapAroundV) {
-              // Preserve winding count so around-mode seam bands stay at
-              // integer v boundaries.
-              const wraps = Math.floor(a / P);
-              return wraps + vOfArc(cum, a - wraps * P);
-            }
-            return vOfArc(cum, a);
+            // Periodic (winding-preserving) arithmetic on BOTH the anchor and
+            // the inversion: an anchor shifted by ±1 lands exactly one period
+            // away, so Clip&Warp's ±1 tiling passes stay seamless and
+            // around-mode seam bands cut at integer v. Overflow mode instead
+            // keeps end-slope extrapolation — its beyond-edge geometry is
+            // really drawn, and should extend at the edge metric.
+            const aw = Math.floor(vAnchor);
+            const a = P * aw + arcOfV(cum, vAnchor - aw) + d;
+            if (overflowV) return vOfArc(cum, a);
+            const wraps = Math.floor(a / P);
+            return wraps + vOfArc(cum, a - wraps * P);
           };
           vArcComp = (u, v) => {
             const cu = mapAroundU ? wrapCoord(u) : Math.max(0, Math.min(1, u));

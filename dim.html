@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260704j -->
+<!-- dim v20260704m -->
 
 <!--
   MIT License
@@ -4733,12 +4733,6 @@
           <input type="checkbox" id="animationEnabledCb" class="ui-checkbox" />
         </div>
 
-        <div class="prop-row prop-inline">
-          <label for="rcSilhouetteCb" class="ui-checkbox-label">RC_SILHOUETTE <span
-              style="font-size:10px; color:var(--text-muted);">(experimental)</span></label>
-          <input type="checkbox" id="rcSilhouetteCb" class="ui-checkbox" />
-        </div>
-
         <div class="prop-row prop-row-plain" style="margin-top: 8px;">
           <button id="resetSettingsBtn" class="ui-btn" style="width: 100%;">Reset Settings</button>
         </div>
@@ -6590,21 +6584,17 @@
                             <option value="subdivision">Subdivide</option>
                           </select>
                         </div>
-                        <div class="xyz-field" id="meshDivisionsField" style="display:none;">
-                          <span class="xyz-col-label">Divisions</span>
-                          <input type="number" id="surfaceResolutionInput" step="1" min="1" value="16" />
-                        </div>
+                      </div>
+                    </div>
+                    <div class="xyz-row" id="meshDivisionsField" style="display:none;">
+                      <label>Resolution</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="surfaceResolutionInput" step="1" min="1" value="16" />
                       </div>
                     </div>
                     <div class="style-row">
                       <label class="ui-checkbox-label">Silhouette Split</label>
                       <input type="checkbox" id="surfaceSilhouetteSplitInput" class="ui-checkbox" checked />
-                    </div>
-                    <div class="xyz-row" id="splineFlowClosureStepsRow">
-                      <label>Closure Steps</label>
-                      <div class="xyz-inputs">
-                        <input type="number" id="splineFlowClosureSteps" min="2" max="32" step="1" value="8" />
-                      </div>
                     </div>
                   </div>
 
@@ -6737,12 +6727,6 @@
                     <div class="style-row">
                       <label class="ui-checkbox-label">Silhouette Split</label>
                       <input type="checkbox" id="surfaceMappingSplitInput" class="ui-checkbox" checked />
-                    </div>
-                    <div class="xyz-row" id="surfaceMappingClosureStepsRow">
-                      <label>Closure Steps</label>
-                      <div class="xyz-inputs">
-                        <input type="number" id="surfaceMappingClosureSteps" min="2" max="32" step="1" value="8" />
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -12984,17 +12968,13 @@
     // --- Constants ---
     const FRAME_SIZE = 1000;
 
-    // --- Region-Clip Silhouette (experimental, v20260703j) ---
-    // Single switch between the legacy trace-based silhouette split and the
-    // region-clip pipeline (SilhouetteField + PolyClip). false = legacy
-    // rendering, byte-identical to before this experiment. Runtime-only:
-    // never serialized into scene files. Toggle from the console:
-    //   RC_SILHOUETTE = true; requestRender();
-    let RC_SILHOUETTE = false;
+    // --- Region-Clip Silhouette (v20260704h: the one and only silhouette
+    // split pipeline — SilhouetteField + PolyClip; the legacy trace-based
+    // splitter and its RC_SILHOUETTE switch have been removed) ---
     // Dev overlay: draw the extracted silhouette contours in the viewport.
-    // Independent of RC_SILHOUETTE (works over the legacy pipeline too).
+    // Toggle from the console: RC_DEBUG_CONTOURS = true; requestRender();
     let RC_DEBUG_CONTOURS = false;
-    // Silhouette field grid resolution — the quality/cost dial for RC.
+    // Silhouette field grid resolution — the quality/cost dial.
     let RC_GRID_N = 96;
     // Derive canvas offset from toolbar width CSS variable so it stays in sync
     const CANVAS_OFFSET_X = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--toolbar-width')) / 2 || 0;
@@ -14599,87 +14579,9 @@
 
       // v20260207: Smooth Mapping Segment Function
       static mapBezierSegment(seg, projectFn, depth = 0, options = {}, minSubdiv = 0) {
-        // v20260207b: Horizon Splitting (Phase 4)
-        // v20260614f: Multi-sample horizon scan — detects ALL sign changes,
-        // not just endpoint pairs. Fixes collapse on S-curved splines where
-        // dot(t) goes + → − → + within a single segment.
-        const doSplit = options.silhouetteSplit;
-
-        if (doSplit && depth < 8) {
-          // Sample dot product at multiple points to find ALL horizon crossings.
-          // 16 samples at top levels; 8 at deeper levels (sub-segments are smaller
-          // after prior splits but may still contain multiple crossings on tight S-curves).
-          const numSamples = depth < 2 ? 16 : 8;
-          const samples = [];
-          for (let i = 0; i <= numSamples; i++) {
-            const t = i / numSamples;
-            const pt = SurfaceMapper.evaluateCurvePoint(seg, t);
-            const proj = projectFn(pt);
-            if (!proj) return []; // Clip
-            samples.push({ t, dot: proj.dot });
-          }
-
-          // Find the FIRST sign change among consecutive samples
-          for (let i = 0; i < samples.length - 1; i++) {
-            if (samples[i].dot * samples[i + 1].dot < 0) {
-              // Sign change between samples[i].t and samples[i+1].t
-              // Binary search to refine the crossing point
-              let tMin = samples[i].t, tMax = samples[i + 1].t;
-              let dotMin = samples[i].dot;
-
-              for (let j = 0; j < 8; j++) {
-                const tMid = (tMin + tMax) / 2;
-                const pMid = SurfaceMapper.evaluateCurvePoint(seg, tMid);
-                const projMid = projectFn(pMid);
-                const dotMid = projMid ? projMid.dot : dotMin;
-
-                if (dotMin * dotMid < 0) {
-                  tMax = tMid;
-                } else {
-                  tMin = tMid;
-                  dotMin = dotMid;
-                }
-              }
-
-              const tCross = (tMin + tMax) / 2;
-              // v20260615: Record source-space crossing position for contour tracing
-              const ptCross = SurfaceMapper.evaluateCurvePoint(seg, tCross);
-
-              // Split at crossing
-              let leftSeg, rightSeg;
-              if (seg.type === 'L') {
-                const mid = SurfaceMapper.evaluateCurvePoint(seg, tCross);
-                leftSeg = { type: 'L', pStart: seg.pStart, pEnd: mid };
-                rightSeg = { type: 'L', pStart: mid, pEnd: seg.pEnd };
-              } else {
-                const split = splitCubicBezier(seg.p0, seg.p1, seg.p2, seg.p3, tCross);
-                leftSeg = { type: 'C', p0: split[0][0], p1: split[0][1], p2: split[0][2], p3: split[0][3] };
-                rightSeg = { type: 'C', p0: split[1][0], p1: split[1][1], p2: split[1][2], p3: split[1][3] };
-              }
-
-              // Recurse: left half may have earlier crossings,
-              // right half may have later crossings — both will be scanned again
-              // v20260614g: Force extra subdivisions on segments adjacent to horizon crossings.
-              // This makes curve segments shorter near the crossing, reducing Z-close
-              // triangular fin artifacts (top/bottom edges cross horizon at different positions).
-              // 2 forced levels → 4× shorter segments near the crossing.
-              const leftRes = SurfaceMapper.mapBezierSegment(leftSeg, projectFn, depth + 1, options, 2);
-              const rightRes = SurfaceMapper.mapBezierSegment(rightSeg, projectFn, depth + 1, options, 2);
-
-              // v20260615: Tag boundary segments with source-space crossing position
-              // The last segment in leftRes ends at the crossing; first in rightRes starts there.
-              if (leftRes.length > 0) {
-                leftRes[leftRes.length - 1].crossingEndSrc = [...ptCross];
-              }
-              if (rightRes.length > 0) {
-                rightRes[0].crossingStartSrc = [...ptCross];
-              }
-
-              return [...leftRes, ...rightRes];
-            }
-          }
-          // No sign change found among all samples → fall through to curve fitting
-        }
+        // (v20260704h: the multi-sample horizon scan that lived here fed
+        // the legacy splitter; silhouette splitting now happens in the
+        // region-clip pipeline before this fitter runs.)
 
         // 1. Sample 4 points on Source Curve (t = 0, 1/3, 2/3, 1)
         const tVal = [0, 1 / 3, 2 / 3, 1];
@@ -14693,10 +14595,10 @@
 
         const [p0, p1, p2, p3] = pts;
 
-        // Determine Layer (Front/Back) based on midpoint dot product
-        const midSrcForLayer = SurfaceMapper.evaluateCurvePoint(seg, 0.5);
-        const midProjForLayer = projectFn(midSrcForLayer);
-        const layer = (midProjForLayer && midProjForLayer.dot < 0) ? 'front' : 'back'; // Inverted Logic per project()
+        // Non-split fragments carry a constant layer label (the dot-product
+        // side channel went with the legacy splitter, v20260704h; on this
+        // path it always evaluated to 'back').
+        const layer = 'back';
 
         // 2. Calculate Tangents (Phase 3b)
         // Improved (v20260207c): Use "Inward" Finite Difference.
@@ -15179,6 +15081,26 @@
       // angleDeg: total sweep angle in degrees (≤360)
       // numFrames: frame density
       // worldMatrix: the profile path's world matrix (circle lives in world space)
+      // Effective radius for a revolve rail's ARC LENGTH. The rail circle itself
+      // sits at the axis offset, but a zero-offset revolve makes that circle
+      // degenerate — its fallback "length" was the internal frame count, so
+      // world-unit mapping modes (Decal/Fit) divided U by a meaningless
+      // constant. Fall back to the profile's mean radial distance from the
+      // revolve axis so U keeps real world units. Offset > 0 keeps the
+      // historical offset-circle length (Earth/torus scenes unchanged).
+      static revolveArcRadius(profilePath, rs) {
+        const offset = rs.offset || 0;
+        if (Math.abs(offset) > 1e-9) return Math.abs(offset);
+        const verts = profilePath && profilePath.localVertices;
+        if (!verts || !verts.length) return 0;
+        // Radial coordinate in profile-local space: X for a Y-axis revolve,
+        // Y for X/Z-axis revolves (matches generateCircularRail's frame layout).
+        const ri = (rs.axis || 'y') === 'y' ? 0 : 1;
+        let sum = 0;
+        verts.forEach(v => { sum += Math.abs(v[ri]); });
+        return sum / verts.length;
+      }
+
       static generateCircularRail(axis, radius, angleDeg, numFrames, worldMatrix, scaleStart = 1, scaleEnd = 1) {
         const totalAngle = Math.min(360, Math.max(0, angleDeg));
         const isFull = totalAngle >= 360;
@@ -15304,7 +15226,7 @@
       // Maps a source path onto a Two-Path Surface defined by surfacePath
       // Source x → u (along rail), Source y → v (along profile)
       static generateSurfaceMappedGeometry(sourcePath, surfacePath, options) {
-        const { vpMatrix, sourceMatrix, offsetU = 0, offsetV = 0, offsetN = 0, mappingMode = 'decal', scaleU = 1, scaleV = 1, rotation = 0, resolution = 8, silhouetteSplit = false, cameraPos, surfaceType = null, axisU = 'X', axisV = 'Y', closureSteps = 8 } = options;
+        const { vpMatrix, sourceMatrix, offsetU = 0, offsetV = 0, offsetN = 0, mappingMode = 'decal', scaleU = 1, scaleV = 1, rotation = 0, resolution = 8, silhouetteSplit = false, cameraPos, surfaceType = null, axisU = 'X', axisV = 'Y' } = options;
         // Per-axis overflow modes (backward compat: fall back to legacy single overflowMode)
         const legacyOF = options.overflowMode || 'clip';
         const overflowModeU = options.overflowModeU || legacyOF;
@@ -15475,7 +15397,8 @@
         } else if (useRevolve && rs?.enabled) {
           // Revolve path used as surface mapping target.
           // Generate/cache the circular rail if not already done (draw order may mean it isn't cached yet).
-          const railKey = `rev_${rs.axis}_${rs.offset}_${rs.angle}_${rs.segments}_${rs.scaleStart || 1}_${rs.scaleEnd || 1}`;
+          const arcRadius = SurfaceMapper.revolveArcRadius(surfacePath, rs);
+          const railKey = `rev_${rs.axis}_${rs.offset}_${arcRadius}_${rs.angle}_${rs.segments}_${rs.scaleStart || 1}_${rs.scaleEnd || 1}`;
           if (!surfacePath._revolveRail || surfacePath._revolveRailKey !== railKey) {
             const wm = surfacePath.getWorldMatrix ? surfacePath.getWorldMatrix() : null;
             surfacePath._revolveRail = SurfaceMapper.generateCircularRail(
@@ -15486,6 +15409,10 @@
               wm,
               rs.scaleStart ?? 1, rs.scaleEnd ?? 1
             );
+            if (arcRadius > 1e-9) {
+              const frac = Math.min(360, Math.max(0, rs.angle || 360)) / 360;
+              surfacePath._revolveRail._arcLengthData.totalLength = 2 * Math.PI * arcRadius * frac || 1;
+            }
             surfacePath._revolveRailKey = railKey;
           }
           railPath = surfacePath._revolveRail;
@@ -15960,6 +15887,19 @@
         const cosR = Math.cos(rotRad), sinR = Math.sin(rotRad);
         const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2;
 
+        // V orientation: on revolve targets, map source +V toward whichever
+        // profile end sits higher along the revolve axis, so decals render
+        // upright regardless of the profile's drawing direction. Closed
+        // profiles and non-revolve targets keep the historical convention
+        // (source V negated, i.e. profile start = source top).
+        let vFlip = -1;
+        if (useRevolve && rs?.enabled && !profileIsClosed && effectiveProfileSegs.length) {
+          const ai = (rs.axis || 'y') === 'y' ? 1 : 0;  // axial coord in profile-local space
+          const pStart = effectiveProfileSegs[0].p0;
+          const pEnd = effectiveProfileSegs[effectiveProfileSegs.length - 1].p3;
+          if (pEnd[ai] > pStart[ai]) vFlip = 1;
+        }
+
         const toUV = (pt) => {
           // Extract axis-mapped coordinates
           const mappedU = SurfaceMapper.getAxisValue(pt, axisU);
@@ -16004,10 +15944,9 @@
 
           // Apply scale and offset.
           // UV 0,0 = surface center. offsetU/V are deltas from center.
-          // Negate v to match visual orientation: source Y (screen-space, Y-down)
-          // maps to profile perimeter in the opposite direction.
+          // vFlip orients v so the source renders upright (see above).
           u = u * scaleU + 0.5 + offsetU;
-          v = -v * scaleV + 0.5 + offsetV;
+          v = vFlip * v * scaleV + 0.5 + offsetV;
           return [u, v];
         };
 
@@ -16132,14 +16071,12 @@
           return vectorAdd(pt, vectorScale(sn, offsetN));
         };
 
-        // --- Region-Clip branch & debug contour overlay (experimental, v20260703j/k) ---
-        // When RC_SILHOUETTE is on, fragment construction is delegated to the
-        // region-clip pipeline, reusing the eval helpers defined above.
-        // RC_DEBUG_CONTOURS additionally collects the extracted silhouette
-        // contours for the viewport overlay (works over the legacy pipeline).
-        // Everything below this block is the legacy trace-based path and is
-        // unreachable (byte-identical behavior) while both flags are false.
-        if (doSplit && (RC_SILHOUETTE || RC_DEBUG_CONTOURS)) {
+        // --- Region-clip silhouette splitting (v20260704h) ---
+        // The region-clip pipeline is THE splitter — the legacy trace-based
+        // split/closure code has been removed. Everything below this block
+        // is the plain non-split mapping path (Silhouette Split unchecked).
+        // RC_DEBUG_CONTOURS additionally draws the extracted contours.
+        if (doSplit) {
           const rcCtx = {
             sourcePath, surfacePath, options, camPos,
             sourceSegs, toUV, wrapCoord, toScreen,
@@ -16152,9 +16089,7 @@
             try { SilhouetteField.collectSurfaceMappingOverlay(rcCtx); }
             catch (e) { console.error('[RC] surface-mapping contour overlay failed:', e); }
           }
-          if (RC_SILHOUETTE) {
-            return SurfaceMapper._buildSurfaceMappedRC(rcCtx);
-          }
+          return SurfaceMapper._buildSurfaceMappedRC(rcCtx);
         }
 
         // 6. Build SVG path by mapping each source segment through the surface
@@ -16181,7 +16116,7 @@
               zSum: zSum,
               count: ptCount,
               avgZ: zSum / ptCount,
-              type: doSplit ? 'split' : 'standard',
+              type: 'standard',
               layer: currentLayer,
               subpathIdx: currentSubpathIdx,
               strokes: [d.trim()],
@@ -16205,72 +16140,20 @@
         let lastSrcPt = null; // For interpolation
         let subpathFragStartIdx = 0; // Track where each subpath's fragments start
 
-        // Seam stitching: for closed subpaths, merge head+tail if same layer.
-        // Eliminates long Z-closure chords through the shape.
-        // After stitch: Z goes crossA→crossB (short, along silhouette)
-        const seamStitch = (startIdx, endIdx) => {
-          if (endIdx - startIdx < 2) return;
-          const head = fragments[startIdx];
-          const tail = fragments[endIdx - 1];
-          if (head.layer !== tail.layer) return;
-          // Merge: tail first, then head (M→L for connection)
-          const headD = head.d.replace(/^M /, 'L ');
-          head.d = tail.d + ' ' + headD;
-          head.strokes = [...tail.strokes, ...head.strokes];
-          head.zSum += tail.zSum;
-          head.count += tail.count;
-          head.avgZ = head.zSum / head.count;
-          // Transfer tail's start UV/crossing info to head, since the
-          // stitched path now starts at tail's M point (tail.startUV).
-          // Without this, head.startUV remains the path's natural start
-          // (not a silhouette crossing), causing closure to trace to wrong point.
-          head.startUV = tail.startUV;
-          head.startIsCrossing = tail.startIsCrossing;
-          // head.endUV remains as-is (the stitched path ends at head's end)
-          fragments.splice(endIdx - 1, 1);
-        };
-
         // Around mode tracking vars — persist across source segments within a subpath.
         // Reset only at subpath boundaries (M commands) so seam crossings between
         // consecutive Bezier segments are detected.
         let prevUFloor = null, prevRawU = null, prevSrcPtSM = null;
         // V-axis seam tracking vars (for Around V on open profiles)
         let prevVFloor = null, prevRawV = null, prevSrcPtSMv = null;
-        // Track whether a seam flush occurred within the current subpath.
-        // When true, seamStitch is skipped because head/tail fragments are at
-        // different seam edges (not the same 3D vertex).
-        let seamSplitOccurred = false;
 
         sourceSegs.forEach((seg, sIdx) => {
           const isNewSubpath = (sIdx === 0 || seg.command === 'M');
-
-          // When split is active, flush at subpath M boundaries to keep fragments
-          // single-subpath (prevents mixed outer+hole Z-closure artifacts)
-          if (doSplit && isNewSubpath && sIdx > 0) {
-            flushFragment();
-            // Seam stitch the subpath we just finished.
-            // Stitch only when:
-            // 1. No seam split occurred (head/tail are at the same 3D vertex), AND
-            // 2. For Around mode, the source subpath must be closed (open subpaths
-            //    in Around mode have head/tail on opposite sides of the wrap).
-            // If a seam split happened in ANY mode, head/tail are at different
-            // boundary edges — merging them creates a fill bridge artifact.
-            const finishedSubpathClosed = sourcePath.subPathData?.[currentSubpathIdx]?.closed;
-            if (!seamSplitOccurred && (!(mapAroundU || mapAroundV) || finishedSubpathClosed)) {
-              seamStitch(subpathFragStartIdx, fragments.length);
-            }
-            subpathFragStartIdx = fragments.length;
-            currentSubpathIdx++;
-            // Reset split state so the first point of the new subpath doesn't
-            // trigger a false layer change against the previous subpath's last point
-            lastSrcPt = null;
-          }
 
           // Reset seam tracking at subpath boundaries
           if (isNewSubpath) {
             prevUFloor = null; prevRawU = null; prevSrcPtSM = null;
             prevVFloor = null; prevRawV = null; prevSrcPtSMv = null;
-            seamSplitOccurred = false;
           }
 
           for (let i = 0; i <= SUBDIV; i++) {
@@ -16284,14 +16167,9 @@
             ];
             const [u, v] = toUV(srcPt);
 
-            // Around mode: detect u-wrap crossing, add boundary point, flush to clean new fragment
-            // Behavior depends on whether the rail is a closed loop:
-            // - Closed loop (e.g. 360° revolve): U=0 and U=1 are the same 3D point.
-            //   With doSplit, skip flushing so fragments span the seam continuously.
-            //   The silhouette split handles proper fragment boundaries.
-            // - Open path (e.g. extrude, <360° revolve): U=0 and U=1 are different points.
-            //   Always flush at seam boundaries — the geometry is truly discontinuous.
-            //   Seam fragments get Z-close (the seam is a natural surface edge).
+            // Around mode: detect u-wrap crossing, add the boundary point and
+            // flush into a clean new fragment (non-split path — the geometry
+            // is genuinely discontinuous at the seam of an open rail).
             if (mapAround) {
               const uFloor = Math.floor(u);
               if (prevUFloor !== null && uFloor !== prevUFloor
@@ -16299,31 +16177,10 @@
                 const kCross = u > prevRawU ? uFloor : prevUFloor;
                 const denom = u - prevRawU;
                 if (Math.abs(denom) > 1e-12) {
-                  debugLog(`[SeamDetect] U crossing: prevUFloor=${prevUFloor} → uFloor=${uFloor}, prevRawU=${prevRawU?.toFixed(4)}, u=${u.toFixed(4)}, skipFlush=${doSplit && railIsClosed}, mapAround=${mapAround}`);
-                  const skipFlush = doSplit && railIsClosed;
-                  if (skipFlush) {
-                    // Closed rail + doSplit: don't flush at seam. Just add the boundary
-                    // point for geometric accuracy, then continue. The screen-space path
-                    // is continuous (same 3D point at U≈integer-ε and U≈integer+ε).
-                    const alpha = (kCross - prevRawU) / denom;
-                    const alphaEnd = alpha;
-                    const bSrcEnd = [
-                      prevSrcPtSM[0] + alphaEnd * (srcPt[0] - prevSrcPtSM[0]),
-                      prevSrcPtSM[1] + alphaEnd * (srcPt[1] - prevSrcPtSM[1]),
-                      (prevSrcPtSM[2] || 0) + alphaEnd * ((srcPt[2] || 0) - (prevSrcPtSM[2] || 0))
-                    ];
-                    const [bUe, bVe] = toUV(bSrcEnd);
-                    const bPt3dEnd = surfacePointN(bUe, bVe);
-                    const bSpEnd = toScreen(bPt3dEnd);
-                    if (bSpEnd && ptCount > 0) {
-                      d += `L ${bSpEnd.x} ${bSpEnd.y} `;
-                      zSum += bSpEnd.z; ptCount++;
-                      fragEndUV = [bUe, bVe];
-                    }
-                    // Don't flush — continue across the seam.
-                  } else {
-                    // Open rail OR non-doSplit: flush at seam boundary.
-                    // Open paths have genuinely different endpoints at U=0 vs U=1.
+                  debugLog(`[SeamDetect] U crossing: prevUFloor=${prevUFloor} → uFloor=${uFloor}, prevRawU=${prevRawU?.toFixed(4)}, u=${u.toFixed(4)}, mapAround=${mapAround}`);
+                  {
+                    // Flush at the seam boundary — the seam is a real
+                    // surface edge (open rail).
                     const alpha = (kCross - prevRawU) / denom;
                     const alphaEnd = alpha;
                     const bSrcEnd = [
@@ -16341,7 +16198,6 @@
                     }
 
                     flushFragment();
-                    seamSplitOccurred = true;
 
                     // Restart new fragment at post-seam position
                     const alphaStart = alpha;
@@ -16359,18 +16215,10 @@
                       ptCount = 1;
                       fragStartUV = [bUs, bVs];
                       fragEndUV = [bUs, bVs];
-                      // Update layer classification for the post-seam position
-                      if (doSplit) {
-                        const postSn = surfaceNormalAt(bUs, bVs);
-                        const postView = vectorSubtract(camPos, bPt3dStart);
-                        const postDot = postSn[0] * postView[0] + postSn[1] * postView[1] + postSn[2] * postView[2];
-                        currentLayer = postDot >= 0 ? 'front' : 'back';
-                        lastDot = postDot;
-                      }
                     }
                   }
                 } else {
-                  if (!(doSplit && railIsClosed)) flushFragment();
+                  flushFragment();
                 }
               }
               prevUFloor = uFloor;
@@ -16416,7 +16264,6 @@
                     }
 
                     flushFragment();
-                    seamSplitOccurred = true;
 
                     // Restart at the boundary if re-entering
                     if (currInside) {
@@ -16435,13 +16282,6 @@
                         ptCount = 1;
                         fragStartUV = [bUs, bVs];
                         fragEndUV = [bUs, bVs];
-                        if (doSplit) {
-                          const postSn = surfaceNormalAt(bUs, bVs);
-                          const postView = vectorSubtract(camPos, bPt3dStart);
-                          const postDot = postSn[0] * postView[0] + postSn[1] * postView[1] + postSn[2] * postView[2];
-                          currentLayer = postDot >= 0 ? 'front' : 'back';
-                          lastDot = postDot;
-                        }
                       }
                     }
                   }
@@ -16479,7 +16319,6 @@
                   }
 
                   flushFragment();
-                  seamSplitOccurred = true;
 
                   // Restart new fragment at post-seam position
                   const alphaStart = alpha;
@@ -16497,14 +16336,6 @@
                     ptCount = 1;
                     fragStartUV = [bUs, bVs];
                     fragEndUV = [bUs, bVs];
-                    // Update layer classification for the post-seam position
-                    if (doSplit) {
-                      const postSn = surfaceNormalAt(bUs, bVs);
-                      const postView = vectorSubtract(camPos, bPt3dStart);
-                      const postDot = postSn[0] * postView[0] + postSn[1] * postView[1] + postSn[2] * postView[2];
-                      currentLayer = postDot >= 0 ? 'front' : 'back';
-                      lastDot = postDot;
-                    }
                   }
                 } else {
                   flushFragment();
@@ -16542,7 +16373,6 @@
                     }
 
                     flushFragment();
-                    seamSplitOccurred = true;
 
                     if (currInsideV) {
                       const alphaStartV = Math.min(1, alphaV + 1e-4);
@@ -16560,13 +16390,6 @@
                         ptCount = 1;
                         fragStartUV = [bUsV, bVsV];
                         fragEndUV = [bUsV, bVsV];
-                        if (doSplit) {
-                          const postSn = surfaceNormalAt(bUsV, bVsV);
-                          const postView = vectorSubtract(camPos, bPt3dStartV);
-                          const postDot = postSn[0] * postView[0] + postSn[1] * postView[1] + postSn[2] * postView[2];
-                          currentLayer = postDot >= 0 ? 'front' : 'back';
-                          lastDot = postDot;
-                        }
                       }
                     }
                   }
@@ -16580,103 +16403,6 @@
             const sp = toScreen(pt3d);
             if (!sp) continue;
 
-            // Silhouette split check
-            if (doSplit) {
-              const sn = surfaceNormalAt(u, v);
-              const viewVec = vectorSubtract(camPos, pt3d);
-              const dot = sn[0] * viewVec[0] + sn[1] * viewVec[1] + sn[2] * viewVec[2];
-              const newLayer = dot >= 0 ? 'front' : 'back';
-
-              if (ptCount > 0 && newLayer !== currentLayer && lastSrcPt) {
-                // Initial crossing estimate via linear interpolation in source space
-                let alpha = Math.abs(lastDot) / (Math.abs(lastDot) + Math.abs(dot));
-                let crossSrcPt = [
-                  lastSrcPt[0] + alpha * (srcPt[0] - lastSrcPt[0]),
-                  lastSrcPt[1] + alpha * (srcPt[1] - lastSrcPt[1]),
-                  (lastSrcPt[2] || 0) + alpha * ((srcPt[2] || 0) - (lastSrcPt[2] || 0))
-                ];
-                let [crossU, crossV] = toUV(crossSrcPt);
-
-                // Refine the crossing UV with binary search in parameter space.
-                // The initial alpha is only a linear approximation; on curved surfaces
-                // the actual silhouette crossing can be significantly offset, causing
-                // closure endpoints to miss the silhouette and create fill spikes.
-                {
-                  let aLo = 0, aHi = 1;
-                  let dotLo = lastDot, dotHi = dot;
-                  let converged = false;
-                  for (let refine = 0; refine < 8; refine++) {
-                    const aMid = (aLo + aHi) / 2;
-                    const midSrc = [
-                      lastSrcPt[0] + aMid * (srcPt[0] - lastSrcPt[0]),
-                      lastSrcPt[1] + aMid * (srcPt[1] - lastSrcPt[1]),
-                      (lastSrcPt[2] || 0) + aMid * ((srcPt[2] || 0) - (lastSrcPt[2] || 0))
-                    ];
-                    const [mU, mV] = toUV(midSrc);
-                    const mPt = surfacePointN(mU, mV);
-                    const mSn = surfaceNormalAt(mU, mV);
-                    const mView = vectorSubtract(camPos, mPt);
-                    const mDot = mSn[0] * mView[0] + mSn[1] * mView[1] + mSn[2] * mView[2];
-                    if (Math.abs(mDot) < 1e-10) {
-                      crossU = mU; crossV = mV;
-                      converged = true;
-                      break;
-                    }
-                    if (dotLo * mDot < 0) {
-                      aHi = aMid; dotHi = mDot;
-                    } else {
-                      aLo = aMid; dotLo = mDot;
-                    }
-                  }
-                  // Use converged bisection midpoint, not the last arbitrary evaluation
-                  if (!converged) {
-                    const aFinal = (aLo + aHi) / 2;
-                    const finalSrc = [
-                      lastSrcPt[0] + aFinal * (srcPt[0] - lastSrcPt[0]),
-                      lastSrcPt[1] + aFinal * (srcPt[1] - lastSrcPt[1]),
-                      (lastSrcPt[2] || 0) + aFinal * ((srcPt[2] || 0) - (lastSrcPt[2] || 0))
-                    ];
-                    [crossU, crossV] = toUV(finalSrc);
-                  }
-                }
-
-                const crossPt3d = surfacePointN(crossU, crossV);
-                const crossSp = toScreen(crossPt3d);
-
-                if (crossSp) {
-                  d += `L ${crossSp.x} ${crossSp.y} `;
-                  zSum += crossSp.z;
-                  ptCount++;
-                  fragEndUV = [crossU, crossV];
-                  fragEndIsCrossing = true; // This endpoint is a silhouette crossing
-                }
-
-                flushFragment();
-                currentLayer = newLayer;
-
-                if (crossSp) {
-                  d = `M ${crossSp.x} ${crossSp.y} L ${sp.x} ${sp.y} `;
-                  zSum = crossSp.z + sp.z;
-                  ptCount = 2;
-                  fragStartUV = [crossU, crossV];
-                  fragStartIsCrossing = true; // This endpoint is a silhouette crossing
-                  fragEndUV = [u, v];
-                } else {
-                  d = `M ${sp.x} ${sp.y} `;
-                  zSum = sp.z;
-                  ptCount = 1;
-                  fragStartUV = [u, v];
-                  // fragStartIsCrossing remains false — fallback, not a precise crossing
-                  fragEndUV = [u, v];
-                }
-                lastScreenPt = sp;
-                lastDot = dot;
-                lastSrcPt = srcPt;
-                continue;
-              }
-              currentLayer = newLayer;
-              lastDot = dot;
-            }
 
             if ((isNewSubpath && i === 0) || ptCount === 0) {
               d += `M ${sp.x} ${sp.y} `;
@@ -16693,575 +16419,10 @@
         });
 
         flushFragment();
-        // Seam stitch the last subpath.
-        // Stitch when source subpath is closed (head/tail share same 3D vertex).
-        if (doSplit) {
-          const lastSubpathClosed = sourcePath.subPathData?.[currentSubpathIdx]?.closed;
-          const subFragCount = fragments.length - subpathFragStartIdx;
-          // Determine if head/tail fragments can be stitched.
-          // Even when a seam split occurred (in the middle of the path),
-          // the head and tail may still be on the same side of the seam
-          // and should be merged for closed source paths.
-          let canStitch = !(mapAroundU || mapAroundV) || lastSubpathClosed;
-          if (canStitch && seamSplitOccurred && subFragCount >= 2) {
-            // Check if head and tail are on the same side of the seam.
-            // Compare U-floors and V-floors of the endpoints that would be joined.
-            const head = fragments[subpathFragStartIdx];
-            const tail = fragments[fragments.length - 1];
-            const headStartU = head.startUV?.[0] ?? 0;
-            const tailEndU = tail.endUV?.[0] ?? 0;
-            const headStartV = head.startUV?.[1] ?? 0;
-            const tailEndV = tail.endUV?.[1] ?? 0;
-            const uSameSide = Math.floor(headStartU) === Math.floor(tailEndU);
-            const vSameSide = Math.floor(headStartV) === Math.floor(tailEndV);
-            canStitch = uSameSide && vSameSide;
-          }
-          if (canStitch) {
-            debugLog(`[SeamStitch] END: stitching. mapAround=${mapAround}, closed=${lastSubpathClosed}, seamSplitOccurred=${seamSplitOccurred}, fragCount=${subFragCount}`);
-            seamStitch(subpathFragStartIdx, fragments.length);
-          } else {
-            debugLog(`[SeamStitch] END: SKIPPED. mapAround=${mapAround}, closed=${lastSubpathClosed}, seamSplitOccurred=${seamSplitOccurred}, fragCount=${subFragCount}`);
-          }
-        }
-
-        // Post-process: Merge adjacent seam-split sliver fragments.
-        // When Around-U is active on an open rail, both the silhouette split
-        // and the U-seam split can fire within a few subdivision steps of each
-        // other. This creates pairs of tiny fragments (e.g. U=0.99→1.00 and
-        // U=1.00→1.01) where one endpoint is a silhouette crossing and the
-        // other is a seam boundary. Because the closure system requires BOTH
-        // endpoints to be crossings, these slivers fall back to simple Z-close
-        // and create visible fill gaps.
-        //
-        // Fix: scan for adjacent same-layer fragments that share a seam-boundary
-        // endpoint (one's endUV ≈ other's startUV at a U-integer boundary).
-        // Merge them into a single fragment with the outer crossing flags,
-        // so the combined fragment gets proper silhouette contour closure.
-        const hasAroundSeam = (mapAroundU && !railIsClosed) || (mapAroundV && !profileIsClosed);
-        if (doSplit && hasAroundSeam && fragments.length > 1) {
-          let i = 0;
-          while (i < fragments.length - 1) {
-            const a = fragments[i];
-            const b = fragments[i + 1];
-            // Both must be split fragments on the same layer and subpath
-            if (a.type !== 'split' || b.type !== 'split') { i++; continue; }
-            if (a.layer !== b.layer) { i++; continue; }
-            if (a.subpathIdx !== b.subpathIdx) { i++; continue; }
-            // Check if they share a seam boundary: a.endUV and b.startUV
-            // should be at a U-integer or V-integer boundary (within epsilon)
-            const aEndU = a.endUV?.[0];
-            const bStartU = b.startUV?.[0];
-            const aEndV = a.endUV?.[1];
-            const bStartV = b.startUV?.[1];
-            if (aEndU == null || bStartU == null) { i++; continue; }
-            const aAtSeamU = Math.abs(aEndU - Math.round(aEndU)) < 0.02;
-            const bAtSeamU = Math.abs(bStartU - Math.round(bStartU)) < 0.02;
-            const aAtSeamV = aEndV != null && Math.abs(aEndV - Math.round(aEndV)) < 0.02;
-            const bAtSeamV = bStartV != null && Math.abs(bStartV - Math.round(bStartV)) < 0.02;
-            const atSeam = (aAtSeamU && bAtSeamU) || (aAtSeamV && bAtSeamV);
-            if (!atSeam) { i++; continue; }
-            // At least one must have a non-crossing endpoint at the seam
-            // (the tell-tale sign of a silhouette+seam double-split)
-            if (a.endIsCrossing && b.startIsCrossing) { i++; continue; }
-            // Verify both fragments' MAIN bodies (non-seam endpoints) are on
-            // the same side of the seam. Seam=N-ε and Seam=N+ε are at opposite
-            // physical ends of the surface — merging them would span the whole surface.
-            {
-              const aMainU = a.startUV?.[0] ?? aEndU;
-              const bMainU = b.endUV?.[0] ?? bStartU;
-              const aMainV = a.startUV?.[1] ?? (aEndV ?? 0);
-              const bMainV = b.endUV?.[1] ?? (bStartV ?? 0);
-              if (Math.floor(aMainU) !== Math.floor(bMainU)) { i++; continue; }
-              if (Math.floor(aMainV) !== Math.floor(bMainV)) { i++; continue; }
-            }
-
-            // Merge b into a: append b's path, take outer crossing flags
-            const bD = b.d.replace(/^M\s+([\d.\-e]+\s+[\d.\-e]+)/, 'L $1');
-            a.d = a.d + ' ' + bD;
-            a.strokes = [...(a.strokes || []), ...(b.strokes || [])];
-            a.zSum += b.zSum;
-            a.count += b.count;
-            a.avgZ = a.count > 0 ? a.zSum / a.count : 0;
-            // Outer endpoints: a keeps its start, takes b's end
-            a.endUV = b.endUV;
-            a.endIsCrossing = b.endIsCrossing;
-            // a.startIsCrossing stays as-is (from the silhouette side)
-
-            debugLog(`[SeamMerge] Merged fragments ${i}+${i + 1}: layer=${a.layer} startCross=${a.startIsCrossing} endCross=${a.endIsCrossing} startUV=[${a.startUV?.map(v => v.toFixed(4))}] endUV=[${a.endUV?.map(v => v.toFixed(4))}]`);
-
-            fragments.splice(i + 1, 1); // Remove b
-            // Don't increment i — check if the merged result can merge with the next
-          }
-        }
-
-        // Pre-closure: merge adjacent same-layer fragments.
-        // When the silhouette split or seam split creates adjacent fragments
-        // that end up on the SAME layer, they should be reconnected into one
-        // continuous fragment. This can happen due to:
-        // 1. Silhouette splits at sharp profile corners (90° edges on extrusions)
-        //    where the binary search converges to one side of the corner
-        // 2. Seam splits where both sides of the boundary are front-facing
-        // 3. Combined seam+silhouette splits after seam stitching
-        //
-        // Without merging, each fragment gets an independent Z-close that cuts
-        // through the shape interior, creating broken fills.
-        //
-        // Strategy: scan adjacent fragment pairs on the same layer and subpath.
-        // Reconnect them by replacing the second's M command with L.
-        if (doSplit && fragments.length > 1) {
-          let i = 0;
-          while (i < fragments.length - 1) {
-            const a = fragments[i];
-            const b = fragments[i + 1];
-            if (a.type !== 'split' || b.type !== 'split') { i++; continue; }
-            if (a.layer !== b.layer) { i++; continue; }
-            if (a.subpathIdx !== b.subpathIdx) { i++; continue; }
-            // Merge b into a: append b's path, propagate endpoint info
-            const bD = b.d.replace(/^M\s+([\d.\-e]+\s+[\d.\-e]+)/, 'L $1');
-            a.d = a.d + ' ' + bD;
-            a.strokes = [...(a.strokes || []), ...(b.strokes || [])];
-            a.zSum += b.zSum;
-            a.count += b.count;
-            a.avgZ = a.count > 0 ? a.zSum / a.count : 0;
-            a.endUV = b.endUV;
-            a.endIsCrossing = b.endIsCrossing;
-            debugLog(`[SameLayerMerge] Merged fragments ${i}+${i + 1}: layer=${a.layer} startUV=[${a.startUV?.map(v => v.toFixed(4))}] endUV=[${a.endUV?.map(v => v.toFixed(4))}]`);
-            fragments.splice(i + 1, 1);
-            // Don't increment — check if merged result can merge with the next
-          }
-        }
-
-        // Post-process: Silhouette contour closure for split fragments.
-        // Each fragment that was split at the silhouette boundary needs its fill
-        // closed along the silhouette contour (where dot(N, viewVec) = 0) rather
-        // than a straight Z-close chord through the surface interior.
-        //
-        // The silhouette contour is found by binary-searching for the UV coordinate
-        // where dot(surfaceNormal, viewVector) = 0 at intermediate parameter values
-        // between the fragment's start and end crossing UVs. This naturally handles:
-        // - All camera modes (perspective/ortho/oblique) via the cameraPos setup
-        // - U-direction silhouettes (revolve: nearly vertical in UV)
-        // - V-direction silhouettes (curved profiles: nearly horizontal in UV)
-        if (doSplit && fragments.length > 0) {
-          // Helper: find the silhouette U at a given V by binary searching for
-          // dot(surfaceNormal, viewVec) = 0, starting from a seed U range.
-          const findSilhouetteU = (v, uSeed, searchRadius) => {
-            // On open rails with around-U, reject searches that straddle
-            // a U-integer boundary. The wrap discontinuity (U=0.99 → one end,
-            // U=1.01 → opposite end) creates spurious sign changes in the
-            // dot product that are not real silhouette crossings.
-            if (mapAroundU && !railIsClosed) {
-              if (Math.floor(uSeed - searchRadius) !== Math.floor(uSeed + searchRadius)) return null;
-            }
-            // Sample dot product at seed to determine sign
-            const dotAt = (u) => {
-              const sn = surfaceNormalAt(u, v);
-              const pt = surfacePointN(u, v);
-              const vv = vectorSubtract(camPos, pt);
-              return sn[0] * vv[0] + sn[1] * vv[1] + sn[2] * vv[2];
-            };
-            const dotSeed = dotAt(uSeed);
-            // Search outward to find bracket with sign change.
-            // Do NOT clamp to [0,1] — the fragment's actual UVs may lie
-            // outside that range (decal/stretch mapping), and clamping
-            // forces the closure contour to snap to the surface edge.
-            let uLo = uSeed - searchRadius;
-            let uHi = uSeed + searchRadius;
-            const dotLo = dotAt(uLo);
-            const dotHi = dotAt(uHi);
-            // Choose bracket that contains the zero crossing
-            let a, b, dotA, dotB;
-            if (dotLo * dotSeed < 0) {
-              a = uLo; b = uSeed; dotA = dotLo; dotB = dotSeed;
-            } else if (dotSeed * dotHi < 0) {
-              a = uSeed; b = uHi; dotA = dotSeed; dotB = dotHi;
-            } else if (dotLo * dotHi < 0) {
-              a = uLo; b = uHi; dotA = dotLo; dotB = dotHi;
-            } else {
-              // No sign change found — the silhouette doesn't cross U within
-              // this bracket. Return null so the caller can fall back to Z-close.
-              // On extrude surfaces, the surface normal doesn't vary with U,
-              // so no zero-crossing exists and the old probe fallback returned
-              // arbitrary U values that wrapped across open rail endpoints.
-              return null;
-            }
-            // Binary search for zero crossing
-            for (let iter = 0; iter < 12; iter++) {
-              const mid = (a + b) / 2;
-              const dotMid = dotAt(mid);
-              if (Math.abs(dotMid) < 1e-10) return mid;
-              if (dotA * dotMid < 0) { b = mid; dotB = dotMid; }
-              else { a = mid; dotA = dotMid; }
-            }
-            return (a + b) / 2;
-          };
-
-          // Helper: find the silhouette V at a given U by binary searching
-          const findSilhouetteV = (u, vSeed, searchRadius) => {
-            // On open profiles with around-V, reject searches that straddle
-            // a V-integer boundary (same wrap discontinuity issue as U).
-            if (mapAroundV && !profileIsClosed) {
-              if (Math.floor(vSeed - searchRadius) !== Math.floor(vSeed + searchRadius)) return null;
-            }
-            const dotAt = (v) => {
-              const sn = surfaceNormalAt(u, v);
-              const pt = surfacePointN(u, v);
-              const vv = vectorSubtract(camPos, pt);
-              return sn[0] * vv[0] + sn[1] * vv[1] + sn[2] * vv[2];
-            };
-            const dotSeed = dotAt(vSeed);
-            // Do NOT clamp to [0,1] — same reasoning as findSilhouetteU.
-            let vLo = vSeed - searchRadius;
-            let vHi = vSeed + searchRadius;
-            const dotLo = dotAt(vLo);
-            const dotHi = dotAt(vHi);
-            let a, b, dotA, dotB;
-            if (dotLo * dotSeed < 0) {
-              a = vLo; b = vSeed; dotA = dotLo; dotB = dotSeed;
-            } else if (dotSeed * dotHi < 0) {
-              a = vSeed; b = vHi; dotA = dotSeed; dotB = dotHi;
-            } else if (dotLo * dotHi < 0) {
-              a = vLo; b = vHi; dotA = dotLo; dotB = dotHi;
-            } else {
-              // No sign change found — return null for Z-close fallback.
-              return null;
-            }
-            for (let iter = 0; iter < 12; iter++) {
-              const mid = (a + b) / 2;
-              const dotMid = dotAt(mid);
-              if (Math.abs(dotMid) < 1e-10) return mid;
-              if (dotA * dotMid < 0) { b = mid; dotB = dotMid; }
-              else { a = mid; dotA = dotMid; }
-            }
-            return (a + b) / 2;
-          };
-
-          // Build closure path for each fragment with silhouette crossing UVs.
-          // The closure traces from endUV back to startUV along the silhouette contour.
-          // IMPORTANT: Only apply contour closure when BOTH endpoints are actual
-          // silhouette crossings. Fragments at subpath boundaries (natural path
-          // start/end) have non-crossing endpoints; tracing to those UVs produces
-          // wild fill spikes since they're not on the silhouette.
-          const CLOSURE_STEPS = closureSteps; // User-controllable quality (default 8)
-          fragments.forEach(frag => {
-            if (frag.type !== 'split') return;
-            if (!frag.startUV || !frag.endUV) return;
-
-            // Skip contour closure for fragments without crossing endpoints.
-            // These are seam-boundary slivers or subpath head/tail fragments.
-            // Z-close them; for truly tiny slivers (d_len < 250), also suppress
-            // fill to prevent small colored marks at cylinder ends. Large non-xx
-            // fragments (e.g. overflow boundary splits) keep their fill.
-            if (!frag.startIsCrossing || !frag.endIsCrossing) {
-              frag.d = frag.d + ' Z';
-              if (frag.d.length < 250) {
-                frag.strokeOnly = true;
-              }
-              return;
-            }
-
-            const [su, sv] = frag.startUV;
-            const [eu, ev] = frag.endUV;
-
-            // Determine if the split is primarily along U or V direction.
-            // U-splits: the silhouette is roughly at a constant U, varying V → trace V from ev→sv
-            // V-splits: the silhouette is roughly at a constant V, varying U → trace U from eu→su
-            // When Around mode is active, use wrapped distances to avoid
-            // misclassifying near-seam UVs (e.g. su=0.99, eu=0.02 → raw delta=0.97, wrapped=0.03).
-            let deltaU = Math.abs(eu - su);
-            let deltaV = Math.abs(ev - sv);
-            if (mapAroundU && deltaU > 0.5) deltaU = 1.0 - deltaU;
-            if (mapAroundV && deltaV > 0.5) deltaV = 1.0 - deltaV;
-
-            // Slight overshoot past the silhouette for front fragments
-            // ensures the front fill overlaps the back, covering any gap.
-            const CLOSURE_OVERSHOOT = 0.0;
-
-            // Helper: attempt closure contour tracing along a given primary axis.
-            // Returns { d, z, count } on success, or null if the search fails.
-            const tryClosure = (primaryAxis) => {
-              let cD = '', cZ = 0, cCount = 0;
-
-              if (primaryAxis === 'V') {
-                // V-primary: trace V from ev→sv, search for silhouette U at each step.
-                // Correct for revolve surfaces (silhouette at ~constant U).
-                let spanU = Math.abs(eu - su);
-                if (mapAroundU && spanU > 0.5) spanU = 1.0 - spanU;
-                const searchR = Math.min(0.15, Math.max(0.02, spanU * 1.5 + 0.02));
-                const expectedStepU = CLOSURE_STEPS > 1 ? spanU / (CLOSURE_STEPS - 1) : spanU;
-
-                let vStart = ev, vEnd = sv;
-                if (mapAroundV && Math.abs(vEnd - vStart) > 0.5) {
-                  if (vEnd > vStart) vStart += 1.0;
-                  else vEnd += 1.0;
-                }
-
-                let prevFoundU = eu;
-                for (let step = 0; step <= CLOSURE_STEPS; step++) {
-                  const t = step / CLOSURE_STEPS;
-                  let v = vStart + t * (vEnd - vStart);
-                  if (mapAroundV) v = ((v % 1) + 1) % 1;
-
-                  if (step === 0) {
-                    const pt3d = surfacePointN(eu, v);
-                    const sp = toScreen(pt3d);
-                    if (sp) { cD += `L ${sp.x} ${sp.y} `; cZ += sp.z; cCount++; }
-                    prevFoundU = eu;
-                    continue;
-                  }
-                  if (step === CLOSURE_STEPS) {
-                    // Endpoint continuity check: if the last tracked U is far from
-                    // the destination su, the fragment spans two different silhouette
-                    // lines and the closure would jump discontinuously. Reject.
-                    let endJumpU = Math.abs(prevFoundU - su);
-                    if (mapAroundU && endJumpU > 0.5) endJumpU = 1.0 - endJumpU;
-                    if (endJumpU > spanU * 0.5 + 0.05) return null;
-
-                    const pt3d = surfacePointN(su, v);
-                    const sp = toScreen(pt3d);
-                    if (sp) { cD += `L ${sp.x} ${sp.y} `; cZ += sp.z; cCount++; }
-                    continue;
-                  }
-
-                  const linearSeed = eu + t * (su - eu);
-                  const seed = prevFoundU * 0.8 + linearSeed * 0.2;
-                  let u = findSilhouetteU(v, seed, searchR);
-                  if (u === null) return null; // Search failed — try other axis
-
-                  // Nudge front closure slightly past silhouette toward back.
-                  if (frag.layer === 'front') {
-                    const dotCheck = (uu) => {
-                      const sn = surfaceNormalAt(uu, v);
-                      const pt = surfacePointN(uu, v);
-                      const vw = vectorSubtract(camPos, pt);
-                      return sn[0] * vw[0] + sn[1] * vw[1] + sn[2] * vw[2];
-                    };
-                    const dotPlus = dotCheck(u + 0.002);
-                    const dotMinus = dotCheck(u - 0.002);
-                    u += (dotPlus < dotMinus) ? CLOSURE_OVERSHOOT : -CLOSURE_OVERSHOOT;
-                  }
-
-                  const jumpU = Math.abs(u - prevFoundU);
-                  if (jumpU > expectedStepU * 3 + 0.02) {
-                    u = prevFoundU + (su - prevFoundU) / (CLOSURE_STEPS - step + 1);
-                  }
-
-                  prevFoundU = u;
-                  const pt3d = surfacePointN(u, v);
-                  const sp = toScreen(pt3d);
-                  if (sp) { cD += `L ${sp.x} ${sp.y} `; cZ += sp.z; cCount++; }
-                }
-              } else {
-                // U-primary: trace U from eu→su, search for silhouette V at each step.
-                // Correct for extrude surfaces (silhouette at ~constant V).
-                let spanV = Math.abs(ev - sv);
-                if (mapAroundV && spanV > 0.5) spanV = 1.0 - spanV;
-                const searchR = Math.min(0.15, Math.max(0.02, spanV * 1.5 + 0.02));
-                const expectedStepV = CLOSURE_STEPS > 1 ? spanV / (CLOSURE_STEPS - 1) : spanV;
-
-                let uStart = eu, uEnd = su;
-                if (mapAroundU && Math.abs(uEnd - uStart) > 0.5) {
-                  if (uEnd > uStart) uStart += 1.0;
-                  else uEnd += 1.0;
-                }
-
-                // CLOSURE_OVERSHOOT is defined above tryClosure.
-                let prevFoundV = ev;
-                for (let step = 0; step <= CLOSURE_STEPS; step++) {
-                  const t = step / CLOSURE_STEPS;
-                  let u = uStart + t * (uEnd - uStart);
-                  if (mapAroundU) u = ((u % 1) + 1) % 1;
-
-                  if (step === 0) {
-                    const pt3d = surfacePointN(u, ev);
-                    const sp = toScreen(pt3d);
-                    if (sp) { cD += `L ${sp.x} ${sp.y} `; cZ += sp.z; cCount++; }
-                    prevFoundV = ev;
-                    continue;
-                  }
-                  if (step === CLOSURE_STEPS) {
-                    // Endpoint continuity check: if the last tracked V is far from
-                    // the destination sv, the fragment spans two different silhouette
-                    // lines and the closure would jump discontinuously. Reject.
-                    let endJumpV = Math.abs(prevFoundV - sv);
-                    if (mapAroundV && endJumpV > 0.5) endJumpV = 1.0 - endJumpV;
-                    if (endJumpV > spanV * 0.5 + 0.05) return null;
-
-                    const pt3d = surfacePointN(u, sv);
-                    const sp = toScreen(pt3d);
-                    if (sp) { cD += `L ${sp.x} ${sp.y} `; cZ += sp.z; cCount++; }
-                    continue;
-                  }
-
-                  const linearSeed = ev + t * (sv - ev);
-                  const seed = prevFoundV * 0.8 + linearSeed * 0.2;
-                  let v = findSilhouetteV(u, seed, searchR);
-                  if (v === null) return null; // Search failed — try other axis
-
-                  // Nudge front closure slightly past silhouette toward back.
-                  // Check which V direction is "toward back" using dot product.
-                  if (frag.layer === 'front') {
-                    const dotCheck = (vv) => {
-                      const sn = surfaceNormalAt(u, vv);
-                      const pt = surfacePointN(u, vv);
-                      const vw = vectorSubtract(camPos, pt);
-                      return sn[0] * vw[0] + sn[1] * vw[1] + sn[2] * vw[2];
-                    };
-                    const dotPlus = dotCheck(v + 0.002);
-                    const dotMinus = dotCheck(v - 0.002);
-                    // Nudge toward the back-facing side (more negative dot)
-                    v += (dotPlus < dotMinus) ? CLOSURE_OVERSHOOT : -CLOSURE_OVERSHOOT;
-                  }
-
-                  const jumpV = Math.abs(v - prevFoundV);
-                  if (jumpV > expectedStepV * 3 + 0.02) {
-                    v = prevFoundV + (sv - prevFoundV) / (CLOSURE_STEPS - step + 1);
-                  }
-
-                  prevFoundV = v;
-                  const pt3d = surfacePointN(u, v);
-                  const sp = toScreen(pt3d);
-                  if (sp) { cD += `L ${sp.x} ${sp.y} `; cZ += sp.z; cCount++; }
-                }
-              }
-              return cD ? { d: cD, z: cZ, count: cCount } : null;
-            };
-
-            // Try primary axis first (based on deltaU/deltaV heuristic).
-            // If it fails, retry with the opposite axis.
-            // This handles: revolve (V-primary works), extrude (U-primary works),
-            // and mixed cases where the heuristic picks the wrong axis.
-            const primaryAxis = deltaV >= deltaU ? 'V' : 'U';
-            const altAxis = primaryAxis === 'V' ? 'U' : 'V';
-            let closureResult = tryClosure(primaryAxis) || tryClosure(altAxis);
-
-            if (closureResult) {
-              frag.d = frag.d + ' ' + closureResult.d + 'Z';
-              frag.zSum += closureResult.z;
-              frag.count += closureResult.count;
-              frag.avgZ = frag.zSum / frag.count;
-            } else {
-              // Both silhouette closure axes failed — fragment spans two
-              // different silhouette lines. Use simple Z-close.
-              // The front fragment's overshoot ensures overlap at the boundary.
-              frag.d = frag.d + ' Z';
-            }
-          });
-
-          // Diagnostic: detailed fragment inspection
-          const splitFrags = fragments.filter(f => f.type === 'split');
-          if (splitFrags.length > 0) {
-            debugLog(`[SilhouetteSplit] ${splitFrags.length} fragments (overflowU=${overflowModeU} overflowV=${overflowModeV} railClosed=${railIsClosed} profileClosed=${profileIsClosed}):`);
-            splitFrags.forEach((f, i) => {
-              // Count M commands in the d string
-              const mCommands = (f.d.match(/M /g) || []).length;
-              // Extract first M coordinates
-              const firstM = f.d.match(/M\s+([\d.\-e]+)\s+([\d.\-e]+)/);
-              const firstMCoords = firstM ? `${parseFloat(firstM[1]).toFixed(1)},${parseFloat(firstM[2]).toFixed(1)}` : '?';
-              // Screen-space bounding box from all coordinates in d-string
-              const allCoords = f.d.match(/[\d.\-e]+/g);
-              let sMinX = Infinity, sMaxX = -Infinity, sMinY = Infinity, sMaxY = -Infinity;
-              if (allCoords) {
-                for (let ci = 0; ci < allCoords.length - 1; ci += 2) {
-                  const cx = parseFloat(allCoords[ci]), cy = parseFloat(allCoords[ci + 1]);
-                  if (isFinite(cx) && isFinite(cy)) {
-                    if (cx < sMinX) sMinX = cx; if (cx > sMaxX) sMaxX = cx;
-                    if (cy < sMinY) sMinY = cy; if (cy > sMaxY) sMaxY = cy;
-                  }
-                }
-              }
-              const spanX = sMaxX - sMinX, spanY = sMaxY - sMinY;
-              debugLog(`  [${i}] ${f.layer} sub${f.subpathIdx} cross=${f.startIsCrossing ? 'x' : '-'}${f.endIsCrossing ? 'x' : '-'} M_count=${mCommands} firstM=(${firstMCoords}) startUV=[${f.startUV?.map(v => v.toFixed(4))}] endUV=[${f.endUV?.map(v => v.toFixed(4))}] d_len=${f.d.length} bbox=[${sMinX.toFixed(0)}..${sMaxX.toFixed(0)}, ${sMinY.toFixed(0)}..${sMaxY.toFixed(0)}] span=${spanX.toFixed(0)}x${spanY.toFixed(0)}`);
-            });
-          }
-
-          // Post-process: Compound path merge for same-layer split fragments.
-          //
-          // Purpose 1 — Holes (multi-subpath): When a source path has multiple
-          // subpaths (outer boundary + holes), silhouette splitting produces
-          // separate fragments per subpath per layer. SVG's evenodd fill-rule
-          // needs all subpaths in one <path> element to create holes.
-          //
-          // Purpose 2 — Seam/boundary gap elimination (single-subpath): When
-          // mapAround or overflow boundary splits divide a single source subpath
-          // into multiple fragments on the same layer, rendering them as
-          // independent SVG <path> elements creates visible fill gaps at the
-          // seam/boundary. Merging same-layer fragments into one compound path
-          // with evenodd fill eliminates these micro-gaps.
-          //
-          // Strategy: Group split fragments by layer, merge into compound paths.
-          // Each fragment's d (already Z-closed by the contour tracer) becomes
-          // one subpath in the compound d string.
-          // Strokes remain as separate entries in the compound's strokes[] array.
-          const maxSubpathIdx = Math.max(...fragments.map(f => f.subpathIdx || 0));
-          // Check if any layer has multiple split fragments (seam/boundary splits)
-          const splitCountByLayer = {};
-          fragments.forEach(f => { if (f.type === 'split') splitCountByLayer[f.layer] = (splitCountByLayer[f.layer] || 0) + 1; });
-          const hasMultiFragLayer = Object.values(splitCountByLayer).some(c => c > 1);
-          debugLog(`[CompoundMerge] maxSubpathIdx=${maxSubpathIdx} hasMultiFragLayer=${hasMultiFragLayer} splitCountByLayer=${JSON.stringify(splitCountByLayer)} totalFrags=${fragments.length}`);
-          if (maxSubpathIdx > 0 || hasMultiFragLayer) {
-            // Multiple subpaths exist — merge same-layer fragments into compound paths
-            const layerGroups = {};
-            const nonSplitFrags = [];
-
-            fragments.forEach(frag => {
-              if (frag.type !== 'split') {
-                nonSplitFrags.push(frag);
-                return;
-              }
-              if (frag.strokeOnly) {
-                // Seam-boundary slivers: keep for stroke rendering but
-                // exclude from compound fill to prevent Z-close artifacts
-                nonSplitFrags.push(frag);
-                return;
-              }
-              const key = frag.layer;
-              if (!layerGroups[key]) layerGroups[key] = [];
-              layerGroups[key].push(frag);
-            });
-
-            const mergedFragments = [...nonSplitFrags];
-            Object.keys(layerGroups).forEach(layer => {
-              const group = layerGroups[layer];
-              if (group.length <= 1) {
-                mergedFragments.push(...group);
-                return;
-              }
-              // Merge: concatenate d paths (each already has its own Z close),
-              // combine strokes, average Z values
-              const allSameSubpath = group.every(f => (f.subpathIdx || 0) === (group[0].subpathIdx || 0));
-              const compound = {
-                d: group.map(f => f.d).join(' '),
-                zSum: group.reduce((s, f) => s + f.zSum, 0),
-                count: group.reduce((s, f) => s + f.count, 0),
-                avgZ: 0,
-                type: 'split',
-                layer: layer,
-                subpathIdx: 0,
-                // Concatenate strokes with null sentinels between groups from
-                // different fragments to prevent cross-subpath stroke merging.
-                strokes: group.reduce((acc, f, idx) => {
-                  if (!f.strokes || f.strokes.length === 0) return acc;
-                  if (idx > 0 && acc.length > 0) acc.push(null);
-                  acc.push(...f.strokes);
-                  return acc;
-                }, []),
-                startUV: group[0].startUV,
-                endUV: group[group.length - 1].endUV,
-                // Seam-split compounds need nonzero fill to avoid Z-close overlap cancellation.
-                // Hole-based compounds (different subpathIdx) need evenodd for correct winding.
-                useNonzero: allSameSubpath
-              };
-              compound.avgZ = compound.count > 0 ? compound.zSum / compound.count : 0;
-              debugLog(`[CompoundMerge] Merged ${group.length} '${layer}' fragments into 1 compound (d_len=${compound.d.length} nonzero=${compound.useNonzero})`);
-              mergedFragments.push(compound);
-            });
-
-            debugLog(`[CompoundMerge] Result: ${fragments.length} fragments → ${mergedFragments.length} merged`);
-            fragments.length = 0;
-            mergedFragments.forEach(f => fragments.push(f));
-          }
-        }
+        // (v20260704h: the legacy seam-stitch / sliver-merge / closure /
+        // compound post-processing that lived here belonged to the old
+        // trace-based splitter and was removed — silhouette splitting is
+        // handled entirely by the region-clip pipeline above.)
 
         // Post-process: Compound merge for standard (non-split) fragments
         // created by around-mode seam splits. When doSplit is off, V-around
@@ -17269,7 +16430,7 @@
         // Each gets an independent Z-close at render time, creating fill artifacts
         // (white rectangles) where the Z-close chords overlap. Merge them into
         // a single compound path so the fill treats them as subpaths of one shape.
-        if (!doSplit && mapAround && fragments.length > 1) {
+        if (mapAround && fragments.length > 1) {
           const standardFrags = fragments.filter(f => f.type === 'standard');
           if (standardFrags.length > 1) {
             // Merge all standard fragments into one compound path
@@ -17471,12 +16632,6 @@
 
               // Remove Tail from list
               subpathFragments.pop();
-
-              // v20260614h: Preserve horizon crossing source positions after merge.
-              // Merged order is: tail_start → ... → head_end, so:
-              // - crossingStartSrc comes from tail (now the beginning)
-              // - crossingEndSrc comes from head (now the end, already on head)
-              if (tail.crossingStartSrc) head.crossingStartSrc = tail.crossingStartSrc;
             }
           }
 
@@ -17508,9 +16663,6 @@
               a.bounds.maxY = Math.max(a.bounds.maxY, b.bounds.maxY);
               a.zBounds.minZ = Math.min(a.zBounds.minZ, b.zBounds.minZ);
               a.zBounds.maxZ = Math.max(a.zBounds.maxZ, b.zBounds.maxZ);
-              // v20260615: Preserve crossing info — b is the new tail
-              if (b.crossingEndSrc) a.crossingEndSrc = b.crossingEndSrc;
-              if (!a.crossingStartSrc && b.crossingStartSrc) a.crossingStartSrc = b.crossingStartSrc;
               subpathFragments.splice(i + 1, 1);
               // Don't increment — check if merged result can merge with next
             }
@@ -17525,15 +16677,9 @@
             // v20260614h: Generate stroke d-string BEFORE closing ops (strokes should be open).
             const strokeDStr = generateD(frag.ops);
 
-            // v20260615b: Contour closing edge — DISABLED.
-            // The linear-interpolation approach through the source rectangle's
-            // interior creates self-intersecting polygons in screen space,
-            // collapsing fills to zero visible area. The Z-close artifacts
-            // (small triangular fins at horizon crossings) are preferable to
-            // invisible ribbons. A proper fix would need to trace along the
-            // source rectangle's OPPOSITE EDGE (front edge for back fragments)
-            // rather than through the interior.
-            // TODO: Implement edge-following contour closure.
+            // (Closing fills along the silhouette is handled by the
+            // region-clip pipeline since v20260703m; this legacy path only
+            // renders non-split fragments.)
 
             // Generate fill d-string (includes closing ops)
             const dStr = generateD(frag.ops);
@@ -17787,7 +16933,6 @@
         // Silhouette Logic Setup
         const doSplit = options.silhouetteSplit && options.cameraPos;
         const camPos = options.cameraPos || [0, 0, 0];
-        let currentDot = 0; // Shared state from project() to loop
 
         // Pre-compute scale + 3-axis rotation for source coordinates
         const sfScaleU = options.scaleU ?? 1;
@@ -17854,7 +16999,7 @@
 
         const project = (rawLocalPt) => {
           // Region-clip (Stage 4): geometric u of this point, exposed on the
-          // return value when RC_SILHOUETTE is on (bend mode only).
+          // return value (bend mode only; null in rigid mode).
           let _rcUGeo = null;
           let localPt = rawLocalPt;
           // Apply sourceMatrix (e.g. from Group inheritance) first
@@ -17975,73 +17120,16 @@
             worldPos = [transformed[0], transformed[1], transformed[2]];
           }
 
-          // Calculate Dot Product for Silhouette (if enabled)
-          if (doSplit) {
-            // Surface normal = cross(spineTangent, displacementDirection).
-            // Displacement = v*normal + (-w)*side.
-            // cross(T, v*N) = -v*S  and  cross(T, -w*S) = w*N.
-            // So surfNormal = -v*S + w*N.
-            // To avoid per-point sign flips (which cause unwanted mid-cross-section
-            // splits), we use the ABSOLUTE displacement to weight the frame vectors:
-            //   nLocal = |v|*side + |w|*normal  (always outward-pointing)
-            // For pure v-displacement (2D XY source): nLocal = side (correct)
-            // For pure w-displacement (2D XZ source): nLocal = normal (correct)
-            // For mixed: smooth blend (correct)
-            const nN = currentFrame.normal;
-            const nS = currentFrame.side;
-            const av = Math.abs(v), aw = Math.abs(w);
-            let nLocal;
-            if (av + aw > 0.0001) {
-              nLocal = [
-                av * nS[0] + aw * nN[0],
-                av * nS[1] + aw * nN[1],
-                av * nS[2] + aw * nN[2]
-              ];
-              const rl = Math.sqrt(nLocal[0] * nLocal[0] + nLocal[1] * nLocal[1] + nLocal[2] * nLocal[2]);
-              if (rl > 0.0001) nLocal = [nLocal[0] / rl, nLocal[1] / rl, nLocal[2] / rl];
-              else nLocal = nS; // Degenerate fallback
-            } else {
-              nLocal = nS; // On spine center: default to side
-            }
-            const m = tgtWorldMatrix;
-            // Transform to world space (3x3, ignoring translation)
-            let nWorld = [
-              m[0][0] * nLocal[0] + m[0][1] * nLocal[1] + m[0][2] * nLocal[2],
-              m[1][0] * nLocal[0] + m[1][1] * nLocal[1] + m[1][2] * nLocal[2],
-              m[2][0] * nLocal[0] + m[2][1] * nLocal[1] + m[2][2] * nLocal[2]
-            ];
-
-            // If Rigid Transform active, rotate normal
-            if (options.matchTarget === false && sourceMatrix) {
-              const sm = sourceMatrix;
-              nWorld = [
-                sm[0][0] * nWorld[0] + sm[0][1] * nWorld[1] + sm[0][2] * nWorld[2],
-                sm[1][0] * nWorld[0] + sm[1][1] * nWorld[1] + sm[1][2] * nWorld[2],
-                sm[2][0] * nWorld[0] + sm[2][1] * nWorld[1] + sm[2][2] * nWorld[2]
-              ];
-            }
-            // Normalize
-            const len = Math.sqrt(nWorld[0] * nWorld[0] + nWorld[1] * nWorld[1] + nWorld[2] * nWorld[2]);
-            if (len > 0.0001) nWorld = [nWorld[0] / len, nWorld[1] / len, nWorld[2] / len];
-
-            // View Vector (Convention: Camera - Pos)
-            const viewVec = vectorSubtract(camPos, worldPos);
-
-            currentDot = nWorld[0] * viewVec[0] + nWorld[1] * viewVec[1] + nWorld[2] * viewVec[2];
-          }
 
           // Transform to Screen
           const screenPos = transformVertex(worldPos, options.vpMatrix);
           if (screenPos) {
-            screenPos.dot = currentDot; // Attach dot product for silhouette logic
-            // Region-clip (Stage 4/5, gated — no effect on legacy): expose
-            // the already-computed world position (for grid-batched sheet
-            // normals; the contour overlay uses it too) and the geometric u
-            // (for open-target around-mode domain cuts; null in rigid mode).
-            if (RC_SILHOUETTE || RC_DEBUG_CONTOURS) {
-              screenPos.world = worldPos;
-              screenPos.uGeo = _rcUGeo;
-            }
+            // Region-clip: expose the already-computed world position (for
+            // grid-batched sheet normals; the contour overlay uses it too)
+            // and the geometric u (for open-target around-mode domain cuts;
+            // null in rigid mode).
+            screenPos.world = worldPos;
+            screenPos.uGeo = _rcUGeo;
           }
           return screenPos;
         };
@@ -18087,7 +17175,7 @@
 
         // Recursive Adaptive Subdivider
         // Updated to support Dual Layer?
-        // Note: 'subdivide' is currently ONLY used for Lines when doSplit is FALSE.
+        // Note: 'subdivide' is only used for Lines (non-split path).
         // So it maps everything to "Front" (default) or we can just append to frontData.
         const subdivide = (pA, pB, tvA, tvB, depth) => {
           if (depth > 5) {
@@ -18116,15 +17204,12 @@
         // Use Exclusive Pipeline: Normalize everything to Cubic Bezier
         segments = sourcePath.getBezierSegments();
 
-        // --- Region-Clip branch & debug contour overlay (experimental, v20260703j/k) ---
-        // When RC_SILHOUETTE is on, fragment construction is delegated to the
-        // region-clip pipeline. project() carries the silhouette dot product,
-        // so the field is evaluated in source space through it.
-        // RC_DEBUG_CONTOURS additionally collects the extracted silhouette
-        // contours for the viewport overlay (works over the legacy pipeline).
-        // Everything below is the legacy path, unreachable while both flags
-        // are false.
-        if (doSplit && (RC_SILHOUETTE || RC_DEBUG_CONTOURS)) {
+        // --- Region-clip silhouette splitting (v20260704h) ---
+        // The region-clip pipeline is THE splitter — the legacy trace-based
+        // split code has been removed. Everything below this block is the
+        // plain non-split mapping path (Silhouette Split unchecked).
+        // RC_DEBUG_CONTOURS additionally draws the extracted contours.
+        if (doSplit) {
           const rcCtx = {
             sourcePath, targetPath, options, camPos,
             segments, project,
@@ -18136,9 +17221,7 @@
             try { SilhouetteField.collectSplineFlowOverlay(rcCtx); }
             catch (e) { console.error('[RC] spline-flow contour overlay failed:', e); }
           }
-          if (RC_SILHOUETTE) {
-            return SurfaceMapper._buildSplineFlowRC(rcCtx);
-          }
+          return SurfaceMapper._buildSplineFlowRC(rcCtx);
         }
 
         segments.forEach((seg, segmentIndex) => {
@@ -18154,7 +17237,7 @@
           }
 
           // Uniform path if Splitting is active: Treat Lines as Curves to catch Horizon
-          if (seg.type === 'L' && !doSplit) {
+          if (seg.type === 'L') {
             // Adaptive Subdivision for Lines (Optimized for non-split)
             // We map the start point first
             const tvStart = project(seg.pStart);
@@ -18206,18 +17289,10 @@
 
                     // Force new fragment if layer changes
                     if (currentFragment && currentFragment.layer !== segLayer) {
-                      // v20260615: Transfer crossingEndSrc to the ending fragment
-                      if (s.crossingStartSrc && currentFragment) {
-                        currentFragment.crossingEndSrc = [...s.crossingStartSrc];
-                      }
                       // Layer changed. We need to start a new fragment.
                       // We use the start point of this segment.
                       if (s.start) {
                         addLine(s.start, segLayer); // Creates M and new fragment
-                      }
-                      // v20260615: Transfer crossingStartSrc to the new fragment
-                      if (s.crossingStartSrc && currentFragment) {
-                        currentFragment.crossingStartSrc = [...s.crossingStartSrc];
                       }
                     } else if (!currentFragment) {
                       // Should not happen if pStart logic above worked, but for safety
@@ -18226,12 +17301,6 @@
                       }
                     }
 
-                    // v20260615: Transfer crossingEndSrc from segment to fragment
-                    // (for the last segment before a crossing that was found by a later
-                    // recursive split — the tag is on this segment itself)
-                    if (s.crossingEndSrc && currentFragment) {
-                      currentFragment.crossingEndSrc = [...s.crossingEndSrc];
-                    }
 
                     const sx1 = (s.cp1[0] * FRAME_SIZE) / 2;
                     const sy1 = (-s.cp1[1] * FRAME_SIZE) / 2;
@@ -18265,7 +17334,6 @@
             } else {
               // Standard Subdivision (Linear)
               const steps = options.resolution || 16;
-              let lastDot = 0;
               // Around mode tracking vars (reset per source segment)
               let prevUGeoFloor = null, prevRawUGeo = null, prevAround_srcPt = null;
 
@@ -18293,7 +17361,7 @@
                       ];
                       const tvEnd = project(bEndSrc);
                       if (tvEnd && isPenDown) {
-                        addLine(tvEnd, doSplit ? (currentDot < 0 ? 'front' : 'back') : 'front');
+                        addLine(tvEnd, 'front');
                       }
                       // Start boundary: just after crossing → u_routing → 0
                       const alphaStart = Math.min(1, alpha + 1e-4);
@@ -18303,7 +17371,7 @@
                         prevAround_srcPt[2] + alphaStart * ((srcPt[2] || 0) - prevAround_srcPt[2])
                       ];
                       const tvStart = project(bStartSrc);
-                      const startLayer = doSplit ? (currentDot < 0 ? 'front' : 'back') : 'front';
+                      const startLayer = 'front';
                       if (tvStart) {
                         startNewFragment(startLayer, tvStart); // true separate fragment
                         isPenDown = true;
@@ -18319,82 +17387,12 @@
                   prevAround_srcPt = [srcPt[0], srcPt[1], srcPt[2] || 0];
                 }
 
-                // Project calculates currentDot side-effect
                 const tv = project(srcPt);
-                const dot = currentDot;
-
-                if (doSplit) {
-                  // Inverted Logic: user confirmed dot < 0 is Visible (Front)
-                  const isVisible = dot < 0;
-                  const targetLayer = isVisible ? 'front' : 'back';
-
-                  if (i > 0 && (dot * lastDot < 0)) {
-                    // Crossing detected (Sign Change)
-                    // v20260614f: Binary search refinement (replaces linear interpolation
-                    // which assumed dot(t) is linear — inaccurate on curved splines)
-                    const t_prev = (i - 1) / steps;
-                    let bsMin = t_prev, bsMax = t;
-                    let bsDotMin = lastDot;
-
-                    for (let bs = 0; bs < 8; bs++) {
-                      const bsMid = (bsMin + bsMax) / 2;
-                      const bsPt = SurfaceMapper.evaluateCurvePoint(seg, bsMid);
-                      const bsProj = project(bsPt);
-                      const bsDot = bsProj ? currentDot : bsDotMin;
-
-                      if (bsDotMin * bsDot < 0) {
-                        bsMax = bsMid;
-                      } else {
-                        bsMin = bsMid;
-                        bsDotMin = bsDot;
-                      }
-                    }
-
-                    const t_cross = (bsMin + bsMax) / 2;
-                    const ptCross = SurfaceMapper.evaluateCurvePoint(seg, t_cross);
-                    const tvCross = project(ptCross);
-
-                    if (lastDot < 0 && dot >= 0) {
-                      // VISIBLE (Front) -> INVISIBLE (Back)
-                      // 1. Finish Front segment at Horizon
-                      if (tvCross) addLine(tvCross, 'front');
-                      // v20260614h: Record source crossing point on ending fragment
-                      if (currentFragment) currentFragment.crossingEndSrc = [...ptCross];
-
-                      // 2. Start Back segment at Horizon
-                      if (tvCross) addLine(tvCross, 'back');
-                      // v20260614h: Record source crossing point on starting fragment
-                      if (currentFragment) currentFragment.crossingStartSrc = [...ptCross];
-                    } else {
-                      // INVISIBLE (Back) -> VISIBLE (Front)
-                      // 1. Finish Back segment at Horizon
-                      if (tvCross) addLine(tvCross, 'back');
-                      // v20260614h: Record source crossing point on ending fragment
-                      if (currentFragment) currentFragment.crossingEndSrc = [...ptCross];
-
-                      // 2. Start Front segment at Horizon
-                      if (tvCross) addLine(tvCross, 'front');
-                      // v20260614h: Record source crossing point on starting fragment
-                      if (currentFragment) currentFragment.crossingStartSrc = [...ptCross];
-                    }
-                  }
-
-                  if (tv) {
-                    addLine(tv, targetLayer);
-                  } else {
-                    // Gap (Clipping)
-                    isPenDown = false;
-                  }
-
+                if (tv) {
+                  addLine(tv, 'front');
                 } else {
-                  // No Split: Everything to Front
-                  if (tv) {
-                    addLine(tv, 'front');
-                  } else {
-                    isPenDown = false;
-                  }
+                  isPenDown = false;
                 }
-                lastDot = dot;
               }
             }
           }
@@ -18409,14 +17407,12 @@
         return resolveMerges(allFragments);
       }
 
-      // --- Region-Clip Silhouette pipeline (experimental scaffolding, v20260703j) ---
-      // Stage 0 stubs: intentionally unreachable while RC_SILHOUETTE is false.
-      // Stage 3 replaces _buildSurfaceMappedRC, Stage 4 _buildSplineFlowRC
-      // (see the region-clip implementation plan). Both must emit fragments
-      // matching the legacy consumers' shapes:
+      // --- Region-Clip Silhouette pipeline ---
+      // THE silhouette splitter since v20260704h (the legacy trace-based
+      // splitter has been removed). Fragment output contracts:
       //   surface mapping → { d, zSum, count, avgZ, type:'split', layer,
       //                       subpathIdx, strokes[], useNonzero }
-      //   spline flow     → { d, zSum, count, type:'fill', layer, strokes[],
+      //   spline flow     → { d, zSum, count, avgZ, type, layer, strokes[],
       //                       bounds, zBounds }
       // ------------------------------------------------------------------
       // Region-clip fragment cache (Stage 5, v20260704c).
@@ -18573,10 +17569,33 @@
         if (cur && cur.pts.length >= 2) subpaths.push(cur);
         if (!subpaths.length) return [];
 
+        // v20260704k fix: open subpaths whose ring would be DEGENERATE —
+        // a plain 2-anchor line, or a purely collinear run (zero area) —
+        // cannot be clipped as polygons, and the ≥3-point ring filter used
+        // to drop them silently ("simple paths disappear" report; they are
+        // real content like whiskers and single strokes). They are routed
+        // through PolyClip.splitPolyline instead and emitted as
+        // stroke-only fragments.
+        const isDegenerateOpen = (sp) => {
+          if (sp.closed) return false;
+          if (sp.pts.length < 3) return true;
+          let a2 = 0, xMn = Infinity, xMx = -Infinity, yMn = Infinity, yMx = -Infinity;
+          for (let i = 0; i < sp.pts.length; i++) {
+            const p = sp.pts[i], q = sp.pts[(i + 1) % sp.pts.length];
+            a2 += p[0] * q[1] - q[0] * p[1];
+            if (p[0] < xMn) xMn = p[0]; if (p[0] > xMx) xMx = p[0];
+            if (p[1] < yMn) yMn = p[1]; if (p[1] > yMx) yMx = p[1];
+          }
+          const diag2 = (xMx - xMn) * (xMx - xMn) + (yMx - yMn) * (yMx - yMn);
+          return Math.abs(a2) < diag2 * 1e-6;
+        };
+        const linework = subpaths.filter(isDegenerateOpen);
+        const arealSubpaths = subpaths.filter(sp => !isDegenerateOpen(sp));
+
         // Subject rings: closed → all 'path' edges; open → fill via an
         // implicit closing edge tagged 'closure' (SVG fill semantics),
         // which never becomes a stroke.
-        const subjectRings = subpaths.map(sp => {
+        const subjectRings = arealSubpaths.map(sp => {
           const pts = sp.pts.slice();
           const first = pts[0], last = pts[pts.length - 1];
           if (pts.length > 1 &&
@@ -18585,17 +17604,37 @@
           if (!sp.closed) srcs[srcs.length - 1] = 'closure';
           return { pts, srcs };
         }).filter(r => r.pts.length >= 3);
-        if (!subjectRings.length) return [];
+        if (!subjectRings.length && !linework.length) return [];
 
         // --- 2. Silhouette field over the padded UV bbox ----------------
+        // (bbox covers ALL subpaths — linework included)
         let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
-        for (const r of subjectRings) {
-          for (const [u, v] of r.pts) {
+        for (const sp of subpaths) {
+          for (const [u, v] of sp.pts) {
             if (u < uMin) uMin = u; if (u > uMax) uMax = u;
             if (v < vMin) vMin = v; if (v > vMax) vMax = v;
           }
         }
         ({ uMin, uMax, vMin, vMax } = SilhouetteField._padDomain(uMin, uMax, vMin, vMax));
+        // v20260704k fix: clamping overflow modes (clip/none) make the
+        // surface DEGENERATE beyond [0,1] — every point collapses onto the
+        // rim, neighbor differences vanish, and the field's degenerate-
+        // normal guard turns those cells NaN. Silhouette arcs then dead-end
+        // at the NaN border instead of the domain perimeter and the front
+        // region assembles empty (scene-02 "not splitting" report). Keep
+        // the field domain inside the VALID parameter range for clamping
+        // modes; around wraps and overflow extrapolates, so both stay
+        // non-degenerate and keep the padded domain.
+        const clampsU = overflowModeU !== 'around' && overflowModeU !== 'overflow';
+        const clampsV = overflowModeV !== 'around' && overflowModeV !== 'overflow';
+        if (clampsU) {
+          uMin = Math.max(uMin, 0); uMax = Math.min(uMax, 1);
+          if (uMax - uMin < 1e-6) { uMin = Math.max(0, uMin - 0.01); uMax = Math.min(1, uMax + 0.01); }
+        }
+        if (clampsV) {
+          vMin = Math.max(vMin, 0); vMax = Math.min(vMax, 1);
+          if (vMax - vMin < 1e-6) { vMin = Math.max(0, vMin - 0.01); vMax = Math.min(1, vMax + 0.01); }
+        }
         // Stage 5b (v20260704e): SHARED field cache per surface.
         // Group mappings run this builder once per child, but the silhouette
         // field depends only on (surface geometry, camera, offsetN, wrap
@@ -18681,10 +17720,16 @@
         }
 
         // --- 5. Map rings to screen --------------------------------------
-        // Path edges are already at SUBDIV resolution; silhouette/domain
-        // edges are straight in UV but curved on screen → midpoint-refine
-        // to ~1.2 FRAME units.
-        const TOL2 = 1.2 * 1.2, MAXD = 5;
+        // Unified quality dial (v20260704f): Resolution scales BOTH the
+        // curved-source flattening (SUBDIV above) and the adaptive screen-
+        // refinement tolerance — resolution 8 keeps the old fixed 1.2
+        // FRAME units, higher is finer, 1 is visibly coarse (the dial now
+        // has an effect in both directions under RC). MAXD is a runaway
+        // guard only — refinement is error-driven; the old cap of 5
+        // silently limited long around-mode edges to 32 chords, which was
+        // the scene-05 "jaggy" report.
+        const TOL = Math.min(12, Math.max(0.15, 9.6 / Math.max(1, SUBDIV)));
+        const TOL2 = TOL * TOL, MAXD = 10;
         const mapUV = (u, v) => toScreen(surfacePointN(u, v));
         const emitRing = (ring) => {
           const P = ring.pts, S = ring.srcs, n = P.length;
@@ -18806,6 +17851,56 @@
         };
         packageLayer(frontRings, 'front');
         packageLayer(backRings, 'back');
+
+        // Degenerate open subpaths (v20260704k): split as polylines and
+        // emit stroke-only fragments — same refinement, no fill ring.
+        for (const sp of linework) {
+          const res = PolyClip.splitPolyline(sp.pts, region.rings);
+          for (const [side, runs] of [['front', res.front], ['back', res.back]]) {
+            for (const runPts of runs) {
+              const pts = [];
+              const seg = [];
+              const pushRefined = (a, b, sa, sb, depth) => {
+                if (depth >= MAXD) return;
+                const mu = (a[0] + b[0]) / 2, mv = (a[1] + b[1]) / 2;
+                const sm = mapUV(mu, mv);
+                if (!sm) return;
+                const ex = (sa.x + sb.x) / 2 - sm.x, ey = (sa.y + sb.y) / 2 - sm.y;
+                if (ex * ex + ey * ey <= TOL2) return;
+                pushRefined(a, [mu, mv], sa, sm, depth + 1);
+                seg.push(sm);
+                pushRefined([mu, mv], b, sm, sb, depth + 1);
+              };
+              let prev = null, prevSp = null;
+              for (const p of runPts) {
+                const spt = mapUV(p[0], p[1]);
+                if (!spt) { prev = null; prevSp = null; continue; }
+                if (prev) {
+                  seg.length = 0;
+                  pushRefined(prev, p, prevSp, spt, 0);
+                  pts.push(...seg);
+                }
+                pts.push(spt);
+                prev = p; prevSp = spt;
+              }
+              if (pts.length < 2) continue;
+              let sd = '', zSum = 0, count = 0;
+              pts.forEach((q, i) => {
+                sd += (i ? 'L ' : 'M ') + q.x + ' ' + q.y + ' ';
+                zSum += q.z; count++;
+              });
+              sd = sd.trim();
+              fragments.push({
+                d: sd, zSum, count, avgZ: zSum / count,
+                type: 'split', layer: side, subpathIdx: 0,
+                strokes: [null, sd], strokeOnly: true, useNonzero: false,
+                startUV: null, endUV: null,
+                startIsCrossing: false, endIsCrossing: false
+              });
+            }
+          }
+        }
+
         if (typeof debugLog === 'function') {
           debugLog(`[RC] surfaceMapped: ${fragments.length} fragments (F rings=${region.rings.length}, loops=${field.stats.closedLoops}, arcs=${field.stats.openArcs}, grid=${field.stats.nu}x${field.stats.nv}) ${(performance.now() - t0).toFixed(1)}ms`);
         }
@@ -18939,7 +18034,29 @@
           pts: sp.pts.map(p => [p[axS], p[axT]])
         }));
 
-        const subjectRings = subpaths.map(sp => {
+        // v20260704k fix: open subpaths whose ring would be DEGENERATE —
+        // a plain 2-anchor line, or a purely collinear run (zero area) —
+        // cannot be clipped as polygons, and the ≥3-point ring filter used
+        // to drop them silently ("simple paths disappear": the cat's
+        // whisker/hand lines). Routed through PolyClip.splitPolyline and
+        // emitted as stroke-only fragments below.
+        const isDegenerateOpen = (sp) => {
+          if (sp.closed) return false;
+          if (sp.pts.length < 3) return true;
+          let a2 = 0, xMn = Infinity, xMx = -Infinity, yMn = Infinity, yMx = -Infinity;
+          for (let i = 0; i < sp.pts.length; i++) {
+            const p = sp.pts[i], q = sp.pts[(i + 1) % sp.pts.length];
+            a2 += p[0] * q[1] - q[0] * p[1];
+            if (p[0] < xMn) xMn = p[0]; if (p[0] > xMx) xMx = p[0];
+            if (p[1] < yMn) yMn = p[1]; if (p[1] > yMx) yMx = p[1];
+          }
+          const diag2 = (xMx - xMn) * (xMx - xMn) + (yMx - yMn) * (yMx - yMn);
+          return Math.abs(a2) < diag2 * 1e-6;
+        };
+        const linework = subpaths.filter(isDegenerateOpen);
+        const arealSubpaths = subpaths.filter(sp => !isDegenerateOpen(sp));
+
+        const subjectRings = arealSubpaths.map(sp => {
           const pts = sp.pts.slice();
           const first = pts[0], last = pts[pts.length - 1];
           if (pts.length > 1 &&
@@ -18948,12 +18065,13 @@
           if (!sp.closed) srcs[srcs.length - 1] = 'closure';
           return { pts, srcs };
         }).filter(r => r.pts.length >= 3);
-        if (!subjectRings.length) return [];
+        if (!subjectRings.length && !linework.length) return [];
 
         // --- 2. Field over the padded source bbox ------------------------
+        // (bbox covers ALL subpaths — linework included)
         let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
-        for (const r of subjectRings) {
-          for (const [x, y] of r.pts) {
+        for (const sp of subpaths) {
+          for (const [x, y] of sp.pts) {
             if (x < xMin) xMin = x; if (x > xMax) xMax = x;
             if (y < yMin) yMin = y; if (y > yMax) yMax = y;
           }
@@ -19023,7 +18141,16 @@
         }
 
         // --- 5. Map rings to screen ----------------------------------------
-        const TOL2 = 1.2 * 1.2, MAXD = 5;
+        // Unified quality dial (v20260704f): Resolution/Divisions scales
+        // the adaptive refinement tolerance (16 → 0.6 FRAME units).
+        // MAXD is a runaway guard only — refinement is error-driven.
+        const TOL = Math.min(12, Math.max(0.15, 9.6 / Math.max(1, RES)));
+        const TOL2 = TOL * TOL, MAXD = 10;
+        // Smooth (Curve Fit) emits Catmull-Rom cubics on path edges, which
+        // bridge point gaps smoothly — so path edges tolerate 4× looser
+        // refinement: fewer points, same visual quality (smooth mode is
+        // now CHEAPER than subdivide at equal quality).
+        const pathTol2 = TOL2 * 16;
         const mapPt = (x, y) => {
           const p = project(srcPtOf(x, y));
           if (!p) return null;
@@ -19038,7 +18165,8 @@
             const sm = mapPt(mx, my);
             if (!sm) return;
             const ex = (sa.x + sb.x) / 2 - sm.x, ey = (sa.y + sb.y) / 2 - sm.y;
-            if (ex * ex + ey * ey <= TOL2) return;
+            const lim = (smoothMode && tag === 'path') ? pathTol2 : TOL2;
+            if (ex * ex + ey * ey <= lim) return;
             refine(a, [mx, my], sa, sm, depth + 1, tag);
             outPts.push(sm); outSrcs.push(tag);
             refine([mx, my], b, sm, sb, depth + 1, tag);
@@ -19081,6 +18209,26 @@
         const smoothMode = options.algorithm === 'smooth';
         const edgeCmds = (m) => {
           const n = m.pts.length;
+          // Corner detection (v20260704g): a point whose incoming/outgoing
+          // directions disagree by more than ~35° is a source corner —
+          // Catmull-Rom must NOT smooth across it (it was rounding rect
+          // corners; legacy smooth kept them sharp). Robust because the
+          // adaptive refinement makes genuinely curved regions dense, so
+          // their per-point angles are tiny; true corners stay wide open
+          // at any density.
+          const CORNER_COS = 0.82; // ≈ cos 35°
+          const isCorner = new Uint8Array(n);
+          if (smoothMode) {
+            for (let i = 0; i < n; i++) {
+              const p0 = m.pts[(i - 1 + n) % n], p1 = m.pts[i], p2 = m.pts[(i + 1) % n];
+              const ax = p1.x - p0.x, ay = p1.y - p0.y;
+              const bx = p2.x - p1.x, by = p2.y - p1.y;
+              const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+              if (la < 1e-9 || lb < 1e-9 || (ax * bx + ay * by) / (la * lb) < CORNER_COS) {
+                isCorner[i] = 1;
+              }
+            }
+          }
           const cmds = new Array(n);
           for (let i = 0; i < n; i++) {
             const p1 = m.pts[i], p2 = m.pts[(i + 1) % n];
@@ -19090,10 +18238,24 @@
               const d12 = Math.hypot(p2.x - p1.x, p2.y - p1.y);
               const d23 = Math.hypot(p3.x - p2.x, p3.y - p2.y);
               // Non-uniform Catmull-Rom tangents (chord-length weighted, so
-              // mixed sparse/dense point spacing does not overshoot)
+              // mixed sparse/dense point spacing does not overshoot);
+              // corners get one-sided CHORD tangents so they stay sharp.
               const a = d12 / ((d01 + d12) || 1), b = d12 / ((d12 + d23) || 1);
-              const c1x = p1.x + (p2.x - p0.x) * a / 3, c1y = p1.y + (p2.y - p0.y) * a / 3;
-              const c2x = p2.x - (p3.x - p1.x) * b / 3, c2y = p2.y - (p3.y - p1.y) * b / 3;
+              let c1x, c1y, c2x, c2y;
+              if (isCorner[i]) {
+                c1x = p1.x + (p2.x - p1.x) / 3;
+                c1y = p1.y + (p2.y - p1.y) / 3;
+              } else {
+                c1x = p1.x + (p2.x - p0.x) * a / 3;
+                c1y = p1.y + (p2.y - p0.y) * a / 3;
+              }
+              if (isCorner[(i + 1) % n]) {
+                c2x = p2.x - (p2.x - p1.x) / 3;
+                c2y = p2.y - (p2.y - p1.y) / 3;
+              } else {
+                c2x = p2.x - (p3.x - p1.x) * b / 3;
+                c2y = p2.y - (p3.y - p1.y) * b / 3;
+              }
               cmds[i] = 'C ' + c1x + ' ' + c1y + ' ' + c2x + ' ' + c2y + ' ' + p2.x + ' ' + p2.y + ' ';
             } else {
               cmds[i] = 'L ' + p2.x + ' ' + p2.y + ' ';
@@ -19188,6 +18350,63 @@
         };
         packageLayer(frontRings, 'front');
         packageLayer(backRings, 'back');
+
+        // Degenerate open subpaths (v20260704k): split as polylines and
+        // emit stroke-only fragments — same refinement, no fill ring.
+        for (const sp of linework) {
+          const res = PolyClip.splitPolyline(sp.pts, region.rings);
+          for (const [side, runs] of [['front', res.front], ['back', res.back]]) {
+            for (const runPts of runs) {
+              const pts = [];
+              const seg = [];
+              const pushRefined = (a, b, sa, sb, depth) => {
+                if (depth >= MAXD) return;
+                const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+                const sm = mapPt(mx, my);
+                if (!sm) return;
+                const ex = (sa.x + sb.x) / 2 - sm.x, ey = (sa.y + sb.y) / 2 - sm.y;
+                if (ex * ex + ey * ey <= TOL2) return;
+                pushRefined(a, [mx, my], sa, sm, depth + 1);
+                seg.push(sm);
+                pushRefined([mx, my], b, sm, sb, depth + 1);
+              };
+              let prev = null, prevSp = null;
+              for (const p of runPts) {
+                const spt = mapPt(p[0], p[1]);
+                if (!spt) { prev = null; prevSp = null; continue; }
+                if (prev) {
+                  seg.length = 0;
+                  pushRefined(prev, p, prevSp, spt, 0);
+                  pts.push(...seg);
+                }
+                pts.push(spt);
+                prev = p; prevSp = spt;
+              }
+              if (pts.length < 2) continue;
+              let sd = '', zSum = 0, count = 0;
+              const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+              const zBounds = { minZ: Infinity, maxZ: -Infinity };
+              pts.forEach((q, i) => {
+                sd += (i ? 'L ' : 'M ') + q.x + ' ' + q.y + ' ';
+                zSum += q.z; count++;
+                if (q.x < bounds.minX) bounds.minX = q.x;
+                if (q.x > bounds.maxX) bounds.maxX = q.x;
+                if (q.y < bounds.minY) bounds.minY = q.y;
+                if (q.y > bounds.maxY) bounds.maxY = q.y;
+                if (q.z < zBounds.minZ) zBounds.minZ = q.z;
+                if (q.z > zBounds.maxZ) zBounds.maxZ = q.z;
+              });
+              sd = sd.trim();
+              fragments.push({
+                d: sd, zSum, count, avgZ: zSum / count,
+                type: 'split', layer: side,
+                strokes: [null, sd],
+                bounds, zBounds
+              });
+            }
+          }
+        }
+
         if (typeof debugLog === 'function') {
           debugLog(`[RC] splineFlow: ${fragments.length} fragments (F rings=${region.rings.length}, loops=${field.stats.closedLoops}, arcs=${field.stats.openArcs}, grid=${field.stats.nu}x${field.stats.nv}) ${(performance.now() - t0).toFixed(1)}ms`);
         }
@@ -22108,7 +21327,6 @@
                 rotationX: activeMapping.rotationX || 0,
                 rotationY: activeMapping.rotationY || 0,
                 bendAlong: activeMapping.bendAlong !== false,
-                closureSteps: activeMapping.closureSteps || 8,
                 cameraPos: sfCamPos,
                 camDist: activeCamera.dist
               };
@@ -22264,7 +21482,6 @@
                 axisV: sm.axisV || 'Y',
                 resolution: sm.resolution || 8,
                 silhouetteSplit: sm.silhouetteSplit || false,
-                closureSteps: sm.closureSteps || 8,
                 overflowModeU: isClipWarpU ? 'clip' : rawOverflowU,
                 overflowModeV: isClipWarpV ? 'clip' : rawOverflowV,
                 cameraPos: smCamPos,
@@ -24726,7 +23943,8 @@
         if (!rs || !rs.enabled) return;
 
         // Invalidate cached revolve rail if settings changed
-        const railKey = `rev_${rs.axis}_${rs.offset}_${rs.angle}_${rs.segments}_${rs.scaleStart || 1}_${rs.scaleEnd || 1}`;
+        const arcRadius = SurfaceMapper.revolveArcRadius(this, rs);
+        const railKey = `rev_${rs.axis}_${rs.offset}_${arcRadius}_${rs.angle}_${rs.segments}_${rs.scaleStart || 1}_${rs.scaleEnd || 1}`;
         if (!this._revolveRail || this._revolveRailKey !== railKey) {
           // Generate rail in LOCAL space (no world matrix baked in).
           // drawSurface applies the profile's world matrix at render time via railWorldMatrix.
@@ -24738,6 +23956,10 @@
             null,  // no longer bake world matrix — applied at render time
             rs.scaleStart ?? 1, rs.scaleEnd ?? 1
           );
+          if (arcRadius > 1e-9) {
+            const frac = Math.min(360, Math.max(0, rs.angle || 360)) / 360;
+            this._revolveRail._arcLengthData.totalLength = 2 * Math.PI * arcRadius * frac || 1;
+          }
           this._revolveRailKey = railKey;
         }
         // Attach live world matrix so drawSurface can transform the surface
@@ -31320,28 +30542,12 @@
           });
           requestRender();
         }
-        // Directly toggle Closure Steps row visibility
-        const sfClosureRow = document.getElementById('splineFlowClosureStepsRow');
-        if (sfClosureRow) sfClosureRow.style.display = val ? '' : 'none';
       });
     }
-
-    const splineFlowClosureStepsInput = document.getElementById('splineFlowClosureSteps');
-    if (splineFlowClosureStepsInput) {
-      splineFlowClosureStepsInput.addEventListener('input', (e) => {
-        pushUndoStateCoalesced();
-        const val = Math.max(2, Math.min(32, parseInt(e.target.value) || 8));
-        if (selectedObject && selectedObject.surfaceConstraint?.active) {
-          selectedObject.surfaceConstraint.closureSteps = val;
-          requestRender();
-        } else if (selectedObjects.length > 0) {
-          selectedObjects.forEach(obj => {
-            if (obj.surfaceConstraint) obj.surfaceConstraint.closureSteps = val;
-          });
-          requestRender();
-        }
-      });
-    }
+    // (Closure Steps input removed in v20260704h — it was the legacy
+    // closure tracer's quality dial; the region-clip splitter has no
+    // closure tracing. closureSteps stays in the data model for scene
+    // file compatibility but is no longer read.)
 
     const splineFlowOverflowModeSelect = document.getElementById('splineFlowOverflowModeSelect');
     if (splineFlowOverflowModeSelect) {
@@ -32720,7 +31926,6 @@
         const hOffInput = document.getElementById('surfaceHOffsetInput');
         const resInput = document.getElementById('surfaceResolutionInput');
         const splitInput = document.getElementById('surfaceSilhouetteSplitInput');
-        const sfClosureStepsInput = document.getElementById('splineFlowClosureSteps');
         const bankInput = document.getElementById('surfaceBankFactorInput');
         const twistInput = document.getElementById('surfaceTwistInput');
         const sfScaleUInput = document.getElementById('splineFlowScaleU');
@@ -32740,7 +31945,6 @@
           if (hOffInput && document.activeElement !== hOffInput) hOffInput.value = sc.hOffset || 0;
           if (resInput && document.activeElement !== resInput) resInput.value = sc.resolution || 16;
           if (splitInput && document.activeElement !== splitInput) splitInput.checked = (sc.silhouetteSplit !== false);
-          if (sfClosureStepsInput && document.activeElement !== sfClosureStepsInput) sfClosureStepsInput.value = sc.closureSteps || 8;
           if (bankInput && document.activeElement !== bankInput) bankInput.value = sc.bankFactor ?? 1;
           if (twistInput && document.activeElement !== twistInput) twistInput.value = sc.twist || 0;
           if (sfScaleUInput && document.activeElement !== sfScaleUInput) sfScaleUInput.value = sc.scaleU ?? 1;
@@ -32770,10 +31974,6 @@
         if (hOffInput) hOffInput.disabled = ctrlDisabled;
         if (resInput) resInput.disabled = ctrlDisabled;
         if (splitInput) splitInput.disabled = ctrlDisabled;
-        const sfClosureStepsRow = document.getElementById('splineFlowClosureStepsRow');
-        const sfSplitOn = sc ? (sc.silhouetteSplit !== false) : false;
-        if (sfClosureStepsInput) sfClosureStepsInput.disabled = ctrlDisabled || !sfSplitOn;
-        if (sfClosureStepsRow) sfClosureStepsRow.style.display = (!ctrlDisabled && sfSplitOn) ? '' : 'none';
         if (bankInput) bankInput.disabled = ctrlDisabled;
         if (twistInput) twistInput.disabled = ctrlDisabled;
         if (sfScaleUInput) sfScaleUInput.disabled = ctrlDisabled;
@@ -32880,8 +32080,6 @@
         const smSplitInput = document.getElementById('surfaceMappingSplitInput');
         if (smResolution && document.activeElement !== smResolution) smResolution.value = sm.resolution || 8;
         if (smSplitInput && document.activeElement !== smSplitInput) smSplitInput.checked = (sm.silhouetteSplit !== false);
-        const smClosureSteps = document.getElementById('surfaceMappingClosureSteps');
-        if (smClosureSteps && document.activeElement !== smClosureSteps) smClosureSteps.value = sm.closureSteps || 8;
         const smOverflowModeUSelect = document.getElementById('surfaceMappingOverflowModeU');
         const smOverflowModeVSelect = document.getElementById('surfaceMappingOverflowModeV');
         // Backward compat: fall back to legacy single overflowMode
@@ -32900,10 +32098,6 @@
         if (smRotation) smRotation.disabled = smDisabled;
         if (smResolution) smResolution.disabled = smDisabled;
         if (smSplitInput) smSplitInput.disabled = smDisabled;
-        const smSplitOn = sm.silhouetteSplit !== false;
-        if (smClosureSteps) smClosureSteps.disabled = smDisabled || !smSplitOn;
-        const smClosureStepsRow = document.getElementById('surfaceMappingClosureStepsRow');
-        if (smClosureStepsRow) smClosureStepsRow.style.display = (!smDisabled && smSplitOn) ? '' : 'none';
         const smAxisUEl = document.getElementById('surfaceMappingAxisU');
         const smAxisVEl = document.getElementById('surfaceMappingAxisV');
         if (smAxisUEl) smAxisUEl.disabled = smDisabled;
@@ -33313,7 +32507,7 @@
           // Enable/disable all parameter inputs
           const sfControlIds = [
             'surfaceOffsetInput', 'surfaceHOffsetInput', 'surfaceResolutionInput',
-            'surfaceSilhouetteSplitInput', 'splineFlowClosureSteps', 'surfaceBankFactorInput', 'surfaceTwistInput',
+            'surfaceSilhouetteSplitInput', 'surfaceBankFactorInput', 'surfaceTwistInput',
             'splineFlowScaleU', 'splineFlowScaleV',
             'splineFlowRotation', 'splineFlowRotationX', 'splineFlowRotationY',
             'surfaceMatchTarget', 'surfaceAlgorithmSelect', 'splineFlowOverflowModeSelect',
@@ -33530,7 +32724,6 @@
             'surfaceMappingOffsetU', 'surfaceMappingOffsetV', 'surfaceMappingOffsetN',
             'surfaceMappingMode', 'surfaceMappingScaleU', 'surfaceMappingScaleV',
             'surfaceMappingRotation', 'surfaceMappingResolution', 'surfaceMappingSplitInput',
-            'surfaceMappingClosureSteps',
             'surfaceMappingOverflowModeU', 'surfaceMappingOverflowModeV', 'surfaceMappingAxisU', 'surfaceMappingAxisV'
           ];
           smControlIds.forEach(id => {
@@ -33661,23 +32854,9 @@
           selectedObject.surfaceConstraint.surfaceMapping.silhouetteSplit = e.target.checked;
           requestRender();
         }
-        // Directly toggle Closure Steps row visibility
-        const smClosureRow = document.getElementById('surfaceMappingClosureStepsRow');
-        if (smClosureRow) smClosureRow.style.display = e.target.checked ? '' : 'none';
       });
     }
-
-    const surfaceMappingClosureStepsInput = document.getElementById('surfaceMappingClosureSteps');
-    if (surfaceMappingClosureStepsInput) {
-      surfaceMappingClosureStepsInput.addEventListener('input', (e) => {
-        pushUndoStateCoalesced();
-        const val = Math.max(2, Math.min(32, parseInt(e.target.value) || 8));
-        if (selectedObject && selectedObject.surfaceConstraint?.surfaceMapping) {
-          selectedObject.surfaceConstraint.surfaceMapping.closureSteps = val;
-          requestRender();
-        }
-      });
-    }
+    // (Closure Steps input removed in v20260704h — see spline-flow note.)
 
     const surfaceMappingOverflowModeUSelect = document.getElementById('surfaceMappingOverflowModeU');
     if (surfaceMappingOverflowModeUSelect) {
@@ -42762,20 +41941,6 @@
         animationCb.addEventListener('change', (e) => {
           setAnimationEnabled(e.target.checked);
           saveSettings({ animationEnabled: e.target.checked });
-        });
-      }
-
-      // Region-clip silhouette experiment checkbox (v20260703m).
-      // Deliberately NOT persisted via saveSettings: the flag is
-      // runtime-only per the region-clip plan — every session starts on
-      // the legacy pipeline, and rollback is always one unchecked box
-      // (or RC_SILHOUETTE = false in the console) away.
-      const rcSilhouetteCb = document.getElementById('rcSilhouetteCb');
-      if (rcSilhouetteCb) {
-        rcSilhouetteCb.checked = RC_SILHOUETTE;
-        rcSilhouetteCb.addEventListener('change', (e) => {
-          RC_SILHOUETTE = e.target.checked;
-          requestRender();
         });
       }
 

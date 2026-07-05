@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260705b -->
+<!-- dim v20260705n -->
 
 <!--
   MIT License
@@ -5844,6 +5844,10 @@
                         <option value="descendants">All Descendants</option>
                       </select>
                     </div>
+                  </div>
+                  <div class="style-row" id="renderIntersectionsRow" style="display:none;">
+                    <label class="ui-checkbox-label">Render Intersections</label>
+                    <input type="checkbox" id="renderIntersectionsCb" class="ui-checkbox" />
                   </div>
 
                   <hr class="ui-separator" />
@@ -20449,6 +20453,1210 @@
     }
     PolyClip.SNAP = 1 << 20;
 
+    // =====================================================================
+    // RenderIntersections — v20260705c, planar phase
+    // (design: _docs/render_intersections_feasibility_report.html)
+    //
+    // Splits z-sorted faces that interpenetrate in 3D so the painter's
+    // algorithm can order them (Newell–Newell–Sancha splitting, executed
+    // in screen space). Planar phase: participating faces carry an `ix`
+    // record captured at push time:
+    //   ix = { plane: [a,b,c], pts: [{x,y,z},...], splits: n }
+    // where z(x,y) = a·x + b·y + c reproduces the face's NDC depth at any
+    // point in d-coordinate space — projective transforms map planes to
+    // planes, so a planar face has exactly linear screen depth. The seam
+    // between two planar faces is the straight line Δ(x,y) = 0 of the
+    // difference plane; splitting reuses PolyClip.split against a
+    // half-plane region, so the two sides share bit-identical seam
+    // geometry (no hairline gaps). Seam edges carry the provenance tag
+    // 'intersection'; stroked faces draw them as intersection lines in
+    // their own stroke style (v20260705d). Faces without ix (curved
+    // ribbons, mapped fragments, nested opaque groups) keep plain
+    // painter order.
+    //
+    // Pure geometry + DOM cloning; no app state beyond `stats`.
+    // Console: RenderIntersections.selfTest()
+    // =====================================================================
+    const RenderIntersections = {
+      MAX_SPLITS_PER_FACE: 16,  // Newell cascade guard — beyond this, keep painter order
+      DEPTH_EPS: 1e-9,          // |Δ| below this = coincident depth (near-coplanar → no split)
+      SEAM_REL_MARGIN: 0.02,    // both sides of a seam must carry ≥2% of the Δ range
+      MIN_OVERLAP_AREA: 0.25,   // px² — smaller outline overlaps cannot host a visible seam
+      MIN_FRAG_AREA: 0.01,      // px² — sub-visible fragment rings are dropped
+      CURVE_STEPS: 12,          // flattening of C/Q outline segments of split faces
+      XR_FIELD_N: 32,           // depth-difference field grid over a curved face's (t,w) domain
+      XR_MISS: 1e9,             // g value when the ray misses the other surface (⇒ host in front)
+      XR_REFINE_TOL: 0.5,       // px — screen refinement tolerance for mapped region rings
+      XR_NEWTON_TOL2: 1e-4,     // px² — Newton screen-inversion convergence
+      stats: null,
+
+      // ---- depth plane ---------------------------------------------------
+      // Fit z = a·x + b·y + c through projected face points (x,y in
+      // d-coordinate space, z = NDC depth). Newell's normal over the point
+      // loop — exact for planar faces; null for edge-on or degenerate input.
+      planeFromPoints(pts) {
+        if (!pts || pts.length < 3) return null;
+        let nx = 0, ny = 0, nz = 0, cx = 0, cy = 0, cz = 0;
+        const n = pts.length;
+        for (let i = 0; i < n; i++) {
+          const p = pts[i], q = pts[(i + 1) % n];
+          if (!p || !q) return null;
+          nx += (p.y - q.y) * (p.z + q.z);
+          ny += (p.z - q.z) * (p.x + q.x);
+          nz += (p.x - q.x) * (p.y + q.y);
+          cx += p.x; cy += p.y; cz += p.z;
+        }
+        cx /= n; cy /= n; cz /= n;
+        const mag = Math.abs(nx) + Math.abs(ny) + Math.abs(nz);
+        if (!(mag > 0) || Math.abs(nz) < mag * 1e-9) return null; // edge-on face
+        const a = -nx / nz, b = -ny / nz;
+        if (!isFinite(a) || !isFinite(b)) return null;
+        return [a, b, cz - a * cx - b * cy];
+      },
+
+      planeZ(plane, x, y) { return plane[0] * x + plane[1] * y + plane[2]; },
+
+      // ---- curved extrude ribbons (kind 'xr') ------------------------------
+      // A ribbon is a CHAIN of cubic profile segments swept along the
+      // extrusion (merged simpleSides ribbons span several segments; faceted
+      // ribbons are 1-chains). Its ruling is straight in model space, hence
+      // LINEAR IN CLIP SPACE — the surface point at (t, w) is a 4D lerp
+      // between the front and back profile curves' clip coordinates, then
+      // one perspective divide. Parameter domain: t ∈ [0, chain.length]
+      // (integer part = segment, fraction = local bezier t), w ∈ [0, 1].
+      _clip4(p, m) {
+        const x = p[0], y = p[1], z = p[2];
+        return [
+          x * m[0][0] + y * m[0][1] + z * m[0][2] + m[0][3],
+          x * m[1][0] + y * m[1][1] + z * m[1][2] + m[1][3],
+          x * m[2][0] + y * m[2][1] + z * m[2][2] + m[2][3],
+          x * m[3][0] + y * m[3][1] + z * m[3][2] + m[3][3],
+        ];
+      },
+
+      _bez3(c, t) {
+        const u = 1 - t;
+        const a = u * u * u, b = 3 * u * u * t, cc = 3 * u * t * t, d = t * t * t;
+        return [
+          a * c[0][0] + b * c[1][0] + cc * c[2][0] + d * c[3][0],
+          a * c[0][1] + b * c[1][1] + cc * c[2][1] + d * c[3][1],
+          a * c[0][2] + b * c[1][2] + cc * c[2][2] + d * c[3][2],
+        ];
+      },
+
+      _xrTMax(xr) { return xr.kind === 'sr' ? xr.tMax : xr.chainA.length; },
+
+      // Chain-aware cubic evaluation: integer part of t picks the segment,
+      // the fraction is the local bezier parameter. t outside [0, n] rides
+      // the end segments' polynomial extension (the Newton oracle's virtual
+      // surface).
+      _chainAt(chain, t) {
+        const n = chain.length;
+        let seg = Math.floor(t);
+        if (seg < 0) seg = 0; else if (seg > n - 1) seg = n - 1;
+        return this._bez3(chain[seg], t - seg);
+      },
+
+      // Screen point + NDC depth of the curved surface at (t, w).
+      // 'sr' (swept patches: revolve/sweep/loft clean faces) evaluate via
+      // their captured closure; 'xr' (extrude ribbons) use the inlined
+      // allocation-free clip-lerp path (called ~10⁴–10⁵ times per frame).
+      _xrScreen(xr, t, w) {
+        if (xr.kind === 'sr') return xr.evalScreen(t, w);
+        const nSeg = xr.chainA.length;
+        let seg = Math.floor(t);
+        if (seg < 0) seg = 0; else if (seg > nSeg - 1) seg = nSeg - 1;
+        const lt = t - seg, u = 1 - lt;
+        const ba = u * u * u, bb = 3 * u * u * lt, bc = 3 * u * lt * lt, bd = lt * lt * lt;
+        const cA = xr.chainA[seg], cB = xr.chainB[seg];
+        const ax = ba * cA[0][0] + bb * cA[1][0] + bc * cA[2][0] + bd * cA[3][0];
+        const ay = ba * cA[0][1] + bb * cA[1][1] + bc * cA[2][1] + bd * cA[3][1];
+        const az = ba * cA[0][2] + bb * cA[1][2] + bc * cA[2][2] + bd * cA[3][2];
+        const bx = ba * cB[0][0] + bb * cB[1][0] + bc * cB[2][0] + bd * cB[3][0];
+        const by = ba * cB[0][1] + bb * cB[1][1] + bc * cB[2][1] + bd * cB[3][1];
+        const bz = ba * cB[0][2] + bb * cB[1][2] + bc * cB[2][2] + bd * cB[3][2];
+        const mF = xr.mvpF, mB = xr.mvpB;
+        const fX = ax * mF[0][0] + ay * mF[0][1] + az * mF[0][2] + mF[0][3];
+        const fY = ax * mF[1][0] + ay * mF[1][1] + az * mF[1][2] + mF[1][3];
+        const fZ = ax * mF[2][0] + ay * mF[2][1] + az * mF[2][2] + mF[2][3];
+        const fW = ax * mF[3][0] + ay * mF[3][1] + az * mF[3][2] + mF[3][3];
+        const gX = bx * mB[0][0] + by * mB[0][1] + bz * mB[0][2] + mB[0][3];
+        const gY = bx * mB[1][0] + by * mB[1][1] + bz * mB[1][2] + mB[1][3];
+        const gZ = bx * mB[2][0] + by * mB[2][1] + bz * mB[2][2] + mB[2][3];
+        const gW = bx * mB[3][0] + by * mB[3][1] + bz * mB[3][2] + mB[3][3];
+        const X = fX + (gX - fX) * w;
+        const Y = fY + (gY - fY) * w;
+        const Z = fZ + (gZ - fZ) * w;
+        const W = fW + (gW - fW) * w;
+        if (!(Math.abs(W) > 1e-9)) return null;
+        return { x: (X / W) * FRAME_SIZE / 2, y: (-Y / W) * FRAME_SIZE / 2, z: Z / W };
+      },
+
+      // Sample grid over the ribbon domain: Newton seeds + depth range.
+      _xrEnsureGrid(rec) {
+        if (rec.grid) return rec.grid;
+        const tMax = this._xrTMax(rec.xr);
+        const NT = Math.min(72, Math.max(12, 6 * tMax));
+        const NW = 4;
+        const pts = [];
+        let zMin = Infinity, zMax = -Infinity;
+        for (let i = 0; i <= NT; i++) {
+          for (let j = 0; j <= NW; j++) {
+            const t = (i / NT) * tMax, w = j / NW;
+            const s = this._xrScreen(rec.xr, t, w);
+            if (!s) continue;
+            pts.push({ t, w, x: s.x, y: s.y, z: s.z });
+            if (s.z < zMin) zMin = s.z;
+            if (s.z > zMax) zMax = s.z;
+          }
+        }
+        rec.grid = { pts, zMin, zMax };
+        return rec.grid;
+      },
+
+      // Depth of the ribbon surface along the view ray through screen (x,y):
+      // Newton inversion of the (t,w) → screen map, seeded from the sample
+      // grid (Martin et al. 2000 pattern) or a caller-provided warm start
+      // (adjacent field nodes converge to adjacent roots — grid coherence).
+      // Returns NDC z, or null when the ray misses the (virtually extended)
+      // surface. On success, `hint` (if given) is updated in place.
+      _xrRayDepth(rec, x, y, hint = null) {
+        let t, w;
+        if (hint && hint.ok) {
+          t = hint.t; w = hint.w;
+        } else {
+          const grid = this._xrEnsureGrid(rec);
+          if (!grid.pts.length) return null;
+          let seed = null, best = Infinity;
+          for (const p of grid.pts) {
+            const d2 = (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y);
+            if (d2 < best) { best = d2; seed = p; }
+          }
+          t = seed.t; w = seed.w;
+        }
+        const tMax = this._xrTMax(rec.xr);
+        const stepT = Math.max(0.5, tMax / 8);
+        const h = 1e-4;
+        for (let it = 0; it < 14; it++) {
+          const s = this._xrScreen(rec.xr, t, w);
+          if (!s) break;
+          const ex = s.x - x, ey = s.y - y;
+          if (ex * ex + ey * ey < this.XR_NEWTON_TOL2) {
+            // f semantics: roots on the virtual extension are accepted (the
+            // cut region continues smoothly past the ribbon edge). The
+            // true-intersection gate checks the root's domain itself via
+            // the hint.
+            if (hint) { hint.ok = true; hint.t = t; hint.w = w; }
+            return s.z;
+          }
+          const st = this._xrScreen(rec.xr, t + h, w);
+          const sw = this._xrScreen(rec.xr, t, w + h);
+          if (!st || !sw) break;
+          const a = (st.x - s.x) / h, b = (sw.x - s.x) / h;
+          const c = (st.y - s.y) / h, d = (sw.y - s.y) / h;
+          const det = a * d - b * c;
+          if (!(Math.abs(det) > 1e-12)) break;
+          let dt = (-ex * d + b * ey) / det;
+          let dw = (c * ex - a * ey) / det;
+          if (dt > stepT) dt = stepT; else if (dt < -stepT) dt = -stepT;
+          if (dw > 0.5) dw = 0.5; else if (dw < -0.5) dw = -0.5;
+          t += dt; w += dw;
+          if (t < -0.5 || t > tMax + 0.5 || w < -1 || w > 2) break; // beyond virtual extension
+        }
+        // Warm start failed → retry once from the best grid seed.
+        if (hint && hint.ok) {
+          hint.ok = false;
+          return this._xrRayDepth(rec, x, y, hint);
+        }
+        if (hint) hint.ok = false;
+        return null;
+      },
+
+      // Even-odd point-in-rings test (rings = [{pts}] or [[x,y],…] arrays).
+      _pointInRings(rings, x, y) {
+        let inside = false;
+        for (const r of rings) {
+          const pts = r.pts || r;
+          for (let i = 0, n = pts.length, j = n - 1; i < n; j = i++) {
+            const yi = pts[i][1], yj = pts[j][1];
+            if ((yi > y) !== (yj > y)) {
+              const xInt = pts[i][0] + ((y - yi) / (yj - yi)) * (pts[j][0] - pts[i][0]);
+              if (x < xInt) inside = !inside;
+            }
+          }
+        }
+        return inside;
+      },
+
+      // Fast footprint test for planar faces: a per-face row-crossing table
+      // (built once per resolve, shared by fragments via the protoEl key)
+      // answers bulk queries in O(log k); queries near a boundary fall back
+      // to the exact even-odd test so field bisection stays accurate.
+      _planarInside(rec, x, y) {
+        const rings = rec.protoRings;
+        if (!rings) return true;
+        const bb = rec.protoBB;
+        if (bb && (x < bb.minX || x > bb.maxX || y < bb.minY || y > bb.maxY)) return false;
+        const key = this._pid(rec.protoEl);
+        let pir = this._pirCache.get(key);
+        if (pir === undefined) {
+          const bb = rec.protoBB;
+          const R = 64;
+          const h = (bb.maxY - bb.minY) / R;
+          const rows = [];
+          if (!(h > 0)) {
+            pir = null;
+          } else {
+            for (let j = 0; j <= R; j++) {
+              const ry = bb.minY + j * h;
+              const xs = [];
+              for (const ring of rings) {
+                const pts = ring.pts || ring;
+                for (let i = 0, n = pts.length, p = n - 1; i < n; p = i++) {
+                  const yi = pts[i][1], yp = pts[p][1];
+                  if ((yi > ry) !== (yp > ry)) {
+                    xs.push(pts[i][0] + ((ry - yi) / (yp - yi)) * (pts[p][0] - pts[i][0]));
+                  }
+                }
+              }
+              xs.sort((a, b) => a - b);
+              rows.push(xs);
+            }
+            pir = { rows, y0: bb.minY, h, R };
+          }
+          this._pirCache.set(key, pir = (pir || false));
+        }
+        if (!pir) return this._pointInRings(rings, x, y);
+        const jf = (y - pir.y0) / pir.h;
+        let j = Math.floor(jf);
+        if (j < 0) j = 0; else if (j > pir.R - 1) j = pir.R - 1;
+        const probe = (xs) => {
+          let lo = 0, hi = xs.length;
+          while (lo < hi) { const m = (lo + hi) >> 1; if (xs[m] < x) lo = m + 1; else hi = m; }
+          const inside = (lo & 1) === 1;
+          const dl = lo > 0 ? x - xs[lo - 1] : Infinity;
+          const dr = lo < xs.length ? xs[lo] - x : Infinity;
+          return { inside, d: Math.min(dl, dr) };
+        };
+        const a = probe(pir.rows[j]), b = probe(pir.rows[j + 1]);
+        if (a.inside === b.inside && Math.min(a.d, b.d) > 1.5 * pir.h) return a.inside;
+        return this._pointInRings(rings, x, y);
+      },
+
+      // Unified "depth of this face's surface at screen (x,y)".
+      // f semantics: planar faces answer as their INFINITE planes (the cut
+      // regions deliberately extend Newell-style); the true-intersection
+      // GATE in _curvedPair applies the footprint bound separately via
+      // _planarInside / the Newton root domain.
+      _depthAtScreen(rec, x, y, hint = null) {
+        if (rec.plane) return this.planeZ(rec.plane, x, y);
+        if (rec.xr) return this._xrRayDepth(rec, x, y, hint);
+        return null;
+      },
+
+      // Stable id per original face element (for the per-resolve pair cache).
+      _pidMap: null,
+      _pidNext: 1,
+      _pid(el) {
+        if (!this._pidMap) this._pidMap = new WeakMap();
+        let id = this._pidMap.get(el);
+        if (!id) { id = this._pidNext++; this._pidMap.set(el, id); }
+        return id;
+      },
+
+      // Map front-region rings from the host's (t,w) domain to screen space
+      // with adaptive refinement. Contour pieces become 'intersection' seam
+      // edges (strokable); domain-perimeter pieces become 'domain' edges.
+      //
+      // `inflate` pushes points that lie ON the domain perimeter outward
+      // (t=0 → −inflate, t=1 → 1+inflate, same for w; the analytic surface
+      // extrapolates). Used for splitting the HOST itself: its outline and
+      // the region perimeter are two flattenings of the SAME curves — left
+      // coincident they wiggle across each other and PolyClip drops walks.
+      // Inflated, only the seam (whose points are never pushed) crosses the
+      // host. The other member of the pair uses inflate = 0 so the region
+      // stays the host's exact footprint. Both variants share bit-identical
+      // seam points — the watertightness contract.
+      _mapRegionToScreen(xr, rings, inflate = 0) {
+        const out = [];
+        const tol2 = this.XR_REFINE_TOL * this.XR_REFINE_TOL;
+        const EPSB = 1e-6;
+        const tMax = this._xrTMax(xr);
+        const pushParam = (p) => {
+          if (!inflate) return p;
+          let t = p[0], w = p[1];
+          if (t <= EPSB) t = -inflate; else if (t >= tMax - EPSB) t = tMax + inflate;
+          if (w <= EPSB) w = -inflate; else if (w >= 1 - EPSB) w = 1 + inflate;
+          return [t, w];
+        };
+        for (const ring of rings) {
+          const pts = [], srcs = [];
+          const n = ring.pts.length;
+          const push = (s, tag) => { pts.push([s.x, s.y]); srcs.push(tag); };
+          const refine = (p0, s0, p1, s1, tag, depth) => {
+            if (depth >= 7) return;
+            const pm = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
+            const sm = this._xrScreen(xr, pm[0], pm[1]);
+            if (!sm) return;
+            const mx = (s0.x + s1.x) / 2, my = (s0.y + s1.y) / 2;
+            const dx = sm.x - mx, dy = sm.y - my;
+            if (dx * dx + dy * dy <= tol2) return;
+            refine(p0, s0, pm, sm, tag, depth + 1);
+            push(sm, tag);
+            refine(pm, sm, p1, s1, tag, depth + 1);
+          };
+          for (let i = 0; i < n; i++) {
+            const isSeam = ring.srcs && ring.srcs[i] === 'silhouette';
+            const rawP0 = ring.pts[i], rawP1 = ring.pts[(i + 1) % n];
+            // Seam interior points stay exact; only perimeter-resident points
+            // get pushed (seam endpoints on the perimeter included — both
+            // adjacent pieces push them identically, keeping the ring closed).
+            const p0 = pushParam(rawP0), p1 = pushParam(rawP1);
+            const s0 = this._xrScreen(xr, p0[0], p0[1]);
+            const s1 = this._xrScreen(xr, p1[0], p1[1]);
+            if (!s0 || !s1) continue;
+            const tag = isSeam ? 'intersection' : 'domain';
+            push(s0, tag);
+            refine(p0, s0, p1, s1, tag, 0);
+          }
+          if (pts.length >= 3) out.push({ pts, srcs });
+        }
+        return out;
+      },
+
+      _makeXrRec(entry, rings) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const pts of rings) {
+          for (const p of pts) {
+            if (p[0] < minX) minX = p[0];
+            if (p[0] > maxX) maxX = p[0];
+            if (p[1] < minY) minY = p[1];
+            if (p[1] > maxY) maxY = p[1];
+          }
+        }
+        if (!isFinite(minX)) return null;
+        const rec = {
+          entry, plane: null, xr: entry.ix,
+          owner: entry.ix.owner || null,
+          protoEl: entry.element,
+          protoRings: rings,
+          protoBB: { minX, minY, maxX, maxY },
+          ringsPC: rings.map(pts => ({ pts, srcs: null })),
+          bb: { minX, minY, maxX, maxY },
+          zMin: 0, zMax: 0,
+          splits: entry.ix.splits || 0,
+          listIdx: -1, grid: null,
+        };
+        const grid = this._xrEnsureGrid(rec);
+        if (!grid.pts.length) return null;
+        rec.zMin = grid.zMin; rec.zMax = grid.zMax;
+        return rec;
+      },
+
+      // ---- outline rings from the face's own path data --------------------
+      // Face elements are <path> nodes whose d is already in the shared
+      // screen space. Parse the absolute M/L/C/Q/Z commands the generators
+      // emit and flatten curves; every subpath fills as a closed ring.
+      ringsFromElement(el) {
+        const d = el && el.getAttribute ? el.getAttribute('d') : null;
+        if (!d) return null;
+        const tok = d.match(/[a-zA-Z]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g);
+        if (!tok) return null;
+        const rings = [];
+        let ring = null, px = 0, py = 0;
+        let i = 0;
+        const isNum = () => i < tok.length && !/^[a-zA-Z]$/.test(tok[i]);
+        const num = () => parseFloat(tok[i++]);
+        const flush = () => {
+          if (ring && ring.length >= 3) rings.push(ring);
+          ring = null;
+        };
+        while (i < tok.length) {
+          const c = tok[i++];
+          if (c === 'M') {
+            flush();
+            px = num(); py = num();
+            if (!isFinite(px) || !isFinite(py)) return null;
+            ring = [[px, py]];
+            while (isNum()) { px = num(); py = num(); ring.push([px, py]); } // implicit L
+          } else if (c === 'L') {
+            if (!ring) return null;
+            while (isNum()) { px = num(); py = num(); ring.push([px, py]); }
+          } else if (c === 'C') {
+            if (!ring) return null;
+            while (isNum()) {
+              const x1 = num(), y1 = num(), x2 = num(), y2 = num(), x3 = num(), y3 = num();
+              const x0 = px, y0 = py;
+              for (let s = 1; s <= this.CURVE_STEPS; s++) {
+                const t = s / this.CURVE_STEPS, u = 1 - t;
+                ring.push([
+                  u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
+                  u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3,
+                ]);
+              }
+              px = x3; py = y3;
+            }
+          } else if (c === 'Q') {
+            if (!ring) return null;
+            while (isNum()) {
+              const x1 = num(), y1 = num(), x2 = num(), y2 = num();
+              const x0 = px, y0 = py;
+              for (let s = 1; s <= this.CURVE_STEPS; s++) {
+                const t = s / this.CURVE_STEPS, u = 1 - t;
+                ring.push([
+                  u * u * x0 + 2 * u * t * x1 + t * t * x2,
+                  u * u * y0 + 2 * u * t * y1 + t * t * y2,
+                ]);
+              }
+              px = x2; py = y2;
+            }
+          } else if (c === 'Z' || c === 'z') {
+            flush();
+          } else {
+            return null; // unsupported command — face opts out of splitting
+          }
+        }
+        flush();
+        return rings.length ? rings : null;
+      },
+
+      _ringArea(pts) {
+        let a = 0;
+        for (let i = 0, n = pts.length; i < n; i++) {
+          const p = pts[i], q = pts[(i + 1) % n];
+          a += p[0] * q[1] - q[0] * p[1];
+        }
+        return a / 2;
+      },
+
+      // Polygon of {Δ >= 0} clipped to an (inflated) rect — the region fed
+      // to PolyClip so a face splits along the straight seam Δ(x,y) = 0.
+      _halfPlaneRegion(dp, bb) {
+        const padX = (bb.maxX - bb.minX) * 0.05 + 1;
+        const padY = (bb.maxY - bb.minY) * 0.05 + 1;
+        const rect = [
+          [bb.minX - padX, bb.minY - padY],
+          [bb.maxX + padX, bb.minY - padY],
+          [bb.maxX + padX, bb.maxY + padY],
+          [bb.minX - padX, bb.maxY + padY],
+        ];
+        const out = [];
+        for (let i = 0; i < 4; i++) {
+          const p = rect[i], q = rect[(i + 1) % 4];
+          const dP = dp[0] * p[0] + dp[1] * p[1] + dp[2];
+          const dQ = dp[0] * q[0] + dp[1] * q[1] + dp[2];
+          if (dP >= 0) out.push(p);
+          if ((dP > 0 && dQ < 0) || (dP < 0 && dQ > 0)) {
+            const t = dP / (dP - dQ);
+            out.push([p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])]);
+          }
+        }
+        return out.length >= 3 ? out : null;
+      },
+
+      _makeRec(entry, rings) {
+        const plane = entry.ix.plane;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        let zMin = Infinity, zMax = -Infinity;
+        for (const pts of rings) {
+          for (const p of pts) {
+            if (p[0] < minX) minX = p[0];
+            if (p[0] > maxX) maxX = p[0];
+            if (p[1] < minY) minY = p[1];
+            if (p[1] > maxY) maxY = p[1];
+            const z = this.planeZ(plane, p[0], p[1]);
+            if (z < zMin) zMin = z;
+            if (z > zMax) zMax = z;
+          }
+        }
+        if (!isFinite(minX) || !isFinite(zMin)) return null;
+        return {
+          entry, plane,
+          owner: entry.ix.owner || null,
+          // Clone prototype for fragments: always the original <path> — a
+          // fragment's own element may be a <g> wrapper (fill + stroke
+          // overlay), which must never be cloned as a fill carrier.
+          protoEl: entry.element,
+          // Original-footprint identity (fragment-independent, so pair-level
+          // caches stay valid): the surface exists only inside these rings.
+          protoRings: rings,
+          protoBB: { minX, minY, maxX, maxY },
+          ringsPC: rings.map(pts => ({ pts, srcs: null })), // default subject tag 'path'
+          bb: { minX, minY, maxX, maxY },
+          zMin, zMax,
+          splits: entry.ix.splits || 0,
+          listIdx: -1,
+        };
+      },
+
+      // Build the fill d (all edges) and the stroke d (original 'path' edges
+      // PLUS 'intersection' seam edges — a stroked object draws its cut line
+      // in its own stroke style, like an NPR intersection line) from PolyClip
+      // output rings. The stroke d is only used when the face has a stroke.
+      _fragmentPathData(rings) {
+        let dFill = '';
+        let dStroke = '';
+        for (const ring of rings) {
+          const pts = ring.pts, srcs = ring.srcs || [];
+          const n = pts.length;
+          if (n < 3) continue;
+          dFill += `M ${pts[0][0]} ${pts[0][1]} `;
+          for (let i = 1; i < n; i++) dFill += `L ${pts[i][0]} ${pts[i][1]} `;
+          dFill += 'Z ';
+          // stroke runs over consecutive strokable edges
+          let run = false;
+          for (let i = 0; i < n; i++) {
+            if (srcs[i] === 'path' || srcs[i] === 'intersection') {
+              const p = pts[i], q = pts[(i + 1) % n];
+              if (!run) { dStroke += `M ${p[0]} ${p[1]} `; run = true; }
+              dStroke += `L ${q[0]} ${q[1]} `;
+            } else {
+              run = false;
+            }
+          }
+        }
+        return { dFill: dFill.trim(), dStroke: dStroke.trim() };
+      },
+
+      _makeFragmentRec(parent, rings) {
+        const kept = rings.filter(r => r.pts && r.pts.length >= 3 && Math.abs(this._ringArea(r.pts)) > this.MIN_FRAG_AREA);
+        if (!kept.length) return null;
+        const { dFill, dStroke } = this._fragmentPathData(kept);
+        if (!dFill) return null;
+        const srcEl = parent.protoEl; // always the original <path>, never a fragment <g>
+        const fillEl = srcEl.cloneNode(false);
+        fillEl.setAttribute('d', dFill);
+        let element = fillEl;
+        const strokeVal = srcEl.getAttribute && srcEl.getAttribute('stroke');
+        if (strokeVal && strokeVal !== 'none') {
+          // Split the visual into an unstroked fill + a stroke overlay of
+          // the original outline edges and the intersection seam (the cut
+          // line renders in the object's own stroke style).
+          fillEl.setAttribute('stroke', 'none');
+          if (dStroke) {
+            const strokeEl = srcEl.cloneNode(false);
+            strokeEl.setAttribute('fill', 'none');
+            strokeEl.setAttribute('d', dStroke);
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            g.appendChild(fillEl);
+            g.appendChild(strokeEl);
+            element = g;
+          }
+        }
+        // Fragment depth: evaluated on the parent's own surface over the
+        // fragment's outline — exact plane eval for planar parents, Newton
+        // ray-depth samples for curved (xr) parents.
+        let rec;
+        if (parent.plane) {
+          const plane = parent.plane;
+          let zSum = 0, zCnt = 0;
+          const pts3 = [];
+          for (const r of kept) {
+            for (const p of r.pts) {
+              const z = this.planeZ(plane, p[0], p[1]);
+              pts3.push({ x: p[0], y: p[1], z });
+              zSum += z; zCnt++;
+            }
+          }
+          const entry = {
+            element,
+            z: zCnt ? zSum / zCnt : parent.entry.z,
+            ix: { plane, pts: pts3, splits: parent.splits + 1 },
+          };
+          rec = this._makeRec(entry, kept.map(r => r.pts));
+          if (!rec) return null;
+        } else {
+          // xr parent: sample depth at up to 12 outline points (evenly spread)
+          const flat = [];
+          for (const r of kept) for (const p of r.pts) flat.push(p);
+          const step = Math.max(1, Math.floor(flat.length / 12));
+          let zSum = 0, zCnt = 0, zMin = Infinity, zMax = -Infinity;
+          for (let k = 0; k < flat.length; k += step) {
+            const z = this._xrRayDepth(parent, flat[k][0], flat[k][1]);
+            if (z === null) continue;
+            zSum += z; zCnt++;
+            if (z < zMin) zMin = z;
+            if (z > zMax) zMax = z;
+          }
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const p of flat) {
+            if (p[0] < minX) minX = p[0];
+            if (p[0] > maxX) maxX = p[0];
+            if (p[1] < minY) minY = p[1];
+            if (p[1] > maxY) maxY = p[1];
+          }
+          if (!isFinite(minX)) return null;
+          const entry = {
+            element,
+            z: zCnt ? zSum / zCnt : parent.entry.z,
+            ix: { ...parent.xr, splits: parent.splits + 1 },
+          };
+          rec = {
+            entry, plane: null, xr: entry.ix,
+            protoEl: null, ringsPC: null,
+            bb: { minX, minY, maxX, maxY },
+            zMin: zCnt ? zMin : parent.zMin,
+            zMax: zCnt ? zMax : parent.zMax,
+            splits: parent.splits + 1,
+            listIdx: -1,
+            grid: parent.grid, // Newton seeds stay valid — same surface
+          };
+        }
+        // Preserve seam provenance on the fragment's rings so future splits
+        // keep stroking only real path edges, and keep cloning from the
+        // original <path> across the whole split cascade.
+        rec.ringsPC = kept.map(r => ({ pts: r.pts, srcs: r.srcs }));
+        rec.splits = parent.splits + 1;
+        rec.protoEl = parent.protoEl;
+        rec.owner = parent.owner;
+        rec.protoRings = parent.protoRings;
+        rec.protoBB = parent.protoBB;
+        return rec;
+      },
+
+      _splitRec(rec, regionPts) {
+        return this._splitRecRegion(rec,
+          [{ pts: regionPts, srcs: regionPts.map(() => 'intersection') }]);
+      },
+
+      _splitRecRegion(rec, regionRings) {
+        const res = PolyClip.split(rec.ringsPC, regionRings);
+        const a = this._makeFragmentRec(rec, res.front || []);
+        const b = this._makeFragmentRec(rec, res.back || []);
+        // Both sides must survive for this to be a real split; otherwise the
+        // seam only grazed the face — keep the original untouched.
+        return (a && b) ? [a, b] : null;
+      },
+
+      _replaceInPool(pool, faceList, poolIdx, frags) {
+        const listIdx = pool[poolIdx].listIdx;
+        frags[0].listIdx = listIdx;
+        faceList[listIdx] = frags[0].entry;
+        pool[poolIdx] = frags[0];
+        for (let k = 1; k < frags.length; k++) {
+          faceList.push(frags[k].entry);
+          frags[k].listIdx = faceList.length - 1;
+          pool.push(frags[k]);
+        }
+      },
+
+      // ---- curved pair resolution ------------------------------------------
+      // At least one member is a curved ribbon. Build the depth-difference
+      // field g(t,w) = z_other(along the ray) − z_host over the CURVED
+      // member's parameter domain, extract the front region F = {g ≥ 0}
+      // ("host in front"; ray misses count as in-front) with the existing
+      // marching-squares engine, map F's rings to screen space, and split
+      // BOTH members' screen outlines against those same rings — one field
+      // per pair, watertight seams by construction (report §7.2).
+      _curvedPair(pool, faceList, i, j, stats, tr) {
+        const A = pool[i], B = pool[j];
+        const host = A.xr ? A : B;
+        const other = host === A ? B : A;
+        const hi = host === A ? i : j, oi = host === A ? j : i;
+        if (host.splits >= this.MAX_SPLITS_PER_FACE && other.splits >= this.MAX_SPLITS_PER_FACE) {
+          stats.capped++;
+          tr(i, j, 'capped');
+          return;
+        }
+        // Field results depend only on the two ORIGINAL surfaces, not on the
+        // fragments being split — cache the mapped region per original pair
+        // so cascades don't rebuild it (null = "determined: no seam").
+        // Checked FIRST: descendants of processed pairs must skip before any
+        // geometry work (the overlap PolyClip below is the hot spot).
+        const cacheKey = this._pid(host.protoEl) + ':' + this._pid(other.protoEl);
+        let regions;
+        if (this._regionCache.has(cacheKey)) {
+          regions = this._regionCache.get(cacheKey);
+          if (!regions) { tr(i, j, 'cached-no-seam'); return; }
+        } else {
+          // Cheap sample gate: some host grid sample must land inside the
+          // other's bbox (or vice versa via ring points) before paying for
+          // the exact overlap boolean.
+          const hostGrid = this._xrEnsureGrid(host);
+          let touch = false;
+          for (const p of hostGrid.pts) {
+            if (p.x >= other.bb.minX && p.x <= other.bb.maxX &&
+                p.y >= other.bb.minY && p.y <= other.bb.maxY) { touch = true; break; }
+          }
+          if (!touch) {
+            outer:
+            for (const r of other.ringsPC) {
+              for (const p of r.pts) {
+                if (p[0] >= host.bb.minX && p[0] <= host.bb.maxX &&
+                    p[1] >= host.bb.minY && p[1] <= host.bb.maxY) { touch = true; break outer; }
+              }
+            }
+          }
+          if (!touch) { tr(i, j, 'sample-gate'); return; }
+          // True outline-overlap test. NOTE: computed on the CURRENT
+          // fragments, so a negative result is not cached — other fragments
+          // of the same originals may still overlap.
+          stats.overlapTests++;
+          const overlap = PolyClip.split(A.ringsPC, B.ringsPC.map(r => ({ pts: r.pts, srcs: null }))).front;
+          let ovArea = 0;
+          if (overlap) for (const r of overlap) ovArea += Math.abs(this._ringArea(r.pts));
+          if (ovArea < this.MIN_OVERLAP_AREA) {
+            tr(i, j, `ov-area ${ovArea.toExponential(1)}`);
+            return;
+          }
+          // v20260705f pipeline (restored per design review): g uses the
+          // partner's UNBOUNDED surface (planar partners as infinite planes,
+          // loose Newton domain), ray misses count as "host in front"
+          // (+XR_MISS ≥ 0 lands in F), and both faces split TWO ways
+          // against the single front region F. This produces the generous
+          // Newell-style cuts that give the vector output its editable
+          // piece structure.
+          //
+          // On top of it, ONE surgical gate (the fix for phantom lines on
+          // objects that never touch): a TRUE 3D surface intersection
+          // exists iff the FOOTPRINT-BOUNDED depth difference takes both
+          // signs — bounded meaning the sample only counts when the ray
+          // hits the partner's actual face (inside a planar partner's
+          // outline; Newton root within a curved partner's real domain).
+          // The bounded range is recorded while the field samples; pairs
+          // that fail the gate are skipped entirely, cuts and strokes
+          // included. Pairs that pass keep byte-for-byte f cut geometry.
+          const nHint = { ok: false, t: 0, w: 0 }; // Newton warm start (grid coherence)
+          const tMax = this._xrTMax(host.xr);
+          const otherTMax = other.xr ? this._xrTMax(other.xr) : 0;
+          let bMin = Infinity, bMax = -Infinity; // footprint-bounded g range
+          const evalG = (t, w) => {
+            const s = this._xrScreen(host.xr, t, w);
+            if (!s) return NaN;
+            const zo = this._depthAtScreen(other, s.x, s.y, nHint);
+            if (zo === null) return this.XR_MISS;
+            const g = zo - s.z;
+            let bounded;
+            if (other.plane) {
+              bounded = this._planarInside(other, s.x, s.y);
+            } else {
+              bounded = nHint.ok &&
+                nHint.t > -0.02 && nHint.t < otherTMax + 0.02 &&
+                nHint.w > -0.02 && nHint.w < 1.02;
+            }
+            if (bounded) {
+              if (g < bMin) bMin = g;
+              if (g > bMax) bMax = g;
+            }
+            return g;
+          };
+          // Coarse probe (generous, f behavior): candidates need a finite
+          // "behind" somewhere plus any in-front/miss evidence.
+          const NPT = Math.min(24, Math.max(6, 3 * tMax));
+          let pMin = Infinity, pMax = -Infinity, anyMiss = false;
+          for (let pi = 0; pi <= NPT; pi++) {
+            for (let pj = 0; pj <= 4; pj++) {
+              const g = evalG((pi / NPT) * tMax, pj / 4);
+              if (Number.isNaN(g)) continue;
+              if (g >= this.XR_MISS / 2) { anyMiss = true; continue; }
+              if (g < pMin) pMin = g;
+              if (g > pMax) pMax = g;
+            }
+          }
+          const probeTiny = Math.max(1e-7, 0.02 * ((isFinite(pMax) && isFinite(pMin)) ? (pMax - pMin) : 0));
+          const hasNeg = isFinite(pMin) && pMin < -probeTiny;
+          const hasPos = (isFinite(pMax) && pMax > probeTiny) || anyMiss;
+          if (!(hasNeg && hasPos)) {
+            this._regionCache.set(cacheKey, null);
+            tr(i, j, 'probe-sign');
+            return;
+          }
+          stats.fields++;
+          const fieldN = Math.min(64, Math.max(24, 6 * Math.ceil(tMax)));
+          const field = SilhouetteField.build(evalG, 0, tMax, 0, 1, fieldN);
+          // The gate: no two-sided bounded range at field resolution ⇒ the
+          // surfaces never actually meet ⇒ no cut, no line.
+          const bm = Math.max(1e-7, 0.02 * (isFinite(bMax - bMin) ? (bMax - bMin) : 0));
+          if (!(isFinite(bMin) && isFinite(bMax) && bMin < -bm && bMax > bm)) {
+            this._regionCache.set(cacheKey, null);
+            tr(i, j, 'no-true-intersection');
+            return;
+          }
+          const F = SilhouetteField.buildFrontRegion(field);
+          const hasSeam = F && F.rings && F.rings.some(r => r.srcs && r.srcs.some(s => s === 'silhouette'));
+          if (hasSeam) {
+            regions = {
+              forHost: this._mapRegionToScreen(host.xr, F.rings, 0.35),
+              forOther: this._mapRegionToScreen(host.xr, F.rings, 0),
+            };
+          }
+          if (!regions || !regions.forHost.length || !regions.forOther.length) {
+            this._regionCache.set(cacheKey, null);
+            tr(i, j, hasSeam ? 'empty-region' : 'no-seam');
+            return;
+          }
+          this._regionCache.set(cacheKey, regions);
+        }
+        stats.intersections++;
+
+        let did = false;
+        if (host.splits < this.MAX_SPLITS_PER_FACE) {
+          const frags = this._splitRecRegion(host, regions.forHost);
+          if (frags) { this._replaceInPool(pool, faceList, hi, frags); stats.splits++; did = true; }
+        } else {
+          stats.capped++;
+        }
+        if (other.splits < this.MAX_SPLITS_PER_FACE) {
+          const frags = this._splitRecRegion(other, regions.forOther);
+          if (frags) { this._replaceInPool(pool, faceList, oi, frags); stats.splits++; did = true; }
+        } else {
+          stats.capped++;
+        }
+        // The region has now fully partitioned both original faces; their
+        // fragments have nothing left to gain from it. Null the cache entry
+        // so descendant pairs skip immediately — re-splitting them only
+        // shaves wedge slivers where the drawn-outline flattening and the
+        // field-domain mapping disagree (two flattenings of the same curve).
+        this._regionCache.set(cacheKey, null);
+        tr(i, j, did ? 'SPLIT-curved' : 'curved-one-sided');
+      },
+
+      // ---- main entry ------------------------------------------------------
+      // Mutates faceList in place: entries of interpenetrating faces are
+      // replaced by their fragments (each with its own depth). Runs inside
+      // the z-sorted group's draw, before the painter sort.
+      resolve(faceList) {
+        const t0 = (typeof performance !== 'undefined') ? performance.now() : 0;
+        const stats = { faces: 0, pairs: 0, overlapTests: 0, intersections: 0, splits: 0, capped: 0, degenerate: 0, fields: 0, ms: 0 };
+        this.stats = stats;
+        this._regionCache = new Map(); // per-resolve: mapped seam regions by original pair
+        this._pirCache = new Map();    // per-resolve: planar footprint row tables by original face
+        const pool = [];
+        for (let k = 0; k < faceList.length; k++) {
+          const e = faceList[k];
+          if (!e || !e.ix || !e.element) continue;
+          const rings = this.ringsFromElement(e.element);
+          if (!rings) continue;
+          let rec = null;
+          if (e.ix.kind === 'xr' || e.ix.kind === 'sr') rec = this._makeXrRec(e, rings);
+          else if (e.ix.plane) rec = this._makeRec(e, rings);
+          if (rec) { rec.listIdx = k; pool.push(rec); }
+        }
+        stats.faces = pool.length;
+        if (pool.length < 2) {
+          stats.ms = t0 ? (performance.now() - t0) : 0;
+          return;
+        }
+        // Pairwise sweep. The pool grows as faces split; fragments are
+        // subsets of their ancestors, so tests already passed by an ancestor
+        // (no overlap / no depth flip) remain valid for its fragments and
+        // the dynamic loop bounds below cover every live pair exactly once.
+        const trace = this.DEBUG ? [] : null;
+        if (trace) this._lastTrace = trace;
+        const tr = (i, j, what) => { if (trace) trace.push(`${i},${j}: ${what}`); };
+        for (let i = 0; i < pool.length; i++) {
+          for (let j = i + 1; j < pool.length; j++) {
+            const A = pool[i], B = pool[j];
+            stats.pairs++;
+            // Broad phase: screen bbox + depth-range rejection
+            if (A.bb.maxX < B.bb.minX || B.bb.maxX < A.bb.minX ||
+                A.bb.maxY < B.bb.minY || B.bb.maxY < A.bb.minY) { tr(i, j, 'bbox'); continue; }
+            if (A.zMax < B.zMin - this.DEPTH_EPS || B.zMax < A.zMin - this.DEPTH_EPS) { tr(i, j, 'zrange'); continue; }
+            // Faces of the same Path (caps + ribbons of one solid) touch
+            // along shared edges but never interpenetrate — skip the pair.
+            if (A.owner && A.owner === B.owner) { tr(i, j, 'same-owner'); continue; }
+            // Curved member(s): field-based seam extraction (own narrow phase).
+            if (A.xr || B.xr) {
+              this._curvedPair(pool, faceList, i, j, stats, tr);
+              continue;
+            }
+            // Difference plane Δ(x,y) = zA − zB; if Δ cannot change sign over
+            // the bbox-overlap rectangle, the pair has a constant order there.
+            const dp = [A.plane[0] - B.plane[0], A.plane[1] - B.plane[1], A.plane[2] - B.plane[2]];
+            const ox0 = Math.max(A.bb.minX, B.bb.minX), ox1 = Math.min(A.bb.maxX, B.bb.maxX);
+            const oy0 = Math.max(A.bb.minY, B.bb.minY), oy1 = Math.min(A.bb.maxY, B.bb.maxY);
+            let cPos = false, cNeg = false;
+            for (const [cx, cy] of [[ox0, oy0], [ox1, oy0], [ox1, oy1], [ox0, oy1]]) {
+              const dv = dp[0] * cx + dp[1] * cy + dp[2];
+              if (dv > this.DEPTH_EPS) cPos = true;
+              else if (dv < -this.DEPTH_EPS) cNeg = true;
+            }
+            if (!(cPos && cNeg)) { tr(i, j, 'corner-sign'); continue; } // constant order (or near-coplanar) in overlap
+            if (A.splits >= this.MAX_SPLITS_PER_FACE && B.splits >= this.MAX_SPLITS_PER_FACE) {
+              stats.capped++;
+              tr(i, j, 'capped');
+              continue;
+            }
+            // Narrow phase: the seam must cross the interior of the true
+            // outline overlap. A straight line crosses a region's interior
+            // iff its boundary points lie on both sides — but "both sides"
+            // needs a NOISE-PROOF margin: complementary fragments of an
+            // earlier split share the seam exactly, and snap-lattice
+            // quantization puts their boundary points ~1e-3 px off the
+            // line, i.e. |Δ| ≈ |∇Δ|·1e-3 ≫ DEPTH_EPS. Without the margin
+            // this re-splits the same seam every frame (runaway cascades,
+            // stacked slivers, frame-to-frame flicker — the v20260705c
+            // instability).
+            stats.overlapTests++;
+            const overlap = PolyClip.split(A.ringsPC, B.ringsPC.map(r => ({ pts: r.pts, srcs: null }))).front;
+            if (!overlap || !overlap.length) { tr(i, j, 'no-overlap'); continue; }
+            let ovArea = 0;
+            let dMin = Infinity, dMax = -Infinity;
+            for (const ring of overlap) {
+              ovArea += Math.abs(this._ringArea(ring.pts));
+              for (const p of ring.pts) {
+                const dv = dp[0] * p[0] + dp[1] * p[1] + dp[2];
+                if (dv < dMin) dMin = dv;
+                if (dv > dMax) dMax = dv;
+              }
+            }
+            if (ovArea < this.MIN_OVERLAP_AREA) { tr(i, j, `ov-area ${ovArea.toExponential(1)}`); continue; }
+            // Margin: proportional to the Δ range over the overlap, with an
+            // absolute floor at the snap-lattice quantization noise
+            // (lattice step ≈ sharedDiag / 2^20, Δ noise ≈ |∇Δ|·step).
+            const sharedDiag = Math.hypot(
+              Math.max(A.bb.maxX, B.bb.maxX) - Math.min(A.bb.minX, B.bb.minX),
+              Math.max(A.bb.maxY, B.bb.maxY) - Math.min(A.bb.minY, B.bb.minY));
+            const quantNoise = 4 * Math.hypot(dp[0], dp[1]) * (sharedDiag / PolyClip.SNAP);
+            const margin = Math.max(
+              this.SEAM_REL_MARGIN * Math.max(dMax, -dMin),
+              quantNoise,
+              this.DEPTH_EPS);
+            if (!(dMax > margin && dMin < -margin)) { tr(i, j, `margin dMin=${dMin.toExponential(2)} dMax=${dMax.toExponential(2)} m=${margin.toExponential(2)}`); continue; }
+            stats.intersections++;
+            // Split both faces along the SAME seam (watertight shared boundary).
+            // The margin test proved the seam crosses the overlap interior, so
+            // BOTH fragments of BOTH faces must exist; a null from _splitRec
+            // therefore means the seam degenerately grazes a vertex/edge of
+            // the face (vertex-on-seam makes PolyClip's ring walk drop a
+            // side — common: face corners lie exactly on other faces'
+            // planes). Retry with the seam nudged by sub-lattice offsets
+            // (~½ snap step, invisible at paint resolution), the same nudged
+            // seam for both faces so the shared boundary stays exact.
+            const shared = {
+              minX: Math.min(A.bb.minX, B.bb.minX), minY: Math.min(A.bb.minY, B.bb.minY),
+              maxX: Math.max(A.bb.maxX, B.bb.maxX), maxY: Math.max(A.bb.maxY, B.bb.maxY),
+            };
+            const capA = A.splits >= this.MAX_SPLITS_PER_FACE;
+            const capB = B.splits >= this.MAX_SPLITS_PER_FACE;
+            if (capA || capB) stats.capped++;
+            const nudge = 0.5 * Math.hypot(dp[0], dp[1]) * (sharedDiag / PolyClip.SNAP);
+            let fragsA = null, fragsB = null, seamOk = false;
+            for (const k of [0, 1, -1, 2, -2]) {
+              const regionPts = this._halfPlaneRegion([dp[0], dp[1], dp[2] + k * nudge], shared);
+              if (!regionPts) continue;
+              fragsA = capA ? null : this._splitRec(A, regionPts);
+              fragsB = capB ? null : this._splitRec(B, regionPts);
+              // Success: every uncapped face produced both fragments.
+              if ((capA || fragsA) && (capB || fragsB)) { seamOk = true; break; }
+            }
+            if (!seamOk) { stats.degenerate++; tr(i, j, 'DEGENERATE'); continue; }
+            tr(i, j, 'SPLIT');
+            if (fragsA) { this._replaceInPool(pool, faceList, i, fragsA); stats.splits++; }
+            if (fragsB) { this._replaceInPool(pool, faceList, j, fragsB); stats.splits++; }
+          }
+        }
+        stats.ms = t0 ? (performance.now() - t0) : 0;
+      },
+
+      // ---- console self-test ----------------------------------------------
+      selfTest() {
+        const results = [];
+        const t = (name, ok, info = '') => results.push({ name, ok: ok ? 'PASS' : 'FAIL', info });
+        const NS = 'http://www.w3.org/2000/svg';
+        const mkFace = (plane, dStr, stroke) => {
+          const el = document.createElementNS(NS, 'path');
+          el.setAttribute('d', dStr);
+          el.setAttribute('fill', '#ff0000');
+          if (stroke) el.setAttribute('stroke', '#000000');
+          const rings = this.ringsFromElement(el);
+          const pts3 = rings[0].map(p => ({ x: p[0], y: p[1], z: this.planeZ(plane, p[0], p[1]) }));
+          return { element: el, z: pts3.reduce((s, p) => s + p.z, 0) / pts3.length, ix: { plane, pts: pts3, splits: 0 } };
+        };
+
+        // 1. Plane fit recovers z = 1 + 0.1x + 0.2y
+        const pl = this.planeFromPoints([
+          { x: 0, y: 0, z: 1 }, { x: 10, y: 0, z: 2 }, { x: 10, y: 10, z: 4 }, { x: 0, y: 10, z: 3 },
+        ]);
+        t('planeFromPoints exact', pl && Math.abs(pl[0] - 0.1) < 1e-12 && Math.abs(pl[1] - 0.2) < 1e-12 && Math.abs(pl[2] - 1) < 1e-12,
+          pl ? pl.map(v => v.toFixed(4)).join(',') : 'null');
+
+        // 2. d parser: M/L/Z + C flattening
+        const el = document.createElementNS(NS, 'path');
+        el.setAttribute('d', 'M 0 0 L 10 0 C 12 0, 12 10, 10 10 L 0 10 Z');
+        const rings = this.ringsFromElement(el);
+        t('ringsFromElement M/L/C/Z', rings && rings.length === 1 && rings[0].length === 3 + this.CURVE_STEPS,
+          rings ? `pts=${rings[0].length}` : 'null');
+
+        // 3. Two quads crossing in depth (seam at x = 0) → 2 + 2 fragments
+        let list = [
+          mkFace([0.01, 0, 0], 'M -10 -5 L 10 -5 L 10 5 L -10 5 Z'),
+          mkFace([-0.01, 0, 0], 'M -8 -6 L 8 -6 L 8 6 L -8 6 Z'),
+        ];
+        this.resolve(list);
+        t('crossing quads split 2+2', list.length === 4, `entries=${list.length} stats=${JSON.stringify(this.stats)}`);
+        if (list.length === 4) {
+          // Depth-sorted rendering must interleave the four fragments so that
+          // on each side of the seam the nearer face wins.
+          const sorted = [...list].sort((a, b) => b.z - a.z);
+          const sideOf = (e) => Math.sign(e.ix.pts.reduce((s, p) => s + p.x, 0));
+          const planeOf = (e) => Math.sign(e.ix.plane[0]);
+          let ok = true;
+          for (let k = 0; k < 2; k++) {
+            // among the two fragments on the same screen side, the one whose
+            // plane is deeper there must come first (drawn earlier)
+            const side = k === 0 ? 1 : -1;
+            const two = sorted.filter(e => sideOf(e) === side);
+            if (two.length !== 2) { ok = false; break; }
+            const zAt = (e) => this.planeZ(e.ix.plane, side * 5, 0);
+            if (zAt(two[0]) < zAt(two[1])) ok = false;
+          }
+          t('fragments sort correctly per side', ok);
+        }
+
+        // 4. Parallel planes (pure overlap, no crossing) → no split
+        list = [
+          mkFace([0, 0, 0.4], 'M -10 -5 L 10 -5 L 10 5 L -10 5 Z'),
+          mkFace([0, 0, 0.6], 'M -8 -6 L 8 -6 L 8 6 L -8 6 Z'),
+        ];
+        this.resolve(list);
+        t('parallel planes: no split', list.length === 2, `entries=${list.length}`);
+
+        // 5. Seam outside the overlap (faces cross in depth but not where
+        //    they overlap on screen) → no split
+        list = [
+          mkFace([0.01, 0, -0.5], 'M 10 -5 L 30 -5 L 30 5 L 10 5 Z'),   // Δ=0 at x=25
+          mkFace([-0.01, 0, 0], 'M 12 -6 L 20 -6 L 20 6 L 12 6 Z'),
+        ];
+        this.resolve(list);
+        t('seam outside overlap: no split', list.length === 2, `entries=${list.length}`);
+
+        // 6. Disjoint faces → untouched
+        list = [
+          mkFace([0.01, 0, 0], 'M -30 -5 L -20 -5 L -20 5 L -30 5 Z'),
+          mkFace([-0.01, 0, 0], 'M 20 -5 L 30 -5 L 30 5 L 20 5 Z'),
+        ];
+        this.resolve(list);
+        t('disjoint faces: no split', list.length === 2, `entries=${list.length}`);
+
+        // 7. Stroked face: fragment groups carry fill + stroke-overlay
+        //    children, and every fragment strokes the seam (x = 0) as an
+        //    intersection line (v20260705d behavior).
+        list = [
+          mkFace([0.01, 0, 0], 'M -10 -5 L 10 -5 L 10 5 L -10 5 Z', true),
+          mkFace([-0.01, 0, 0], 'M -8 -6 L 8 -6 L 8 6 L -8 6 Z', true),
+        ];
+        this.resolve(list);
+        let strokeOk = list.length === 4;
+        if (strokeOk) {
+          for (const e of list) {
+            if (e.element.tagName !== 'g' || e.element.childNodes.length !== 2) { strokeOk = false; break; }
+            const dS = e.element.childNodes[1].getAttribute('d');
+            // the seam must appear as a stroke run: two consecutive stroke
+            // points both at x ≈ 0 (snap-lattice quantization ≈ 2e-5, so
+            // compare with a 1e-3 tolerance)
+            const ptsS = dS.match(/[-+\d.eE]+/g).map(Number);
+            let seamRun = false;
+            for (let k = 0; k + 3 < ptsS.length; k += 2) {
+              if (Math.abs(ptsS[k]) < 1e-3 && Math.abs(ptsS[k + 2]) < 1e-3) { seamRun = true; break; }
+            }
+            if (!seamRun) { strokeOk = false; break; }
+          }
+        }
+        t('stroke fragments: seam stroked as intersection line', strokeOk, `entries=${list.length}`);
+
+        // 8. Cascade stability (the v20260705c flicker bug): three mutually
+        //    crossing quads (seams x=0, x=y, y=−x) resolve to a bounded
+        //    fragment set with no cap hits, and resolve() is IDEMPOTENT —
+        //    re-running it on its own output must find nothing new (phantom
+        //    re-splits along already-cut seams were the instability).
+        list = [
+          mkFace([0.01, 0, 0], 'M -10 -10 L 10 -10 L 10 10 L -10 10 Z'),
+          mkFace([-0.01, 0, 0], 'M -9 -9 L 9 -9 L 9 9 L -9 9 Z'),
+          mkFace([0, 0.01, 0], 'M -8 -8 L 8 -8 L 8 8 L -8 8 Z'),
+        ];
+        this.resolve(list);
+        const n1 = list.length, s1 = { ...this.stats };
+        this.resolve(list);
+        t('three crossing quads: bounded, no cap, idempotent',
+          n1 >= 8 && n1 <= 14 && s1.capped === 0 &&
+          list.length === n1 && this.stats.intersections === 0,
+          `first=${n1} (capped=${s1.capped}) re-run: entries=${list.length} ix=${this.stats.intersections}`);
+
+        // 9. Curved ribbon × planar face. Ribbon: cubic arc profile, ruled in
+        //    depth from z=0.30 (front, w=0) to z=0.40 (back, w=1) with a
+        //    screen offset; plane at z=0.35 cuts it along the w=0.5 iso-curve
+        //    → both faces must split 2+2 along a CURVED seam.
+        const k = 2 / FRAME_SIZE;
+        const mkXr = () => {
+          const ctrl = [[-40, 0, 0], [-15, 25, 0], [15, 25, 0], [40, 0, 0]];
+          const xr = {
+            kind: 'xr',
+            chainA: [ctrl], chainB: [ctrl],
+            mvpF: [[k, 0, 0, 0], [0, k, 0, 0], [0, 0, 0, 0.30], [0, 0, 0, 1]],
+            mvpB: [[k, 0, 0, 0], [0, k, 0, 30 * k], [0, 0, 0, 0.40], [0, 0, 0, 1]],
+            splits: 0,
+          };
+          const el = document.createElementNS(NS, 'path');
+          // front arc (screen y = −local y), ruling, back arc reversed
+          el.setAttribute('d', 'M -40 0 C -15 -25, 15 -25, 40 0 L 40 -30 C 15 -55, -15 -55, -40 -30 Z');
+          el.setAttribute('fill', '#00aa00');
+          return { element: el, z: 0.35, ix: xr };
+        };
+        list = [
+          mkXr(),
+          mkFace([0, 0, 0.35], 'M -60 -60 L 60 -60 L 60 10 L -60 10 Z'),
+        ];
+        const ringArea = (e) => {
+          const el = e.element.tagName === 'g' ? e.element.childNodes[0] : e.element;
+          const rr = this.ringsFromElement(el);
+          let a = 0;
+          if (rr) for (const r of rr) a += Math.abs(this._ringArea(r));
+          return a;
+        };
+        const ribbonArea0 = ringArea(list[0]);
+        this.resolve(list);
+        const curvedOk = list.length === 4 && this.stats.fields === 1 && this.stats.splits === 2;
+        t('curved ribbon × plane: 2+2 via one field', curvedOk,
+          `entries=${list.length} stats=${JSON.stringify(this.stats)}`);
+        if (curvedOk) {
+          // Seam must be curved: the ribbon fragments' shared boundary points
+          // near x=0 sit around the arc mid-line, not on a straight chord —
+          // check a seam vertex exists near (0, −33.75) (bezier midpoint of
+          // the w=0.5 iso-curve: y = −(18.75 + 15)).
+          let seamNearMid = false;
+          for (const e of list) {
+            const dAttr = e.element.tagName === 'g'
+              ? e.element.childNodes[0].getAttribute('d') : e.element.getAttribute('d');
+            const nums = dAttr.match(/[-+\d.eE]+/g).map(Number);
+            for (let p = 0; p + 1 < nums.length; p += 2) {
+              if (Math.abs(nums[p]) < 2 && Math.abs(nums[p + 1] + 33.75) < 1) { seamNearMid = true; break; }
+            }
+            if (seamNearMid) break;
+          }
+          t('curved seam passes arc mid-line', seamNearMid);
+          // Fragments must exactly partition the ribbon (no lost/duplicated
+          // area — the wedge-shaving regression of the first curved build).
+          const ribbonArea1 = list
+            .filter(e => (e.element.tagName === 'g' ? e.element.childNodes[0] : e.element).getAttribute('fill') === '#00aa00')
+            .reduce((s, e) => s + ringArea(e), 0);
+          t('curved fragments conserve area',
+            Math.abs(ribbonArea1 - ribbonArea0) < 0.01 * ribbonArea0,
+            `${ribbonArea1.toFixed(1)} vs ${ribbonArea0.toFixed(1)}`);
+        }
+
+        // 10. TRUE-INTERSECTION GATE: the plane's INFINITE surface crosses
+        //     the ribbon's depth range, but its bounded FOOTPRINT (a thin
+        //     strip over the band's shallow top, depth < 0.317 everywhere it
+        //     covers) never actually meets the ribbon — no cut, no line.
+        //     (Ungated, this pair phantom-cut the ribbon along the plane
+        //     crossing — the "lines on non-intersecting objects" bug.)
+        list = [
+          mkXr(),
+          mkFace([0, 0, 0.35], 'M -60 -5 L 60 -5 L 60 5 L -60 5 Z'),
+        ];
+        this.resolve(list);
+        t('no-contact footprint: gate blocks phantom cut',
+          list.length === 2 && this.stats.splits === 0,
+          `entries=${list.length} splits=${this.stats.splits}`);
+
+        console.table(results);
+        const pass = results.every(r => r.ok === 'PASS');
+        console.log(pass ? '[RenderIntersections] selfTest: ALL PASS' : '[RenderIntersections] selfTest: FAILURES — see table');
+        return pass;
+      },
+    };
+
 
 
     class Camera {
@@ -20977,6 +22185,7 @@
         this._isCollapsed = false; // Tree view folder toggle state
         this.zSortChildren = false; // Z-sort all child faces together (painter's algorithm across objects)
         this.zSortMode = 'children'; // 'children' = direct only, 'descendants' = flatten all nested groups
+        this.renderIntersections = false; // Split faces that intersect in 3D (requires zSortChildren)
         this.style = {}; // Initialize empty style for inheritance
         this.pivot = [0, 0, 0]; // Pivot point
         this.pivotRotation = [0, 0, 0]; // Pivot Rotation (Euler degrees)
@@ -21103,6 +22312,7 @@
           deepZSort = false,
           cameraVP: cameraVPIn = null,
           mappingAnchorWM: anchorWMIn = null,
+          collectIx = false,
         } = drawOptions;
         let cameraVP = cameraVPIn;
         let mappingAnchorWM = anchorWMIn;
@@ -21173,7 +22383,23 @@
           inheritedBounds: activeBounds,
           cameraVP,
           mappingAnchorWM,
+          // Face entries carry intersection-split data (depth planes) only when
+          // some enclosing z-sorted group wants to resolve intersections.
+          collectIx: collectIx || (this.zSortChildren && this.renderIntersections),
         };
+
+        // Restore the normal DOM tree after leaving z-sort mode. The z-sort
+        // commit below replaces this group's DOM children with reparented
+        // face elements (and, with Render Intersections, fragment clones —
+        // which nothing ever migrates back). Without this rebuild, unchecking
+        // Z-Sort Children left the stale faces as a frozen ghost while the
+        // child objects rendered into detached <g> nodes (invisible).
+        if (!this.zSortChildren && this._zsDomCommitted) {
+          this.svgElement.replaceChildren(
+            ...this.children.map(c => c.svgElement).filter(Boolean)
+          );
+          this._zsDomCommitted = false;
+        }
 
         if (this.zSortChildren) {
           // --- Z-Sort Children Mode ---
@@ -21190,7 +22416,17 @@
           }
 
           if (!externalFaceList) {
-            // This is the top-level z-sorted group: sort and render
+            // This is the top-level z-sorted group: sort and render.
+            // Render Intersections: split interpenetrating faces along their
+            // 3D intersection seams before sorting (crash-guarded — a splitter
+            // failure must never take down the render).
+            if (this.renderIntersections) {
+              try {
+                RenderIntersections.resolve(sharedFaceList);
+              } catch (err) {
+                console.error('[RenderIntersections] resolve failed:', err);
+              }
+            }
             sharedFaceList.sort((a, b) => b.z - a.z);
 
             // Neutralize inheritable paint attributes on the Group <g> before
@@ -21214,6 +22450,7 @@
             this.svgElement.replaceChildren(
               ...sharedFaceList.map(f => f.element)
             );
+            this._zsDomCommitted = true; // child <g>s evicted — restore on un-z-sort
           }
           // If externalFaceList is set, faces are already pushed — parent will sort.
         } else if (externalFaceList) {
@@ -21774,7 +23011,12 @@
           deepZSort = false,
           cameraVP = null,
           mappingAnchorWM = null,
+          collectIx = false,
         } = drawOptions;
+        // Render Intersections: deep helpers (drawSurface mesh quads) read
+        // the collect flag from the instance rather than threading it
+        // through every signature.
+        this._collectIx = collectIx;
 
         // Guard: object may have been destroyed (e.g. scene import) while
         // a previous async render was still in progress.
@@ -22314,6 +23556,21 @@
               return count > 0 ? sumZ / count : -99999;
             };
 
+            // Render Intersections: capture the cap's depth plane. Caps are
+            // planar (the profile lives on a workplane — control points too),
+            // so screen depth is linear: z = a·x + b·y + c in d-coordinate
+            // space. Only computed when an enclosing group resolves
+            // intersections (collectIx) — zero cost otherwise.
+            const getCapIx = (mvp) => {
+              const pts = [];
+              for (const v of this.localVertices) {
+                const tv = transformVertex(v, mvp);
+                if (tv) pts.push({ x: (tv[0] * FRAME_SIZE) / 2, y: (-tv[1] * FRAME_SIZE) / 2, z: tv[2] });
+              }
+              const plane = RenderIntersections.planeFromPoints(pts);
+              return plane ? { plane, pts, splits: 0, owner: this } : null;
+            };
+
             // Check if any subpath is open — if so, caps should not be filled
             // (SVG fill implicitly closes open paths, creating unwanted closure faces)
             const hasOpenSubpath = this.subPathData && this.subPathData.some(sp => !sp.closed);
@@ -22327,7 +23584,9 @@
               } else {
                 this.frontFace.removeAttribute('fill'); // inherit from parent
               }
-              faceList.push({ element: this.frontFace, z: getFaceZ(mvpFront) });
+              const frontEntry = { element: this.frontFace, z: getFaceZ(mvpFront) };
+              if (collectIx) frontEntry.ix = getCapIx(mvpFront);
+              faceList.push(frontEntry);
             } else {
               // Explicitly hide to be safe (though it shouldn't be in DOM)
               this.frontFace.style.display = 'none';
@@ -22342,7 +23601,9 @@
               } else {
                 this.backFace.removeAttribute('fill'); // inherit from parent
               }
-              faceList.push({ element: this.backFace, z: getFaceZ(mvpBack) });
+              const backEntry = { element: this.backFace, z: getFaceZ(mvpBack) };
+              if (collectIx) backEntry.ix = getCapIx(mvpBack);
+              faceList.push(backEntry);
             } else {
               this.backFace.style.display = 'none';
             }
@@ -22350,7 +23611,7 @@
             // console.log("Faces to draw:", faceList.length);
 
             // Add Side Ribbons (they populate faceList)
-            this.drawSideRibbons(mvpFront, mvpBack, faceList);
+            this.drawSideRibbons(mvpFront, mvpBack, faceList, collectIx);
 
           }
 
@@ -22805,6 +24066,8 @@
           let d = '';
           let zSum = 0;
           let ptCount = 0;
+          let ixPts = null;    // Render Intersections: planar-quad corners (L segments only)
+          let ixCurved = null; // Render Intersections: analytic identity of curved (C) ribbons
           const addPt = (p) => { if (p) { zSum += p.z; ptCount++; } };
 
           // Helper to get normalized tangent
@@ -22842,6 +24105,12 @@
 
               d += ` Z`;
               addPt(start.a); addPt(start.b); addPt(end.a); addPt(end.b);
+              // Render Intersections: a straight-profile ribbon with straight
+              // rulings (no curve CPs on any edge) is a planar quad — capture
+              // its corners in perimeter order for depth-plane fitting.
+              if (options.collectIx && !end.cp1 && !start.cp1) {
+                ixPts = [start.a, end.a, end.b, start.b];
+              }
             }
           } else if (segA.type === 'C' || segA.type === 'Q') {
             if (segA.type === 'Q') {
@@ -22912,11 +24181,27 @@
                 addPt(sp0.a); addPt(sp3.a); addPt(sp3.b); addPt(sp0.b);
                 if (sp1.a) addPt(sp1.a);
                 if (sp2.a) addPt(sp2.a);
+                // Render Intersections: a curved (cubic-profile) ribbon is a
+                // ruled surface whose ruling is straight in model space —
+                // hence LINEAR IN CLIP SPACE between the front and back
+                // profile curves. Capture the analytic identity: local
+                // control points + both MVP matrices (shared references).
+                if (options.collectIx) {
+                  ixCurved = {
+                    kind: 'xr',
+                    chainA: [[segA.p0, segA.p1, segA.p2, segA.p3]],
+                    chainB: [[segB.p0, segB.p1, segB.p2, segB.p3]],
+                    mvpF: mvpA, mvpB: mvpB,
+                  };
+                }
               }
             }
           }
           if (d && ptCount > 0) {
-            faces.push({ d: d, z: zSum / ptCount });
+            const face = { d: d, z: zSum / ptCount };
+            if (ixPts) face.ixPts = ixPts;
+            if (ixCurved) face.ixCurved = ixCurved;
+            faces.push(face);
           }
         });
 
@@ -25564,7 +26849,62 @@
                     pathEl.setAttribute('stroke-opacity', _effSurface['stroke-opacity']);
                   }
                 }
-                faceList.push({ element: pathEl, z: avgZ });
+                const cleanEntry = { element: pathEl, z: avgZ };
+                if (this._collectIx) {
+                  // Render Intersections (v2-B): capture the swept patch's
+                  // identity — profile cubic chains at both rail stations
+                  // plus the two frames. The evaluator lerps profile and
+                  // frame across the rail interval (w ∈ [0,1]; t ∈
+                  // [0, nSegs] along the chain) and projects through the
+                  // live sweepPoint/toScreen closures.
+                  const cA = [], cB = [];
+                  let cubicOk = true;
+                  for (const sIdx of chain) {
+                    const sa = segsA[sIdx], sb = segsB[sIdx] || segsA[sIdx];
+                    if (!sa || !sa.p0 || !sa.p1 || !sa.p2 || !sa.p3 ||
+                        !sb || !sb.p0 || !sb.p1 || !sb.p2 || !sb.p3) { cubicOk = false; break; }
+                    cA.push([sa.p0, sa.p1, sa.p2, sa.p3]);
+                    cB.push([sb.p0, sb.p1, sb.p2, sb.p3]);
+                  }
+                  if (cubicOk && cA.length) {
+                    const fA = frameA, fB = frameB;
+                    const nSegCh = cA.length;
+                    const evalScreen = (t, w) => {
+                      let si = Math.floor(t);
+                      if (si < 0) si = 0; else if (si > nSegCh - 1) si = nSegCh - 1;
+                      const lt = t - si, uu = 1 - lt;
+                      const a3 = uu * uu * uu, b3 = 3 * uu * uu * lt, c3 = 3 * uu * lt * lt, d3 = lt * lt * lt;
+                      const bez = (c) => [
+                        a3 * c[0][0] + b3 * c[1][0] + c3 * c[2][0] + d3 * c[3][0],
+                        a3 * c[0][1] + b3 * c[1][1] + c3 * c[2][1] + d3 * c[3][1],
+                        a3 * (c[0][2] || 0) + b3 * (c[1][2] || 0) + c3 * (c[2][2] || 0) + d3 * (c[3][2] || 0),
+                      ];
+                      const pA = bez(cA[si]), pB = bez(cB[si]);
+                      const pp = [pA[0] + (pB[0] - pA[0]) * w, pA[1] + (pB[1] - pA[1]) * w, pA[2] + (pB[2] - pA[2]) * w];
+                      const sA = fA.scale !== undefined ? fA.scale : 1;
+                      const sB = fB.scale !== undefined ? fB.scale : 1;
+                      const fr = {
+                        pos: [fA.pos[0] + (fB.pos[0] - fA.pos[0]) * w, fA.pos[1] + (fB.pos[1] - fA.pos[1]) * w, fA.pos[2] + (fB.pos[2] - fA.pos[2]) * w],
+                        side: [fA.side[0] + (fB.side[0] - fA.side[0]) * w, fA.side[1] + (fB.side[1] - fA.side[1]) * w, fA.side[2] + (fB.side[2] - fA.side[2]) * w],
+                        normal: [fA.normal[0] + (fB.normal[0] - fA.normal[0]) * w, fA.normal[1] + (fB.normal[1] - fA.normal[1]) * w, fA.normal[2] + (fB.normal[2] - fA.normal[2]) * w],
+                        scale: sA + (sB - sA) * w,
+                      };
+                      if (fA.scaleU !== undefined || fB.scaleU !== undefined) {
+                        const uA = fA.scaleU !== undefined ? fA.scaleU : sA;
+                        const uB = fB.scaleU !== undefined ? fB.scaleU : sB;
+                        fr.scaleU = uA + (uB - uA) * w;
+                      }
+                      if (fA.scaleV !== undefined || fB.scaleV !== undefined) {
+                        const vA = fA.scaleV !== undefined ? fA.scaleV : sA;
+                        const vB = fB.scaleV !== undefined ? fB.scaleV : sB;
+                        fr.scaleV = vA + (vB - vA) * w;
+                      }
+                      return toScreen(sweepPoint(fr, pp));
+                    };
+                    cleanEntry.ix = { kind: 'sr', evalScreen, tMax: nSegCh, splits: 0, owner: this };
+                  }
+                }
+                faceList.push(cleanEntry);
               }
             }
 
@@ -26068,6 +27408,7 @@
           for (let i = 0; i < gridRows - 1; i++) {
             for (let j = 0; j < divsV; j++) {
               let d, avgZ;
+              let ixCorners = null; // Render Intersections: quad corners (screen + NDC z)
 
               if (isCurved && gridCurves && gridUCurves) {
                 const botV = gridCurves[i][j];
@@ -26093,6 +27434,7 @@
                   !su_l1 || !su_l2 || !su_r1 || !su_r2) continue;
 
                 avgZ = (s00.z + s01.z + s10.z + s11.z) / 4;
+                ixCorners = [s00, s01, s11, s10]; // perimeter order of d below
 
                 d = `M ${s00.x} ${s00.y} ` +
                   `C ${sv1.x} ${sv1.y}, ${sv2.x} ${sv2.y}, ${s01.x} ${s01.y} ` +
@@ -26117,6 +27459,7 @@
                 if (!s00 || !s10 || !s11 || !s01) continue;
 
                 avgZ = (s00.z + s10.z + s11.z + s01.z) / 4;
+                ixCorners = [s00, s10, s11, s01]; // perimeter order of d below
                 d = `M ${s00.x} ${s00.y} L ${s10.x} ${s10.y} L ${s11.x} ${s11.y} L ${s01.x} ${s01.y} Z`;
               }
 
@@ -26131,7 +27474,26 @@
                 pathEl.setAttribute('stroke', 'none');
               }
 
-              faceList.push({ element: pathEl, z: avgZ });
+              const quadEntry = { element: pathEl, z: avgZ };
+              if (this._collectIx && ixCorners) {
+                // Mesh quads are near-planar at render subdivision: fit the
+                // depth plane through the corners; skip twisted quads whose
+                // fit residual is a large share of their own depth span.
+                const plane = RenderIntersections.planeFromPoints(ixCorners);
+                if (plane) {
+                  let zMin = Infinity, zMax = -Infinity, resid = 0;
+                  for (const p of ixCorners) {
+                    if (p.z < zMin) zMin = p.z;
+                    if (p.z > zMax) zMax = p.z;
+                    const dz = Math.abs(RenderIntersections.planeZ(plane, p.x, p.y) - p.z);
+                    if (dz > resid) resid = dz;
+                  }
+                  if (resid <= Math.max(1e-5, 0.2 * (zMax - zMin))) {
+                    quadEntry.ix = { plane, pts: ixCorners, splits: 0, owner: this };
+                  }
+                }
+              }
+              faceList.push(quadEntry);
             }
           }
 
@@ -26912,7 +28274,7 @@
         }
       }
 
-      drawSideRibbons(mvpFront, mvpBack, faceList) {
+      drawSideRibbons(mvpFront, mvpBack, faceList, collectIx = false) {
         if (!this.extrudeSettings.enabled) return;
         const _effSide = getEffectiveStyle(this);
 
@@ -27063,25 +28425,39 @@
         if (this.extrudeSettings.simpleSides) {
           // merged side faces
           // v20260208_simpleSides: Pass eyeLocal, E, and taperInfo for visibility split
-          const ribbons = this.generateSimpleSideRibbon(processedSegments, mvpFront, mvpBack, eyeLocal, E, taperInfo);
+          const ribbons = this.generateSimpleSideRibbon(processedSegments, mvpFront, mvpBack, eyeLocal, E, taperInfo, collectIx);
           if (ribbons) {
             ribbons.forEach(ribbon => {
               const sidePath = createPath(ribbon.d);
-              faceList.push({ element: sidePath, z: ribbon.z });
+              const entry = { element: sidePath, z: ribbon.z };
+              if (collectIx && ribbon.ixCurved) entry.ix = { ...ribbon.ixCurved, splits: 0, owner: this };
+              faceList.push(entry);
             });
           }
         } else {
           // faceted side faces
-          const faces = this.generateLoftFaces(processedSegments, mvpFront, mvpBack);
+          const faces = this.generateLoftFaces(processedSegments, mvpFront, mvpBack, null, null, null, collectIx ? { collectIx: true } : {});
           faces.forEach(f => {
             const sidePath = createPath(f.d);
-            faceList.push({ element: sidePath, z: f.z });
+            const entry = { element: sidePath, z: f.z };
+            if (collectIx && f.ixPts) {
+              // Linear-profile ribbons are planar quads; fit their depth plane
+              // from the four projected corners.
+              const plane = RenderIntersections.planeFromPoints(f.ixPts);
+              if (plane) entry.ix = { plane, pts: f.ixPts, splits: 0, owner: this };
+            } else if (collectIx && f.ixCurved) {
+              // Curved (cubic-profile) ribbons carry their analytic surface
+              // identity; depth queries and seam fields evaluate it directly
+              // (v20260705f curved phase).
+              entry.ix = { ...f.ixCurved, splits: 0, owner: this };
+            }
+            faceList.push(entry);
           });
         }
       }
 
       // v20260208_simpleSides: Generate continuous ribbon paths, split by visibility horizons AND sharp corners
-      generateSimpleSideRibbon(segments, mvpFront, mvpBack, eyeLocal, extrudeVector, taperInfo = null) {
+      generateSimpleSideRibbon(segments, mvpFront, mvpBack, eyeLocal, extrudeVector, taperInfo = null, collectIx = false) {
         if (!segments || segments.length === 0) return null;
 
         // We MUST NOT filter out degenerate segments here because it breaks the 1:1 topological
@@ -27452,7 +28828,27 @@
           }
           d += `Z `;
 
-          ribbons.push({ d: d, z: zCount > 0 ? totalZ / zCount : 0 });
+          const ribbon = { d: d, z: zCount > 0 ? totalZ / zCount : 0 };
+          if (collectIx) {
+            // Render Intersections: capture the chain's analytic identity.
+            // Normalize every segment to a cubic control quadruple (L and Q
+            // segments are degree-elevated) so the xr evaluator sees one
+            // uniform chain.
+            const toCubic = (seg) => {
+              if (seg.type === 'C') return [seg.p0, seg.p1, seg.p2, seg.p3];
+              if (seg.type === 'Q') {
+                const q0 = seg.p0, q1 = seg.p1, q2 = seg.p2;
+                const lerp23 = (a, b) => [a[0] + (b[0] - a[0]) * 2 / 3, a[1] + (b[1] - a[1]) * 2 / 3, (a[2] || 0) + ((b[2] || 0) - (a[2] || 0)) * 2 / 3];
+                return [q0, lerp23(q0, q1), lerp23(q2, q1), q2];
+              }
+              const p0 = seg.pStart, p3 = seg.pEnd;
+              const lp = (t) => [p0[0] + (p3[0] - p0[0]) * t, p0[1] + (p3[1] - p0[1]) * t, (p0[2] || 0) + ((p3[2] || 0) - (p0[2] || 0)) * t];
+              return [p0, lp(1 / 3), lp(2 / 3), p3];
+            };
+            const cubics = chain.map(toCubic);
+            ribbon.ixCurved = { kind: 'xr', chainA: cubics, chainB: cubics, mvpF: mvpFront, mvpB: mvpBack };
+          }
+          ribbons.push(ribbon);
         });
 
         return ribbons;
@@ -32426,6 +33822,8 @@
       const zSortChildrenCb = document.getElementById('zSortChildrenCb');
       const zSortModeRow = document.getElementById('zSortModeRow');
       const zSortModeInput = document.getElementById('zSortModeInput');
+      const renderIntersectionsRow = document.getElementById('renderIntersectionsRow');
+      const renderIntersectionsCb = document.getElementById('renderIntersectionsCb');
       if (zSortChildrenRow && zSortChildrenCb) {
         if (selectedObject && selectedObject.isGroup) {
           zSortChildrenRow.style.display = '';
@@ -32440,9 +33838,17 @@
           if (zSortModeInput && document.activeElement !== zSortModeInput) {
             zSortModeInput.value = selectedObject.zSortMode || 'children';
           }
+          // Render Intersections rides on z-sort (splitting only matters inside a sorted face pool)
+          if (renderIntersectionsRow) {
+            renderIntersectionsRow.style.display = selectedObject.zSortChildren ? '' : 'none';
+          }
+          if (renderIntersectionsCb && document.activeElement !== renderIntersectionsCb) {
+            renderIntersectionsCb.checked = selectedObject.renderIntersections || false;
+          }
         } else {
           zSortChildrenRow.style.display = 'none';
           if (zSortModeRow) zSortModeRow.style.display = 'none';
+          if (renderIntersectionsRow) renderIntersectionsRow.style.display = 'none';
         }
       }
 
@@ -33608,6 +35014,7 @@
         newGroup.faceCamera = { ...obj.faceCamera };
         newGroup.zSortChildren = obj.zSortChildren;
         newGroup.zSortMode = obj.zSortMode;
+        newGroup.renderIntersections = obj.renderIntersections;
 
         // Deep copy surface constraint (Spline Flow / 3D Mapping)
         if (obj.surfaceConstraint) {
@@ -34836,9 +36243,11 @@
       if (selectedObject && selectedObject.isGroup) {
         pushUndoState();
         selectedObject.zSortChildren = e.target.checked;
-        // Show/hide depth dropdown
+        // Show/hide dependent rows directly (v20260705b lesson)
         const zSortModeRow = document.getElementById('zSortModeRow');
         if (zSortModeRow) zSortModeRow.style.display = e.target.checked ? '' : 'none';
+        const renderIntersectionsRow = document.getElementById('renderIntersectionsRow');
+        if (renderIntersectionsRow) renderIntersectionsRow.style.display = e.target.checked ? '' : 'none';
         requestRender();
       }
     });
@@ -34846,6 +36255,13 @@
       if (selectedObject && selectedObject.isGroup) {
         pushUndoState();
         selectedObject.zSortMode = e.target.value;
+        requestRender();
+      }
+    });
+    document.getElementById('renderIntersectionsCb').addEventListener('change', function (e) {
+      if (selectedObject && selectedObject.isGroup) {
+        pushUndoState();
+        selectedObject.renderIntersections = e.target.checked;
         requestRender();
       }
     });
@@ -43123,6 +44539,7 @@
         data.children = obj.children.map(child => serializeObject(child));
         if (obj.zSortChildren) data.zSortChildren = true;
         if (obj.zSortMode && obj.zSortMode !== 'children') data.zSortMode = obj.zSortMode;
+        if (obj.renderIntersections) data.renderIntersections = true;
       } else {
         // Path specific
         data.localVertices = obj.localVertices;
@@ -43183,6 +44600,7 @@
         obj = new Group(data.name);
         if (data.zSortChildren) obj.zSortChildren = true;
         if (data.zSortMode) obj.zSortMode = data.zSortMode;
+        if (data.renderIntersections) obj.renderIntersections = true;
       } else {
         // Path
         obj = new Path(

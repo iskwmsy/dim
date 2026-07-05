@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260704s -->
+<!-- dim v20260705b -->
 
 <!--
   MIT License
@@ -6769,6 +6769,15 @@
                     <div class="ui-header-small">Render Settings</div>
 
                     <div class="xyz-row">
+                      <label>Algorithm</label>
+                      <div class="xyz-inputs">
+                        <select id="surfaceMappingAlgorithm">
+                          <option value="subdivision" selected>Subdivide</option>
+                          <option value="smooth">Smooth (Curve Fit)</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="xyz-row" id="surfaceMappingResolutionField">
                       <label>Resolution</label>
                       <div class="xyz-inputs">
                         <input type="number" id="surfaceMappingResolution" min="2" max="64" step="1" value="8" />
@@ -13031,6 +13040,15 @@
     let RC_DEBUG_CONTOURS = false;
     // Silhouette field grid resolution — the quality/cost dial.
     let RC_GRID_N = 96;
+    // Smooth (Curve Fit) emission in the region-clip builders:
+    //   true  — anchor-fit: source (segment, t) parameters are threaded
+    //           through the clipper and each clipped source interval is
+    //           fitted with the original least-squares fitter
+    //           (mapBezierSegment), so output cubics join exactly at the
+    //           source path's anchors. Honors the original-path policy.
+    //   false — backup: the Catmull-Rom bridge through refined points
+    //           (v20260704e behavior), kept intact for instant rollback.
+    let RC_SMOOTH_ANCHOR_FIT = true;
     // Derive canvas offset from toolbar width CSS variable so it stays in sync
     const CANVAS_OFFSET_X = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--toolbar-width')) / 2 || 0;
     const TRUCK_SPEED = 0.002;
@@ -14746,6 +14764,143 @@
         }];
       }
 
+      // ---- Region-clip anchor-fit smooth helpers (RC_SMOOTH_ANCHOR_FIT) ----
+      // Shared by the spline-flow and surface-mapping RC builders. Clipped
+      // path edges carry {seg, t0, t1, ax, ay, bx, by} meta (source segment
+      // index, parameter interval, sampling-chord endpoints in clip space);
+      // these helpers recover source intervals from clipped rings, extract
+      // the exact source sub-curve (de Casteljau) and fit it with
+      // mapBezierSegment — the same least-squares fitter the non-split
+      // smooth path uses — so output cubics join exactly at source anchors.
+
+      // Parameter of a (possibly clip-cut, snap-rounded) vertex, recovered
+      // by projecting onto the edge's sampling chord.
+      static _rcTOfVertex(v, mt) {
+        const dx = mt.bx - mt.ax, dy = mt.by - mt.ay;
+        const L2 = dx * dx + dy * dy;
+        if (L2 < 1e-24) return mt.t0;
+        const f = Math.max(0, Math.min(1,
+          ((v[0] - mt.ax) * dx + (v[1] - mt.ay) * dy) / L2));
+        return mt.t0 + (mt.t1 - mt.t0) * f;
+      }
+
+      // Fit one source interval {seg, t0, t1} (t1 < t0 = reversed ring
+      // direction). Returns fitted curves in projNDC's space, or null.
+      static _rcFitInterval(iv, segments, projNDC) {
+        const seg = segments[iv.seg];
+        if (!seg) return null;
+        const rev = iv.t1 < iv.t0;
+        const lo = rev ? iv.t1 : iv.t0, hi = rev ? iv.t0 : iv.t1;
+        if (hi - lo < 1e-6) return null;
+        let P0 = seg.p0, P1 = seg.p1, P2 = seg.p2, P3 = seg.p3;
+        if (!P0 && seg.pStart) {
+          // Normalize a raw line segment to its cubic form
+          P0 = seg.pStart; P3 = seg.pEnd;
+          P1 = [P0[0] + (P3[0] - P0[0]) / 3, P0[1] + (P3[1] - P0[1]) / 3,
+            (P0[2] || 0) + ((P3[2] || 0) - (P0[2] || 0)) / 3];
+          P2 = [P0[0] + 2 * (P3[0] - P0[0]) / 3, P0[1] + 2 * (P3[1] - P0[1]) / 3,
+            (P0[2] || 0) + 2 * ((P3[2] || 0) - (P0[2] || 0)) / 3];
+        }
+        if (!P0 || !P3) return null;
+        let cp = [P0, P1, P2, P3];
+        if (lo > 1e-9) cp = splitCubicBezier(cp[0], cp[1], cp[2], cp[3], lo)[1];
+        if (hi < 1 - 1e-9) {
+          const tt = (hi - lo) / (1 - (lo > 1e-9 ? lo : 0));
+          cp = splitCubicBezier(cp[0], cp[1], cp[2], cp[3], tt)[0];
+        }
+        let curves = SurfaceMapper.mapBezierSegment(
+          { type: 'C', p0: cp[0], p1: cp[1], p2: cp[2], p3: cp[3] }, projNDC);
+        if (!curves.length) return null;
+        if (rev) {
+          curves = curves.slice().reverse().map(c => ({
+            start: c.end, cp1: c.cp2, cp2: c.cp1, end: c.start
+          }));
+        }
+        return curves;
+      }
+
+      // Per-refined-edge command strings for one clipped ring: eligible
+      // path runs become fitted cubics (the run's commands sit on its first
+      // refined edge; consumed edges hold ''), everything else stays a
+      // polyline. bounds/zBounds are optional accumulators. Falls back
+      // per-run to refined polylines on any projection failure.
+      static _rcAnchorCmds(r, m, segments, projNDC, bounds, zBounds) {
+        const N = m.pts.length, n = r.pts.length;
+        const cmds = new Array(N);
+        const ndcToFrame = (p) => ({ x: (p[0] * FRAME_SIZE) / 2, y: (-p[1] * FRAME_SIZE) / 2, z: p[2] });
+        const elig = (k) => r.srcs[k] === 'path' && r.meta && r.meta[k];
+        let i = 0;
+        while (i < N) {
+          const k = m.edges[i];
+          if (!elig(k)) {
+            const p2 = m.pts[(i + 1) % N];
+            cmds[i] = 'L ' + p2.x + ' ' + p2.y + ' ';
+            i++;
+            continue;
+          }
+          // Maximal linear run of refined edges over eligible ring edges.
+          // (Runs deliberately break at refined index 0 so the ring's 'M'
+          // start always coincides with a command boundary.)
+          let j = i;
+          const ks = [];
+          while (j < N && elig(m.edges[j])) {
+            if (!ks.length || ks[ks.length - 1] !== m.edges[j]) ks.push(m.edges[j]);
+            j++;
+          }
+          // Merge ring edges into per-source-segment intervals; interval
+          // boundaries are the original anchors.
+          const ivs = [];
+          for (const kk of ks) {
+            const mt = r.meta[kk];
+            const tA = SurfaceMapper._rcTOfVertex(r.pts[kk], mt);
+            const tB = SurfaceMapper._rcTOfVertex(r.pts[(kk + 1) % n], mt);
+            const last = ivs[ivs.length - 1];
+            if (last && last.seg === mt.seg) last.t1 = tB;
+            else ivs.push({ seg: mt.seg, t0: tA, t1: tB });
+          }
+          let curves = [];
+          let failed = false;
+          for (const iv of ivs) {
+            if (Math.abs(iv.t1 - iv.t0) < 1e-6) continue; // sliver at a cut
+            const cs = SurfaceMapper._rcFitInterval(iv, segments, projNDC);
+            if (cs === null) { failed = true; break; }
+            curves.push(...cs);
+          }
+          if (failed || !curves.length) {
+            // Fallback: refined polyline for this run
+            for (let q = i; q < j; q++) {
+              const p2 = m.pts[(q + 1) % N];
+              cmds[q] = 'L ' + p2.x + ' ' + p2.y + ' ';
+            }
+            i = j;
+            continue;
+          }
+          const endVertex = m.pts[j % N];
+          let out = '';
+          curves.forEach((c, ci) => {
+            const c1 = ndcToFrame(c.cp1), c2 = ndcToFrame(c.cp2);
+            const e = (ci === curves.length - 1) ? endVertex : ndcToFrame(c.end);
+            out += 'C ' + c1.x + ' ' + c1.y + ' ' + c2.x + ' ' + c2.y + ' ' + e.x + ' ' + e.y + ' ';
+            if (bounds) {
+              for (const p of [c1, c2, e]) {
+                if (p.x < bounds.minX) bounds.minX = p.x;
+                if (p.x > bounds.maxX) bounds.maxX = p.x;
+                if (p.y < bounds.minY) bounds.minY = p.y;
+                if (p.y > bounds.maxY) bounds.maxY = p.y;
+              }
+            }
+            if (zBounds && e.z !== undefined) {
+              if (e.z < zBounds.minZ) zBounds.minZ = e.z;
+              if (e.z > zBounds.maxZ) zBounds.maxZ = e.z;
+            }
+          });
+          cmds[i] = out;
+          for (let q = i + 1; q < j; q++) cmds[q] = '';
+          i = j;
+        }
+        return cmds;
+      }
+
       static evaluateCurveDerivative(seg, t) {
         if (seg.type === 'L') {
           return vectorSubtract(seg.pEnd, seg.pStart);
@@ -16318,6 +16473,81 @@
         // V-axis seam tracking vars (for Around V on open profiles)
         let prevVFloor = null, prevRawV = null, prevSrcPtSMv = null;
 
+        // Smooth (Curve Fit) for surface mapping: fit seam-free segments
+        // with the original least-squares fitter (mapBezierSegment, the
+        // same one spline flow's non-split smooth uses); any segment whose
+        // samples would trigger a seam/boundary flush below falls back to
+        // the sampled path — the fitter cannot span a surface
+        // discontinuity. The projection rides the full toUV→surfacePointN
+        // chain, so rotation/scale/overflow/vArcComp all apply.
+        const smoothSurf = options.algorithm === 'smooth';
+        const projNDCn = (srcPt) => {
+          const [u, v] = toUV(srcPt);
+          return transformVertex(surfacePointN(u, v), vpMatrix);
+        };
+        const smoothTrySegment = (seg, isNewSubpath) => {
+          let pu = isNewSubpath ? null : prevRawU;
+          let puF = isNewSubpath ? null : prevUFloor;
+          let pv = isNewSubpath ? null : prevRawV;
+          let pvF = isNewSubpath ? null : prevVFloor;
+          let u1 = 0, v1 = 0;
+          for (let i = 0; i <= SUBDIV; i++) {
+            const t = i / SUBDIV, mt = 1 - t;
+            const srcPt = [
+              mt * mt * mt * seg.p0[0] + 3 * mt * mt * t * seg.p1[0] + 3 * mt * t * t * seg.p2[0] + t * t * t * seg.p3[0],
+              mt * mt * mt * seg.p0[1] + 3 * mt * mt * t * seg.p1[1] + 3 * mt * t * t * seg.p2[1] + t * t * t * seg.p3[1],
+              mt * mt * mt * (seg.p0[2] || 0) + 3 * mt * mt * t * (seg.p1[2] || 0) + 3 * mt * t * t * (seg.p2[2] || 0) + t * t * t * (seg.p3[2] || 0)
+            ];
+            const [u, v] = toUV(srcPt);
+            if (mapAround) {
+              const uF = Math.floor(u);
+              if (puF !== null && uF !== puF) return false;
+              puF = uF;
+            } else if (pu !== null) {
+              const prevIn = pu >= 0 && pu <= 1, curIn = u >= 0 && u <= 1;
+              if (prevIn !== curIn) return false;
+            }
+            if (mapAroundV && !profileIsClosed) {
+              const vF = Math.floor(v);
+              if (pvF !== null && vF !== pvF) return false;
+              pvF = vF;
+            } else if (!mapAroundV && pv !== null) {
+              const prevInV = pv >= 0 && pv <= 1, curInV = v >= 0 && v <= 1;
+              if (prevInV !== curInV) return false;
+            }
+            pu = u; pv = v;
+            if (i === SUBDIV) { u1 = u; v1 = v; }
+          }
+          const curves = SurfaceMapper.mapBezierSegment(seg, projNDCn);
+          if (!curves.length) return false;
+          // Commit — mirrors the sampled path's bookkeeping exactly
+          const F = (p) => ({ x: (p[0] * FRAME_SIZE) / 2, y: (-p[1] * FRAME_SIZE) / 2, z: p[2] });
+          const s0 = F(curves[0].start);
+          if (isNewSubpath || ptCount === 0) {
+            d += `M ${s0.x} ${s0.y} `;
+            zSum += s0.z; ptCount++;
+            if (!fragStartUV) {
+              const uv0 = toUV([seg.p0[0], seg.p0[1], seg.p0[2] || 0]);
+              fragStartUV = [uv0[0], uv0[1]];
+            }
+          }
+          for (const c of curves) {
+            const c1 = F(c.cp1), c2 = F(c.cp2), e = F(c.end);
+            d += `C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${e.x} ${e.y} `;
+            zSum += e.z; ptCount++;
+            lastScreenPt = e;
+          }
+          fragEndUV = [u1, v1];
+          const endSrc = [seg.p3[0], seg.p3[1], seg.p3[2] || 0];
+          lastSrcPt = endSrc;
+          // Advance the seam-tracking state to the segment's end
+          prevRawU = u1; prevSrcPtSM = endSrc.slice();
+          if (mapAround) prevUFloor = Math.floor(u1);
+          prevRawV = v1; prevSrcPtSMv = endSrc.slice();
+          if (mapAroundV && !profileIsClosed) prevVFloor = Math.floor(v1);
+          return true;
+        };
+
         sourceSegs.forEach((seg, sIdx) => {
           const isNewSubpath = (sIdx === 0 || seg.command === 'M');
 
@@ -16326,6 +16556,9 @@
             prevUFloor = null; prevRawU = null; prevSrcPtSM = null;
             prevVFloor = null; prevRawV = null; prevSrcPtSMv = null;
           }
+
+          // Smooth: segment fully handled by the fitter when seam-free
+          if (smoothSurf && seg.p0 && seg.p3 && smoothTrySegment(seg, isNewSubpath)) return;
 
           for (let i = 0; i <= SUBDIV; i++) {
             const t = i / SUBDIV;
@@ -17675,7 +17908,7 @@
           JSON.stringify(surfacePath?.sweepSettings) + JSON.stringify(surfacePath?.loftSettings)
         ].join('|');
         const cacheKey = [
-          'sm', RC_GRID_N, SUBDIV,
+          'sm', RC_GRID_N, SUBDIV, RC_SMOOTH_ANCHOR_FIT ? 'af1' : 'af0',
           // Fill state changes stroke-run extraction (v20260704d)
           (sourcePath.style && sourcePath.style.fill && sourcePath.style.fill !== 'none') ? 'F1' : 'F0',
           camPos.join(','),
@@ -17685,12 +17918,17 @@
           JSON.stringify([options.offsetU, options.offsetV, options.offsetN,
             options.mappingMode, options.scaleU, options.scaleV, options.rotation,
             options.axisU, options.axisV, options.overflowModeU, options.overflowModeV,
-            options.surfaceType, options.referenceBounds]),
+            options.surfaceType, options.referenceBounds, options.algorithm]),
           surfGeomKey
         ].join('|');
         const cached = SurfaceMapper._rcCacheLookup(sourcePath, cacheKey,
           (pr) => surfacePointN(pr.u, pr.v));
         if (cached) return cached;
+
+        // Smooth (Curve Fit): anchor-fit mode threads source parameters
+        // through the clipper (see RC_SMOOTH_ANCHOR_FIT).
+        const smoothMode = options.algorithm === 'smooth';
+        const anchorFit = smoothMode && RC_SMOOTH_ANCHOR_FIT;
 
         // --- 1. Flatten source subpaths to UV polylines (unwrapped) -----
         const subpaths = [];
@@ -17709,7 +17947,7 @@
           if (isNew) {
             if (cur && cur.pts.length >= 2) subpaths.push(cur);
             subIdx++;
-            cur = { pts: [], closed: !!(sourcePath.subPathData?.[subIdx]?.closed) };
+            cur = { pts: [], par: [], closed: !!(sourcePath.subPathData?.[subIdx]?.closed) };
           }
           // Stage 5: straightness probe — if the segment's interior maps
           // onto the UV chord (straight rect/polygon edges under the affine
@@ -17734,6 +17972,7 @@
             const prev = cur.pts[cur.pts.length - 1];
             if (!prev || Math.abs(prev[0] - u) > 1e-12 || Math.abs(prev[1] - v) > 1e-12) {
               cur.pts.push([u, v]);
+              cur.par.push({ seg: sIdx, t: i / segRes });
             }
           }
         });
@@ -17768,12 +18007,38 @@
         // which never becomes a stroke.
         const subjectRings = arealSubpaths.map(sp => {
           const pts = sp.pts.slice();
+          const par = sp.par ? sp.par.slice() : null;
           const first = pts[0], last = pts[pts.length - 1];
+          let poppedPar = null;
           if (pts.length > 1 &&
-            Math.abs(first[0] - last[0]) < 1e-12 && Math.abs(first[1] - last[1]) < 1e-12) pts.pop();
+            Math.abs(first[0] - last[0]) < 1e-12 && Math.abs(first[1] - last[1]) < 1e-12) {
+            pts.pop();
+            if (par) poppedPar = par.pop();
+          }
           const srcs = pts.map(() => 'path');
           if (!sp.closed) srcs[srcs.length - 1] = 'closure';
-          return { pts, srcs };
+          // Anchor-fit: per-edge source parameters {seg, t0, t1} + the
+          // sampling chord endpoints in UV (for recovering t at clip-cut
+          // vertices by projection onto the chord). Closure edges: none.
+          let meta = null;
+          if (anchorFit && par) {
+            const nv = pts.length;
+            meta = pts.map((p, k) => {
+              const isClosing = (k === nv - 1);
+              if (!sp.closed && isClosing) return null;
+              const pa = par[k];
+              const pb = isClosing ? poppedPar : par[k + 1];
+              if (!pa || !pb) return null;
+              const q = pts[(k + 1) % nv];
+              return {
+                seg: pb.seg,
+                t0: (pa.seg === pb.seg) ? pa.t : 0,
+                t1: pb.t,
+                ax: p[0], ay: p[1], bx: q[0], by: q[1]
+              };
+            });
+          }
+          return { pts, srcs, meta };
         }).filter(r => r.pts.length >= 3);
         if (!subjectRings.length && !linework.length) return [];
 
@@ -17902,31 +18167,76 @@
         const TOL = Math.min(12, Math.max(0.15, 9.6 / Math.max(1, SUBDIV)));
         const TOL2 = TOL * TOL, MAXD = 10;
         const mapUV = (u, v) => toScreen(surfacePointN(u, v));
+        // NDC projection of a SOURCE point (for the anchor-fit fitter);
+        // rides the same chain as mapUV so fitted and refined geometry
+        // agree exactly (toUV includes rotation/scale/vArcComp).
+        const projNDC = (srcPt) => {
+          const [u, v] = toUV(srcPt);
+          return transformVertex(surfacePointN(u, v), options.vpMatrix);
+        };
         const emitRing = (ring) => {
           const P = ring.pts, S = ring.srcs, n = P.length;
-          const outPts = [], outSrcs = [];
-          const refine = (a, b, sa, sb, depth, tag) => {
+          const outPts = [], outSrcs = [], outEdge = [];
+          const refine = (a, b, sa, sb, depth, tag, ei) => {
             if (depth >= MAXD) return;
             const mu = (a[0] + b[0]) / 2, mv = (a[1] + b[1]) / 2;
             const sm = mapUV(mu, mv);
             if (!sm) return;
             const ex = (sa.x + sb.x) / 2 - sm.x, ey = (sa.y + sb.y) / 2 - sm.y;
             if (ex * ex + ey * ey <= TOL2) return;
-            refine(a, [mu, mv], sa, sm, depth + 1, tag);
-            outPts.push(sm); outSrcs.push(tag);
-            refine([mu, mv], b, sm, sb, depth + 1, tag);
+            refine(a, [mu, mv], sa, sm, depth + 1, tag, ei);
+            outPts.push(sm); outSrcs.push(tag); outEdge.push(ei);
+            refine([mu, mv], b, sm, sb, depth + 1, tag, ei);
           };
           for (let i = 0; i < n; i++) {
             const a = P[i], b = P[(i + 1) % n];
             const sa = mapUV(a[0], a[1]), sb = mapUV(b[0], b[1]);
             if (!sa) continue; // behind camera — degenerate, skip vertex
-            outPts.push(sa); outSrcs.push(S[i]);
+            outPts.push(sa); outSrcs.push(S[i]); outEdge.push(i);
             // Stage 5: refine ALL edges (path edges included — coarse
             // straight-segment flattening relies on this for the bent
             // on-screen shape; already-dense edges exit after one probe).
-            if (sb) refine(a, b, sa, sb, 0, S[i]);
+            if (sb) refine(a, b, sa, sb, 0, S[i], i);
           }
-          return outPts.length >= 3 ? { pts: outPts, srcs: outSrcs } : null;
+          // edges[q] = ring-edge index of the refined edge pts[q]→pts[q+1]
+          return outPts.length >= 3 ? { pts: outPts, srcs: outSrcs, edges: outEdge } : null;
+        };
+
+        // Smooth (Curve Fit) fallback for RC_SMOOTH_ANCHOR_FIT=false: the
+        // Catmull-Rom bridge (chord-weighted, corner-detecting) ported from
+        // the spline-flow builder — per-refined-edge cubics through the
+        // refined points on 'path' edges.
+        const catmullCmds = (m) => {
+          const N = m.pts.length;
+          const CORNER_COS = 0.82; // ≈ cos 35°
+          const isCorner = new Uint8Array(N);
+          for (let i = 0; i < N; i++) {
+            const p0 = m.pts[(i - 1 + N) % N], p1 = m.pts[i], p2 = m.pts[(i + 1) % N];
+            const ax = p1.x - p0.x, ay = p1.y - p0.y;
+            const bx = p2.x - p1.x, by = p2.y - p1.y;
+            const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+            if (la < 1e-9 || lb < 1e-9 || (ax * bx + ay * by) / (la * lb) < CORNER_COS) isCorner[i] = 1;
+          }
+          const cmds = new Array(N);
+          for (let i = 0; i < N; i++) {
+            const p1 = m.pts[i], p2 = m.pts[(i + 1) % N];
+            if (m.srcs[i] === 'path') {
+              const p0 = m.pts[(i - 1 + N) % N], p3 = m.pts[(i + 2) % N];
+              const d01 = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+              const d12 = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+              const d23 = Math.hypot(p3.x - p2.x, p3.y - p2.y);
+              const a = d12 / ((d01 + d12) || 1), b = d12 / ((d12 + d23) || 1);
+              let c1x, c1y, c2x, c2y;
+              if (isCorner[i]) { c1x = p1.x + (p2.x - p1.x) / 3; c1y = p1.y + (p2.y - p1.y) / 3; }
+              else { c1x = p1.x + (p2.x - p0.x) * a / 3; c1y = p1.y + (p2.y - p0.y) * a / 3; }
+              if (isCorner[(i + 1) % N]) { c2x = p2.x - (p2.x - p1.x) / 3; c2y = p2.y - (p2.y - p1.y) / 3; }
+              else { c2x = p2.x - (p3.x - p1.x) * b / 3; c2y = p2.y - (p3.y - p1.y) * b / 3; }
+              cmds[i] = 'C ' + c1x + ' ' + c1y + ' ' + c2x + ' ' + c2y + ' ' + p2.x + ' ' + p2.y + ' ';
+            } else {
+              cmds[i] = 'L ' + p2.x + ' ' + p2.y + ' ';
+            }
+          }
+          return cmds;
         };
 
         // --- 6. Package fragments: one per connected component ------------
@@ -17977,12 +18287,27 @@
             const strokes = [];
             for (const ri of [o.idx, ...o.holes]) {
               const m = mapped[ri].m;
+              const rUV = mapped[ri].uv;
               const nseg = m.pts.length;
-              m.pts.forEach((p, i) => {
-                d += (i ? 'L ' : 'M ') + p.x + ' ' + p.y + ' ';
-                zSum += p.z; count++;
-              });
-              d += 'Z ';
+              // Smooth mode shares per-edge commands between fill and
+              // strokes (anchor-fit consumes whole runs — consumed edges
+              // hold '' and the run's commands sit on its first edge).
+              const cmds = !smoothMode ? null
+                : (anchorFit && rUV.meta)
+                  ? SurfaceMapper._rcAnchorCmds(rUV, m, sourceSegs, projNDC, null, null)
+                  : catmullCmds(m);
+              if (cmds) {
+                d += 'M ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
+                for (let i = 0; i < nseg; i++) d += cmds[i];
+                d += 'Z ';
+                m.pts.forEach((p) => { zSum += p.z; count++; });
+              } else {
+                m.pts.forEach((p, i) => {
+                  d += (i ? 'L ' : 'M ') + p.x + ' ' + p.y + ' ';
+                  zSum += p.z; count++;
+                });
+                d += 'Z ';
+              }
               // Stroke runs: cyclic maximal runs of 'path' edges
               let anchor = -1;
               for (let i = 0; i < nseg; i++) {
@@ -17990,18 +18315,27 @@
               }
               if (anchor === -1) {
                 // Fully front/back ring: one closed stroke loop
-                let sd = '';
-                m.pts.forEach((p, i) => { sd += (i ? 'L ' : 'M ') + p.x + ' ' + p.y + ' '; });
-                sd += 'L ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
+                let sd = 'M ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
+                if (cmds) {
+                  for (let i = 0; i < nseg; i++) sd += cmds[i];
+                } else {
+                  m.pts.forEach((p, i) => { if (i) sd += 'L ' + p.x + ' ' + p.y + ' '; });
+                  sd += 'L ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
+                }
                 strokes.push(null, sd);
               } else {
                 let run = null;
                 for (let k = 1; k <= nseg; k++) {
                   const i = (anchor + k) % nseg;
                   if (strokeEdge(m.srcs[i])) {
-                    const p1 = m.pts[i], p2 = m.pts[(i + 1) % nseg];
+                    const p1 = m.pts[i];
                     if (!run) run = 'M ' + p1.x + ' ' + p1.y + ' ';
-                    run += 'L ' + p2.x + ' ' + p2.y + ' ';
+                    if (cmds) {
+                      run += cmds[i];
+                    } else {
+                      const p2 = m.pts[(i + 1) % nseg];
+                      run += 'L ' + p2.x + ' ' + p2.y + ' ';
+                    }
                   } else if (run) {
                     strokes.push(null, run);
                     run = null;
@@ -18109,7 +18443,7 @@
 
         // --- Stage 5 fragment cache (v20260704c) ---------------------------
         const cacheKey = [
-          'sf', RC_GRID_N, RES,
+          'sf', RC_GRID_N, RES, RC_SMOOTH_ANCHOR_FIT ? 'af1' : 'af0',
           // Fill state changes stroke-run extraction (v20260704d)
           (sourcePath.style && sourcePath.style.fill && sourcePath.style.fill !== 'none') ? 'F1' : 'F0',
           camPos.join(','),
@@ -18129,15 +18463,20 @@
           (pr) => { const p = project(pr.p); return (p && p.world) ? p.world : null; });
         if (cached) return cached;
 
+        // Smooth (Curve Fit): anchor-fit mode threads source parameters
+        // through the clipper (see RC_SMOOTH_ANCHOR_FIT).
+        const smoothMode = options.algorithm === 'smooth';
+        const anchorFit = smoothMode && RC_SMOOTH_ANCHOR_FIT;
+
         // --- 1. Flatten source subpaths in source-local 3D ---------------
         const rawSubpaths = [];
         let cur = null, lastSubIdx = null;
         const mins = [Infinity, Infinity, Infinity], maxs = [-Infinity, -Infinity, -Infinity];
-        segments.forEach((seg) => {
+        segments.forEach((seg, segIdx) => {
           const sIdx = seg.subPathIdx || 0;
           if (cur === null || seg.command === 'M' || sIdx !== lastSubIdx) {
             if (cur && cur.pts.length >= 2) rawSubpaths.push(cur);
-            cur = { pts: [], closed: !!(sourcePath.subPathData?.[sIdx]?.closed) };
+            cur = { pts: [], par: [], closed: !!(sourcePath.subPathData?.[sIdx]?.closed) };
             lastSubIdx = sIdx;
           }
           // Stage 5: straight segments are EXACT in source space with just
@@ -18178,6 +18517,7 @@
             if (!prev || Math.abs(prev[0] - p3[0]) > 1e-12 ||
               Math.abs(prev[1] - p3[1]) > 1e-12 || Math.abs(prev[2] - p3[2]) > 1e-12) {
               cur.pts.push(p3);
+              cur.par.push({ seg: segIdx, t: i / segRes });
             }
           }
         });
@@ -18202,7 +18542,8 @@
         };
         const subpaths = rawSubpaths.map(sp => ({
           closed: sp.closed,
-          pts: sp.pts.map(p => [p[axS], p[axT]])
+          pts: sp.pts.map(p => [p[axS], p[axT]]),
+          par: sp.par
         }));
 
         // v20260704k fix: open subpaths whose ring would be DEGENERATE —
@@ -18229,12 +18570,38 @@
 
         const subjectRings = arealSubpaths.map(sp => {
           const pts = sp.pts.slice();
+          const par = sp.par ? sp.par.slice() : null;
           const first = pts[0], last = pts[pts.length - 1];
+          let poppedPar = null;
           if (pts.length > 1 &&
-            Math.abs(first[0] - last[0]) < 1e-12 && Math.abs(first[1] - last[1]) < 1e-12) pts.pop();
+            Math.abs(first[0] - last[0]) < 1e-12 && Math.abs(first[1] - last[1]) < 1e-12) {
+            pts.pop();
+            if (par) poppedPar = par.pop();
+          }
           const srcs = pts.map(() => 'path');
           if (!sp.closed) srcs[srcs.length - 1] = 'closure';
-          return { pts, srcs };
+          // Anchor-fit: per-edge source parameters {seg, t0, t1} + the
+          // sampling chord endpoints (for recovering t at clip-cut vertices
+          // by projection onto the chord). Closure edges carry none.
+          let meta = null;
+          if (anchorFit && par) {
+            const nv = pts.length;
+            meta = pts.map((p, k) => {
+              const isClosing = (k === nv - 1);
+              if (!sp.closed && isClosing) return null;
+              const pa = par[k];
+              const pb = isClosing ? poppedPar : par[k + 1];
+              if (!pa || !pb) return null;
+              const q = pts[(k + 1) % nv];
+              return {
+                seg: pb.seg,
+                t0: (pa.seg === pb.seg) ? pa.t : 0,
+                t1: pb.t,
+                ax: p[0], ay: p[1], bx: q[0], by: q[1]
+              };
+            });
+          }
+          return { pts, srcs, meta };
         }).filter(r => r.pts.length >= 3);
         if (!subjectRings.length && !linework.length) return [];
 
@@ -18329,8 +18696,8 @@
         };
         const emitRing = (ring) => {
           const P = ring.pts, S = ring.srcs, n = P.length;
-          const outPts = [], outSrcs = [];
-          const refine = (a, b, sa, sb, depth, tag) => {
+          const outPts = [], outSrcs = [], outEdge = [];
+          const refine = (a, b, sa, sb, depth, tag, ei) => {
             if (depth >= MAXD) return;
             const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
             const sm = mapPt(mx, my);
@@ -18338,21 +18705,22 @@
             const ex = (sa.x + sb.x) / 2 - sm.x, ey = (sa.y + sb.y) / 2 - sm.y;
             const lim = (smoothMode && tag === 'path') ? pathTol2 : TOL2;
             if (ex * ex + ey * ey <= lim) return;
-            refine(a, [mx, my], sa, sm, depth + 1, tag);
-            outPts.push(sm); outSrcs.push(tag);
-            refine([mx, my], b, sm, sb, depth + 1, tag);
+            refine(a, [mx, my], sa, sm, depth + 1, tag, ei);
+            outPts.push(sm); outSrcs.push(tag); outEdge.push(ei);
+            refine([mx, my], b, sm, sb, depth + 1, tag, ei);
           };
           for (let i = 0; i < n; i++) {
             const a = P[i], b = P[(i + 1) % n];
             const sa = mapPt(a[0], a[1]), sb = mapPt(b[0], b[1]);
             if (!sa) continue;
-            outPts.push(sa); outSrcs.push(S[i]);
+            outPts.push(sa); outSrcs.push(S[i]); outEdge.push(i);
             // Stage 5: refine ALL edges (path edges included — coarse
             // straight-segment flattening relies on this for the bent
             // on-screen shape; already-dense edges exit after one probe).
-            if (sb) refine(a, b, sa, sb, 0, S[i]);
+            if (sb) refine(a, b, sa, sb, 0, S[i], i);
           }
-          return outPts.length >= 3 ? { pts: outPts, srcs: outSrcs } : null;
+          // edges[q] = ring-edge index of the refined edge pts[q]→pts[q+1]
+          return outPts.length >= 3 ? { pts: outPts, srcs: outSrcs, edges: outEdge } : null;
         };
 
         // --- 6. Package fragments (spline-flow consumer contract) ----------
@@ -18370,14 +18738,14 @@
           sourcePath.style.fill !== 'none');
         const strokeEdge = (src) => fillActive ? (src !== 'closure') : (src === 'path');
 
-        // Smooth (Curve Fit) mode (v20260704e): the legacy smooth algorithm
-        // emitted fitted Bézier output; RC previously emitted polylines,
-        // which read as faceted at large stroke widths / close zoom. Path
-        // edges are now emitted as non-uniform Catmull-Rom cubics through
-        // the refined points (interpolating — accuracy preserved), while
-        // silhouette/domain/closure edges stay polylines so front/back
-        // fragments keep bit-identical shared boundaries.
-        const smoothMode = options.algorithm === 'smooth';
+        // Smooth (Curve Fit) mode: two emissions share this entry point.
+        // ANCHOR-FIT (RC_SMOOTH_ANCHOR_FIT, the default): clipped source
+        // intervals are re-fitted with the original least-squares fitter so
+        // output cubics join exactly at the source anchors — see anchorCmds.
+        // BACKUP (v20260704e): non-uniform Catmull-Rom cubics through the
+        // refined points — edgeCmds below, kept for instant rollback.
+        // In both, silhouette/domain/closure edges stay polylines so
+        // front/back fragments keep bit-identical shared boundaries.
         const edgeCmds = (m) => {
           const n = m.pts.length;
           // Corner detection (v20260704g): a point whose incoming/outgoing
@@ -18434,6 +18802,7 @@
           }
           return cmds;
         };
+
         const fragments = [];
         const packageLayer = (rings, layer) => {
           if (!rings.length) return;
@@ -18471,10 +18840,15 @@
             const zBounds = { minZ: Infinity, maxZ: -Infinity };
             for (const ri of [o.idx, ...o.holes]) {
               const m = mapped[ri].m;
+              const rUV = mapped[ri].uv;
               const nseg = m.pts.length;
               // Per-edge commands shared by fill and strokes, so their
-              // geometry coincides exactly (Catmull-Rom in smooth mode).
-              const cmds = edgeCmds(m);
+              // geometry coincides exactly (anchor-fit or Catmull-Rom in
+              // smooth mode; anchor-fit consumes whole runs — consumed
+              // edges hold '' and the run's commands sit on its first edge).
+              const cmds = (anchorFit && smoothMode && rUV.meta)
+                ? SurfaceMapper._rcAnchorCmds(rUV, m, segments, project, bounds, zBounds)
+                : edgeCmds(m);
               d += 'M ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
               for (let i = 0; i < nseg; i++) d += cmds[i];
               d += 'Z ';
@@ -19314,15 +19688,15 @@
           // Subject edges keep their caller-provided tag (default 'path';
           // e.g. 'closure' marks an open subpath's implicit closing edge,
           // which fills use but strokes must skip).
-          if (e.side >= 0) frontEdges.push({ x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, src: e.src });
-          if (e.side < 0) backEdges.push({ x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, src: e.src });
+          if (e.side >= 0) frontEdges.push({ x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, src: e.src, mt: e.mt });
+          if (e.side < 0) backEdges.push({ x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, src: e.src, mt: e.mt });
         }
         for (const e of regEdges) {
           if (e.side > 0) {
             // Forward for front (∂F oriented interior-left of F)…
-            frontEdges.push({ x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, src: e.src });
+            frontEdges.push({ x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, src: e.src, mt: e.mt });
             // …reversed for back (∂F bounds the complement there).
-            backEdges.push({ x1: e.x2, y1: e.y2, x2: e.x1, y2: e.y1, src: e.src });
+            backEdges.push({ x1: e.x2, y1: e.y2, x2: e.x1, y2: e.y1, src: e.src, mt: e.mt });
           }
         }
 
@@ -19333,7 +19707,8 @@
         // --- 6. Un-snap back to caller coordinates -------------------------
         const unsnap = (rings) => rings.map(r => ({
           pts: r.pts.map(([x, y]) => [T.u0 + x / T.s, T.v0 + y / T.s]),
-          srcs: r.srcs
+          srcs: r.srcs,
+          meta: r.meta
         }));
         return { front: unsnap(front), back: unsnap(back), stats };
       }
@@ -19347,24 +19722,36 @@
         if (!T) return { front: [], back: [] };
         const reg = PolyClip._snapRings(regIn, T, 'silhouette', { droppedRings: 0 });
         PolyClip._normalizeOrientation(reg);
+        // Optional per-edge meta (opts.meta[i] tags pts[i]→pts[i+1]); carried
+        // onto each output run as a parallel per-edge `.meta` array property.
+        const inMeta = opts.meta || null;
         // Snap the polyline (open — do not join last to first)
-        const snapped = [];
-        for (const [u, v] of pts) {
+        const snapped = [], snapMeta = [];
+        let lastOrigIdx = 0;
+        pts.forEach(([u, v], oi) => {
           const x = Math.round((u - T.u0) * T.s), y = Math.round((v - T.v0) * T.s);
           const prev = snapped[snapped.length - 1];
-          if (!prev || prev[0] !== x || prev[1] !== y) snapped.push([x, y]);
-        }
+          if (!prev || prev[0] !== x || prev[1] !== y) {
+            if (prev) snapMeta.push(inMeta ? (inMeta[lastOrigIdx] || null) : null);
+            snapped.push([x, y]);
+            lastOrigIdx = oi;
+          }
+        });
         if (snapped.length < 2) return { front: [], back: [] };
         // Split each segment at region crossings, classify midpoints,
         // accumulate maximal same-side runs.
         const runs = { front: [], back: [] };
-        let curPts = null, curSide = 0;
+        let curPts = null, curMeta = null, curSide = 0;
         const flush = () => {
-          if (curPts && curPts.length >= 2) runs[curSide >= 0 ? 'front' : 'back'].push(curPts);
-          curPts = null;
+          if (curPts && curPts.length >= 2) {
+            curPts.meta = curMeta;
+            runs[curSide >= 0 ? 'front' : 'back'].push(curPts);
+          }
+          curPts = null; curMeta = null;
         };
         for (let i = 0; i < snapped.length - 1; i++) {
           const a = snapped[i], b = snapped[i + 1];
+          const segMeta = snapMeta[i] || null;
           const cuts = PolyClip._segmentCutsVsRegion(a, b, reg);
           let prev = a;
           for (const pt of [...cuts, b]) {
@@ -19374,14 +19761,20 @@
             if (!curPts || (side >= 0) !== (curSide >= 0)) {
               flush();
               curPts = [prev.slice()];
+              curMeta = [];
               curSide = side;
             }
             curPts.push(pt.slice());
+            curMeta.push(segMeta);
             prev = pt;
           }
         }
         flush();
-        const unsnap = (p) => p.map(([x, y]) => [T.u0 + x / T.s, T.v0 + y / T.s]);
+        const unsnap = (p) => {
+          const o = p.map(([x, y]) => [T.u0 + x / T.s, T.v0 + y / T.s]);
+          if (p.meta) o.meta = p.meta;
+          return o;
+        };
         return { front: runs.front.map(unsnap), back: runs.back.map(unsnap) };
       }
 
@@ -19405,30 +19798,33 @@
       }
 
       // Snap rings to the lattice; dedupe consecutive duplicates; drop
-      // degenerate rings. Per-edge source tags survive vertex dedupe.
+      // degenerate rings. Per-edge source tags survive vertex dedupe, and so
+      // does the optional per-edge meta channel (opaque objects — e.g. the
+      // anchor-fit smooth mode's {seg, t0, t1, chord} source parameters).
       static _snapRings(ringObjs, T, defaultSrc, stats) {
         const out = [];
         for (const r of ringObjs) {
-          const pts = [], srcs = [];
+          const pts = [], srcs = [], meta = [];
           const n = r.pts.length;
           for (let i = 0; i < n; i++) {
             const x = Math.round((r.pts[i][0] - T.u0) * T.s);
             const y = Math.round((r.pts[i][1] - T.v0) * T.s);
             const src = (r.srcs && r.srcs[i]) || defaultSrc;
+            const mt = r.meta ? (r.meta[i] || null) : null;
             const prev = pts[pts.length - 1];
             if (prev && prev[0] === x && prev[1] === y) {
               // collapsed vertex — its edge tag merges into the previous edge
               continue;
             }
-            pts.push([x, y]); srcs.push(src);
+            pts.push([x, y]); srcs.push(src); meta.push(mt);
           }
           // Remove closing duplicate
           while (pts.length > 1 &&
             pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) {
-            pts.pop(); srcs.pop();
+            pts.pop(); srcs.pop(); meta.pop();
           }
           if (pts.length >= 3) {
-            out.push({ pts, srcs, splits: pts.map(() => []) });
+            out.push({ pts, srcs, meta, splits: pts.map(() => []) });
           } else if (stats) {
             stats.droppedRings++;
           }
@@ -19467,6 +19863,11 @@
             // edges off, visibly stroking open paths' implicit closure).
             r.srcs.reverse();
             r.srcs.push(r.srcs.shift());
+            if (r.meta) {
+              // meta follows srcs exactly (same per-edge index discipline)
+              r.meta.reverse();
+              r.meta.push(r.meta.shift());
+            }
             r.splits = r.pts.map(() => []);
           }
         });
@@ -19594,6 +19995,7 @@
           for (let i = 0; i < n; i++) {
             const a = r.pts[i], b = r.pts[(i + 1) % n];
             const src = r.srcs[i];
+            const mt = r.meta ? r.meta[i] : null;
             const vSplit = r.vertexSplits ? r.vertexSplits.has(i) : false;
             let chain = [a];
             if (r.splits[i].length) {
@@ -19610,7 +20012,7 @@
               const p = chain[k], q = chain[k + 1];
               if (p[0] === q[0] && p[1] === q[1]) continue;
               edges.push({
-                x1: p[0], y1: p[1], x2: q[0], y2: q[1], src, ringIdx,
+                x1: p[0], y1: p[1], x2: q[0], y2: q[1], src, mt, ringIdx,
                 chainStart: k > 0 || vSplit
               });
             }
@@ -19724,7 +20126,7 @@
         const TWO_PI = Math.PI * 2;
         for (let s = 0; s < edges.length; s++) {
           if (edges[s].used) continue;
-          const pts = [], srcs = [];
+          const pts = [], srcs = [], meta = [];
           let cur = s;
           let guard = edges.length + 1;
           while (guard-- > 0) {
@@ -19732,6 +20134,7 @@
             e.used = true;
             pts.push([e.x1, e.y1]);
             srcs.push(e.src);
+            meta.push(e.mt !== undefined ? e.mt : null);
             const k = e.x2 + ',' + e.y2;
             const cands = (outMap.get(k) || []).filter(i => !edges[i].used);
             // Ring closes when we return to the seed edge's tail.
@@ -19757,7 +20160,7 @@
             // Dead end / runaway: force-close (never crash; tracked)
             if (stats) stats.forceClosed++;
           }
-          if (pts.length >= 3) rings.push({ pts, srcs });
+          if (pts.length >= 3) rings.push({ pts, srcs, meta });
         }
         return rings;
       }
@@ -19938,6 +20341,32 @@
             Math.abs(p[1]) < 1e-4 && (Math.abs(p[0]) < 1e-4 || Math.abs(p[0] - 1) < 1e-4));
           t('reversal keeps closure tag on its edge', onBottom,
             JSON.stringify(found.map(e => e.map(p => p.map(v => +v.toFixed(2))))));
+        }
+
+        // 12. Meta channel: per-edge metadata survives snapping, splitting,
+        // orientation reversal, and assembly; sub-edges inherit the parent
+        // edge's meta; region edges carry none.
+        {
+          const subject = [{
+            pts: sq(0, 0, 10, 10),
+            srcs: ['path', 'path', 'path', 'path'],
+            meta: [{ seg: 0 }, { seg: 1 }, { seg: 2 }, { seg: 3 }]
+          }];
+          const r = PolyClip.split(subject, [sq(5, -1, 15, 11)]);
+          let inherited = 0, wrong = 0;
+          const expectBySeg = { 0: true, 1: true, 2: true, 3: true };
+          for (const rings of [r.front, r.back]) for (const rg of rings) {
+            rg.srcs.forEach((s, i) => {
+              const m = rg.meta ? rg.meta[i] : null;
+              if (s === 'path') {
+                if (m && expectBySeg[m.seg]) inherited++; else wrong++;
+              } else if (m) {
+                wrong++; // region-provided edges must carry no meta
+              }
+            });
+          }
+          t('meta channel: inherited through clip', r.front.length > 0 && r.back.length > 0
+            && inherited >= 6 && wrong === 0, `inherited=${inherited} wrong=${wrong}`);
         }
 
         console.table(results);
@@ -21652,6 +22081,7 @@
                 axisU: sm.axisU || 'X',
                 axisV: sm.axisV || 'Y',
                 resolution: sm.resolution || 8,
+                algorithm: sm.algorithm || 'subdivision',
                 silhouetteSplit: sm.silhouetteSplit || false,
                 overflowModeU: isClipWarpU ? 'clip' : rawOverflowU,
                 overflowModeV: isClipWarpV ? 'clip' : rawOverflowV,
@@ -32251,6 +32681,11 @@
         const smSplitInput = document.getElementById('surfaceMappingSplitInput');
         if (smResolution && document.activeElement !== smResolution) smResolution.value = sm.resolution || 8;
         if (smSplitInput && document.activeElement !== smSplitInput) smSplitInput.checked = (sm.silhouetteSplit !== false);
+        const smAlgorithmSelect = document.getElementById('surfaceMappingAlgorithm');
+        if (smAlgorithmSelect && document.activeElement !== smAlgorithmSelect) smAlgorithmSelect.value = sm.algorithm || 'subdivision';
+        // Resolution row only applies to Subdivide (mirrors spline flow)
+        const smResolutionField = document.getElementById('surfaceMappingResolutionField');
+        if (smResolutionField) smResolutionField.style.display = ((sm.algorithm || 'subdivision') === 'smooth') ? 'none' : '';
         const smOverflowModeUSelect = document.getElementById('surfaceMappingOverflowModeU');
         const smOverflowModeVSelect = document.getElementById('surfaceMappingOverflowModeV');
         // Backward compat: fall back to legacy single overflowMode
@@ -32269,6 +32704,7 @@
         if (smRotation) smRotation.disabled = smDisabled;
         if (smResolution) smResolution.disabled = smDisabled;
         if (smSplitInput) smSplitInput.disabled = smDisabled;
+        if (smAlgorithmSelect) smAlgorithmSelect.disabled = smDisabled;
         const smAxisUEl = document.getElementById('surfaceMappingAxisU');
         const smAxisVEl = document.getElementById('surfaceMappingAxisV');
         if (smAxisUEl) smAxisUEl.disabled = smDisabled;
@@ -32834,6 +33270,7 @@
             axisU: 'X',
             axisV: 'Y',
             resolution: 8,
+            algorithm: 'subdivision',
             silhouetteSplit: true,
             closureSteps: 8,
             rotation: 0,
@@ -32895,12 +33332,21 @@
             'surfaceMappingOffsetU', 'surfaceMappingOffsetV', 'surfaceMappingOffsetN',
             'surfaceMappingMode', 'surfaceMappingScaleU', 'surfaceMappingScaleV',
             'surfaceMappingRotation', 'surfaceMappingResolution', 'surfaceMappingSplitInput',
-            'surfaceMappingOverflowModeU', 'surfaceMappingOverflowModeV', 'surfaceMappingAxisU', 'surfaceMappingAxisV'
+            'surfaceMappingOverflowModeU', 'surfaceMappingOverflowModeV', 'surfaceMappingAxisU', 'surfaceMappingAxisV',
+            'surfaceMappingAlgorithm'
           ];
           smControlIds.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.disabled = ctrlDisabled;
           });
+          // Resolution row visibility follows the mapping's current
+          // algorithm (Smooth hides it) — set directly, like the
+          // Algorithm listener does.
+          const smResFieldEn = document.getElementById('surfaceMappingResolutionField');
+          if (smResFieldEn) {
+            const algoNow = selectedObject.surfaceConstraint.surfaceMapping.algorithm || 'subdivision';
+            smResFieldEn.style.display = (algoNow === 'smooth') ? 'none' : '';
+          }
 
           updatePropertiesPanel();
           requestRender();
@@ -32918,7 +33364,7 @@
               enabled: false, surfacePathId: null,
               offsetU: 0, offsetV: 0, offsetN: 0,
               mappingMode: 'decal', scaleU: 1, scaleV: 1,
-              axisU: 'X', axisV: 'Y', resolution: 8,
+              axisU: 'X', axisV: 'Y', resolution: 8, algorithm: 'subdivision',
               silhouetteSplit: true, rotation: 0, overflowModeU: 'around', overflowModeV: 'clip'
             };
           }
@@ -33014,6 +33460,33 @@
           selectedObject.surfaceConstraint.surfaceMapping.resolution = Math.max(2, parseInt(e.target.value) || 8);
           requestRender();
         }
+      });
+    }
+
+    const surfaceMappingAlgorithmSel = document.getElementById('surfaceMappingAlgorithm');
+    if (surfaceMappingAlgorithmSel) {
+      surfaceMappingAlgorithmSel.addEventListener('change', (e) => {
+        pushUndoStateCoalesced();
+        const val = e.target.value;
+        // Show/hide Resolution field directly (the mapping-panel sync lives
+        // in updateStylePanel, which does NOT run on updatePropertiesPanel —
+        // same direct-toggle pattern as the spline-flow Mesh select).
+        const smResField = document.getElementById('surfaceMappingResolutionField');
+        if (smResField) smResField.style.display = (val === 'subdivision') ? '' : 'none';
+        // Store without an .enabled guard — dropping the change silently
+        // left the dropdown showing Smooth while the model still said
+        // subdivision ("always subdivided" report). A render setting on a
+        // disabled mapping is harmless. Multi-select fallback mirrors the
+        // spline-flow listener.
+        if (selectedObject && selectedObject.surfaceConstraint?.surfaceMapping) {
+          selectedObject.surfaceConstraint.surfaceMapping.algorithm = val;
+        } else if (selectedObjects.length > 0) {
+          selectedObjects.forEach(obj => {
+            if (obj.surfaceConstraint?.surfaceMapping) obj.surfaceConstraint.surfaceMapping.algorithm = val;
+          });
+        }
+        updateStylePanel();
+        requestRender();
       });
     }
 

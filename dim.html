@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260715d -->
+<!-- dim v20260718j -->
 
 <!--
   MIT License
@@ -4806,14 +4806,14 @@
         <div class="prop-row prop-inline">
           <label for="animationEnabledCb" class="ui-checkbox-label">Animation <span
               style="font-size:10px; color:var(--text-muted);">(experimental)</span></label>
-          <input type="checkbox" id="animationEnabledCb" class="ui-checkbox" />
+          <input type="checkbox" id="animationEnabledCb" class="ui-checkbox" checked />
         </div>
 
         <!-- TEXT TOOL (experimental) -->
         <div class="prop-row prop-inline">
           <label for="textToolEnabledCb" class="ui-checkbox-label">Text Tool <span
               style="font-size:10px; color:var(--text-muted);">(experimental)</span></label>
-          <input type="checkbox" id="textToolEnabledCb" class="ui-checkbox" />
+          <input type="checkbox" id="textToolEnabledCb" class="ui-checkbox" checked />
         </div>
         <!-- /TEXT TOOL -->
 
@@ -4854,12 +4854,24 @@
             <input type="checkbox" id="gizmoModeCb" class="ui-label-switch gizmo-mode-toggle" />
           </div>
           <div class="xyz-row hidden" id="rotatePivotModeRow">
-            <label for="rotatePivotModeSelect">Multi Rotate</label>
+            <label for="rotatePivotModeSelect">Rotate About</label>
             <div class="xyz-inputs">
               <select id="rotatePivotModeSelect">
                 <option value="inPlace" selected>Spin in place</option>
                 <option value="keyObject">Around key object</option>
                 <option value="center">Around center</option>
+                <option value="origin">Around world origin</option>
+              </select>
+            </div>
+          </div>
+          <div class="xyz-row hidden" id="scalePivotModeRow">
+            <label for="scalePivotModeSelect">Scale About</label>
+            <div class="xyz-inputs">
+              <select id="scalePivotModeSelect">
+                <option value="inPlace" selected>Each in place</option>
+                <option value="keyObject">From key object</option>
+                <option value="center">From center</option>
+                <option value="origin">From world origin</option>
               </select>
             </div>
           </div>
@@ -5260,10 +5272,17 @@
           <div class="hidden" id="textSettingsContainer" style="display:none;">
             <div class="xyz-row">
               <label>Font</label>
-              <div class="xyz-inputs">
-                <button id="textFontBtn" class="ui-btn ui-btn-small" style="flex:0 0 auto;">Load Font…</button>
+              <div class="xyz-inputs"
+                style="background:transparent; overflow:visible; gap:6px; align-items:center;">
+                <button id="textFontBtn" class="ui-btn ui-btn-small" title="Load font (.ttf, .otf, .ttc, .woff)"
+                  style="flex:0 0 auto; padding:0 8px;"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"
+                    stroke="currentColor" stroke-width="1.5">
+                    <path d="M8 2v8" />
+                    <path d="M5 7l3 3 3-3" />
+                    <path d="M3 13h10" />
+                  </svg></button>
                 <span id="textFontName"
-                  style="font-size:11px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; align-self:center;">No
+                  style="font-size:11px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0;">No
                   font loaded</span>
                 <input type="file" id="textFontInput" accept=".ttf,.otf,.ttc,.woff" style="display:none;" />
               </div>
@@ -5326,15 +5345,18 @@
             </div>
             <div class="xyz-row">
               <label>Kern Pairs</label>
-              <div class="xyz-inputs" style="flex-direction:column; align-items:stretch; gap:4px;">
+              <div class="xyz-inputs"
+                style="flex-direction:column; align-items:stretch; gap:4px; background:transparent; overflow:visible;">
                 <div id="textKernStrip"
                   style="display:flex; flex-wrap:wrap; align-items:center; row-gap:2px; max-height:72px; overflow-y:auto; padding:4px 5px; background:var(--bg-input); border:1px solid rgba(0,0,0,0.1); border-radius:2px; font-size:12px; line-height:1.2; user-select:none; min-height:26px;">
                 </div>
-                <div style="display:flex; gap:4px; align-items:center;">
+                <div style="display:flex; gap:6px; align-items:center;">
                   <span id="textKernPairLabel"
-                    style="font-size:10px; color:var(--text-muted); flex:0 0 auto; min-width:34px; text-align:center;">–</span>
-                  <input type="number" id="textKernValue" step="10" value="0" disabled style="flex:1; min-width:0;" />
-                  <button id="textKernClearBtn" class="ui-btn ui-btn-small" style="flex:0 0 auto;">Clear All</button>
+                    style="font-size:10px; color:var(--text-muted); flex:0 0 auto; min-width:34px; text-align:center; line-height:1;">–</span>
+                  <input type="number" id="textKernValue" step="10" value="0" disabled style="width:76px;" />
+                  <button id="textKernClearBtn" class="ui-btn ui-btn-small"
+                    style="flex:0 0 auto; margin-left:auto; min-height:0; height:26px; padding:0 10px;">Clear
+                    All</button>
                 </div>
               </div>
             </div>
@@ -9006,15 +9028,17 @@
       svg.style.cursor = currentToolCursor;
     }
 
-    // The Multi Rotate Pivot control only affects rotation of 2+ objects
-    // (a single object / group always rotates about its own anchor), so it
-    // shows only for the rotate tool AND a multi-selection. Called on both
-    // tool change and selection change.
+    // The Rotate/Scale "about" pivot controls show whenever their tool is
+    // active with a selection. For multi-select every mode is meaningful; for a
+    // single object inPlace/keyObject/center all mean "about its own anchor"
+    // while 'origin' (about world [0,0,0]) is distinct — so the row shows for a
+    // single object too, to keep origin reachable. Called on tool + selection change.
     function updateRotatePivotRowVisibility() {
-      const row = document.getElementById('rotatePivotModeRow');
-      if (!row) return;
-      const show = currentTool === 'rotate' && Array.isArray(selectedObjects) && selectedObjects.length > 1;
-      row.style.display = show ? 'flex' : 'none';
+      const hasSel = Array.isArray(selectedObjects) && selectedObjects.length >= 1;
+      const rotRow = document.getElementById('rotatePivotModeRow');
+      if (rotRow) rotRow.style.display = (currentTool === 'rotate' && hasSel) ? 'flex' : 'none';
+      const sclRow = document.getElementById('scalePivotModeRow');
+      if (sclRow) sclRow.style.display = (currentTool === 'scale' && hasSel) ? 'flex' : 'none';
     }
 
     const setTool = (tool) => {
@@ -9576,8 +9600,8 @@
         gizmoModeRow.style.display =
           ['select', 'directSelect', 'rotate', 'scale', 'pivot'].includes(tool) ? 'flex' : 'none';
       }
-      // Multi Rotate Pivot: rotate tool + 2+ objects only (also refreshed on
-      // selection change — see updatePropertiesPanel).
+      // Rotate/Scale "about" pivot rows: shown per active tool + selection
+      // (also refreshed on selection change — see updatePropertiesPanel).
       updateRotatePivotRowVisibility();
 
       // Pixel Art Tool Settings Visibility
@@ -10174,7 +10198,10 @@
           mode: 'object',
           targetObject: selectedObject,
           startMatrix: selectedObject.rotationMatrix.map(row => [...row]),
-          startEuler: [...selectedObject.rotationEuler]
+          startEuler: [...selectedObject.rotationEuler],
+          // 'origin' mode orbits the object's position about world [0,0,0], so
+          // remember it to restore on Cancel (other modes leave position alone).
+          startPos: [...selectedObject.position]
         };
         // Capture "before" snapshot for this new session
         if (typeof captureSceneSnapshot === 'function') {
@@ -10191,10 +10218,11 @@
       const dy = parseFloat(rotateToolInputY.value) || 0;
       const dz = parseFloat(rotateToolInputZ.value) || 0;
 
-      if (selectedObjects && selectedObjects.length > 1) {
-        // Multi: apply the primary's incremental world delta rotation to all
-        // (pivot-aware). R = newPrimary · currentPrimary⁻¹; applyGroupRotation
-        // sets the primary to the typed euler and rotates the rest by R.
+      if ((selectedObjects && selectedObjects.length > 1) || rotatePivotMode === 'origin') {
+        // Group path (multi, or single about world origin): apply the primary's
+        // incremental world delta to all (pivot-aware). R = newPrimary ·
+        // currentPrimary⁻¹; applyGroupRotation sets the primary to the typed
+        // euler, rotates the rest by R, and orbits positions per rotatePivotMode.
         const R = matrixMultiply(matrixFromEuler([dx, dy, dz]), matrixInverse(selectedObject.rotationMatrix));
         applyGroupRotation(R);
       } else {
@@ -10226,10 +10254,11 @@
 
       // Absolute = start + delta
       const newEuler = [se[0] + ddx, se[1] + ddy, se[2] + ddz];
-      if (selectedObjects && selectedObjects.length > 1) {
-        // Multi: incremental world delta R = newPrimary · currentPrimary⁻¹
-        // → applyGroupRotation (pivot-aware). Successive edits compose since
-        // each reads the CURRENT primary matrix; clearing the delta reverses.
+      if ((selectedObjects && selectedObjects.length > 1) || rotatePivotMode === 'origin') {
+        // Group path (multi, or single about world origin): incremental world
+        // delta R = newPrimary · currentPrimary⁻¹ → applyGroupRotation
+        // (pivot-aware). Successive edits compose since each reads the CURRENT
+        // primary matrix; clearing the delta reverses.
         const R = matrixMultiply(matrixFromEuler(newEuler), matrixInverse(selectedObject.rotationMatrix));
         applyGroupRotation(R);
       } else {
@@ -10261,6 +10290,8 @@
         // Revert to Session Start
         selectedObject.rotationMatrix = rotateToolSession.startMatrix.map(row => [...row]); // Deep copy back
         selectedObject.rotationEuler = matrixToEuler(selectedObject.rotationMatrix);
+        // 'origin' mode may have orbited the primary's position — restore it.
+        if (rotateToolSession.startPos) selectedObject.position = [...rotateToolSession.startPos];
 
         updatePropertiesPanel();
         updateRotateToolUI();
@@ -10335,7 +10366,12 @@
         scaleToolSession = {
           mode: 'object',
           targetObject: selectedObject,
-          startScale: [...(selectedObject.scale || [1, 1, 1])]
+          startScale: [...(selectedObject.scale || [1, 1, 1])],
+          // Per-object baselines for a multi-aware Cancel (keyObject/center/origin
+          // move positions too). Refs are valid within a session — this is
+          // re-armed on every selection change.
+          startAll: (selectedObjects && selectedObjects.length ? selectedObjects : [selectedObject])
+            .map(o => ({ obj: o, scale: [...(o.scale || [1, 1, 1])], position: [...o.position] }))
         };
         // Capture "before" snapshot for this new session
         if (typeof captureSceneSnapshot === 'function') {
@@ -10357,7 +10393,15 @@
       const sz = parseFloat(scaleToolInputZ.value);
       if (isNaN(sx) || isNaN(sy) || isNaN(sz)) return;
 
-      selectedObject.scale = [clampScale(sx), clampScale(sy), clampScale(sz)];
+      const target = [clampScale(sx), clampScale(sy), clampScale(sz)];
+      if ((selectedObjects && selectedObjects.length > 1) || scalePivotMode === 'origin') {
+        // Group path: bring the PRIMARY to the typed absolute scale and apply the
+        // same per-axis ratio to the rest, orbiting positions per scalePivotMode.
+        const cur = selectedObject.scale || [1, 1, 1];
+        applyGroupScale([target[0] / cur[0], target[1] / cur[1], target[2] / cur[2]]);
+      } else {
+        selectedObject.scale = target;
+      }
 
       // Update delta display
       if (scaleToolSession && scaleToolSession.startScale) {
@@ -10382,7 +10426,12 @@
 
       // Absolute = start + delta
       const newScale = [clampScale(ss[0] + ddx), clampScale(ss[1] + ddy), clampScale(ss[2] + ddz)];
-      selectedObject.scale = newScale;
+      if ((selectedObjects && selectedObjects.length > 1) || scalePivotMode === 'origin') {
+        const cur = selectedObject.scale || [1, 1, 1];
+        applyGroupScale([newScale[0] / cur[0], newScale[1] / cur[1], newScale[2] / cur[2]]);
+      } else {
+        selectedObject.scale = newScale;
+      }
 
       // Update absolute display
       const fmt = (n) => n.toFixed(2);
@@ -10405,8 +10454,19 @@
       scaleCancelBtn.addEventListener('click', () => {
         if (!scaleToolSession || !selectedObject) return;
 
-        // Revert to Session Start
-        selectedObject.scale = [...scaleToolSession.startScale];
+        // Revert to session start. startAll carries every selected object's
+        // scale + position so keyObject/center/origin group scales fully undo
+        // (not just the primary). Fallback to the primary-only path if absent.
+        if (scaleToolSession.startAll && scaleToolSession.startAll.length) {
+          scaleToolSession.startAll.forEach(s => {
+            if (!s.obj) return;
+            s.obj.scale = [...s.scale];
+            s.obj.position = [...s.position];
+            notifyPathUpdated(s.obj);
+          });
+        } else {
+          selectedObject.scale = [...scaleToolSession.startScale];
+        }
 
         updatePropertiesPanel();
         updateScaleToolUI();
@@ -11021,6 +11081,29 @@
 
     const performRedo = () => {
       if (sceneRedoHistory.length === 0) return;
+
+      // Commit any uncommitted drift (a pending coalesced change and/or
+      // outstanding diffs since the last push) BEFORE the redo restore.
+      // restoreSceneFromState replaces the whole live scene, so without this
+      // the drift would be silently discarded instead of becoming its own undo
+      // entry — mirrors performUndo's preamble. The flush pushes to the UNDO
+      // stack only, so it never disturbs the redo we are about to apply.
+      if (_sceneCoalesceTimer) {
+        clearTimeout(_sceneCoalesceTimer);
+        _sceneCoalesceTimer = null;
+        if (_sceneCoalesceBeforeState) {
+          const current = captureSceneState();
+          const cDiffs = computeDiff(_sceneCoalesceBeforeState, current);
+          if (cDiffs.length > 0) {
+            sceneUndoHistory.push(cDiffs);
+            if (sceneUndoHistory.length > HISTORY_MAX) sceneUndoHistory.shift();
+          }
+          _lastSceneState = deepClone(current);
+          _sceneCoalesceBeforeState = null;
+        }
+      }
+      _flushSceneOutstanding();
+
       const diffs = sceneRedoHistory.pop();
       sceneUndoHistory.push(diffs);
       if (sceneUndoHistory.length > HISTORY_MAX) sceneUndoHistory.shift();
@@ -11065,6 +11148,25 @@
 
     const performCameraRedo = () => {
       if (cameraRedoHistory.length === 0) return;
+
+      // Commit uncommitted camera drift before the redo restore blows it away
+      // (mirrors performCameraUndo; flush targets the undo stack only).
+      if (_cameraCoalesceTimer) {
+        clearTimeout(_cameraCoalesceTimer);
+        _cameraCoalesceTimer = null;
+        if (_cameraCoalesceBeforeState) {
+          const current = captureCameraState();
+          const cDiffs = computeDiff(_cameraCoalesceBeforeState, current);
+          if (cDiffs.length > 0) {
+            cameraUndoHistory.push(cDiffs);
+            if (cameraUndoHistory.length > HISTORY_MAX) cameraUndoHistory.shift();
+          }
+          _lastCameraState = deepClone(current);
+          _cameraCoalesceBeforeState = null;
+        }
+      }
+      _flushCameraOutstanding();
+
       const diffs = cameraRedoHistory.pop();
       cameraUndoHistory.push(diffs);
       if (cameraUndoHistory.length > HISTORY_MAX) cameraUndoHistory.shift();
@@ -11257,6 +11359,25 @@
 
     const performAnimRedo = () => {
       if (animRedoHistory.length === 0) return;
+
+      // Commit uncommitted animation drift before the redo restore replaces the
+      // track state (mirrors performAnimUndo; flush targets the undo stack only).
+      if (_animCoalesceTimer) {
+        clearTimeout(_animCoalesceTimer);
+        _animCoalesceTimer = null;
+        if (_animCoalesceBeforeState) {
+          const current = captureAnimationState();
+          const cDiffs = computeDiff(_animCoalesceBeforeState, current);
+          if (cDiffs.length > 0) {
+            animUndoHistory.push(cDiffs);
+            if (animUndoHistory.length > HISTORY_MAX) animUndoHistory.shift();
+          }
+          _lastAnimState = deepClone(current);
+          _animCoalesceBeforeState = null;
+        }
+      }
+      _flushAnimOutstanding();
+
       const diffs = animRedoHistory.pop();
       animUndoHistory.push(diffs);
       if (animUndoHistory.length > HISTORY_MAX) animUndoHistory.shift();
@@ -11605,7 +11726,7 @@
 
     // Helper: check if ANY active tool session has a non-zero delta
     const toolSessionHasDelta = () => {
-      return _moveSessionHasDelta() || _rotateSessionHasDelta() || _scaleSessionHasDelta();
+      return _moveSessionHasDelta() || _rotateSessionHasDelta() || _scaleSessionHasDelta() || _pivotSessionHasDelta();
     };
 
     // Toolbar icon click handlers — toggle off if clicking the already-active tool
@@ -11631,6 +11752,12 @@
       if (rotatePivotModeSelect) {
         rotatePivotModeSelect.addEventListener('change', () => {
           rotatePivotMode = rotatePivotModeSelect.value; // tool preference; not undo/serialized
+        });
+      }
+      const scalePivotModeSelect = document.getElementById('scalePivotModeSelect');
+      if (scalePivotModeSelect) {
+        scalePivotModeSelect.addEventListener('change', () => {
+          scalePivotMode = scalePivotModeSelect.value; // tool preference; not undo/serialized
         });
       }
       const cameraDragControlSelect = document.getElementById('cameraDragControlSelect');
@@ -13265,7 +13392,7 @@
     // importScene's auto-enable can always reach it. Existing text OBJECTS
     // are unaffected by the gate — they render/animate as plain paths;
     // only tool ACCESS is gated.
-    let textToolEnabled = false;
+    let textToolEnabled = true; // default ON (loadSettings reconciles with saved prefs)
     const setTextToolEnabled = (enabled) => {
       textToolEnabled = !!enabled;
       const btn = document.querySelector('#toolToolbar button[data-tool="text"]');
@@ -13754,39 +13881,88 @@
     // Apply a WORLD-space delta rotation R to the current selection. The
     // gizmo mode (Local/World) decides the AXIS that produced R; the caller
     // (a rotate drag OR a numeric Rotation/Delta field edit) builds R.
-    // rotatePivotMode decides the PIVOT for a multi-selection: 'inPlace' =
-    // each object spins about its own anchor (no orbit); 'keyObject' = each
-    // orbits the key (last-selected / primary) object's anchor; 'center' =
-    // each orbits the selection centroid. A single object / single group
-    // rotates about its own anchor. Raw `position` is used for the pivots
-    // (pivotShift is a hidden derived channel and is never written here).
-    // Hoisted to shared scope (was a rotate-drag closure) so field-driven
-    // multi rotation composes/orbits identically to a drag.
+    // rotatePivotMode decides the PIVOT: 'inPlace' = each object spins about
+    // its own anchor (no orbit); 'keyObject' = each orbits the key
+    // (last-selected / primary) object's anchor; 'center' = each orbits the
+    // selection centroid; 'origin' = each orbits world [0,0,0]. keyObject /
+    // center are multi-only (a lone object is its own key/centroid → no orbit);
+    // 'origin' applies to a single object too (it moves relative to the world
+    // origin). Raw `position` is used for the pivots (pivotShift is a hidden
+    // derived channel and is never written here). Hoisted to shared scope (was
+    // a rotate-drag closure) so field-driven rotation composes/orbits like a drag.
     function applyGroupRotation(R) {
-      if (selectedObjects.length > 1) {
-        let pivot = null;
+      const objs = (selectedObjects && selectedObjects.length) ? selectedObjects
+        : (selectedObject ? [selectedObject] : []);
+      if (!objs.length) return;
+      // Orbit pivot from the mode. inPlace (and single non-origin) → no orbit.
+      let pivot = null;
+      if (rotatePivotMode === 'origin') {
+        pivot = [0, 0, 0];
+      } else if (objs.length > 1) {
         if (rotatePivotMode === 'keyObject') {
           pivot = selectedObject.position.slice();       // stable snapshot of the key anchor
         } else if (rotatePivotMode === 'center') {
           let sx = 0, sy = 0, sz = 0;
-          selectedObjects.forEach(o => { sx += o.position[0]; sy += o.position[1]; sz += o.position[2]; });
-          const n = selectedObjects.length;
-          pivot = [sx / n, sy / n, sz / n];
+          objs.forEach(o => { sx += o.position[0]; sy += o.position[1]; sz += o.position[2]; });
+          pivot = [sx / objs.length, sy / objs.length, sz / objs.length];
         }
-        selectedObjects.forEach(obj => {
-          obj.rotationMatrix = matrixMultiply(R, obj.rotationMatrix);
-          obj.rotationEuler = matrixToEuler(obj.rotationMatrix);
-          if (pivot) {                                   // orbit position ('inPlace' → skip)
-            const relPos = vectorSubtract(obj.position, pivot);
-            obj.position = vectorAdd(pivot, vectorApplyMatrix(relPos, R));
-          }
-          notifyPathUpdated(obj);
-        });
-      } else {
-        selectedObject.rotationMatrix = matrixMultiply(R, selectedObject.rotationMatrix);
-        selectedObject.rotationEuler = matrixToEuler(selectedObject.rotationMatrix);
-        notifyPathUpdated(selectedObject);               // parity: Local single never notified before
       }
+      objs.forEach(obj => {
+        obj.rotationMatrix = matrixMultiply(R, obj.rotationMatrix);
+        obj.rotationEuler = matrixToEuler(obj.rotationMatrix);
+        if (pivot) {                                     // orbit position ('inPlace' → skip)
+          const relPos = vectorSubtract(obj.position, pivot);
+          obj.position = vectorAdd(pivot, vectorApplyMatrix(relPos, R));
+        }
+        notifyPathUpdated(obj);
+      });
+    }
+
+    // Multi-select / group scale pivot (parallels rotatePivotMode). 'inPlace' =
+    // each object scales about its own anchor (position unchanged); 'keyObject'
+    // = positions scale relative to the key object's anchor; 'center' = relative
+    // to the selection centroid; 'origin' = relative to world [0,0,0]. keyObject
+    // / center are multi-only; 'origin' applies to a single object too. Tool
+    // preference, not serialized.
+    let scalePivotMode = 'inPlace';
+
+    // Apply a per-axis multiplicative RATIO `factor` [fx,fy,fz] to the selection
+    // about scalePivotMode. Each object's LOCAL scale is multiplied by the factor
+    // (scale is a local channel, as the single-object tool has always treated it)
+    // and, for the position-affecting modes, each object's raw position is scaled
+    // about the pivot component-wise. Incremental: reads the CURRENT
+    // scale/position so numeric-field edits compose on the live state (matching
+    // applyGroupRotation). pivotShift is never written; clampScale keeps scale
+    // off the singular 0. clampScale is a closure const declared with the scale
+    // tool below — initialized long before any user-triggered call reaches here.
+    function applyGroupScale(factor) {
+      const objs = (selectedObjects && selectedObjects.length) ? selectedObjects
+        : (selectedObject ? [selectedObject] : []);
+      if (!objs.length) return;
+      let pivot = null;
+      if (scalePivotMode === 'origin') {
+        pivot = [0, 0, 0];
+      } else if (objs.length > 1) {
+        if (scalePivotMode === 'keyObject') {
+          pivot = selectedObject.position.slice();
+        } else if (scalePivotMode === 'center') {
+          let sx = 0, sy = 0, sz = 0;
+          objs.forEach(o => { sx += o.position[0]; sy += o.position[1]; sz += o.position[2]; });
+          pivot = [sx / objs.length, sy / objs.length, sz / objs.length];
+        }
+      }
+      objs.forEach(obj => {
+        const s = obj.scale || [1, 1, 1];
+        obj.scale = [clampScale(s[0] * factor[0]), clampScale(s[1] * factor[1]), clampScale(s[2] * factor[2])];
+        if (pivot) {                                     // scale position outward from the pivot
+          obj.position = [
+            pivot[0] + (obj.position[0] - pivot[0]) * factor[0],
+            pivot[1] + (obj.position[1] - pivot[1]) * factor[1],
+            pivot[2] + (obj.position[2] - pivot[2]) * factor[2]
+          ];
+        }
+        notifyPathUpdated(obj);
+      });
     }
 
     // --- Display Unit System ---
@@ -33915,32 +34091,15 @@
 
         // --- Silhouette Detection Setup ---
 
-        // Helper to construct local matrix
-        const getLocalMatrix = (obj) => {
-          // M = T * R * S
-          const T = createTranslationMatrix(obj.position[0], obj.position[1], obj.position[2]);
-          const R = obj.rotationMatrix || createIdentityMatrix(); // Path has rotationMatrix, Group might too
-          const S = createScaleMatrix(obj.scale[0], obj.scale[1], obj.scale[2]);
-
-          // Order: S then R then T
-          let M = matrixMultiply(R, S);
-          M = matrixMultiply(T, M);
-          return M;
-        };
-
-        // Helper to get Global Matrix
-        const getGlobalMatrix = (obj) => {
-          let M = getLocalMatrix(obj);
-          let parent = obj.parent;
-          while (parent) {
-            const Mp = getLocalMatrix(parent);
-            M = matrixMultiply(Mp, M);
-            parent = parent.parent;
-          }
-          return M;
-        };
-
-        const globalMatrix = getGlobalMatrix(this);
+        // Localize the eye through the SAME transform the profile is projected
+        // by. mvpFront/mvpBack are vpMatrix · getLocalMatrix() · tFront, and the
+        // profile vertices used below live in this object's local vertex space,
+        // so the eye must be inverse-mapped by the full pivot-aware world matrix.
+        // getWorldMatrix() reduces to T·R·S when pivot / pivotShift /
+        // pivotRotation are default and faceCamera is off (the common case →
+        // bit-identical), and stays correct when they are not (the old local
+        // T·R·S build ignored the pivot channels + billboard rotation).
+        const globalMatrix = this.getWorldMatrix();
         const invGlobalMatrix = matrixInverse(globalMatrix);
 
         // Transform Camera Position (World) to Local Space
@@ -36742,7 +36901,7 @@
           const tag = String.fromCharCode(dv.getUint8(p), dv.getUint8(p + 1), dv.getUint8(p + 2), dv.getUint8(p + 3));
           tables.set(tag, { off: dv.getUint32(p + 8), len: dv.getUint32(p + 12) });
         }
-        return this._fromTables(dv, tables);
+        return this._fromTables(dv, tables, faceIndex);
       }
 
       // Async wrapper adding WOFF1: inflates each table (native
@@ -36792,16 +36951,31 @@
         return new Uint8Array(await new Response(stream).arrayBuffer());
       }
 
-      // Enumerate the faces in a font file: a .ttc collection returns one
-      // display name per face (from each face's own name table); anything
-      // else returns a single entry. Never throws — unreadable faces get a
-      // positional fallback name. (WOFF never wraps collections; a WOFF
-      // buffer reports one face.)
+      // Enumerate the selectable faces in a font file:
+      // - .ttc collection → one display name per face (each face's name table)
+      // - variable font (fvar) → one entry per NAMED INSTANCE (weights etc.);
+      //   parse(buffer, i) then applies that instance's gvar deltas
+      // - anything else → a single entry.
+      // Never throws — unreadable faces get a positional fallback name.
       static listFaces(buffer) {
         const dv = new DataView(buffer);
         if (buffer.byteLength < 12) return [];
-        if (dv.getUint32(0) !== 0x74746366) { // not 'ttcf' — single face
-          try { return [this.parse(buffer).familyName]; } catch (_) { return ['Face 1']; }
+        if (dv.getUint32(0) !== 0x74746366) { // not 'ttcf' — single face or variable
+          try {
+            const numTables = dv.getUint16(4);
+            let fvarRec = null, nameRec = null;
+            for (let i = 0; i < numTables; i++) {
+              const p = 12 + 16 * i;
+              const tg = String.fromCharCode(dv.getUint8(p), dv.getUint8(p + 1), dv.getUint8(p + 2), dv.getUint8(p + 3));
+              if (tg === 'fvar') fvarRec = { off: dv.getUint32(p + 8), len: dv.getUint32(p + 12) };
+              if (tg === 'name') nameRec = { off: dv.getUint32(p + 8), len: dv.getUint32(p + 12) };
+            }
+            if (fvarRec) {
+              const fv = this._parseFvar(dv, fvarRec.off, nameRec);
+              if (fv && fv.instances.length > 1) return fv.instances.map(inst => inst.name);
+            }
+            return [this.parse(buffer).familyName];
+          } catch (_) { return ['Face 1']; }
         }
         const n = dv.getUint32(8);
         const out = [];
@@ -36820,6 +36994,342 @@
           } catch (_) { out.push('Face ' + (i + 1)); }
         }
         return out;
+      }
+
+      // ---- variable fonts (fvar / avar / gvar) ------------------------------
+      // TrueType variations: named instances are exposed through the same
+      // face-picker index as .ttc faces; the chosen instance's normalized
+      // axis coords drive per-glyph gvar deltas (applied to the quadratic
+      // points BEFORE cubic conversion, so everything downstream is
+      // unchanged). Advances vary via the phantom points. CFF2 variable
+      // outlines remain rejected upstream.
+
+      // Resolve a specific name-table ID (platform 3 UTF-16BE preferred).
+      static _readNameByID(dv, name, nameID) {
+        if (!name) return null;
+        try {
+          const off = name.off;
+          const count = dv.getUint16(off + 2), strBase = off + dv.getUint16(off + 4);
+          let best = null, bestScore = -1;
+          for (let i = 0; i < count; i++) {
+            const p = off + 6 + 12 * i;
+            const plat = dv.getUint16(p), nid = dv.getUint16(p + 6);
+            if (nid !== nameID) continue;
+            const score = plat === 3 ? 1 : 0;
+            if (score > bestScore) {
+              bestScore = score;
+              best = { plat, len: dv.getUint16(p + 8), o: strBase + dv.getUint16(p + 10) };
+            }
+          }
+          if (!best) return null;
+          let s = '';
+          if (best.plat === 3) {
+            for (let i = 0; i + 1 < best.len; i += 2) s += String.fromCharCode(dv.getUint16(best.o + i));
+          } else {
+            for (let i = 0; i < best.len; i++) s += String.fromCharCode(dv.getUint8(best.o + i));
+          }
+          return s || null;
+        } catch (_) { return null; }
+      }
+
+      // fvar -> { axes: [{tag, min, def, max}], instances: [{name, coords}] }
+      static _parseFvar(dv, off, nameRec) {
+        try {
+          const axesOff = off + dv.getUint16(off + 4);
+          const axisCount = dv.getUint16(off + 8), axisSize = dv.getUint16(off + 10);
+          const instCount = dv.getUint16(off + 12), instSize = dv.getUint16(off + 14);
+          const fixed = (o) => dv.getInt32(o) / 65536;
+          const axes = [];
+          for (let a = 0; a < axisCount; a++) {
+            const p = axesOff + a * axisSize;
+            axes.push({
+              tag: String.fromCharCode(dv.getUint8(p), dv.getUint8(p + 1), dv.getUint8(p + 2), dv.getUint8(p + 3)),
+              min: fixed(p + 4), def: fixed(p + 8), max: fixed(p + 12),
+            });
+          }
+          const instOff = axesOff + axisCount * axisSize;
+          const instances = [];
+          for (let k = 0; k < instCount; k++) {
+            const p = instOff + k * instSize;
+            const coords = [];
+            for (let a = 0; a < axisCount; a++) coords.push(fixed(p + 4 + 4 * a));
+            const nm = this._readNameByID(dv, nameRec, dv.getUint16(p));
+            instances.push({ name: nm || ('Instance ' + (k + 1)), coords });
+          }
+          return { axes, instances };
+        } catch (_) { return null; }
+      }
+
+      // User coords -> normalized [-1,1] per axis, through avar when present.
+      static _normalizeCoords(axes, coords, dv, avarRec) {
+        const norm = axes.map((ax, a) => {
+          let v = Math.max(ax.min, Math.min(ax.max, coords[a] !== undefined ? coords[a] : ax.def));
+          let n = 0;
+          if (v < ax.def) n = (ax.def - ax.min) > 0 ? -(ax.def - v) / (ax.def - ax.min) : 0;
+          else if (v > ax.def) n = (ax.max - ax.def) > 0 ? (v - ax.def) / (ax.max - ax.def) : 0;
+          return Math.max(-1, Math.min(1, n));
+        });
+        if (avarRec) {
+          try {
+            const off = avarRec.off;
+            const axisCount = dv.getUint16(off + 6);
+            let p = off + 8;
+            for (let a = 0; a < axisCount; a++) {
+              const pairs = dv.getUint16(p); p += 2;
+              const map = [];
+              for (let i = 0; i < pairs; i++) {
+                map.push([dv.getInt16(p) / 16384, dv.getInt16(p + 2) / 16384]);
+                p += 4;
+              }
+              if (a < norm.length && map.length >= 2) {
+                const n = norm[a];
+                let mapped = n;
+                for (let i = 1; i < map.length; i++) {
+                  const [f0, t0] = map[i - 1], [f1, t1] = map[i];
+                  if (n <= f1 || i === map.length - 1) {
+                    mapped = (f1 === f0) ? t1 : t0 + (t1 - t0) * (Math.max(f0, Math.min(f1, n)) - f0) / (f1 - f0);
+                    break;
+                  }
+                }
+                norm[a] = Math.max(-1, Math.min(1, mapped));
+              }
+            }
+          } catch (_) { /* malformed avar -> identity mapping */ }
+        }
+        return norm;
+      }
+
+      // Region scalar for one tuple at the instance coords (fonttools
+      // supportScalar semantics).
+      static _gvarScalar(coords, peak, start, end) {
+        let s = 1;
+        for (let a = 0; a < coords.length; a++) {
+          const p = peak[a], c = coords[a];
+          if (p === 0) continue;
+          if (start && end) {
+            const lo = start[a], hi = end[a];
+            if (lo > p || p > hi) continue;      // invalid region — axis ignored
+            if (lo < 0 && hi > 0) continue;      // spans zero — axis ignored
+            if (c < lo || c > hi) return 0;
+            if (c === p) continue;
+            if (c < p) s *= (p - lo) > 0 ? (c - lo) / (p - lo) : 0;
+            else s *= (hi - p) > 0 ? (hi - c) / (hi - p) : 0;
+          } else {
+            if (c < Math.min(0, p) || c > Math.max(0, p)) return 0;
+            s *= c / p; // c==p -> 1
+          }
+          if (s === 0) return 0;
+        }
+        return s;
+      }
+
+      // Packed point numbers -> { pts: number[] | null (null = all), next }
+      static _gvarReadPoints(dv, p) {
+        let b = dv.getUint8(p++);
+        if (b === 0) return { pts: null, next: p };
+        let count = b;
+        if (b & 0x80) count = ((b & 0x7f) << 8) | dv.getUint8(p++);
+        const pts = [];
+        let val = 0;
+        while (pts.length < count) {
+          const ctrl = dv.getUint8(p++);
+          const words = ctrl & 0x80, run = (ctrl & 0x7f) + 1;
+          for (let i = 0; i < run && pts.length < count; i++) {
+            val += words ? dv.getUint16(p) : dv.getUint8(p);
+            p += words ? 2 : 1;
+            pts.push(val);
+          }
+        }
+        return { pts, next: p };
+      }
+
+      // Packed deltas -> { deltas: number[count], next }
+      static _gvarReadDeltas(dv, p, count) {
+        const out = [];
+        while (out.length < count) {
+          const ctrl = dv.getUint8(p++);
+          const run = (ctrl & 0x3f) + 1;
+          if (ctrl & 0x80) { for (let i = 0; i < run && out.length < count; i++) out.push(0); }
+          else if (ctrl & 0x40) { for (let i = 0; i < run && out.length < count; i++) { out.push(dv.getInt16(p)); p += 2; } }
+          else { for (let i = 0; i < run && out.length < count; i++) { out.push(dv.getInt8(p)); p += 1; } }
+        }
+        return { deltas: out, next: p };
+      }
+
+      // Per-glyph tuples at the instance coords: [{scalar, pts|null, dx, dy}]
+      // (scalar-filtered; null pts = all nPoints+4 incl. phantoms). Cached.
+      static _gvarTuples(dv, vctx, gid, nPoints) {
+        let cached = vctx.cache.get(gid);
+        if (cached !== undefined) return cached;
+        let out = null;
+        try {
+          const g = vctx.off;
+          const axisCount = dv.getUint16(g + 4);
+          const sharedCount = dv.getUint16(g + 6);
+          const sharedOff = g + dv.getUint32(g + 8);
+          const glyphCount = dv.getUint16(g + 12);
+          const longOffsets = dv.getUint16(g + 14) & 1;
+          const dataOff = g + dv.getUint32(g + 16);
+          if (gid < glyphCount) {
+            const offAt = (i) => longOffsets ? dv.getUint32(g + 20 + 4 * i) : dv.getUint16(g + 20 + 2 * i) * 2;
+            const start = dataOff + offAt(gid), end = dataOff + offAt(gid + 1);
+            if (end > start) {
+              const nAll = nPoints + 4;
+              const tvc = dv.getUint16(start);
+              const tupleCount = tvc & 0x0fff;
+              const serialized = start + dv.getUint16(start + 2);
+              // headers
+              const headers = [];
+              let hp = start + 4;
+              for (let t = 0; t < tupleCount; t++) {
+                const size = dv.getUint16(hp);
+                const tix = dv.getUint16(hp + 2);
+                hp += 4;
+                let peak;
+                if (tix & 0x8000) { // embedded peak
+                  peak = [];
+                  for (let a = 0; a < axisCount; a++) { peak.push(dv.getInt16(hp) / 16384); hp += 2; }
+                } else {
+                  const si = tix & 0x0fff;
+                  peak = [];
+                  for (let a = 0; a < axisCount; a++) peak.push(si < sharedCount ? dv.getInt16(sharedOff + (si * axisCount + a) * 2) / 16384 : 0);
+                }
+                let istart = null, iend = null;
+                if (tix & 0x4000) { // intermediate region
+                  istart = []; iend = [];
+                  for (let a = 0; a < axisCount; a++) { istart.push(dv.getInt16(hp) / 16384); hp += 2; }
+                  for (let a = 0; a < axisCount; a++) { iend.push(dv.getInt16(hp) / 16384); hp += 2; }
+                }
+                headers.push({ size, priv: !!(tix & 0x2000), peak, istart, iend });
+              }
+              // serialized data
+              let p = serialized;
+              let sharedPts = null;
+              if (tvc & 0x8000) { const r = this._gvarReadPoints(dv, p); sharedPts = r.pts; p = r.next; }
+              out = [];
+              for (const h of headers) {
+                const tStart = p;
+                let pts = sharedPts;
+                let q = p;
+                if (h.priv) { const r = this._gvarReadPoints(dv, q); pts = r.pts; q = r.next; }
+                const n = pts === null ? nAll : pts.length;
+                const rx = this._gvarReadDeltas(dv, q, n);
+                const ry = this._gvarReadDeltas(dv, rx.next, n);
+                p = tStart + h.size;
+                const scalar = this._gvarScalar(vctx.coords, h.peak, h.istart, h.iend);
+                if (scalar !== 0) out.push({ scalar, pts, dx: rx.deltas, dy: ry.deltas });
+              }
+              if (!out.length) out = null;
+            }
+          }
+        } catch (_) { out = null; }
+        vctx.cache.set(gid, out);
+        return out;
+      }
+
+      // Apply tuples to a simple glyph's points (in place), with per-tuple
+      // IUP: untouched points interpolate between their nearest touched
+      // neighbours along each contour (per axis, against ORIGINAL coords);
+      // outside the reference span they clamp to the nearer reference.
+      // Phantom points are not outline points — only their explicit deltas
+      // matter (advance handled separately).
+      static _gvarApplySimple(tuples, xs, ys, endPts) {
+        const nPts = xs.length;
+        const ox = xs.slice(), oy = ys.slice();
+        const accX = new Array(nPts).fill(0), accY = new Array(nPts).fill(0);
+        for (const t of tuples) {
+          if (t.pts === null) {
+            for (let i = 0; i < nPts; i++) { accX[i] += t.scalar * t.dx[i]; accY[i] += t.scalar * t.dy[i]; }
+            continue;
+          }
+          // subset: build per-point map for THIS tuple, then IUP per contour
+          const dmap = new Map();
+          for (let k = 0; k < t.pts.length; k++) {
+            const pi = t.pts[k];
+            if (pi < nPts) dmap.set(pi, [t.dx[k], t.dy[k]]);
+          }
+          let s = 0;
+          for (let c = 0; c < endPts.length; c++) {
+            const e = endPts[c];
+            const idx = [];
+            for (let i = s; i <= e; i++) if (dmap.has(i)) idx.push(i);
+            if (idx.length) {
+              const iup = (i, axis, orig) => {
+                // nearest touched refs before/after cyclically within contour
+                const len = e - s + 1;
+                let prev = -1, next = -1;
+                for (let step = 1; step < len; step++) {
+                  const cand = s + ((i - s - step + len * 2) % len);
+                  if (dmap.has(cand)) { prev = cand; break; }
+                }
+                for (let step = 1; step < len; step++) {
+                  const cand = s + ((i - s + step) % len);
+                  if (dmap.has(cand)) { next = cand; break; }
+                }
+                const d1 = dmap.get(prev)[axis], d2 = dmap.get(next)[axis];
+                const c1 = orig[prev], c2 = orig[next], tc = orig[i];
+                if (c1 === c2) return d1 === d2 ? d1 : 0;
+                const lo = c1 < c2 ? c1 : c2, hi = c1 < c2 ? c2 : c1;
+                const dLo = c1 < c2 ? d1 : d2, dHi = c1 < c2 ? d2 : d1;
+                if (tc <= lo) return dLo;
+                if (tc >= hi) return dHi;
+                return dLo + (dHi - dLo) * (tc - lo) / (hi - lo);
+              };
+              for (let i = s; i <= e; i++) {
+                if (dmap.has(i)) {
+                  const d = dmap.get(i);
+                  accX[i] += t.scalar * d[0];
+                  accY[i] += t.scalar * d[1];
+                } else if (idx.length === 1) {
+                  const d = dmap.get(idx[0]);
+                  accX[i] += t.scalar * d[0];
+                  accY[i] += t.scalar * d[1];
+                } else {
+                  accX[i] += t.scalar * iup(i, 0, ox);
+                  accY[i] += t.scalar * iup(i, 1, oy);
+                }
+              }
+            }
+            s = e + 1;
+          }
+        }
+        for (let i = 0; i < nPts; i++) { xs[i] += accX[i]; ys[i] += accY[i]; }
+      }
+
+      // Advance-width delta for a glyph: the phantom point nPoints+1.
+      static _gvarAdvanceDelta(dv, vctx, gid, nPoints) {
+        const tuples = this._gvarTuples(dv, vctx, gid, nPoints);
+        if (!tuples) return 0;
+        const target = nPoints + 1;
+        let d = 0;
+        for (const t of tuples) {
+          if (t.pts === null) d += t.scalar * t.dx[target];
+          else {
+            const k = t.pts.indexOf(target);
+            if (k >= 0) d += t.scalar * t.dx[k];
+          }
+        }
+        return d;
+      }
+
+      // Point count of a glyph (for phantom indexing / composite deltas).
+      static _glyphPointCount(dv, glyfOff, locaAt, gid) {
+        const off = locaAt(gid), end = locaAt(gid + 1);
+        if (end <= off) return 0;
+        const g = glyfOff + off;
+        const nC = dv.getInt16(g);
+        if (nC >= 0) return nC === 0 ? 0 : dv.getUint16(g + 10 + 2 * (nC - 1)) + 1;
+        // composite: component count
+        let p = g + 10, n = 0, flags;
+        do {
+          flags = dv.getUint16(p);
+          p += 4 + ((flags & 0x0001) ? 4 : 2);
+          if (flags & 0x0008) p += 2;
+          else if (flags & 0x0040) p += 4;
+          else if (flags & 0x0080) p += 8;
+          n++;
+        } while (flags & 0x0020);
+        return n;
       }
 
       // ---- CFF (OTF / PostScript outlines) ----------------------------------
@@ -37146,7 +37656,7 @@
 
       // ---- table readers ---------------------------------------------------
 
-      static _fromTables(dv, tables) {
+      static _fromTables(dv, tables, faceIndex = 0) {
         const need = ['head', 'maxp', 'cmap', 'hhea', 'hmtx'];
         const missing = need.filter(tg => !tables.has(tg));
         if (missing.length)
@@ -37172,7 +37682,7 @@
 
         // hmtx: glyphs beyond numberOfHMetrics reuse the last advance
         const hmtxOff = tables.get('hmtx').off;
-        const advanceOf = (gid) => {
+        let advanceOf = (gid) => {
           if (gid < 0 || gid >= numGlyphs) return 0;
           const i = Math.min(gid, numberOfHMetrics - 1);
           return dv.getUint16(hmtxOff + 4 * i);
@@ -37185,7 +37695,23 @@
         const kernGpos = tables.has('GPOS') ? this._makeGposKern(dv, tables.get('GPOS').off) : null;
         const kernLegacy = tables.has('kern') ? this._makeKern(dv, tables.get('kern').off) : null;
         const kern = kernGpos || kernLegacy || (() => 0);
-        const familyName = this._readName(dv, tables.get('name'));
+        let familyName = this._readName(dv, tables.get('name'));
+
+        // Variable font: faceIndex selects a NAMED INSTANCE; its normalized
+        // axis coords drive gvar deltas (glyf outlines only — CFF2 is
+        // rejected upstream). The default instance needs no deltas.
+        let vctx = null;
+        if (tables.has('fvar')) {
+          const fv = this._parseFvar(dv, tables.get('fvar').off, tables.get('name'));
+          if (fv && fv.instances.length) {
+            const inst = fv.instances[Math.max(0, Math.min(faceIndex, fv.instances.length - 1))];
+            if (inst.name) familyName += ' ' + inst.name;
+            const coords = this._normalizeCoords(fv.axes, inst.coords, dv, tables.get('avar'));
+            if (coords.some(c => c !== 0) && tables.has('gvar') && hasGlyf) {
+              vctx = { off: tables.get('gvar').off, coords, cache: new Map() };
+            }
+          }
+        }
 
         // Outline source: TrueType glyf/loca, or CFF charstrings (OTF) —
         // both produce the same app-convention cubic contours.
@@ -37199,7 +37725,16 @@
             ? (i) => dv.getUint16(locaOff + 2 * i) * 2
             : (i) => dv.getUint32(locaOff + 4 * i);
           const glyfOff = tables.get('glyf').off;
-          rawContours = (gid) => this._glyphContours(dv, glyfOff, locaAt, gid, 0);
+          rawContours = (gid) => this._glyphContours(dv, glyfOff, locaAt, gid, 0, vctx);
+          if (vctx) {
+            // instance advances: base hmtx + the phantom-point delta
+            const baseAdvance = advanceOf;
+            advanceOf = (gid) => {
+              if (gid < 0 || gid >= numGlyphs) return 0;
+              const n = this._glyphPointCount(dv, glyfOff, locaAt, gid);
+              return baseAdvance(gid) + this._gvarAdvanceDelta(dv, vctx, gid, n);
+            };
+          }
         }
         const contourCache = new Map();
         const contoursOf = (gid) => {
@@ -37512,7 +38047,7 @@
 
       // Contours of one glyph as app-convention 2D vertex arrays (font
       // units): [anchor0, CP1, CP2, anchor, ...] closing back to anchor0.
-      static _glyphContours(dv, glyfOff, locaAt, gid, depth) {
+      static _glyphContours(dv, glyfOff, locaAt, gid, depth, vctx = null) {
         const off = locaAt(gid), end = locaAt(gid + 1);
         if (end <= off) return []; // empty glyph (e.g. space)
         const g = glyfOff + off;
@@ -37542,6 +38077,12 @@
             else if (!(f & 32)) { y += dv.getInt16(p); p += 2; }
             ys.push(y);
           }
+          // Variable instance: apply the gvar deltas to the quadratic
+          // points before contour conversion (per-tuple IUP inside).
+          if (vctx && nPts > 0) {
+            const tuples = this._gvarTuples(dv, vctx, gid, nPts);
+            if (tuples) this._gvarApplySimple(tuples, xs, ys, endPts);
+          }
           const out = [];
           let s = 0;
           for (let c = 0; c < nC; c++) {
@@ -37555,9 +38096,11 @@
           return out;
         }
 
-        // ---- composite glyph
+        // ---- composite glyph (two-phase: collect components, then emit —
+        // variation deltas shift the COMPONENT OFFSETS, one "point" per
+        // component; untouched components get no delta, no IUP here)
         if (depth >= 5) return []; // recursion guard
-        const out = [];
+        const comps = [];
         let p = g + 10, flags;
         do {
           flags = dv.getUint16(p);
@@ -37574,14 +38117,39 @@
           let dx = 0, dy = 0;
           if (flags & 0x0002) { dx = a1; dy = a2; } // ARGS_ARE_XY_VALUES
           // (point-matching args are vanishingly rare — treated as 0,0)
-          const sub = this._glyphContours(dv, glyfOff, locaAt, gi, depth + 1);
+          comps.push({ gi, dx, dy, m00, m01, m10, m11 });
+        } while (flags & 0x0020); // MORE_COMPONENTS
+        if (vctx && comps.length) {
+          const tuples = this._gvarTuples(dv, vctx, gid, comps.length);
+          if (tuples) {
+            for (const t of tuples) {
+              if (t.pts === null) {
+                for (let j = 0; j < comps.length; j++) {
+                  comps[j].dx += t.scalar * t.dx[j];
+                  comps[j].dy += t.scalar * t.dy[j];
+                }
+              } else {
+                for (let k = 0; k < t.pts.length; k++) {
+                  const j = t.pts[k];
+                  if (j < comps.length) {
+                    comps[j].dx += t.scalar * t.dx[k];
+                    comps[j].dy += t.scalar * t.dy[k];
+                  }
+                }
+              }
+            }
+          }
+        }
+        const out = [];
+        for (const cp of comps) {
+          const sub = this._glyphContours(dv, glyfOff, locaAt, cp.gi, depth + 1, vctx);
           for (const verts of sub) {
             out.push(verts.map(v => [
-              m00 * v[0] + m10 * v[1] + dx,
-              m01 * v[0] + m11 * v[1] + dy,
+              cp.m00 * v[0] + cp.m10 * v[1] + cp.dx,
+              cp.m01 * v[0] + cp.m11 * v[1] + cp.dy,
             ]));
           }
-        } while (flags & 0x0020); // MORE_COMPONENTS
+        }
         return out;
       }
 
@@ -38213,6 +38781,94 @@
             eq(vC[0].y, -300) && eq(vT[0].y, -800) && eq(vB[0].y, 200) && eq(vD[0].y, 0) &&
             eq(vC2[0].y, 300) && eq(vC2[1].y, -900) && eq(vLH[1].y, -2000),
             `c=${vC[0].y} t=${vT[0].y} b=${vB[0].y} d=${vD[0].y} 2l=${vC2.map(g => g.y)} lh=${vLH[1].y}`);
+
+          // 23+24. VARIABLE FONT (fvar/gvar): 1 'wght' axis (0..1000, def 0),
+          // 3 named instances. gvar exercises: embedded peak + INTERMEDIATE
+          // region (gid1: p1/p2 x+100, advance phantom +50), shared tuple +
+          // PRIVATE point subset with proportional IUP (gid4: p0 +0 / p3
+          // +60 -> p1 +20, p2 +40 interpolated), composite offset delta
+          // (gid3: +200, advance +30). All hand-computed.
+          const mkNames = (entries) => {
+            const nm = bw();
+            nm.u16(0); nm.u16(entries.length); nm.u16(6 + 12 * entries.length);
+            let noff = 0;
+            for (const [nid, str] of entries) {
+              nm.u16(3); nm.u16(1); nm.u16(0); nm.u16(nid);
+              nm.u16(str.length * 2); nm.u16(noff);
+              noff += str.length * 2;
+            }
+            for (const [, str] of entries) for (const c of str) nm.u16(c.charCodeAt(0));
+            return nm.bytes();
+          };
+          const fvarT = bw();
+          fvarT.u32(0x00010000);
+          fvarT.u16(16); fvarT.u16(2); // axesArrayOffset, reserved
+          fvarT.u16(1); fvarT.u16(20); // axisCount, axisSize
+          fvarT.u16(3); fvarT.u16(8);  // instanceCount, instanceSize
+          ['w', 'g', 'h', 't'].forEach(c => fvarT.u8(c.charCodeAt(0))); // 'wght'
+          fvarT.u32(0); fvarT.u32(0); fvarT.u32(1000 * 65536); // min/def/max
+          fvarT.u16(0); fvarT.u16(300); // flags, axisNameID
+          fvarT.u16(301); fvarT.u16(0); fvarT.u32(0);            // Default
+          fvarT.u16(302); fvarT.u16(0); fvarT.u32(500 * 65536);  // Half
+          fvarT.u16(303); fvarT.u16(0); fvarT.u32(1000 * 65536); // Full
+          const gvarT = bw();
+          gvarT.u16(1); gvarT.u16(0);  // version
+          gvarT.u16(1);                 // axisCount
+          gvarT.u16(1);                 // sharedTupleCount
+          gvarT.u32(32);                // sharedTuplesOffset
+          gvarT.u16(5);                 // glyphCount
+          gvarT.u16(0);                 // flags: short offsets
+          gvarT.u32(34);                // glyphVariationDataArrayOffset
+          [0, 0, 12, 12, 24, 32].forEach(o => gvarT.u16(o)); // offsets (/2)
+          gvarT.i16(16384);             // shared tuple [1.0]
+          // gid1 (24 bytes): 1 tuple, EMBEDDED|INTERMEDIATE|PRIVATE
+          gvarT.u16(1); gvarT.u16(14);  // tupleCount, dataOffset
+          gvarT.u16(10); gvarT.u16(0xE000); // size, flags
+          gvarT.i16(16384);             // peak 1.0
+          gvarT.i16(0); gvarT.i16(16384); // start 0.0, end 1.0
+          gvarT.u8(0);                  // points: ALL (8 = 4 + phantoms)
+          [0x80, 0x01, 100, 100, 0x81, 0x00, 50, 0x81].forEach(b => gvarT.u8(b)); // dx
+          gvarT.u8(0x87);               // dy: 8 zeros
+          // gid3 composite (24 bytes): 1 tuple, EMBEDDED|PRIVATE, pad to 24
+          gvarT.u16(1); gvarT.u16(10);
+          gvarT.u16(13); gvarT.u16(0xA000);
+          gvarT.i16(16384);             // peak 1.0
+          gvarT.u8(0);                  // points: ALL (1 comp + 4 phantoms)
+          [0x44, 0, 200, 0, 0, 0, 30, 0, 0, 0, 0].forEach(b => gvarT.u8(b)); // dx words: 200,0,30,0,0
+          gvarT.u8(0x84);               // dy: 5 zeros
+          gvarT.u8(0);                  // pad to even
+          // gid4 (16 bytes): 1 tuple, SHARED tuple 0 | PRIVATE points [0,3]
+          gvarT.u16(1); gvarT.u16(8);
+          gvarT.u16(8); gvarT.u16(0x2000);
+          [0x02, 0x01, 0x00, 0x03].forEach(b => gvarT.u8(b)); // points 0,3
+          [0x80, 0x00, 60].forEach(b => gvarT.u8(b));         // dx: 0, 60
+          gvarT.u8(0x81);               // dy: 2 zeros
+          const vfBuf = assemble([
+            ['cmap', cmap.bytes()], ['fvar', fvarT.bytes()], ['glyf', glyf.bytes()],
+            ['gvar', gvarT.bytes()], ['head', head.bytes()], ['hhea', hhea.bytes()],
+            ['hmtx', hmtx.bytes()], ['loca', locaT.bytes()], ['maxp', maxp.bytes()],
+            ['name', mkNames([[1, 'VarTest'], [300, 'Weight'], [301, 'Default'], [302, 'Half'], [303, 'Full']])],
+          ]).buffer;
+          const vFaces = FontParser.listFaces(vfBuf);
+          const vDef = FontParser.parse(vfBuf, 0);
+          const vHalf = FontParser.parse(vfBuf, 1);
+          const vFull = FontParser.parse(vfBuf, 2);
+          t('fvar: instances enumerate, names resolve, default instance = base outlines',
+            vFaces.length === 3 && vFaces[0] === 'Default' && vFaces[2] === 'Full' &&
+            vDef.familyName === 'VarTest Default' && vFull.familyName === 'VarTest Full' &&
+            J(vDef.contoursOf(1)) === J(font.contoursOf(1)) && vDef.advanceOf(1) === 600,
+            `faces=${JSON.stringify(vFaces)} fam=${vFull.familyName}`);
+          const fr = vFull.contoursOf(1)[0], hr = vHalf.contoursOf(1)[0];
+          const fd = vFull.contoursOf(4)[0];
+          const fc = vFull.contoursOf(3)[0];
+          t('gvar: full/half deltas, intermediate scalar, IUP, phantom advances, composite',
+            vEq(fr[3], 600, 0) && vEq(fr[6], 600, 700) && vEq(fr[0], 100, 0) &&
+            vEq(hr[3], 550, 0) &&                       // scalar 0.5 through intermediate
+            vFull.advanceOf(1) === 650 && vHalf.advanceOf(1) === 625 &&
+            vEq(fd[3], 330, 400) && vEq(fd[6], 660, 0) && // IUP: implied mid (330,400)
+            vFull.advanceOf(4) === 700 &&                // no phantom delta on gid4
+            vEq(fc[0], 900, 0) && vFull.advanceOf(3) === 630, // composite +200, adv +30
+            `fr3=${fr[3]} hr3=${hr[3]} advF=${vFull.advanceOf(1)} advH=${vHalf.advanceOf(1)} fd3=${fd[3]} fc0=${fc[0]} adv3=${vFull.advanceOf(3)}`);
         } catch (e) {
           t('selfTest completed without exception', false,
             e.message + (e.stack ? ' @ ' + String(e.stack).split('\n')[1] : ''));
@@ -40153,107 +40809,82 @@
         extrudeDepthInput.disabled = !isPath || !extrudeEnabledInput.checked;
       }
       if (document.activeElement !== extrudeSymmetricInput) {
-        if (document.activeElement !== extrudeSymmetricInput) {
-          extrudeSymmetricInput.checked = isPath ? (selectedObject.extrudeSettings?.symmetric || false) : false;
-          extrudeSymmetricInput.disabled = !isPath || !extrudeEnabledInput.checked;
-        }
+        extrudeSymmetricInput.checked = isPath ? (selectedObject.extrudeSettings?.symmetric || false) : false;
+        extrudeSymmetricInput.disabled = !isPath || !extrudeEnabledInput.checked;
+      }
 
-        // ... (Existing Extrude inputs) ...
-
-        // Render mode dropdown (replaces old cleanRender checkbox)
-        const extrudeRenderModeInput = document.getElementById('extrudeRenderModeInput');
-        const extrudeDivisionsUInput = document.getElementById('extrudeDivisionsUInput');
-        const extrudeDivisionsVInput = document.getElementById('extrudeDivisionsVInput');
-        // Derive renderMode: use new field, or fall back from legacy cleanRender
-        let extRenderMode = 'clean';
-        if (isPath && selectedObject.extrudeSettings) {
-          const es = selectedObject.extrudeSettings;
-          if (es.renderMode) {
-            extRenderMode = es.renderMode;
-          } else {
-            extRenderMode = es.cleanRender !== false ? 'clean' : 'mesh';
-          }
-        }
-        if (extrudeRenderModeInput && document.activeElement !== extrudeRenderModeInput) {
-          extrudeRenderModeInput.value = extRenderMode;
-        }
-        // Toggle clean/mesh/layer render groups visibility
-        const extCurMode = extrudeRenderModeInput ? extrudeRenderModeInput.value : 'clean';
-        const extCleanGroup = document.getElementById('extrudeCleanGroup');
-        const extMeshGroup = document.getElementById('extrudeMeshGroup');
-        const extLayerGroup = document.getElementById('extrudeLayerGroup');
-        if (extCleanGroup) extCleanGroup.style.display = extCurMode === 'clean' ? '' : 'none';
-        if (extMeshGroup) extMeshGroup.style.display = extCurMode === 'mesh' ? '' : 'none';
-        if (extLayerGroup) extLayerGroup.style.display = extCurMode === 'layer' ? '' : 'none';
-        // Layer count
-        const extrudeLayerCountInput = document.getElementById('extrudeLayerCountInput');
-        if (extrudeLayerCountInput && document.activeElement !== extrudeLayerCountInput) {
-          extrudeLayerCountInput.value = isPath ? (selectedObject.extrudeSettings?.layerCount || 16) : 16;
-        }
-        if (extrudeDivisionsUInput && document.activeElement !== extrudeDivisionsUInput) {
-          extrudeDivisionsUInput.value = isPath ? (selectedObject.extrudeSettings?.divisionsU || 8) : 8;
-        }
-        if (extrudeDivisionsVInput && document.activeElement !== extrudeDivisionsVInput) {
-          extrudeDivisionsVInput.value = isPath ? (selectedObject.extrudeSettings?.divisionsV || 8) : 8;
-        }
-        const extrudeCurvedSurfaceInput = document.getElementById('extrudeCurvedSurfaceInput');
-        if (extrudeCurvedSurfaceInput) {
-          extrudeCurvedSurfaceInput.checked = isPath ? (selectedObject.extrudeSettings?.curvedSurface || false) : false;
-        }
-        const extrudeSilhouetteSplitInput = document.getElementById('extrudeSilhouetteSplitInput');
-        if (extrudeSilhouetteSplitInput) {
-          extrudeSilhouetteSplitInput.checked = isPath ? (selectedObject.extrudeSettings?.silhouetteSplit || false) : false;
-        }
-        const extrudeDrawPointsInput = document.getElementById('extrudeDrawPointsInput');
-        const extrudePointSizeInput = document.getElementById('extrudePointSizeInput');
-        const extrudePointColorInput = document.getElementById('extrudePointColorInput');
-        const extrudePointShapeInput = document.getElementById('extrudePointShapeInput');
-        const extrudeEnabled = isPath && (selectedObject.extrudeSettings?.enabled || false);
-        const extrudeIsMesh = extCurMode === 'mesh';
-        if (extrudeDrawPointsInput) {
-          extrudeDrawPointsInput.checked = isPath ? (selectedObject.extrudeSettings?.drawPoints || false) : false;
-          extrudeDrawPointsInput.disabled = !extrudeEnabled || !extrudeIsMesh;
-        }
-        const extrudePointsOn = extrudeDrawPointsInput ? extrudeDrawPointsInput.checked : false;
-        if (extrudePointSizeInput && document.activeElement !== extrudePointSizeInput) {
-          extrudePointSizeInput.value = isPath && selectedObject.extrudeSettings?.pointSize !== undefined ? selectedObject.extrudeSettings.pointSize : 5.0;
-          extrudePointSizeInput.disabled = !extrudeEnabled || !extrudeIsMesh || !extrudePointsOn;
-        }
-        if (extrudePointColorInput && document.activeElement !== extrudePointColorInput) {
-          extrudePointColorInput.value = isPath && selectedObject.extrudeSettings?.pointColor ? selectedObject.extrudeSettings.pointColor : '#0000ff';
-          extrudePointColorInput.disabled = !extrudeEnabled || !extrudeIsMesh || !extrudePointsOn;
-        }
-        const extrudePointColorHexInput = document.getElementById('extrudePointColorHexInput');
-        if (extrudePointColorHexInput) {
-          const epColor = isPath && selectedObject.extrudeSettings?.pointColor ? selectedObject.extrudeSettings.pointColor : '#0000ff';
-          if (document.activeElement !== extrudePointColorHexInput) extrudePointColorHexInput.value = epColor.slice(1).toUpperCase();
-          extrudePointColorHexInput.disabled = !extrudeEnabled || !extrudeIsMesh || !extrudePointsOn;
-        }
-        if (extrudePointShapeInput && document.activeElement !== extrudePointShapeInput) {
-          extrudePointShapeInput.value = isPath && selectedObject.extrudeSettings?.pointShape ? selectedObject.extrudeSettings.pointShape : 'circle';
-          extrudePointShapeInput.disabled = !extrudeEnabled || !extrudeIsMesh || !extrudePointsOn;
-        }
-
-        // Face Camera
-        const faceCamXInput = document.getElementById('faceCamXInput');
-        const faceCamYInput = document.getElementById('faceCamYInput');
-        const faceCamPlaneInput = document.getElementById('faceCamPlaneInput');
-
-        const fc = selectedObject ? (selectedObject.faceCamera || { x: false, y: false, plane: false }) : { x: false, y: false, plane: false };
-
-        if (faceCamXInput && document.activeElement !== faceCamXInput) faceCamXInput.checked = fc.x;
-        if (faceCamYInput && document.activeElement !== faceCamYInput) faceCamYInput.checked = fc.y;
-        if (faceCamPlaneInput && document.activeElement !== faceCamPlaneInput) faceCamPlaneInput.checked = fc.plane;
-
-        if (!selectedObject) {
-          if (faceCamXInput) faceCamXInput.disabled = true;
-          if (faceCamYInput) faceCamYInput.disabled = true;
-          if (faceCamPlaneInput) faceCamPlaneInput.disabled = true;
+      // Render mode dropdown (replaces old cleanRender checkbox)
+      const extrudeRenderModeInput = document.getElementById('extrudeRenderModeInput');
+      const extrudeDivisionsUInput = document.getElementById('extrudeDivisionsUInput');
+      const extrudeDivisionsVInput = document.getElementById('extrudeDivisionsVInput');
+      // Derive renderMode: use new field, or fall back from legacy cleanRender
+      let extRenderMode = 'clean';
+      if (isPath && selectedObject.extrudeSettings) {
+        const es = selectedObject.extrudeSettings;
+        if (es.renderMode) {
+          extRenderMode = es.renderMode;
         } else {
-          if (faceCamXInput) faceCamXInput.disabled = false;
-          if (faceCamYInput) faceCamYInput.disabled = false;
-          if (faceCamPlaneInput) faceCamPlaneInput.disabled = false;
+          extRenderMode = es.cleanRender !== false ? 'clean' : 'mesh';
         }
+      }
+      if (extrudeRenderModeInput && document.activeElement !== extrudeRenderModeInput) {
+        extrudeRenderModeInput.value = extRenderMode;
+      }
+      // Toggle clean/mesh/layer render groups visibility
+      const extCurMode = extrudeRenderModeInput ? extrudeRenderModeInput.value : 'clean';
+      const extCleanGroup = document.getElementById('extrudeCleanGroup');
+      const extMeshGroup = document.getElementById('extrudeMeshGroup');
+      const extLayerGroup = document.getElementById('extrudeLayerGroup');
+      if (extCleanGroup) extCleanGroup.style.display = extCurMode === 'clean' ? '' : 'none';
+      if (extMeshGroup) extMeshGroup.style.display = extCurMode === 'mesh' ? '' : 'none';
+      if (extLayerGroup) extLayerGroup.style.display = extCurMode === 'layer' ? '' : 'none';
+      // Layer count
+      const extrudeLayerCountInput = document.getElementById('extrudeLayerCountInput');
+      if (extrudeLayerCountInput && document.activeElement !== extrudeLayerCountInput) {
+        extrudeLayerCountInput.value = isPath ? (selectedObject.extrudeSettings?.layerCount || 16) : 16;
+      }
+      if (extrudeDivisionsUInput && document.activeElement !== extrudeDivisionsUInput) {
+        extrudeDivisionsUInput.value = isPath ? (selectedObject.extrudeSettings?.divisionsU || 8) : 8;
+      }
+      if (extrudeDivisionsVInput && document.activeElement !== extrudeDivisionsVInput) {
+        extrudeDivisionsVInput.value = isPath ? (selectedObject.extrudeSettings?.divisionsV || 8) : 8;
+      }
+      const extrudeCurvedSurfaceInput = document.getElementById('extrudeCurvedSurfaceInput');
+      if (extrudeCurvedSurfaceInput) {
+        extrudeCurvedSurfaceInput.checked = isPath ? (selectedObject.extrudeSettings?.curvedSurface || false) : false;
+      }
+      const extrudeSilhouetteSplitInput = document.getElementById('extrudeSilhouetteSplitInput');
+      if (extrudeSilhouetteSplitInput) {
+        extrudeSilhouetteSplitInput.checked = isPath ? (selectedObject.extrudeSettings?.silhouetteSplit || false) : false;
+      }
+      const extrudeDrawPointsInput = document.getElementById('extrudeDrawPointsInput');
+      const extrudePointSizeInput = document.getElementById('extrudePointSizeInput');
+      const extrudePointColorInput = document.getElementById('extrudePointColorInput');
+      const extrudePointShapeInput = document.getElementById('extrudePointShapeInput');
+      const extrudeEnabled = isPath && (selectedObject.extrudeSettings?.enabled || false);
+      const extrudeIsMesh = extCurMode === 'mesh';
+      if (extrudeDrawPointsInput) {
+        extrudeDrawPointsInput.checked = isPath ? (selectedObject.extrudeSettings?.drawPoints || false) : false;
+        extrudeDrawPointsInput.disabled = !extrudeEnabled || !extrudeIsMesh;
+      }
+      const extrudePointsOn = extrudeDrawPointsInput ? extrudeDrawPointsInput.checked : false;
+      if (extrudePointSizeInput && document.activeElement !== extrudePointSizeInput) {
+        extrudePointSizeInput.value = isPath && selectedObject.extrudeSettings?.pointSize !== undefined ? selectedObject.extrudeSettings.pointSize : 5.0;
+        extrudePointSizeInput.disabled = !extrudeEnabled || !extrudeIsMesh || !extrudePointsOn;
+      }
+      if (extrudePointColorInput && document.activeElement !== extrudePointColorInput) {
+        extrudePointColorInput.value = isPath && selectedObject.extrudeSettings?.pointColor ? selectedObject.extrudeSettings.pointColor : '#0000ff';
+        extrudePointColorInput.disabled = !extrudeEnabled || !extrudeIsMesh || !extrudePointsOn;
+      }
+      const extrudePointColorHexInput = document.getElementById('extrudePointColorHexInput');
+      if (extrudePointColorHexInput) {
+        const epColor = isPath && selectedObject.extrudeSettings?.pointColor ? selectedObject.extrudeSettings.pointColor : '#0000ff';
+        if (document.activeElement !== extrudePointColorHexInput) extrudePointColorHexInput.value = epColor.slice(1).toUpperCase();
+        extrudePointColorHexInput.disabled = !extrudeEnabled || !extrudeIsMesh || !extrudePointsOn;
+      }
+      if (extrudePointShapeInput && document.activeElement !== extrudePointShapeInput) {
+        extrudePointShapeInput.value = isPath && selectedObject.extrudeSettings?.pointShape ? selectedObject.extrudeSettings.pointShape : 'circle';
+        extrudePointShapeInput.disabled = !extrudeEnabled || !extrudeIsMesh || !extrudePointsOn;
       }
       if (document.activeElement !== extrudeCapFrontInput) {
         extrudeCapFrontInput.checked = isPath ? (selectedObject.extrudeSettings?.capFront !== false) : true;
@@ -46561,7 +47192,11 @@
               else lockedAxis = clickedGizmoAxis.split('-')[1];
 
               dragStartWorldPosition = selectedObject.position;
-              selectedObject.dragStartScale = [...selectedObject.scale];
+              // Baseline scale for the primary AND the rest (group scale reads
+              // each object's own start scale). dragStartPos is set for all in
+              // the shared block below.
+              (selectedObjects.length ? selectedObjects : [selectedObject])
+                .forEach(obj => obj.dragStartScale = [...obj.scale]);
             } else handledByGizmo = false;
           } else if (clickedGizmoAxis === 'pivot-free') {
             // Pivot free-move center circle
@@ -47668,17 +48303,56 @@
       } else if (dragMode === 'scale') {
         if (!selectedObject) return;
 
+        // Shared committer: `newScale` is the PRIMARY's full target scale triple.
+        // Single object, non-origin → set it directly (byte-identical to the old
+        // per-axis writes, no clamp). Multi-select or 'origin' → derive a per-axis
+        // ratio from the primary's start scale and apply it to every selected
+        // object from its OWN start baselines, scaling positions about the pivot
+        // (start positions, fixed for the whole drag).
+        const applyScaleDrag = (newScale) => {
+          const isGroup = (selectedObjects.length > 1) || scalePivotMode === 'origin';
+          if (!isGroup) {
+            selectedObject.scale = [newScale[0], newScale[1], newScale[2]];
+            notifyPathUpdated(selectedObject);
+            return;
+          }
+          const ps = selectedObject.dragStartScale || selectedObject.scale || [1, 1, 1];
+          const factor = [newScale[0] / ps[0], newScale[1] / ps[1], newScale[2] / ps[2]];
+          const objs = selectedObjects.length ? selectedObjects : [selectedObject];
+          let pivot = null;
+          if (scalePivotMode === 'origin') {
+            pivot = [0, 0, 0];
+          } else if (objs.length > 1) {
+            if (scalePivotMode === 'keyObject') {
+              pivot = (selectedObject.dragStartPos || selectedObject.position).slice();
+            } else if (scalePivotMode === 'center') {
+              let sx = 0, sy = 0, sz = 0;
+              objs.forEach(o => { const p = o.dragStartPos || o.position; sx += p[0]; sy += p[1]; sz += p[2]; });
+              pivot = [sx / objs.length, sy / objs.length, sz / objs.length];
+            }
+          }
+          objs.forEach(obj => {
+            const os = obj.dragStartScale || obj.scale || [1, 1, 1];
+            obj.scale = [clampScale(os[0] * factor[0]), clampScale(os[1] * factor[1]), clampScale(os[2] * factor[2])];
+            if (pivot) {
+              const bp = obj.dragStartPos || obj.position;
+              obj.position = [
+                pivot[0] + (bp[0] - pivot[0]) * factor[0],
+                pivot[1] + (bp[1] - pivot[1]) * factor[1],
+                pivot[2] + (bp[2] - pivot[2]) * factor[2]
+              ];
+            }
+            notifyPathUpdated(obj);
+          });
+        };
+
+        const startScale = selectedObject.dragStartScale;
+
         // Uniform Scaling (3-Axis)
         if (lockedAxis === 'xyz') {
           const sensitivity = 0.01;
           const delta = -deltaY * sensitivity; // Up = bigger
-
-          const startScale = selectedObject.dragStartScale;
-          selectedObject.scale[0] = startScale[0] + delta;
-          selectedObject.scale[1] = startScale[1] + delta;
-          selectedObject.scale[2] = startScale[2] + delta;
-
-          notifyPathUpdated(selectedObject); // Notify update
+          applyScaleDrag([startScale[0] + delta, startScale[1] + delta, startScale[2] + delta]);
 
           updatePropertiesPanel();
           if (typeof updateScaleToolUI === 'function') updateScaleToolUI();
@@ -47688,24 +48362,13 @@
 
         // Planar Scaling (2-Axis)
         if (lockedAxis.length === 2) {
-          // ... (simplified logic)
           const sensitivity = 0.01;
           const delta = (deltaX - deltaY) * sensitivity;
-
-          const startScale = selectedObject.dragStartScale;
-
-          if (lockedAxis === 'xy') {
-            selectedObject.scale[0] = startScale[0] + delta;
-            selectedObject.scale[1] = startScale[1] + delta;
-          } else if (lockedAxis === 'yz') {
-            selectedObject.scale[1] = startScale[1] + delta;
-            selectedObject.scale[2] = startScale[2] + delta;
-          } else if (lockedAxis === 'xz') {
-            selectedObject.scale[0] = startScale[0] + delta;
-            selectedObject.scale[2] = startScale[2] + delta;
-          }
-
-          notifyPathUpdated(selectedObject); // Notify update
+          const ns = [...startScale];
+          if (lockedAxis === 'xy') { ns[0] = startScale[0] + delta; ns[1] = startScale[1] + delta; }
+          else if (lockedAxis === 'yz') { ns[1] = startScale[1] + delta; ns[2] = startScale[2] + delta; }
+          else if (lockedAxis === 'xz') { ns[0] = startScale[0] + delta; ns[2] = startScale[2] + delta; }
+          applyScaleDrag(ns);
 
           updatePropertiesPanel();
           if (typeof updateScaleToolUI === 'function') updateScaleToolUI();
@@ -47741,10 +48404,9 @@
           projectedDelta = -totalMouseDeltaY;
         }
 
-        const startScale = selectedObject.dragStartScale;
-        selectedObject.scale[axisIndex] = startScale[axisIndex] + projectedDelta * sensitivity;
-
-        notifyPathUpdated(selectedObject);
+        const nsAxis = [...startScale];
+        nsAxis[axisIndex] = startScale[axisIndex] + projectedDelta * sensitivity;
+        applyScaleDrag(nsAxis);
 
         updatePropertiesPanel();
         if (typeof updateScaleToolUI === 'function') updateScaleToolUI();
@@ -50830,7 +51492,7 @@
       // Capture-phase handler for tool Cancel/Submit and History Undo/Redo
       // Uses capture phase so it fires before input stopPropagation blocks it
       window.addEventListener('keydown', (event) => {
-        const isToolActive = (currentTool === 'select' || currentTool === 'directSelect' || currentTool === 'rotate' || currentTool === 'scale');
+        const isToolActive = (currentTool === 'select' || currentTool === 'directSelect' || currentTool === 'rotate' || currentTool === 'scale' || currentTool === 'pivot');
 
         // Option+Shift+X / Alt+Shift+X → Animation Redo
         if (event.altKey && !event.metaKey && !event.ctrlKey && event.shiftKey && event.code === 'KeyX') {
@@ -50932,6 +51594,8 @@
               rotateCancelBtn.click();
             } else if (currentTool === 'scale' && scaleToolSession) {
               scaleCancelBtn.click();
+            } else if (currentTool === 'pivot' && pivotToolSession) {
+              pivotCancelBtn.click();
             }
             return;
           }
@@ -50990,6 +51654,9 @@
             handled = true;
           } else if (currentTool === 'scale' && scaleToolSession) {
             scaleSubmitBtn.click();
+            handled = true;
+          } else if (currentTool === 'pivot' && pivotToolSession) {
+            pivotSubmitBtn.click();
             handled = true;
           }
           if (handled) {
@@ -51388,7 +52055,7 @@
       // --- App Settings (localStorage) ---
       const SETTINGS_KEY = 'dim-settings';
 
-      let animationEnabled = false;
+      let animationEnabled = true; // default ON (loadSettings reconciles with saved prefs)
 
       const setAnimationEnabled = (enabled) => {
         animationEnabled = enabled;
@@ -51438,14 +52105,16 @@
                 if (ulInp) ulInp.value = val;
               }
             }
-            // Animation experiment toggle (default off)
-            setAnimationEnabled(!!settings.animationEnabled);
-            // Text tool experiment toggle (default off) — TEXT-TOOL
-            setTextToolEnabled(!!settings.textToolEnabled);
+            // Animation experiment toggle (default ON; still gated so it can be
+            // turned off). Absent field → on; only an explicit false stays off,
+            // so a user who deliberately disabled it keeps that choice.
+            setAnimationEnabled(settings.animationEnabled !== false);
+            // Text tool experiment toggle (default ON, same rule) — TEXT-TOOL
+            setTextToolEnabled(settings.textToolEnabled !== false);
           } else {
-            // No saved settings — ensure animation is off by default
-            setAnimationEnabled(false);
-            setTextToolEnabled(false); // TEXT-TOOL
+            // No saved settings — both experiments default ON
+            setAnimationEnabled(true);
+            setTextToolEnabled(true); // TEXT-TOOL
           }
         } catch (e) {
           console.warn('Failed to load settings:', e);
@@ -51639,13 +52308,13 @@
           const ulInp = document.getElementById('undoLimitInput');
           if (ulInp) ulInp.value = 50;
 
-          // Reset animation to off
-          setAnimationEnabled(false);
-          saveSettings({ animationEnabled: false });
+          // Reset animation to its default (ON)
+          setAnimationEnabled(true);
+          saveSettings({ animationEnabled: true });
 
-          // Reset text tool to off — TEXT-TOOL
-          setTextToolEnabled(false);
-          saveSettings({ textToolEnabled: false });
+          // Reset text tool to its default (ON) — TEXT-TOOL
+          setTextToolEnabled(true);
+          saveSettings({ textToolEnabled: true });
 
           console.log('Settings reset to defaults.');
         });
@@ -52064,6 +52733,7 @@
           timestamp: Date.now(),
           fileName: (fileNameInput && fileNameInput.value.trim()) || 'Untitled 3D work',
           backgroundColor: _currentBackgroundColor,
+          scaleStrokeWithZoom: scaleStrokeWithZoom,
           camera: {
             position: activeCamera.position,
             target: activeCamera.target,
@@ -55554,7 +56224,9 @@
                   // Drag completed — move all selected keyframes by delta
                   pushAnimUndoState('Move keyframes');
                   const totalF = animationTimeline.totalFrames;
-                  // Collect move operations (remove first, then add to avoid conflicts)
+                  // Collect move operations (remove first, then add to avoid conflicts).
+                  // Snapshot full kf data incl. curve — like the segment drag —
+                  // so a move never strips a keyframe's easing.
                   const moves = [];
                   for (const info of batchDragInfos) {
                     let destFrame = info.startFrame + currentDelta;
@@ -55562,16 +56234,27 @@
                     moves.push({
                       objectName: info.objectName, prop: info.prop,
                       fromFrame: info.startFrame, toFrame: destFrame,
-                      value: info.kf.value, interp: info.kf.interp || 'linear'
+                      value: Array.isArray(info.kf.value) ? [...info.kf.value] : info.kf.value,
+                      interp: info.kf.interp || 'linear',
+                      cubicBezier: info.kf.cubicBezier ? info.kf.cubicBezier.map(p => [...p]) : undefined,
+                      curveAlgorithm: info.kf.curveAlgorithm
                     });
                   }
                   // Remove all source keyframes first
                   for (const m of moves) {
                     tlRemoveKeyframe(m.objectName, m.prop, m.fromFrame);
                   }
-                  // Add at destination (overwrite any existing)
+                  // Add at destination (overwrite any existing), restoring curve data
                   for (const m of moves) {
                     tlAddKeyframe(m.objectName, m.prop, m.toFrame, m.value, m.interp);
+                    if (m.cubicBezier || m.curveAlgorithm) {
+                      const newKfs = animationTimeline.tracks.get(m.objectName)?.get(m.prop);
+                      const newKf = newKfs?.find(k => k.frame === m.toFrame);
+                      if (newKf) {
+                        if (m.cubicBezier) newKf.cubicBezier = m.cubicBezier;
+                        if (m.curveAlgorithm) newKf.curveAlgorithm = m.curveAlgorithm;
+                      }
+                    }
                   }
                   // Rebuild selection set with new frame positions
                   tlSelectedKfs.clear();

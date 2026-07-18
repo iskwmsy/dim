@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260718j -->
+<!-- dim v20260718o -->
 
 <!--
   MIT License
@@ -731,7 +731,7 @@
     }
 
     .left-tab:hover {
-      color: var(--text-main);
+      color: #262626; /* opaque equiv. of --text-main on white (no alpha stacking) */
     }
 
     .left-tab.active {
@@ -1040,13 +1040,16 @@
       border: none;
       background: transparent;
       cursor: pointer;
-      color: var(--text-muted);
+      /* Opaque grey, NOT an alpha color: icons with overlapping strokes
+         double-composite alpha where paths cross and look blotchy.
+         #999 matches the .left-tab idle grey. */
+      color: #999;
       transition: color 0.15s, background 0.15s;
       padding: 0;
     }
 
     .obj-tab:hover {
-      color: var(--text-main);
+      color: #262626; /* opaque equiv. of --text-main on white (no alpha stacking) */
       background: rgba(0, 0, 0, 0.04);
     }
 
@@ -4166,7 +4169,7 @@
         <rect x="2" y="10" width="8" height="8" />
       </svg>
     </button>
-    <button data-tool="pivot" title="Pivot (D)">
+    <button data-tool="pivot" title="Pivot (J)">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="10" cy="10" r="3" />
         <line x1="2" y1="10" x2="18" y2="10" />
@@ -5860,14 +5863,13 @@
                 </svg>
               </button>
               <button class="obj-tab" data-obj-panel="sub-3d-mapping" title="3D Mapping">
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-miterlimit="10">
-                  <rect x="3" y="3" width="14" height="14" />
-                  <line x1="3" y1="10" x2="17" y2="10" />
-                  <line x1="10" y1="3" x2="10" y2="17" />
-                  <line x1="3" y1="6.5" x2="17" y2="6.5" />
-                  <line x1="3" y1="13.5" x2="17" y2="13.5" />
-                  <line x1="6.5" y1="3" x2="6.5" y2="17" />
-                  <line x1="13.5" y1="3" x2="13.5" y2="17" />
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round"
+                  stroke-linejoin="round" stroke-width="0.81">
+                  <path d="M7.22,14.9s-.06,0-.09,0c-1.25-.07-2.49-.13-3.74-.2V1c1.25.07,2.49.13,3.74.2,1.43.08,2.15.32,2.15.74" />
+                  <path d="M7.22,4.07c0,.5,1.34.67,4.02.53,3.58-.2,5.36.04,5.36.7v13.7c0-.66-1.79-.9-5.36-.7-2.68.15-4.02-.03-4.02-.53V4.07Z" />
+                  <path d="M7.22,14.11c.01.12.05.19.22.3,1.25.47,3.31.24,4.96.18,0-4.29,0-2.08,0-6.37-1.65.06-3.71.28-4.96-.18-.16-.11-.2-.18-.22-.3v6.37Z" />
+                  <path d="M7.22,4.88c-.55-.05-1.15-.07-1.74-.1,0,4.29,0,2.08,0,6.37.59.03,1.19.06,1.74.1v-6.37Z" />
+                  <path d="M9.28,4.65V1.94c0,.31-.39.72-1.18,1.22-.59.37-.88.68-.88.91,0,.36.69.55,2.06.57Z" />
                 </svg>
               </button>
             </div>
@@ -9202,7 +9204,7 @@
         polygon: 'Tool Options (M)',
         star: 'Tool Options (K)',
         ellipse: 'Tool Options (E)',
-        pivot: 'Tool Options (D)',
+        pivot: 'Tool Options (J)',
         pixelArt: 'Tool Options (Q)',
         spiral: 'Tool Options (F)',
         cycloid: 'Tool Options (O)',
@@ -9224,7 +9226,7 @@
         polygon: 'Polygon Tool (M)',
         star: 'Star Tool (K)',
         ellipse: 'Ellipse Tool (E)',
-        pivot: 'Pivot Tool (D)',
+        pivot: 'Pivot Tool (J)',
         pixelArt: 'Pixel Art Tool (Q)',
         spiral: 'Spiral Tool (F)',
         cycloid: 'Cycloid Tool (O)',
@@ -34800,6 +34802,42 @@
     cameraSide.projectionType = 'orthographic';
     cameras.push(cameraSide);
 
+    // Axonometric presets (v20260718n) — orthographic at the standard preset
+    // radius R = √300 = 17.3205 (same as Front/Top/Side, so the constructor's
+    // orthoZoom = tan(fov/2)·R gives all presets the same framing scale).
+    // Position = R·(cos e·sin a, sin e, cos e·cos a) for azimuth a / elevation e;
+    // axis foreshortenings f_X = √(cos²a + sin²e·sin²a), f_Y = cos e,
+    // f_Z = √(sin²a + sin²e·cos²a), with f_X² + f_Y² + f_Z² = 2.
+
+    // ISOMETRIC (NEN/ISO): a = 45°, e = arcsin(1/√3) = 35.264° (35°16').
+    // Direction (1,1,1)/√3 → exactly (10,10,10); all axes foreshorten 0.8165,
+    // projected axes at 120°/120°/120° (X and Z at 30° from horizontal).
+    const cameraIso = new Camera([10, 10, 10], [0, 1, 0], 32.2);
+    cameraIso.name = 'Isometric Camera';
+    cameraIso.lock = true;
+    cameraIso.projectionType = 'orthographic';
+    cameras.push(cameraIso);
+
+    // DIMETRIC (NEN/ISO 42°/7°, scales 1:1:½): e = arcsin(1/3) = 19.471°,
+    // a = arcsin(1/(2√2)) = 20.705°. Direction (1, 1, √7)/3; width/height
+    // foreshorten 0.9428, depth 0.4714 (exactly half); projected X axis at
+    // ≈7.2°, Z at ≈41.4° from horizontal — the classic engineering dimetric.
+    const cameraDim = new Camera([5.7735, 5.7735, 15.2752], [0, 1, 0], 32.2);
+    cameraDim.name = 'Dimetric Camera';
+    cameraDim.lock = true;
+    cameraDim.projectionType = 'orthographic';
+    cameras.push(cameraDim);
+
+    // TRIMETRIC (no ISO canon exists — this is the drafting-flavor choice with
+    // round scale ratios X:Y:Z = 1 : 7/8 : 3/4, absolute k·(1, 7/8, 3/4) with
+    // k = √(128/149) = 0.92686): e = 35.806°, a = 27.577°. Projected X axis at
+    // ≈17.0°, Z at ≈48.3° from horizontal; all three axes distinct.
+    const cameraTri = new Camera([6.5027, 10.1334, 12.4507], [0, 1, 0], 32.2);
+    cameraTri.name = 'Trimetric Camera';
+    cameraTri.lock = true;
+    cameraTri.projectionType = 'orthographic';
+    cameras.push(cameraTri);
+
     const cameraDefault = new Camera([10, 10, 10], [0, 1, 0], 32.2);
     cameraDefault.name = 'Default Camera';
     cameraDefault.lock = true;
@@ -50842,8 +50880,13 @@
             event.preventDefault();
             setTool('scale');
             break;
-          case 'd':
-          case 'D':
+          // Pivot tool moved D -> J (v20260718j). 'D' is reserved as the
+          // HELD drag modifier for radial move (push toward / away from the
+          // camera, `isDPressed` above → dragMode 'translate-radial'); a tool
+          // switch on the same keydown made that gesture unreachable, because
+          // body drags under the Pivot tool route to dragMode 'none'.
+          case 'j':
+          case 'J':
             event.preventDefault();
             setTool('pivot');
             break;
@@ -56838,6 +56881,12 @@
         const tag = document.activeElement?.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
         e.preventDefault();
+        // Consume the keystroke: this document-level listener bubbles BEFORE the
+        // window-level onKeyDown, and below we clear tlSelectedKfs — without
+        // this, onKeyDown's "keyframes selected → skip" guard then saw an empty
+        // set and ALSO ran deleteSelection(), deleting the selected OBJECT in
+        // the same keypress as the keyframes (v20260718l fix).
+        e.stopPropagation();
         pushAnimUndoState('Delete keyframe(s)');
         for (const k of tlSelectedKfs) {
           const ref = _tlFindKfByKey(k);
@@ -56847,6 +56896,108 @@
         tlRenderTracks();
         tlUpdateTrackInputs();
         tlApplyFrame(animationTimeline.currentFrame);
+      }
+    });
+
+    // Move every selected keyframe by `delta` frames, preserving easing curves
+    // (same snapshot/restore convention as the segment/point drags, v20260718c).
+    // All-or-nothing at the range boundary so a multi-selection keeps its
+    // relative spacing instead of collapsing against the edge. Landing on a
+    // non-selected keyframe's frame overwrites it (same as a drag).
+    const tlNudgeSelectedKfs = (delta) => {
+      if (tlSelectedKfs.size === 0) return;
+      const refs = [];
+      for (const key of tlSelectedKfs) {
+        const ref = _tlFindKfByKey(key);
+        if (ref) refs.push(ref);
+      }
+      if (!refs.length) return;
+      const totalF = animationTimeline.totalFrames;
+      if (refs.some(r => r.frame + delta < 0 || r.frame + delta > totalF - 1)) return;
+      pushAnimUndoState('Move keyframes');
+      const moves = refs.map(r => {
+        const k = r.kf;
+        return {
+          objectName: r.objectName, prop: r.prop,
+          fromFrame: r.frame, toFrame: r.frame + delta,
+          value: Array.isArray(k.value) ? [...k.value] : k.value,
+          interp: k.interp || 'linear',
+          cubicBezier: k.cubicBezier ? k.cubicBezier.map(p => [...p]) : undefined,
+          curveAlgorithm: k.curveAlgorithm
+        };
+      });
+      // Remove all first, then re-add — avoids intra-selection collisions.
+      for (const m of moves) tlRemoveKeyframe(m.objectName, m.prop, m.fromFrame);
+      for (const m of moves) {
+        tlAddKeyframe(m.objectName, m.prop, m.toFrame, m.value, m.interp);
+        if (m.cubicBezier || m.curveAlgorithm) {
+          const kfs2 = animationTimeline.tracks.get(m.objectName)?.get(m.prop);
+          const nk = kfs2?.find(k => k.frame === m.toFrame);
+          if (nk) {
+            if (m.cubicBezier) nk.cubicBezier = m.cubicBezier;
+            if (m.curveAlgorithm) nk.curveAlgorithm = m.curveAlgorithm;
+          }
+        }
+      }
+      // Rebuild the selection at the new frames; keep the last-clicked ref live.
+      tlSelectedKfs.clear();
+      for (const m of moves) tlSelectedKfs.add(_kfKey(m.objectName, m.prop, m.toFrame));
+      if (_tlLastClickedKf) {
+        const kfs2 = animationTimeline.tracks.get(_tlLastClickedKf.objectName)?.get(_tlLastClickedKf.prop);
+        const nk = kfs2?.find(k => k.frame === _tlLastClickedKf.frame + delta);
+        _tlLastClickedKf = nk
+          ? { ..._tlLastClickedKf, frame: _tlLastClickedKf.frame + delta, kf: nk }
+          : null;
+      }
+      tlRenderTracks();
+      tlUpdateTrackInputs();
+      tlApplyFrame(animationTimeline.currentFrame);
+    };
+
+    // --- Timeline-hover shortcuts (v20260718m): active ONLY while the mouse
+    // cursor is over the timeline panel. Space = play/stop, plain Left/Right =
+    // step the current frame, Alt(Option)+Left/Right = move the selected
+    // keyframes. Document-level listener → bubbles BEFORE the window-level
+    // onKeyDown; every consumed key calls stopPropagation so the global
+    // handlers (Space-truck arming, arrow object-nudge — whose branch does
+    // NOT exclude altKey) never double-fire (the v20260718l lesson).
+    // panel.matches(':hover') needs no enter/leave bookkeeping and is
+    // automatically false while the panel is hidden (Animation toggle off).
+    document.addEventListener('keydown', (e) => {
+      const panel = document.getElementById('timelinePanel');
+      if (!panel || !panel.matches(':hover')) return;
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      // Space → toggle playback (mirrors the tlPlayPause button handler)
+      if (e.key === ' ' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (animationTimeline.isPlaying) tlStopPlayback(); else tlStartPlayback();
+        return;
+      }
+
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const delta = e.key === 'ArrowRight' ? 1 : -1;
+
+      // Alt(Option) + Left/Right → move the selected keyframes one frame.
+      // Without a selection the key deliberately falls through untouched.
+      if (e.altKey && !e.metaKey && !e.ctrlKey) {
+        if (tlSelectedKfs.size > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          tlNudgeSelectedKfs(delta);
+        }
+        return;
+      }
+
+      // Plain Left/Right → step the current frame (ruler-scrub semantics,
+      // incl. tlSetFrame clearing any keyframe selection).
+      if (!e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        tlStopPlayback();
+        tlSetFrame(animationTimeline.currentFrame + delta);
       }
     });
 

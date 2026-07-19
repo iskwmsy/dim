@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260718o -->
+<!-- dim v20260719b -->
 
 <!--
   MIT License
@@ -6198,6 +6198,12 @@
                     <div class="ui-header-small">3D Extrusion</div>
                   </div>
                   <div id="extrudeParams" class="feature-params collapsed">
+                    <!-- GROUP EXTRUDE (v20260719b): group-only row - children with
+                         their own extrude keep it unless this is checked -->
+                    <div class="style-row" id="extrudeOverrideRow" style="display: none;">
+                      <label>Override Children</label>
+                      <input type="checkbox" id="extrudeOverrideChildrenInput" class="ui-checkbox" />
+                    </div>
                     <div class="style-row">
                       <label>Depth</label>
                       <input type="number" id="extrudeDepthInput" value="2" />
@@ -27862,6 +27868,39 @@
           surfaceMapping: null  // initialized on first enable with proper defaults
         };
 
+        // GROUP EXTRUDE (v20260719b): same shape as Path.extrudeSettings plus
+        // overrideChildren. When enabled, descendant Paths render as if these
+        // settings were their own (resolved at draw time via
+        // drawOptions.inheritedExtrude — nothing is written into children).
+        // overrideChildren decides extrude-vs-extrude conflicts only; children
+        // with revolve/sweep/loft or active mapping are never touched.
+        this.extrudeSettings = {
+          enabled: false,
+          overrideChildren: false,
+          depth: 2,
+          symmetric: false,
+          capFront: true,
+          capBack: true,
+          vector: { x: 0, y: 0, z: -1 },
+          scaleFront: 1.0,
+          scaleBack: 1.0,
+          sideColor: '#888888',
+          useSideColor: false,
+          cleanRender: true,       // Legacy (backward compat) — use renderMode instead
+          renderMode: 'clean',     // 'clean' | 'mesh' | 'layer'
+          layerCount: 16,
+          divisionsU: 8,
+          divisionsV: 8,
+          curvedSurface: false,
+          silhouetteSplit: true,
+          drawPoints: false,
+          pointSize: 5.0,
+          pointColor: '#0000ff',
+          pointShape: 'circle',
+          useSurfaceColor: false,
+          surfaceColor: '#888888'
+        };
+
         this.id = `Group_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         this.svgElement = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         this.svgElement.setAttribute('id', this.id);
@@ -27959,6 +27998,7 @@
           cameraVP: cameraVPIn = null,
           mappingAnchorWM: anchorWMIn = null,
           collectIx = false,
+          inheritedExtrude = null,
         } = drawOptions;
         let cameraVP = cameraVPIn;
         let mappingAnchorWM = anchorWMIn;
@@ -28032,6 +28072,13 @@
           // Face entries carry intersection-split data (depth planes) only when
           // some enclosing z-sorted group wants to resolve intersections.
           collectIx: collectIx || (this.zSortChildren && (this.renderIntersections || this.pathRender)),
+          // GROUP EXTRUDE (v20260719b): nearest enabled ancestor wins, except
+          // an ancestor with overrideChildren steamrolls inner groups too
+          // (one rule for groups and paths alike — see Path.draw resolution).
+          inheritedExtrude:
+            (this.extrudeSettings?.enabled && !(inheritedExtrude && inheritedExtrude.override))
+              ? { settings: this.extrudeSettings, override: !!this.extrudeSettings.overrideChildren }
+              : inheritedExtrude,
         };
 
         // Restore the normal DOM tree after leaving z-sort mode. The z-sort
@@ -28641,6 +28688,7 @@
           cameraVP = null,
           mappingAnchorWM = null,
           collectIx = false,
+          inheritedExtrude = null,
         } = drawOptions;
         // Render Intersections: deep helpers (drawSurface mesh quads) read
         // the collect flag from the instance rather than threading it
@@ -28703,6 +28751,26 @@
         if (this.revolveSettings.ribbonColor === undefined) this.revolveSettings.ribbonColor = '#888888';
         if (this.revolveSettings.useRibbonColor === undefined) this.revolveSettings.useRibbonColor = false;
 
+        // GROUP EXTRUDE (v20260719b): resolve the effective extrude settings.
+        // A group with extrude enabled broadcasts its settings to descendant
+        // Paths at render time (drawOptions.inheritedExtrude). Rules:
+        //   - own enabled extrude wins unless the group set overrideChildren;
+        //   - a path with another enabled 3D modifier or active mapping is
+        //     NEVER touched (override arbitrates extrude-vs-extrude only);
+        //   - with no inheritance, _effExtrude IS this.extrudeSettings (same
+        //     object reference), so untouched scenes stay bit-identical.
+        // Per-draw instance field (like _collectIx): read by the clean branch,
+        // drawExtrudeAsMesh and drawSideRibbons; never serialized.
+        {
+          const _ownEx = this.extrudeSettings.enabled;
+          const _otherModifier = this.revolveSettings.enabled || this.sweepSettings.enabled
+            || this.loftSettings.enabled || splineFlowActive || surfaceMappingActive;
+          this._effExtrude =
+            (inheritedExtrude && !_otherModifier && (inheritedExtrude.override || !_ownEx))
+              ? inheritedExtrude.settings
+              : this.extrudeSettings;
+        }
+
         // Helper to get path data based on algorithm
         const getPathData = (mvp) => {
           if (this.algorithm === 'linear') return this.drawLinear(mvp);
@@ -28711,7 +28779,7 @@
           return '';
         };
 
-        if (this.extrudeSettings.enabled || this.revolveSettings.enabled || this.sweepSettings.enabled || this.loftSettings.enabled || splineFlowActive || surfaceMappingActive) {
+        if (this._effExtrude.enabled || this.revolveSettings.enabled || this.sweepSettings.enabled || this.loftSettings.enabled || splineFlowActive || surfaceMappingActive) {
           // --- 3D Mode ---
           const faceList = externalFaceList || [];
           const _faceListStartIdx = faceList.length; // Track start for z-sort style stamping
@@ -29077,8 +29145,10 @@
           }
 
 
-          const extrudeRenderMode = this.extrudeSettings.renderMode || (this.extrudeSettings.cleanRender !== false ? 'clean' : 'mesh');
-          if (this.extrudeSettings.enabled && extrudeRenderMode === 'clean') {
+          // GROUP EXTRUDE: _exs = effective settings (own or inherited).
+          const _exs = this._effExtrude;
+          const extrudeRenderMode = _exs.renderMode || (_exs.cleanRender !== false ? 'clean' : 'mesh');
+          if (_exs.enabled && extrudeRenderMode === 'clean') {
             // --- Clean Render (existing high-quality silhouette-aware renderer) ---
 
             // console.log(`Path Draw: ${this.id}, FrontCap: ${this.extrudeSettings.capFront}, BackCap: ${this.extrudeSettings.capBack}`);
@@ -29086,7 +29156,7 @@
             let tFront = createIdentityMatrix(); // Default: no translation
             let tBack = createIdentityMatrix(); // Default: no translation
 
-            const v = this.extrudeSettings.vector || { x: 0, y: 0, z: -1 };
+            const v = _exs.vector || { x: 0, y: 0, z: -1 };
 
             // Normalize vector first (needed by taper matrix below)
             const len = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
@@ -29096,12 +29166,12 @@
             const nz = v.z * invLen;
 
             // Get Scales — per-axis, falling back to uniform scalar
-            const sfUniform = this.extrudeSettings.scaleFront !== undefined ? this.extrudeSettings.scaleFront : 1.0;
-            const sbUniform = this.extrudeSettings.scaleBack !== undefined ? this.extrudeSettings.scaleBack : 1.0;
-            const sfU = this.extrudeSettings.scaleFrontU !== undefined ? this.extrudeSettings.scaleFrontU : sfUniform;
-            const sfV = this.extrudeSettings.scaleFrontV !== undefined ? this.extrudeSettings.scaleFrontV : sfUniform;
-            const sbU = this.extrudeSettings.scaleBackU !== undefined ? this.extrudeSettings.scaleBackU : sbUniform;
-            const sbV = this.extrudeSettings.scaleBackV !== undefined ? this.extrudeSettings.scaleBackV : sbUniform;
+            const sfUniform = _exs.scaleFront !== undefined ? _exs.scaleFront : 1.0;
+            const sbUniform = _exs.scaleBack !== undefined ? _exs.scaleBack : 1.0;
+            const sfU = _exs.scaleFrontU !== undefined ? _exs.scaleFrontU : sfUniform;
+            const sfV = _exs.scaleFrontV !== undefined ? _exs.scaleFrontV : sfUniform;
+            const sbU = _exs.scaleBackU !== undefined ? _exs.scaleBackU : sbUniform;
+            const sbV = _exs.scaleBackV !== undefined ? _exs.scaleBackV : sbUniform;
 
             // Build direction-aware taper scale matrices.
             // The scale must apply in the plane perpendicular to the extrude direction.
@@ -29115,8 +29185,13 @@
               if (ax <= ay && ax <= az) ref = [1, 0, 0];
               else if (ay <= ax && ay <= az) ref = [0, 1, 0];
               else ref = [0, 0, 1];
-              const u = vectorNormalize(vectorCross(ref, [nx, ny, nz]));
-              const vv = vectorCross([nx, ny, nz], u);
+              // v20260719a: U must scale the profile's first axis (X for the
+              // default -Z vector), matching mesh/layer/GPU/surface-mapping
+              // where frame.side ([1,0,0]) carries scaleU. The old assignment
+              // (u = cross(ref, n)) gave U the Y axis for -Z - swapped vs
+              // every other consumer of the taper scales.
+              const vv = vectorNormalize(vectorCross(ref, [nx, ny, nz]));
+              const u = vectorCross([nx, ny, nz], vv);
               const n = [nx, ny, nz];
               // M_ij = sU * u_i*u_j + sV * vv_i*vv_j + n_i*n_j
               const m = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 1]];
@@ -29130,10 +29205,10 @@
             const matSf = buildTaperMatrix(sfU, sfV);
             const matSb = buildTaperMatrix(sbU, sbV);
 
-            const d = this.extrudeSettings.depth;
+            const d = _exs.depth;
 
             let dx, dy, dz;
-            if (this.extrudeSettings.symmetric) {
+            if (_exs.symmetric) {
               // -0.5d to +0.5d
               dx = nx * d * 0.5;
               dy = ny * d * 0.5;
@@ -29235,7 +29310,7 @@
             };
 
             // Add Front Face
-            if (this.extrudeSettings.capFront !== false) {
+            if (_exs.capFront !== false) {
               if (capIslands) {
                 this.frontFace.style.display = 'none';
                 pushIslandCaps(islandChunksF, mvpFront);
@@ -29256,7 +29331,7 @@
             }
 
             // Add Back Face
-            if (this.extrudeSettings.capBack !== false) {
+            if (_exs.capBack !== false) {
               if (capIslands) {
                 this.backFace.style.display = 'none';
                 pushIslandCaps(islandChunksB, mvpBack);
@@ -29283,7 +29358,7 @@
           }
 
           // Mesh/Layer render (non-clean modes)
-          if (this.extrudeSettings.enabled && (extrudeRenderMode === 'mesh' || extrudeRenderMode === 'layer')) {
+          if (_exs.enabled && (extrudeRenderMode === 'mesh' || extrudeRenderMode === 'layer')) {
             await this.drawExtrudeAsMesh(faceList, vpMatrix, modelMatrix);
           }
 
@@ -31549,7 +31624,8 @@
 
       // Extrude mesh render: creates a synthetic straight-line rail and delegates to drawSurface()
       async drawExtrudeAsMesh(faceList, vpMatrix, modelMatrix) {
-        const es = this.extrudeSettings;
+        // GROUP EXTRUDE: effective settings (own or inherited from a group).
+        const es = this._effExtrude || this.extrudeSettings;
         if (!es?.enabled) return;
 
         const v = es.vector || { x: 0, y: 0, z: -1 };
@@ -34063,14 +34139,16 @@
       }
 
       drawSideRibbons(mvpFront, mvpBack, faceList, collectIx = false) {
-        if (!this.extrudeSettings.enabled) return;
+        // GROUP EXTRUDE: effective settings (own or inherited from a group).
+        const _exr = this._effExtrude || this.extrudeSettings;
+        if (!_exr.enabled) return;
         const _effSide = getEffectiveStyle(this);
 
         const segments = this.getSegments();
         // Matrices are now passed IN, decoupling from Z-axis assumptions
         // const tFront = createTranslationMatrix(0, 0, frontZ); ... REMOVED
 
-        const sideColor = (this.extrudeSettings.useSideColor && this.extrudeSettings.sideColor) ? this.extrudeSettings.sideColor : null;
+        const sideColor = (_exr.useSideColor && _exr.sideColor) ? _exr.sideColor : null;
 
         const createPath = (d) => {
           const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -34153,7 +34231,7 @@
         const V = vectorNormalize(V_raw);
 
         // 3. Extrude Vector
-        const E = [this.extrudeSettings.vector.x, this.extrudeSettings.vector.y, this.extrudeSettings.vector.z];
+        const E = [_exr.vector.x, _exr.vector.y, _exr.vector.z];
 
         // 4. Taper info for silhouette correction (cone/frustum shapes)
         //    When front and back scales differ, the side surface is NOT parallel to E.
@@ -34161,7 +34239,7 @@
         //    decomposes to deltaU*(u·P)*u + deltaV*(vv·P)*vv in the perpendicular plane.
         let taperInfo = null;
         {
-          const es = this.extrudeSettings;
+          const es = _exr;
           const sfUniform = es.scaleFront !== undefined ? es.scaleFront : 1.0;
           const sbUniform = es.scaleBack !== undefined ? es.scaleBack : 1.0;
           const sfU = es.scaleFrontU !== undefined ? es.scaleFrontU : sfUniform;
@@ -34178,8 +34256,10 @@
             if (ax <= ay && ax <= az) ref = [1, 0, 0];
             else if (ay <= ax && ay <= az) ref = [0, 1, 0];
             else ref = [0, 0, 1];
-            const basisU = vectorNormalize(vectorCross(ref, n));
-            const basisV = vectorCross(n, basisU);
+            // v20260719a: basisU = second cross so U is the profile X axis for
+            // the default -Z vector (same fix as buildTaperMatrix).
+            const basisV = vectorNormalize(vectorCross(ref, n));
+            const basisU = vectorCross(n, basisV);
             taperInfo = {
               depthVec: [n[0] * depth, n[1] * depth, n[2] * depth],
               u: basisU, vv: basisV,
@@ -34193,7 +34273,7 @@
         // (Tangent x SweepDir) . (Eye - Point) dynamically per profile point.
         const processedSegments = this.processSilhouetteSegments(segments, eyeLocal, E, taperInfo);
 
-        if (this.extrudeSettings.simpleSides) {
+        if (_exr.simpleSides) {
           // merged side faces
           // v20260208_simpleSides: Pass eyeLocal, E, and taperInfo for visibility split
           const ribbons = this.generateSimpleSideRibbon(processedSegments, mvpFront, mvpBack, eyeLocal, E, taperInfo, collectIx);
@@ -40836,19 +40916,34 @@
 
       // Extrude
       const isPath = selectedObject && selectedObject instanceof Path;
+      // GROUP EXTRUDE (v20260719b): groups are extrudable too (settings
+      // broadcast to descendant Paths at render time), so the whole extrude
+      // section gates on `extrudable` instead of `isPath`.
+      const extrudable = selectedObject && (isPath || selectedObject.isGroup === true);
       if (document.activeElement !== extrudeEnabledInput) {
-        extrudeEnabledInput.checked = isPath ? (selectedObject.extrudeSettings?.enabled || false) : false;
-        extrudeEnabledInput.disabled = !isPath;
+        extrudeEnabledInput.checked = extrudable ? (selectedObject.extrudeSettings?.enabled || false) : false;
+        extrudeEnabledInput.disabled = !extrudable;
       }
       const extrudeParamsEl = document.getElementById('extrudeParams');
       if (extrudeParamsEl) extrudeParamsEl.classList.toggle('collapsed', !extrudeEnabledInput.checked);
+      // GROUP EXTRUDE: Override Children row is group-only.
+      {
+        const _ovRow = document.getElementById('extrudeOverrideRow');
+        const _ovCb = document.getElementById('extrudeOverrideChildrenInput');
+        const _isGrp = !!(selectedObject && selectedObject.isGroup);
+        if (_ovRow) _ovRow.style.display = _isGrp ? '' : 'none';
+        if (_ovCb && document.activeElement !== _ovCb) {
+          _ovCb.checked = _isGrp ? (selectedObject.extrudeSettings?.overrideChildren || false) : false;
+          _ovCb.disabled = !_isGrp || !extrudeEnabledInput.checked;
+        }
+      }
       if (document.activeElement !== extrudeDepthInput) {
-        extrudeDepthInput.value = isPath ? fmtDisplay(selectedObject.extrudeSettings?.depth || 2) : fmtDisplay(2);
-        extrudeDepthInput.disabled = !isPath || !extrudeEnabledInput.checked;
+        extrudeDepthInput.value = extrudable ? fmtDisplay(selectedObject.extrudeSettings?.depth || 2) : fmtDisplay(2);
+        extrudeDepthInput.disabled = !extrudable || !extrudeEnabledInput.checked;
       }
       if (document.activeElement !== extrudeSymmetricInput) {
-        extrudeSymmetricInput.checked = isPath ? (selectedObject.extrudeSettings?.symmetric || false) : false;
-        extrudeSymmetricInput.disabled = !isPath || !extrudeEnabledInput.checked;
+        extrudeSymmetricInput.checked = extrudable ? (selectedObject.extrudeSettings?.symmetric || false) : false;
+        extrudeSymmetricInput.disabled = !extrudable || !extrudeEnabledInput.checked;
       }
 
       // Render mode dropdown (replaces old cleanRender checkbox)
@@ -40857,7 +40952,7 @@
       const extrudeDivisionsVInput = document.getElementById('extrudeDivisionsVInput');
       // Derive renderMode: use new field, or fall back from legacy cleanRender
       let extRenderMode = 'clean';
-      if (isPath && selectedObject.extrudeSettings) {
+      if (extrudable && selectedObject.extrudeSettings) {
         const es = selectedObject.extrudeSettings;
         if (es.renderMode) {
           extRenderMode = es.renderMode;
@@ -40879,58 +40974,58 @@
       // Layer count
       const extrudeLayerCountInput = document.getElementById('extrudeLayerCountInput');
       if (extrudeLayerCountInput && document.activeElement !== extrudeLayerCountInput) {
-        extrudeLayerCountInput.value = isPath ? (selectedObject.extrudeSettings?.layerCount || 16) : 16;
+        extrudeLayerCountInput.value = extrudable ? (selectedObject.extrudeSettings?.layerCount || 16) : 16;
       }
       if (extrudeDivisionsUInput && document.activeElement !== extrudeDivisionsUInput) {
-        extrudeDivisionsUInput.value = isPath ? (selectedObject.extrudeSettings?.divisionsU || 8) : 8;
+        extrudeDivisionsUInput.value = extrudable ? (selectedObject.extrudeSettings?.divisionsU || 8) : 8;
       }
       if (extrudeDivisionsVInput && document.activeElement !== extrudeDivisionsVInput) {
-        extrudeDivisionsVInput.value = isPath ? (selectedObject.extrudeSettings?.divisionsV || 8) : 8;
+        extrudeDivisionsVInput.value = extrudable ? (selectedObject.extrudeSettings?.divisionsV || 8) : 8;
       }
       const extrudeCurvedSurfaceInput = document.getElementById('extrudeCurvedSurfaceInput');
       if (extrudeCurvedSurfaceInput) {
-        extrudeCurvedSurfaceInput.checked = isPath ? (selectedObject.extrudeSettings?.curvedSurface || false) : false;
+        extrudeCurvedSurfaceInput.checked = extrudable ? (selectedObject.extrudeSettings?.curvedSurface || false) : false;
       }
       const extrudeSilhouetteSplitInput = document.getElementById('extrudeSilhouetteSplitInput');
       if (extrudeSilhouetteSplitInput) {
-        extrudeSilhouetteSplitInput.checked = isPath ? (selectedObject.extrudeSettings?.silhouetteSplit || false) : false;
+        extrudeSilhouetteSplitInput.checked = extrudable ? (selectedObject.extrudeSettings?.silhouetteSplit || false) : false;
       }
       const extrudeDrawPointsInput = document.getElementById('extrudeDrawPointsInput');
       const extrudePointSizeInput = document.getElementById('extrudePointSizeInput');
       const extrudePointColorInput = document.getElementById('extrudePointColorInput');
       const extrudePointShapeInput = document.getElementById('extrudePointShapeInput');
-      const extrudeEnabled = isPath && (selectedObject.extrudeSettings?.enabled || false);
+      const extrudeEnabled = extrudable && (selectedObject.extrudeSettings?.enabled || false);
       const extrudeIsMesh = extCurMode === 'mesh';
       if (extrudeDrawPointsInput) {
-        extrudeDrawPointsInput.checked = isPath ? (selectedObject.extrudeSettings?.drawPoints || false) : false;
+        extrudeDrawPointsInput.checked = extrudable ? (selectedObject.extrudeSettings?.drawPoints || false) : false;
         extrudeDrawPointsInput.disabled = !extrudeEnabled || !extrudeIsMesh;
       }
       const extrudePointsOn = extrudeDrawPointsInput ? extrudeDrawPointsInput.checked : false;
       if (extrudePointSizeInput && document.activeElement !== extrudePointSizeInput) {
-        extrudePointSizeInput.value = isPath && selectedObject.extrudeSettings?.pointSize !== undefined ? selectedObject.extrudeSettings.pointSize : 5.0;
+        extrudePointSizeInput.value = extrudable && selectedObject.extrudeSettings?.pointSize !== undefined ? selectedObject.extrudeSettings.pointSize : 5.0;
         extrudePointSizeInput.disabled = !extrudeEnabled || !extrudeIsMesh || !extrudePointsOn;
       }
       if (extrudePointColorInput && document.activeElement !== extrudePointColorInput) {
-        extrudePointColorInput.value = isPath && selectedObject.extrudeSettings?.pointColor ? selectedObject.extrudeSettings.pointColor : '#0000ff';
+        extrudePointColorInput.value = extrudable && selectedObject.extrudeSettings?.pointColor ? selectedObject.extrudeSettings.pointColor : '#0000ff';
         extrudePointColorInput.disabled = !extrudeEnabled || !extrudeIsMesh || !extrudePointsOn;
       }
       const extrudePointColorHexInput = document.getElementById('extrudePointColorHexInput');
       if (extrudePointColorHexInput) {
-        const epColor = isPath && selectedObject.extrudeSettings?.pointColor ? selectedObject.extrudeSettings.pointColor : '#0000ff';
+        const epColor = extrudable && selectedObject.extrudeSettings?.pointColor ? selectedObject.extrudeSettings.pointColor : '#0000ff';
         if (document.activeElement !== extrudePointColorHexInput) extrudePointColorHexInput.value = epColor.slice(1).toUpperCase();
         extrudePointColorHexInput.disabled = !extrudeEnabled || !extrudeIsMesh || !extrudePointsOn;
       }
       if (extrudePointShapeInput && document.activeElement !== extrudePointShapeInput) {
-        extrudePointShapeInput.value = isPath && selectedObject.extrudeSettings?.pointShape ? selectedObject.extrudeSettings.pointShape : 'circle';
+        extrudePointShapeInput.value = extrudable && selectedObject.extrudeSettings?.pointShape ? selectedObject.extrudeSettings.pointShape : 'circle';
         extrudePointShapeInput.disabled = !extrudeEnabled || !extrudeIsMesh || !extrudePointsOn;
       }
       if (document.activeElement !== extrudeCapFrontInput) {
-        extrudeCapFrontInput.checked = isPath ? (selectedObject.extrudeSettings?.capFront !== false) : true;
-        extrudeCapFrontInput.disabled = !isPath || !extrudeEnabledInput.checked;
+        extrudeCapFrontInput.checked = extrudable ? (selectedObject.extrudeSettings?.capFront !== false) : true;
+        extrudeCapFrontInput.disabled = !extrudable || !extrudeEnabledInput.checked;
       }
       if (document.activeElement !== extrudeCapBackInput) {
-        extrudeCapBackInput.checked = isPath ? (selectedObject.extrudeSettings?.capBack !== false) : true;
-        extrudeCapBackInput.disabled = !isPath || !extrudeEnabledInput.checked;
+        extrudeCapBackInput.checked = extrudable ? (selectedObject.extrudeSettings?.capBack !== false) : true;
+        extrudeCapBackInput.disabled = !extrudable || !extrudeEnabledInput.checked;
       }
 
       const vecX = document.getElementById('extrudeVecXInput');
@@ -40938,16 +41033,16 @@
       const vecZ = document.getElementById('extrudeVecZInput');
 
       if (document.activeElement !== vecX) {
-        vecX.value = isPath && selectedObject.extrudeSettings?.vector ? selectedObject.extrudeSettings.vector.x : 0;
-        vecX.disabled = !isPath || !extrudeEnabledInput.checked;
+        vecX.value = extrudable && selectedObject.extrudeSettings?.vector ? selectedObject.extrudeSettings.vector.x : 0;
+        vecX.disabled = !extrudable || !extrudeEnabledInput.checked;
       }
       if (document.activeElement !== vecY) {
-        vecY.value = isPath && selectedObject.extrudeSettings?.vector ? selectedObject.extrudeSettings.vector.y : 0;
-        vecY.disabled = !isPath || !extrudeEnabledInput.checked;
+        vecY.value = extrudable && selectedObject.extrudeSettings?.vector ? selectedObject.extrudeSettings.vector.y : 0;
+        vecY.disabled = !extrudable || !extrudeEnabledInput.checked;
       }
       if (document.activeElement !== vecZ) {
-        vecZ.value = isPath && selectedObject.extrudeSettings?.vector ? selectedObject.extrudeSettings.vector.z : 1;
-        vecZ.disabled = !isPath || !extrudeEnabledInput.checked;
+        vecZ.value = extrudable && selectedObject.extrudeSettings?.vector ? selectedObject.extrudeSettings.vector.z : 1;
+        vecZ.disabled = !extrudable || !extrudeEnabledInput.checked;
       }
 
       const scaleFrontUInput = document.getElementById('extrudeScaleFrontUInput');
@@ -40956,8 +41051,8 @@
       const scaleBackVInput = document.getElementById('extrudeScaleBackVInput');
       const taperLinkedInput = document.getElementById('extrudeTaperLinkedInput');
 
-      const es = isPath ? selectedObject.extrudeSettings : null;
-      const extEnabled = isPath && extrudeEnabledInput.checked;
+      const es = extrudable ? selectedObject.extrudeSettings : null;
+      const extEnabled = extrudable && extrudeEnabledInput.checked;
       // Resolve displayed values: per-axis overrides uniform scalar
       const sfUniform = es?.scaleFront !== undefined ? es.scaleFront : 1.0;
       const sbUniform = es?.scaleBack !== undefined ? es.scaleBack : 1.0;
@@ -40989,28 +41084,28 @@
 
       const simpleSidesInput = document.getElementById('extrudeSimpleSidesInput');
       if (document.activeElement !== simpleSidesInput) {
-        simpleSidesInput.checked = isPath && selectedObject.extrudeSettings?.simpleSides;
-        simpleSidesInput.disabled = !isPath || !extrudeEnabledInput.checked;
+        simpleSidesInput.checked = extrudable && selectedObject.extrudeSettings?.simpleSides;
+        simpleSidesInput.disabled = !extrudable || !extrudeEnabledInput.checked;
       }
 
       const sideColorEnabledInput = document.getElementById('extrudeSideColorEnabledInput');
       const sideColorInput = document.getElementById('extrudeSideColorInput');
 
       if (document.activeElement !== sideColorEnabledInput) {
-        sideColorEnabledInput.checked = isPath && selectedObject.extrudeSettings?.useSideColor;
-        sideColorEnabledInput.disabled = !isPath || !extrudeEnabledInput.checked;
+        sideColorEnabledInput.checked = extrudable && selectedObject.extrudeSettings?.useSideColor;
+        sideColorEnabledInput.disabled = !extrudable || !extrudeEnabledInput.checked;
       }
       const sideColorOn = sideColorEnabledInput.checked;
 
       if (document.activeElement !== sideColorInput) {
-        sideColorInput.value = isPath && selectedObject.extrudeSettings?.sideColor ? selectedObject.extrudeSettings.sideColor : '#888888';
-        sideColorInput.disabled = !isPath || !extrudeEnabledInput.checked || !sideColorOn;
+        sideColorInput.value = extrudable && selectedObject.extrudeSettings?.sideColor ? selectedObject.extrudeSettings.sideColor : '#888888';
+        sideColorInput.disabled = !extrudable || !extrudeEnabledInput.checked || !sideColorOn;
       }
       const sideColorHexInput = document.getElementById('extrudeSideColorHexInput');
       if (sideColorHexInput) {
-        const scColor = isPath && selectedObject.extrudeSettings?.sideColor ? selectedObject.extrudeSettings.sideColor : '#888888';
+        const scColor = extrudable && selectedObject.extrudeSettings?.sideColor ? selectedObject.extrudeSettings.sideColor : '#888888';
         if (document.activeElement !== sideColorHexInput) sideColorHexInput.value = scColor.slice(1).toUpperCase();
-        sideColorHexInput.disabled = !isPath || !extrudeEnabledInput.checked || !sideColorOn;
+        sideColorHexInput.disabled = !extrudable || !extrudeEnabledInput.checked || !sideColorOn;
       }
 
       // Revolve
@@ -43938,9 +44033,15 @@
           if (qsClosePathCb) qsClosePathCb.checked = loopPath;
         }
 
-        if (!obj.isGroup && (forceAll || targetId.startsWith('extrude'))) {
+        // GROUP EXTRUDE (v20260719b): groups take extrude edits too (their
+        // settings broadcast to descendant Paths at render time).
+        if (forceAll || targetId.startsWith('extrude')) {
           if (!obj.extrudeSettings) obj.extrudeSettings = {};
 
+          if (obj.isGroup) {
+            obj.extrudeSettings.overrideChildren =
+              document.getElementById('extrudeOverrideChildrenInput')?.checked || false;
+          }
           obj.extrudeSettings.enabled = extrudeEnabled;
           obj.extrudeSettings.depth = extrudeDepth;
           obj.extrudeSettings.symmetric = extrudeSymmetric;
@@ -44239,6 +44340,8 @@
     document.getElementById('blendModeInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('loopPathInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('extrudeEnabledInput').addEventListener('change', updateStyleFromInput);
+    // GROUP EXTRUDE (v20260719b)
+    document.getElementById('extrudeOverrideChildrenInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('extrudeDepthInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('extrudeSymmetricInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('extrudeCapFrontInput').addEventListener('change', updateStyleFromInput);
@@ -52847,6 +52950,11 @@
         if (obj.pathRender) data.pathRender = true;
         if (obj.pathRenderLineArt) data.pathRenderLineArt = true;
         if (obj.pathRenderLineArtColor) data.pathRenderLineArtColor = obj.pathRenderLineArtColor;
+        // GROUP EXTRUDE (v20260719b): written only when meaningful so files
+        // from before the feature (and groups not using it) stay byte-identical.
+        if (obj.extrudeSettings && (obj.extrudeSettings.enabled || obj.extrudeSettings.overrideChildren)) {
+          data.extrudeSettings = obj.extrudeSettings;
+        }
       } else {
         // Path specific
         data.localVertices = obj.localVertices;
@@ -52916,6 +53024,8 @@
         if (data.pathRender) obj.pathRender = true;
         if (data.pathRenderLineArt) obj.pathRenderLineArt = true;
         if (data.pathRenderLineArtColor) obj.pathRenderLineArtColor = data.pathRenderLineArtColor;
+        // GROUP EXTRUDE (v20260719b): merge over ctor defaults (absent field = old behavior)
+        if (data.extrudeSettings) obj.extrudeSettings = { ...obj.extrudeSettings, ...data.extrudeSettings };
       } else {
         // Path
         obj = new Path(

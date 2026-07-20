@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260719e -->
+<!-- dim v20260720l -->
 
 <!--
   MIT License
@@ -7011,6 +7011,63 @@
                     <div class="style-row">
                       <label class="ui-checkbox-label">Silhouette Split</label>
                       <input type="checkbox" id="surfaceMappingSplitInput" class="ui-checkbox" checked />
+                    </div>
+                  </div>
+
+                  <!-- MOTION PATH SECTION (v20260719f): transform constraint —
+                       anchor rides a target path; works on 3D objects and groups -->
+                  <div class="feature-toggle-header">
+                    <input type="checkbox" id="motionPathEnabledInput" class="ui-toggle" />
+                    <div class="ui-header-small">Motion Path</div>
+                  </div>
+                  <div id="motionPathParams" class="feature-params collapsed">
+                    <div class="xyz-row">
+                      <label for="motionPathTargetSelect">Target Path</label>
+                      <div class="xyz-inputs">
+                        <select id="motionPathTargetSelect">
+                          <option value="">-- None --</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="xyz-row">
+                      <label for="motionPathModeInput">Position</label>
+                      <div class="xyz-inputs">
+                        <select id="motionPathModeInput">
+                          <option value="path">On Path</option>
+                          <option value="pathOffset">On Path + Offset</option>
+                          <option value="relative">Keep Position</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="xyz-row">
+                      <label>Percent</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="motionPathPercentInput" value="0" step="1" />
+                      </div>
+                    </div>
+                    <!-- v20260720j: out-of-range percent handling -->
+                    <div class="xyz-row">
+                      <label for="motionPathOverflowInput">Overflow</label>
+                      <div class="xyz-inputs">
+                        <select id="motionPathOverflowInput">
+                          <option value="clip">Clip</option>
+                          <option value="overflow">Overflow</option>
+                          <option value="around">Around</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="style-row">
+                      <label class="ui-checkbox-label">Align to Path</label>
+                      <input type="checkbox" id="motionPathOrientInput" class="ui-checkbox" />
+                      <span class="axis-label">Axis</span>
+                      <select id="motionPathAxisInput">
+                        <option value="x">X</option>
+                        <option value="-x">-X</option>
+                        <option value="y">Y</option>
+                        <option value="-y">-Y</option>
+                        <option value="z">Z</option>
+                        <option value="-z">-Z</option>
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -15071,18 +15128,27 @@
       }
       for (let i = 0; i < 4; i++) {
         let e = C[i][i];
-        if (e === 0) {
+        // v20260720h: DEGENERATE pivots, not just exact zeros, must trigger a
+        // row swap. A 90-degree rotation stores cos(90°) = 6.12e-17 on the
+        // diagonal — the old `e === 0` test let it through and the division
+        // by 6e-17 destroyed the elimination via catastrophic cancellation
+        // (measured: model x "inverse" had a -2 off-diagonal, so every
+        // ry=90 scene computed a garbage inverse-transformed camera eye).
+        // Swap with the LARGEST-magnitude pivot candidate; well-conditioned
+        // matrices (|pivot| >= 1e-9) keep the exact old arithmetic path.
+        if (Math.abs(e) < 1e-9) {
+          let best = i;
           for (let ii = i + 1; ii < 4; ii++) {
-            if (C[ii][i] !== 0) {
-              for (let j = 0; j < 4; j++) {
-                [C[i][j], C[ii][j]] = [C[ii][j], C[i][j]];
-                [I[i][j], I[ii][j]] = [I[ii][j], I[i][j]];
-              }
-              break;
+            if (Math.abs(C[ii][i]) > Math.abs(C[best][i])) best = ii;
+          }
+          if (best !== i) {
+            for (let j = 0; j < 4; j++) {
+              [C[i][j], C[best][j]] = [C[best][j], C[i][j]];
+              [I[i][j], I[best][j]] = [I[best][j], I[i][j]];
             }
           }
           e = C[i][i];
-          if (e === 0) {
+          if (Math.abs(e) < 1e-12) {
             return;
           }
         }
@@ -27770,9 +27836,173 @@
 
     // The pivot's world-anchor point in parent space. pivotShift absorbs pivot-edit
     // compensation so obj.position stays a pure user value (see research/pivotshift_plan.md).
+    // MOTION PATH (v20260719f): when the anchor is driven by a target path the
+    // evaluated anchor is returned instead, so gizmo placement / billboard /
+    // workplane anchors stay glued to the object.
     const getPivotAnchor = (obj) => {
+      if (obj.motionPathSettings && obj.motionPathSettings.enabled && obj.motionPathSettings.targetId) {
+        const r = computeMotionPathAnchor(obj);
+        if (r) return [...r.anchor];
+      }
       const sh = obj.pivotShift || [0, 0, 0];
       return [obj.position[0] + sh[0], obj.position[1] + sh[1], obj.position[2] + sh[2]];
+    };
+
+    // --- MOTION PATH (v20260719f) ------------------------------------------
+    // Transform constraint (plan: _plans/PLAN-motion-path.md): the object's
+    // ANCHOR rides a target path at an arc-length percentage. Because the
+    // local pivot point maps exactly to the anchor in this transform model
+    // (T(anchor)·R·(RP·S·RPᵀ)·T(−pivot) sends `pivot` → anchor), the Pivot
+    // tool chooses WHICH point of the object follows the path.
+    // Modes: 'path' (On Path) — anchor = P(u) pure; position/pivotShift are
+    //   deliberately NOT added (pivot = the offset control).
+    // 'pathOffset' (On Path + Offset, v20260719g) — anchor = P(u) + position
+    //   (parent-space offset knob, Blender Follow Path flavor). pivotShift is
+    //   still NOT added, so the pivot keeps re-anchoring which point follows
+    //   the path while position offsets the whole ride; animated position
+    //   tracks become animated offsets for free.
+    // 'relative' (Keep Position) — anchor = (position+pivotShift) + P(u)−P(0).
+    // Closed targets wrap percent (multi-lap keyframes); open targets clamp.
+    // Orientation (orient ON): RMF frame at u composes LEFT of the object's
+    // own rotation (own rotation = twist/offset on the rail); faceCamera
+    // still wins (applied after, in getLocalMatrix).
+    const _mpStack = new Set(); // re-entrancy guard: A follows B follows A degrades, never recurses
+    const computeMotionPathAnchor = (obj) => {
+      const mp = obj.motionPathSettings;
+      if (!mp || !mp.enabled || !mp.targetId) return null;
+      if (_mpStack.has(obj)) return null;
+      _mpStack.add(obj);
+      try {
+        const target = findObjectById(mp.targetId);
+        if (!target || target === obj || target.isGroup || !target.getSegments) return null;
+        if (!target._arcLengthData) target._arcLengthData = SurfaceMapper.getArcLengthMap(target);
+        const arc = target._arcLengthData;
+        if (!arc || !arc.totalLength || arc.totalLength <= 1e-9) return null;
+        let u = (parseFloat(mp.percent) || 0) / 100;
+        // v20260720j: explicit Overflow mode replaces the old hardwired
+        // handling (closed targets wrapped silently, open targets clamped).
+        // 'clip' clamps (legacy alias 'ignore'), 'around' loops (positive
+        // modulo), 'overflow' continues past the ends along the end tangent.
+        const ovf = mp.overflow || 'clip';
+        if (ovf === 'around') { u = u % 1; if (u < 0) u += 1; }
+        else if (ovf !== 'overflow') u = Math.min(1, Math.max(0, u));
+        const uOn = Math.min(1, Math.max(0, u)); // on-path param (frame lookup)
+
+        const targetWM = target.getWorldMatrix();
+        const evalWorld = (uu) => {
+          const pt = SurfaceMapper.getPointOnPath(target, uu);
+          if (!pt || !pt.pos) return null;
+          const w = transformVertex(pt.pos, targetWM);
+          return w ? [w[0], w[1], w[2]] : null;
+        };
+        // 'overflow' beyond the ends: extend along the end tangent in TARGET
+        // LOCAL space at arc-true distance (getPointOnPath is arc-length
+        // parametrized, so excess |u| maps to |u| * totalLength of travel),
+        // then through the same world transform as on-path points.
+        const evalWorldOvf = (uu) => {
+          if (uu >= 0 && uu <= 1) return evalWorld(uu);
+          const atEnd = uu > 1;
+          const u0 = atEnd ? 1 : 0;
+          const eps = 1e-4;
+          const ptA = SurfaceMapper.getPointOnPath(target, u0);
+          const ptB = SurfaceMapper.getPointOnPath(target, atEnd ? 1 - eps : eps);
+          if (!ptA || !ptA.pos || !ptB || !ptB.pos) return null;
+          const out = vectorSubtract(ptA.pos, ptB.pos); // outward past the end
+          if (vectorLength(out) < 1e-12) return evalWorld(u0); // degenerate end
+          const dir = vectorNormalize(out);
+          const dist = (atEnd ? uu - 1 : -uu) * arc.totalLength;
+          const local = vectorAdd(ptA.pos, vectorScale(dir, dist));
+          const w = transformVertex(local, targetWM);
+          return w ? [w[0], w[1], w[2]] : null;
+        };
+        const pWorld = evalWorldOvf(u);
+        if (!pWorld) return null;
+
+        // Convert into the object's PARENT space (identity at root).
+        let invParent = null;
+        if (obj.parent) {
+          invParent = matrixInverse(obj.parent.getWorldMatrix());
+          if (!invParent) return null; // degenerate parent — constraint inert
+        }
+        const toParent = (w) => {
+          if (!invParent) return w;
+          const r = transformVertex(w, invParent);
+          return r ? [r[0], r[1], r[2]] : null;
+        };
+        const pParent = toParent(pWorld);
+        if (!pParent) return null;
+
+        let anchor;
+        if (mp.mode === 'relative') {
+          const p0World = evalWorld(0);
+          const p0Parent = p0World ? toParent(p0World) : null;
+          if (!p0Parent) return null;
+          const sh = obj.pivotShift || [0, 0, 0];
+          anchor = [
+            obj.position[0] + sh[0] + pParent[0] - p0Parent[0],
+            obj.position[1] + sh[1] + pParent[1] - p0Parent[1],
+            obj.position[2] + sh[2] + pParent[2] - p0Parent[2]
+          ];
+        } else if (mp.mode === 'pathOffset') {
+          // On Path + Offset (v20260719g): position = parent-space offset knob;
+          // no pivotShift, so pivot re-anchoring keeps working alongside it.
+          anchor = [
+            pParent[0] + obj.position[0],
+            pParent[1] + obj.position[1],
+            pParent[2] + obj.position[2]
+          ];
+        } else {
+          anchor = pParent;
+        }
+
+        // Optional tangent alignment via the stable RMF frames (shared cache
+        // with spline flow — same '1_Y_0' key convention).
+        let frameR = null;
+        if (mp.orient) {
+          const frameKey = '1_Y_0';
+          if (!target._frameData || target._frameKey !== frameKey) {
+            target._frameData = SurfaceMapper.computeFrames(target, 200, 1, 'Y', 0);
+            target._frameKey = frameKey;
+          }
+          // v20260720j: frame at the CLAMPED param — in 'overflow' mode the
+          // orientation freezes at the end tangent while the anchor flies on.
+          const fr = target._frameData ? SurfaceMapper.getFrameAtU(target._frameData, uOn) : null;
+          if (fr && fr.side && fr.normal) {
+            // Frame axes: target-local → world (3×3) → parent space, normalized.
+            const toDirSpace = (v) => {
+              let d = transformVector(v, targetWM);
+              if (invParent) d = transformVector(d, invParent);
+              return vectorNormalize(d);
+            };
+            const tanLocal = vectorNormalize(vectorCross(fr.side, fr.normal));
+            let t = toDirSpace(tanLocal);
+            let n = toDirSpace(fr.normal);
+            // Re-orthonormalize (non-uniform target/parent scale can shear).
+            n = vectorNormalize(vectorSubtract(n, vectorScale(t, vectorDot(t, n))));
+            if (vectorLength(t) > 1e-9 && vectorLength(n) > 1e-9) {
+              // Columns = images of local X/Y/Z (row-major m[row][col]).
+              const mk = (xi, yi, zi) => [
+                [xi[0], yi[0], zi[0], 0],
+                [xi[1], yi[1], zi[1], 0],
+                [xi[2], yi[2], zi[2], 0],
+                [0, 0, 0, 1]
+              ];
+              const neg = (v) => [-v[0], -v[1], -v[2]];
+              switch (mp.forwardAxis || 'x') {
+                case 'x': frameR = mk(t, n, vectorCross(t, n)); break;
+                case '-x': { const f = neg(t); frameR = mk(f, n, vectorCross(f, n)); break; }
+                case 'y': frameR = mk(n, t, vectorCross(n, t)); break;
+                case '-y': { const f = neg(t); frameR = mk(n, f, vectorCross(n, f)); break; }
+                case 'z': frameR = mk(n, vectorCross(t, n), t); break;
+                case '-z': { const f = neg(t); frameR = mk(n, vectorCross(f, n), f); break; }
+              }
+            }
+          }
+        }
+        return { anchor, frameR };
+      } finally {
+        _mpStack.delete(obj);
+      }
     };
 
     // Solve  position + pivotShift − R·orientedS·pivot = tcol  for position, using the
@@ -27923,6 +28153,18 @@
           surfaceColor: '#888888'
         };
 
+        // MOTION PATH (v20260719f): anchor rides a target path (groups too —
+        // e.g. Split-to-Letters group following a curve). See computeMotionPathAnchor.
+        this.motionPathSettings = {
+          enabled: false,
+          targetId: null,
+          percent: 0,        // arc-length %, keyframable
+          mode: 'path',      // 'path' = On Path | 'relative' = Keep Position
+          orient: false,     // align to tangent (RMF frame composes left of own rotation)
+          forwardAxis: 'x',  // 'x'|'-x'|'y'|'-y'|'z'|'-z'
+          overflow: 'clip' // v20260720j: 'clip' = clamp (legacy alias 'ignore') | 'overflow' (extend along end tangent) | 'around' (loop)
+        };
+
         this.id = `Group_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         this.svgElement = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         this.svgElement.setAttribute('id', this.id);
@@ -27976,7 +28218,15 @@
       getLocalMatrix() {
         // Anchor = position + pivotShift (hidden compensation; position stays a pure user value)
         const _sh = this.pivotShift || [0, 0, 0];
-        const T = createTranslationMatrix(this.position[0] + _sh[0], this.position[1] + _sh[1], this.position[2] + _sh[2]);
+        // MOTION PATH (v20260719f): the anchor may be driven by a target path
+        // (On Path: anchor = P(u) pure; Keep Position: anchor += P(u) − P(0)).
+        let _anch = [this.position[0] + _sh[0], this.position[1] + _sh[1], this.position[2] + _sh[2]];
+        let _mpFrameR = null;
+        if (this.motionPathSettings && this.motionPathSettings.enabled && this.motionPathSettings.targetId) {
+          const _mpRes = computeMotionPathAnchor(this);
+          if (_mpRes) { _anch = _mpRes.anchor; _mpFrameR = _mpRes.frameR; }
+        }
+        const T = createTranslationMatrix(_anch[0], _anch[1], _anch[2]);
         const S = createScaleMatrix(this.scale[0], this.scale[1], this.scale[2]);
         const TPivot = createTranslationMatrix(-this.pivot[0], -this.pivot[1], -this.pivot[2]);
         const RPivot = matrixFromEuler(this.pivotRotation || [0, 0, 0]);
@@ -27992,11 +28242,14 @@
 
         // Face Camera Override
         let R = this.rotationMatrix;
+        // MOTION PATH (v20260719f): tangent frame composes LEFT of own rotation
+        // (own rotation = twist/offset on the rail); faceCamera below still wins.
+        if (_mpFrameR) R = matrixMultiply(_mpFrameR, R);
         if (this.faceCamera && (this.faceCamera.x || this.faceCamera.y)) {
           const viewDir = this.faceCamera.plane
             ? vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target))
             : null;
-          R = getBillboardRotation([this.position[0] + _sh[0], this.position[1] + _sh[1], this.position[2] + _sh[2]], activeCamera.position, this.faceCamera.x, this.faceCamera.y, viewDir);
+          R = getBillboardRotation([_anch[0], _anch[1], _anch[2]], activeCamera.position, this.faceCamera.x, this.faceCamera.y, viewDir);
         }
 
         return matrixMultiply(T, matrixMultiply(R, matrixMultiply(orientedS, TPivot)));
@@ -28386,6 +28639,17 @@
           shape: 'circle'
         };
 
+        // MOTION PATH (v20260719f): see computeMotionPathAnchor / Group ctor twin.
+        this.motionPathSettings = {
+          enabled: false,
+          targetId: null,
+          percent: 0,
+          mode: 'path',
+          orient: false,
+          forwardAxis: 'x',
+          overflow: 'clip' // v20260720j: 'clip' (legacy alias 'ignore') | 'overflow' | 'around'
+        };
+
         // Fixed duplicate ID gen
         this.id = `Path_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -28414,7 +28678,15 @@
       getLocalMatrix() {
         // Anchor = position + pivotShift (hidden compensation; position stays a pure user value)
         const _sh = this.pivotShift || [0, 0, 0];
-        const T = createTranslationMatrix(this.position[0] + _sh[0], this.position[1] + _sh[1], this.position[2] + _sh[2]);
+        // MOTION PATH (v20260719f): the anchor may be driven by a target path
+        // (On Path: anchor = P(u) pure; Keep Position: anchor += P(u) − P(0)).
+        let _anch = [this.position[0] + _sh[0], this.position[1] + _sh[1], this.position[2] + _sh[2]];
+        let _mpFrameR = null;
+        if (this.motionPathSettings && this.motionPathSettings.enabled && this.motionPathSettings.targetId) {
+          const _mpRes = computeMotionPathAnchor(this);
+          if (_mpRes) { _anch = _mpRes.anchor; _mpFrameR = _mpRes.frameR; }
+        }
+        const T = createTranslationMatrix(_anch[0], _anch[1], _anch[2]);
         const S = createScaleMatrix(this.scale[0], this.scale[1], this.scale[2]);
         const TPivot = createTranslationMatrix(-this.pivot[0], -this.pivot[1], -this.pivot[2]);
         const RPivot = matrixFromEuler(this.pivotRotation || [0, 0, 0]);
@@ -28429,11 +28701,14 @@
         const orientedS = matrixMultiply(RPivot, matrixMultiply(S, invRPivot));
 
         let R = this.rotationMatrix;
+        // MOTION PATH (v20260719f): tangent frame composes LEFT of own rotation
+        // (own rotation = twist/offset on the rail); faceCamera below still wins.
+        if (_mpFrameR) R = matrixMultiply(_mpFrameR, R);
         if (this.faceCamera && (this.faceCamera.x || this.faceCamera.y)) {
           const viewDir = this.faceCamera.plane
             ? vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target))
             : null;
-          R = getBillboardRotation([this.position[0] + _sh[0], this.position[1] + _sh[1], this.position[2] + _sh[2]], activeCamera.position, this.faceCamera.x, this.faceCamera.y, viewDir);
+          R = getBillboardRotation([_anch[0], _anch[1], _anch[2]], activeCamera.position, this.faceCamera.x, this.faceCamera.y, viewDir);
         }
 
         return matrixMultiply(T, matrixMultiply(R, matrixMultiply(orientedS, TPivot)));
@@ -28870,8 +29145,20 @@
         const splineFlowActive = activeMapping && activeMapping.active && activeMapping.targetId;
 
         // Surface Mapping active flag (Phase 2)
-        const surfaceMappingActive = activeMapping?.surfaceMapping?.enabled
-          && activeMapping.surfaceMapping.surfacePathId;
+        // v20260720i: the flag must also require a RESOLVABLE surface target.
+        // The mapping branch below re-resolves findObjectById and silently
+        // falls through to plain rendering when the target is gone — but a
+        // stale enabled+id (e.g. the mapped surface was deleted) left this
+        // flag true, which kept the exact prism ordering gate disengaged:
+        // the object rendered as a plain extrusion yet z-sorted by avg-z
+        // (work-46 repro: Simple Sides cap misordering at some angles).
+        const surfaceMappingActive = (() => {
+          if (!(activeMapping?.surfaceMapping?.enabled && activeMapping.surfaceMapping.surfacePathId)) return false;
+          const smRaw0 = activeMapping.surfaceMapping.surfacePathId;
+          const ci0 = smRaw0.indexOf(':');
+          const sp0 = findObjectById(ci0 >= 0 ? smRaw0.slice(0, ci0) : smRaw0);
+          return !!(sp0 && (sp0.sweepSettings?.enabled || sp0.revolveSettings?.enabled || sp0.extrudeSettings?.enabled || sp0.loftSettings?.enabled));
+        })();
 
         // Legacy Migration: If obj created before refactor, init settings from old props
         if (!this.extrudeSettings) {
@@ -29449,12 +29736,13 @@
                 capIslands = null;
               }
             }
-            const pushIslandCaps = (chunks, mvp) => {
+            const pushIslandCaps = (chunks, mvp, capEnd) => {
               for (const island of capIslands) {
                 const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 el.setAttribute('d', island.map(i => chunks[i]).join(''));
                 const verts = this._islandVerts(island);
                 const entry = { element: el, z: getFaceZ(mvp, verts) };
+                entry._prismRole = 'cap'; entry._prismCapEnd = capEnd; // v20260720c exact prism ordering
                 if (collectIx) entry.ix = getCapIx(mvp, verts);
                 faceList.push(entry);
               }
@@ -29464,7 +29752,7 @@
             if (_exs.capFront !== false) {
               if (capIslands) {
                 this.frontFace.style.display = 'none';
-                pushIslandCaps(islandChunksF, mvpFront);
+                pushIslandCaps(islandChunksF, mvpFront, 'front');
               } else {
                 this.frontFace.style.display = '';
                 if (hasOpenSubpath) {
@@ -29473,6 +29761,7 @@
                   this.frontFace.removeAttribute('fill'); // inherit from parent
                 }
                 const frontEntry = { element: this.frontFace, z: getFaceZ(mvpFront) };
+                frontEntry._prismRole = 'cap'; frontEntry._prismCapEnd = 'front'; // v20260720c
                 if (collectIx) frontEntry.ix = getCapIx(mvpFront);
                 faceList.push(frontEntry);
               }
@@ -29485,7 +29774,7 @@
             if (_exs.capBack !== false) {
               if (capIslands) {
                 this.backFace.style.display = 'none';
-                pushIslandCaps(islandChunksB, mvpBack);
+                pushIslandCaps(islandChunksB, mvpBack, 'back');
               } else {
                 this.backFace.style.display = '';
                 if (hasOpenSubpath) {
@@ -29494,6 +29783,7 @@
                   this.backFace.removeAttribute('fill'); // inherit from parent
                 }
                 const backEntry = { element: this.backFace, z: getFaceZ(mvpBack) };
+                backEntry._prismRole = 'cap'; backEntry._prismCapEnd = 'back'; // v20260720c
                 if (collectIx) backEntry.ix = getCapIx(mvpBack);
                 faceList.push(backEntry);
               }
@@ -29537,7 +29827,17 @@
             while (this.svgElement.firstChild) {
               this.svgElement.removeChild(this.svgElement.firstChild);
             }
-            faceList.sort((a, b) => b.z - a.z);
+            // v20260720c: exact prism ordering for a pure clean extrusion —
+            // fixes the edge-on "eaten cap" (avg-z is noise when every face
+            // shares a razor-thin depth band). Any anomaly falls back to the
+            // plain painter sort below.
+            let _prismOrdered = false;
+            if (_exs.enabled && extrudeRenderMode === 'clean'
+              && !this.revolveSettings.enabled && !this.sweepSettings.enabled
+              && !this.loftSettings.enabled && !splineFlowActive && !surfaceMappingActive) {
+              try { _prismOrdered = this._orderPrismFaces(faceList); } catch (e) { _prismOrdered = false; }
+            }
+            if (!_prismOrdered) faceList.sort((a, b) => b.z - a.z);
 
             // Append
             faceList.forEach(face => {
@@ -30124,6 +30424,7 @@
             const face = { d: d, z: zSum / ptCount };
             if (ixPts) face.ixPts = ixPts;
             if (ixCurved) face.ixCurved = ixCurved;
+            face.srcSeg = segA; // v20260720c: profile segment for exact prism ordering
             faces.push(face);
           }
         });
@@ -30236,7 +30537,29 @@
 
         segments.forEach(seg => {
           if (seg.type === 'L') {
-            processedSegments.push(seg);
+            // v20260720a: straight profile segments were never horizon-split.
+            // A flat ribbon whose plane sweeps through the eye mid-segment
+            // straddles the horizon and its projected quad bowties (fill
+            // vanishes). Reuse the same root finder via degree elevation;
+            // no interior root = pushed unchanged (byte-identical).
+            const lp0 = seg.pStart, lp3 = seg.pEnd;
+            const lp1 = [0, 1, 2].map(k => (lp0[k] || 0) + ((lp3[k] || 0) - (lp0[k] || 0)) / 3);
+            const lp2 = [0, 1, 2].map(k => (lp0[k] || 0) + 2 * ((lp3[k] || 0) - (lp0[k] || 0)) / 3);
+            const lroots = findHorizonTs(lp0, lp1, lp2, lp3).sort((x, y) => x - y)
+              .filter((t, i, arr) => (i === 0 || t - arr[i - 1] > 0.01) && t > 0.01 && t < 0.99);
+            if (lroots.length === 0) {
+              processedSegments.push(seg);
+            } else {
+              const lerpL = (t) => [0, 1, 2].map(k => (lp0[k] || 0) + t * ((lp3[k] || 0) - (lp0[k] || 0)));
+              let prevPt = lp0, first = true;
+              lroots.forEach(t => {
+                const pt = lerpL(t);
+                processedSegments.push({ type: 'L', command: first ? seg.command : undefined, pStart: prevPt, pEnd: pt, subPathClosed: false });
+                first = false;
+                prevPt = pt;
+              });
+              processedSegments.push({ type: 'L', command: first ? seg.command : undefined, pStart: prevPt, pEnd: lp3, subPathClosed: seg.subPathClosed || false });
+            }
           } else {
             // Convert to Cubic P0..P3
             let p0, p1, p2, p3;
@@ -30311,6 +30634,392 @@
           }
         });
         return processedSegments;
+      }
+
+      // --- Clean-extrude ribbon pinch guard (v20260720a) --------------------
+      // At grazing angles a ribbon's 4-sided screen path (front arc, end
+      // ruling, back arc, end ruling) can SELF-INTERSECT: a boundary arc
+      // crosses an end ruling. The pinched path's winding cancels and SVG
+      // fill (nonzero AND evenodd alike) drops a whole lobe — the "missing
+      // silhouette" bands (repro scenes: Untitled 3D work-38 / -40). Every
+      // boundary piece is individually correct (horizon splits complete,
+      // arcs sub-pixel), so the defect is purely topological; the fix is to
+      // detect the crossing and subdivide the profile segment until every
+      // emitted quad is a simple path. Measured on the repro: one split
+      // drops a 41%-missing ribbon to ~2%. Segments without a crossing pass
+      // through UNTOUCHED and the ORIGINAL array is returned when nothing
+      // refined — output away from grazing angles stays byte-identical.
+      // Shared quad-pinch test (v20260720a, upgraded v20260720b): does the
+      // 4-sided ribbon path over `segList` (a single segment or a merged
+      // simple-sides CHAIN) fail to cover its true ruled strip? Two detectors:
+      // (1) strict-interior crossings between the boundary arcs and the end
+      //     rulings (and ruling×ruling) — the self-intersection/pinch case;
+      // (2) winding test — interior ruling midpoints must have nonzero
+      //     winding in the sampled quad polygon; catches crossings finer than
+      //     the sampling AND pure perspective bulges (repro: work-41, a
+      //     ribbon losing 45% with a crossing below 12-sample resolution).
+      // Hairline quads (shoelace area < 4 px²) skip the winding test — two
+      // ~1 px slivers can misalign by metric noise without a real defect.
+      // v20260720g: fold test — a PROVABLY sufficient no-cancellation
+      // criterion for chain-level ribbon validation, replacing crossing
+      // DETECTION (which, being sampled 2D geometry, has an unbounded escape
+      // tail — every escape is a lost lobe; work-44/45 kept finding them).
+      // In screen space the ribbon is the strip P(t,s) = F(t) + (B(t)-F(t))s
+      // with straight projected rulings; its Jacobian cross(P_t, P_s) is
+      // LINEAR in s, so its sign over the whole strip is decided by the two
+      // edge values jF = cross(F', B-F) and jB = cross(B', B-F). If every
+      // strong-magnitude sample of those along the chain shares ONE sign,
+      // any self-overlap of the drawn 4-sided path winds with the SAME sign
+      // — nonzero fill then equals the covered union EXACTLY; no lobe can
+      // cancel regardless of what any sampler missed. A sign flip is a
+      // genuine local fold: split there (pushChain) or refuse (merge pass).
+      // Near-horizon hairline slivers live inside the neutral band
+      // (|sin| < 1%) and never trigger. Returns false, or true /
+      // { frac: fractional segment index of the first flip } with wantLoc.
+      _ribbonStripFolded(segList, mvpFront, mvpBack, wantLoc) {
+        if (!segList.length) return false;
+        const perSeg = 12;
+        const projPt = (p, mvp) => {
+          const tv = transformProjectedVertex(p, mvp);
+          return tv ? [(tv[0] * FRAME_SIZE) / 2, (-tv[1] * FRAME_SIZE) / 2] : null;
+        };
+        const evalSeg = (seg, t) => {
+          if (seg.type === 'L') return [0, 1, 2].map(k => (seg.pStart[k] || 0) + t * ((seg.pEnd[k] || 0) - (seg.pStart[k] || 0)));
+          const u = 1 - t;
+          if (seg.type === 'Q') return [0, 1, 2].map(k => u * u * (seg.p0[k] || 0) + 2 * u * t * (seg.p1[k] || 0) + t * t * (seg.p2[k] || 0));
+          return [0, 1, 2].map(k => u * u * u * (seg.p0[k] || 0) + 3 * u * u * t * (seg.p1[k] || 0) + 3 * u * t * t * (seg.p2[k] || 0) + t * t * t * (seg.p3[k] || 0));
+        };
+        const front = [], back = [];
+        for (let si = 0; si < segList.length; si++) {
+          for (let i = (si === 0 ? 0 : 1); i <= perSeg; i++) {
+            const p = evalSeg(segList[si], i / perSeg);
+            const f = projPt(p, mvpFront), b = projPt(p, mvpBack);
+            if (!f || !b) return false; // clipped/behind camera — leave alone
+            front.push(f); back.push(b);
+          }
+        }
+        const M = front.length - 1;
+        if (M < 1) return false;
+        const NEUT = 0.01;
+        let sgn = 0;
+        for (let i = 0; i < M; i++) {
+          const dF = [front[i + 1][0] - front[i][0], front[i + 1][1] - front[i][1]];
+          const dB = [back[i + 1][0] - back[i][0], back[i + 1][1] - back[i][1]];
+          const r0 = [back[i][0] - front[i][0], back[i][1] - front[i][1]];
+          const r1 = [back[i + 1][0] - front[i + 1][0], back[i + 1][1] - front[i + 1][1]];
+          for (const pair of [[dF, r0], [dF, r1], [dB, r0], [dB, r1]]) {
+            const a = pair[0], b = pair[1];
+            const la = Math.hypot(a[0], a[1]), lb = Math.hypot(b[0], b[1]);
+            if (la < 1e-9 || lb < 1e-9) continue;
+            const cn = (a[0] * b[1] - a[1] * b[0]) / (la * lb);
+            if (Math.abs(cn) < NEUT) continue;
+            const s = cn > 0 ? 1 : -1;
+            if (!sgn) sgn = s;
+            else if (sgn !== s) return wantLoc ? { frac: (i + 0.5) / perSeg } : true;
+          }
+        }
+        return false;
+      }
+
+      // v20260720e: optional wantLoc — when true, a detected pinch returns
+      // { frac } (fractional index into segList of the crossing) instead of
+      // plain true, so chain splitting can cut AT the visual fold rather
+      // than blindly in half. Boolean callers are unaffected (object is
+      // truthy, false stays false).
+      _ribbonQuadPinched(segList, mvpFront, mvpBack, wantLoc) {
+        if (!segList.length) return false;
+        // v20260720f: the sample budget must not thin out as chains grow —
+        // a fixed 48-sample budget gave a 5-segment merge candidate only 10
+        // samples per segment and let a crossing slip through (work-44: a
+        // merged chain drawn with 46% of its surface winding-cancelled).
+        // Floor of 12 per segment for multi-segment (chain-level) checks;
+        // single-segment (refine) checks keep their old resolution.
+        const perSeg = Math.max(segList.length > 1 ? 12 : 4, Math.min(24, Math.ceil(48 / segList.length)));
+        const projPt = (p, mvp) => {
+          const tv = transformProjectedVertex(p, mvp);
+          return tv ? [(tv[0] * FRAME_SIZE) / 2, (-tv[1] * FRAME_SIZE) / 2] : null;
+        };
+        const evalSeg = (seg, t) => {
+          if (seg.type === 'L') return [0, 1, 2].map(k => (seg.pStart[k] || 0) + t * ((seg.pEnd[k] || 0) - (seg.pStart[k] || 0)));
+          const u = 1 - t;
+          if (seg.type === 'Q') return [0, 1, 2].map(k => u * u * (seg.p0[k] || 0) + 2 * u * t * (seg.p1[k] || 0) + t * t * (seg.p2[k] || 0));
+          return [0, 1, 2].map(k => u * u * u * (seg.p0[k] || 0) + 3 * u * u * t * (seg.p1[k] || 0) + 3 * u * t * t * (seg.p2[k] || 0) + t * t * t * (seg.p3[k] || 0));
+        };
+        const front = [], back = [];
+        for (let si = 0; si < segList.length; si++) {
+          for (let i = (si === 0 ? 0 : 1); i <= perSeg; i++) {
+            const p = evalSeg(segList[si], i / perSeg);
+            const f = projPt(p, mvpFront), b = projPt(p, mvpBack);
+            if (!f || !b) return false; // clipped/behind camera — leave alone
+            front.push(f); back.push(b);
+          }
+        }
+        const M = front.length - 1;
+        if (M < 1) return false;
+        // Strict-interior segment intersection — corner touches (arcs MEET the
+        // rulings at the quad corners by construction) must not count.
+        const segX = (a1, a2, b1, b2) => {
+          const d1x = a2[0] - a1[0], d1y = a2[1] - a1[1];
+          const d2x = b2[0] - b1[0], d2y = b2[1] - b1[1];
+          const den = d1x * d2y - d1y * d2x;
+          if (Math.abs(den) < 1e-12) return false;
+          const dx = b1[0] - a1[0], dy = b1[1] - a1[1];
+          const t = (dx * d2y - dy * d2x) / den;
+          const s = (dx * d1y - dy * d1x) / den;
+          return t > 0.02 && t < 0.98 && s > 0.02 && s < 0.98;
+        };
+        const hit = (i) => wantLoc ? { frac: (i + 0.5) / perSeg } : true;
+        const rul0 = [front[0], back[0]], rul1 = [front[M], back[M]];
+        if (segX(rul0[0], rul0[1], rul1[0], rul1[1])) return wantLoc ? { frac: segList.length / 2 } : true;
+        for (const [r0, r1] of [rul0, rul1]) {
+          for (let i = 0; i < M; i++) {
+            if (segX(front[i], front[i + 1], r0, r1)) return hit(i);
+            if (segX(back[i], back[i + 1], r0, r1)) return hit(i);
+          }
+        }
+        // Winding test on interior ruling midpoints.
+        const poly = front.concat([...back].reverse());
+        let area2 = 0;
+        for (let i = 0; i < poly.length; i++) {
+          const p1 = poly[i], p2 = poly[(i + 1) % poly.length];
+          area2 += p1[0] * p2[1] - p2[0] * p1[1];
+        }
+        if (Math.abs(area2) < 8) return false; // hairline quad (< 4 px²)
+        // v20260720e: front-arc × back-arc crossings — a pinch mode the
+        // ruling tests can't see (matters for long merged chains and
+        // near-closed rings, where the two arc runs cross on screen).
+        // Placed after the hairline skip so degenerate slivers stay exempt.
+        // v20260720f: bbox prefilter keeps the O(M²) scan cheap at the
+        // denser per-segment sampling.
+        for (let i = 0; i < M; i++) {
+          const fxLo = Math.min(front[i][0], front[i + 1][0]), fxHi = Math.max(front[i][0], front[i + 1][0]);
+          const fyLo = Math.min(front[i][1], front[i + 1][1]), fyHi = Math.max(front[i][1], front[i + 1][1]);
+          for (let j = 0; j < M; j++) {
+            if (Math.min(back[j][0], back[j + 1][0]) > fxHi || Math.max(back[j][0], back[j + 1][0]) < fxLo
+              || Math.min(back[j][1], back[j + 1][1]) > fyHi || Math.max(back[j][1], back[j + 1][1]) < fyLo) continue;
+            if (segX(front[i], front[i + 1], back[j], back[j + 1])) return hit(i);
+          }
+        }
+        const winding = (pt) => {
+          let w = 0;
+          for (let i = 0; i < poly.length; i++) {
+            const p1 = poly[i], p2 = poly[(i + 1) % poly.length];
+            if (p1[1] <= pt[1]) {
+              if (p2[1] > pt[1] && (p2[0] - p1[0]) * (pt[1] - p1[1]) - (pt[0] - p1[0]) * (p2[1] - p1[1]) > 0) w++;
+            } else {
+              if (p2[1] <= pt[1] && (p2[0] - p1[0]) * (pt[1] - p1[1]) - (pt[0] - p1[0]) * (p2[1] - p1[1]) < 0) w--;
+            }
+          }
+          return w;
+        };
+        // v20260720f: winding probes scale with chain length (was a flat 5
+        // for the whole chain — long merged candidates could cancel a lobe
+        // between probes).
+        const nProbes = Math.max(5, 2 * segList.length + 1);
+        for (let k = 1; k <= nProbes; k++) {
+          const idx = Math.round(k * M / (nProbes + 1));
+          if (idx <= 0 || idx >= M) continue;
+          const mid = [(front[idx][0] + back[idx][0]) / 2, (front[idx][1] + back[idx][1]) / 2];
+          if (winding(mid) === 0) return wantLoc ? { frac: idx / perSeg } : true;
+        }
+        return false;
+      }
+
+      _refineRibbonSegments(segments, mvpFront, mvpBack) {
+        const MAX_DEPTH = 4;   // ≤ 16 pieces per original segment
+        const isPinched = (seg) => this._ribbonQuadPinched([seg], mvpFront, mvpBack);
+        const lerpP = (p, q, t) => [0, 1, 2].map(k => (p[k] || 0) + t * ((q[k] || 0) - (p[k] || 0)));
+        const splitSeg = (seg) => {
+          if (seg.type === 'L') {
+            const mid = lerpP(seg.pStart, seg.pEnd, 0.5);
+            return [
+              { type: 'L', command: seg.command, pStart: seg.pStart, pEnd: mid, subPathClosed: false },
+              { type: 'L', pStart: mid, pEnd: seg.pEnd, subPathClosed: seg.subPathClosed || false }
+            ];
+          }
+          if (seg.type === 'Q') {
+            const q01 = lerpP(seg.p0, seg.p1, 0.5), q12 = lerpP(seg.p1, seg.p2, 0.5);
+            const m = lerpP(q01, q12, 0.5);
+            return [
+              { type: 'Q', command: seg.command, p0: seg.p0, p1: q01, p2: m },
+              { type: 'Q', p0: m, p1: q12, p2: seg.p2 }
+            ];
+          }
+          const sp = splitCubicBezier(seg.p0, seg.p1, seg.p2, seg.p3, 0.5);
+          return [
+            { type: 'C', command: seg.command, p0: sp[0][0], p1: sp[0][1], p2: sp[0][2], p3: sp[0][3] },
+            { type: 'C', p0: sp[1][0], p1: sp[1][1], p2: sp[1][2], p3: sp[1][3] }
+          ];
+        };
+        const out = [];
+        let refined = false;
+        const emit = (seg, depth) => {
+          if (depth < MAX_DEPTH && isPinched(seg)) {
+            refined = true;
+            const halves = splitSeg(seg);
+            emit(halves[0], depth + 1);
+            emit(halves[1], depth + 1);
+          } else {
+            out.push(seg);
+          }
+        };
+        for (const seg of segments) emit(seg, 0);
+        return refined ? out : segments;
+      }
+
+      // --- Exact prism face ordering (v20260720c) ---------------------------
+      // Painter avg-z ordering of a single clean extrusion fails at edge-on
+      // views: every face lands in a razor-thin z band (measured 0.0014 NDC
+      // on the repro) and far/interior ribbons paint over the near cap (the
+      // "eaten cap"). For an UNTAPERED extrusion an EXACT order exists and is
+      // cheap: the surface is invariant along the extrude axis E, so
+      // occlusion reduces to 2D in the profile plane — project the eye along
+      // E; a sight ray projects to a 2D ray from that eye point, and ribbon
+      // order along it is the 2D first-hit order of the profile curves.
+      // Caps are exact too: all other geometry lies between the two cap
+      // planes, so with the eye outside the slab the far cap paints FIRST and
+      // the near cap LAST, unconditionally. Pairwise ribbon edges come from
+      // one ray through each pair's angular-overlap wedge (disjoint profile
+      // pieces cannot swap order within a shared wedge without crossing);
+      // Kahn (deepest-z-available-first) totalizes them. Any anomaly — taper,
+      // untagged faces, eye inside the slab, a cycle — returns false and the
+      // caller keeps the plain avg-z sort (structural safety).
+      _orderPrismFaces(faceList) {
+        const eye = this._prismEye;
+        if (!eye || !faceList.length) return false;
+        const ex = this._effExtrude || this.extrudeSettings;
+        // Untapered only: taper breaks the along-E invariance the 2D
+        // reduction relies on.
+        const sU = (v, d) => (v !== undefined ? v : d);
+        const sf = sU(ex.scaleFront, 1), sb = sU(ex.scaleBack, 1);
+        if (sf !== 1 || sb !== 1 || sU(ex.scaleFrontU, sf) !== 1 || sU(ex.scaleFrontV, sf) !== 1
+          || sU(ex.scaleBackU, sb) !== 1 || sU(ex.scaleBackV, sb) !== 1) return false;
+        const v = ex.vector || { x: 0, y: 0, z: -1 };
+        const vLen = Math.hypot(v.x, v.y, v.z);
+        if (vLen < 1e-9) return false;
+        const n = [v.x / vLen, v.y / vLen, v.z / vLen];
+        const capsF = [], capsB = [], ribbons = [];
+        for (const f of faceList) {
+          if (f._prismRole === 'cap') (f._prismCapEnd === 'front' ? capsF : capsB).push(f);
+          else if (f._prismRole === 'ribbon' && f._prismSegs && f._prismSegs.length) ribbons.push(f);
+          else return false; // unknown face — bail to avg-z
+        }
+        // Cap planes along n (matches the clean-branch translations).
+        const d = ex.depth || 0;
+        const nF = ex.symmetric ? -d / 2 : 0;
+        const nB = ex.symmetric ? d / 2 : d;
+        const eyeN = eye[0] * n[0] + eye[1] * n[1] + eye[2] * n[2];
+        // v20260720d: eye INSIDE the cap slab (side-on views) used to bail to
+        // avg-z — the one hole an 0–180° violation sweep found (rx 105° on
+        // the donut repro). But the slab only matters for CAP classification:
+        // between the planes both caps are seen from their back side
+        // (invisible), so they paint FIRST; the ribbon ordering is exact for
+        // ANY eye position along E (the 2D reduction never used eyeN).
+        let farCaps, nearCaps;
+        if (eyeN > Math.min(nF, nB) - 1e-9 && eyeN < Math.max(nF, nB) + 1e-9) {
+          farCaps = capsF.concat(capsB);
+          nearCaps = [];
+        } else {
+          const nearIsF = Math.abs(eyeN - nF) < Math.abs(eyeN - nB);
+          farCaps = nearIsF ? capsB : capsF;
+          nearCaps = nearIsF ? capsF : capsB;
+        }
+        // 2D reduction basis ⊥ n.
+        const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
+        const refA = (ax <= ay && ax <= az) ? [1, 0, 0] : ((ay <= ax && ay <= az) ? [0, 1, 0] : [0, 0, 1]);
+        const bu = vectorNormalize(vectorCross(refA, n));
+        const bv = vectorCross(n, bu);
+        const to2 = (p) => [
+          (p[0] || 0) * bu[0] + (p[1] || 0) * bu[1] + (p[2] || 0) * bu[2],
+          (p[0] || 0) * bv[0] + (p[1] || 0) * bv[1] + (p[2] || 0) * bv[2]
+        ];
+        const eye2 = to2(eye);
+        const evalSeg = (seg, t) => {
+          if (seg.type === 'L') return [0, 1, 2].map(k => (seg.pStart[k] || 0) + t * ((seg.pEnd[k] || 0) - (seg.pStart[k] || 0)));
+          const u = 1 - t;
+          if (seg.type === 'Q') return [0, 1, 2].map(k => u * u * (seg.p0[k] || 0) + 2 * u * t * (seg.p1[k] || 0) + t * t * (seg.p2[k] || 0));
+          return [0, 1, 2].map(k => u * u * u * (seg.p0[k] || 0) + 3 * u * u * t * (seg.p1[k] || 0) + 3 * u * t * t * (seg.p2[k] || 0) + t * t * t * (seg.p3[k] || 0));
+        };
+        const TAU = Math.PI * 2;
+        const data = ribbons.map(f => {
+          const pts = [];
+          for (const s of f._prismSegs) {
+            for (let i = (pts.length ? 1 : 0); i <= 6; i++) pts.push(to2(evalSeg(s, i / 6)));
+          }
+          let prev = Math.atan2(pts[0][1] - eye2[1], pts[0][0] - eye2[0]);
+          let aMin = prev, aMax = prev;
+          for (let i = 1; i < pts.length; i++) {
+            let ang = Math.atan2(pts[i][1] - eye2[1], pts[i][0] - eye2[0]);
+            while (ang - prev > Math.PI) ang -= TAU;
+            while (ang - prev < -Math.PI) ang += TAU;
+            aMin = Math.min(aMin, ang); aMax = Math.max(aMax, ang);
+            prev = ang;
+          }
+          if (aMax - aMin > TAU) aMax = aMin + TAU; // full wrap (eye2 encircled)
+          return { f, pts, aMin, aMax };
+        });
+        const rayHit = (pts, dir) => {
+          let best = null;
+          for (let i = 0; i + 1 < pts.length; i++) {
+            const dx2 = pts[i + 1][0] - pts[i][0], dy2 = pts[i + 1][1] - pts[i][1];
+            const det = dx2 * dir[1] - dy2 * dir[0];
+            if (Math.abs(det) < 1e-12) continue;
+            const rx = pts[i][0] - eye2[0], ry = pts[i][1] - eye2[1];
+            const t = (dx2 * ry - dy2 * rx) / det;
+            const s = (dir[0] * ry - dir[1] * rx) / det;
+            if (t > 1e-9 && s >= -0.001 && s <= 1.001 && (best === null || t < best)) best = t;
+          }
+          return best;
+        };
+        const N = data.length;
+        const adj = Array.from({ length: N }, () => []);
+        const indeg = new Array(N).fill(0);
+        for (let i = 0; i < N; i++) {
+          for (let j = i + 1; j < N; j++) {
+            const A = data[i], B = data[j];
+            let mid = null;
+            for (const k of [0, -1, 1]) {
+              const lo = Math.max(A.aMin, B.aMin + k * TAU);
+              const hi = Math.min(A.aMax, B.aMax + k * TAU);
+              if (hi - lo > 1e-4) { mid = (lo + hi) / 2; break; }
+            }
+            if (mid === null) continue;
+            // v20260720d: 3-ray unanimous vote across the overlap wedge.
+            // Nested/donut profiles can be directionally inconsistent (A in
+            // front on one side, behind on the other) — a single ray would
+            // then pick a side arbitrarily; disagreement now means NO edge
+            // (the pair keeps its relative depth order via Kahn's z tie-break).
+            const wLo = mid - (mid - Math.max(A.aMin, B.aMin)) / 2;
+            let vote = 0, agree = true;
+            for (const ang of [(wLo + mid) / 2, mid, mid + (mid - wLo) / 2]) {
+              const dir = [Math.cos(ang), Math.sin(ang)];
+              const ta = rayHit(A.pts, dir), tb = rayHit(B.pts, dir);
+              if (ta === null || tb === null || Math.abs(ta - tb) < 1e-9) continue;
+              const s = ta > tb ? 1 : -1;
+              if (vote === 0) vote = s;
+              else if (vote !== s) { agree = false; break; }
+            }
+            if (vote === 0 || !agree) continue;
+            if (vote === 1) { adj[i].push(j); indeg[j]++; } // A farther → paints before B
+            else { adj[j].push(i); indeg[i]++; }
+          }
+        }
+        // Kahn, deepest available (largest z) first — closest to painter semantics.
+        const orderedRibbons = [];
+        const avail = [];
+        for (let i = 0; i < N; i++) if (indeg[i] === 0) avail.push(i);
+        while (avail.length) {
+          let pick = 0;
+          for (let k = 1; k < avail.length; k++) if (data[avail[k]].f.z > data[avail[pick]].f.z) pick = k;
+          const u = avail.splice(pick, 1)[0];
+          orderedRibbons.push(data[u].f);
+          for (const w of adj[u]) if (--indeg[w] === 0) avail.push(w);
+        }
+        if (orderedRibbons.length !== N) return false; // cycle — bail to avg-z
+        const zSortStable = (arr) => arr.slice().sort((a, b) => b.z - a.z);
+        faceList.length = 0;
+        faceList.push(...zSortStable(farCaps), ...orderedRibbons, ...zSortStable(nearCaps));
+        return true;
       }
 
       // Use De Casteljau to split cubic bezier at t
@@ -34405,6 +35114,9 @@
         const eyeLocalStart = transformVertex(eyeWorld, invGlobalMatrix);
         // Fallback if transform fails (e.g. singular matrix), use local z axis
         const eyeLocal = eyeLocalStart ? eyeLocalStart : [0, 0, 100];
+        // v20260720c: stash the local eye for the exact prism ordering pass
+        // (same-frame consumer only, never serialized — _collectIx pattern).
+        this._prismEye = eyeLocalStart ? [eyeLocal[0], eyeLocal[1], eyeLocal[2]] : null;
 
         // View Vector V = EyeLocal - CenterLocal. 
         // We approximate CenterLocal as (0,0,0) (the origin of the path object)
@@ -34452,7 +35164,10 @@
         // Process Segments (Perspective Correct Silhouette)
         // We pass 'eyeLocal', 'extrudeVector', and taperInfo so the solver can compute
         // (Tangent x SweepDir) . (Eye - Point) dynamically per profile point.
-        const processedSegments = this.processSilhouetteSegments(segments, eyeLocal, E, taperInfo);
+        let processedSegments = this.processSilhouetteSegments(segments, eyeLocal, E, taperInfo);
+        // v20260720a: pinch guard — subdivide ribbons whose 4-sided screen
+        // path would self-intersect at grazing angles (missing-silhouette fix).
+        processedSegments = this._refineRibbonSegments(processedSegments, mvpFront, mvpBack);
 
         if (_exr.simpleSides) {
           // merged side faces
@@ -34462,6 +35177,7 @@
             ribbons.forEach(ribbon => {
               const sidePath = createPath(ribbon.d);
               const entry = { element: sidePath, z: ribbon.z };
+              entry._prismRole = 'ribbon'; entry._prismSegs = ribbon.srcSegs || null; // v20260720c
               if (collectIx && ribbon.ixCurved) entry.ix = { ...ribbon.ixCurved, splits: 0, owner: this };
               faceList.push(entry);
             });
@@ -34472,6 +35188,7 @@
           faces.forEach(f => {
             const sidePath = createPath(f.d);
             const entry = { element: sidePath, z: f.z };
+            entry._prismRole = 'ribbon'; entry._prismSegs = f.srcSeg ? [f.srcSeg] : null; // v20260720c
             if (collectIx && f.ixPts) {
               // Linear-profile ribbons are planar quads; fit their depth plane
               // from the four projected corners.
@@ -34767,7 +35484,135 @@
 
         const pt = (v) => ({ x: (v[0] * FRAME_SIZE) / 2, y: (-v[1] * FRAME_SIZE) / 2 });
 
-        chains.forEach(chain => {
+        // v20260720b: chain-level pinch guard. A merged chain's 4-sided path
+        // (front run + end ruling + back run + end ruling) self-intersects at
+        // grazing angles exactly like per-segment quads — but at CHAIN scale,
+        // where the winding cancellation can erase a third of the object
+        // (measured 38.9% missing on the work-42 repro; this predates
+        // v20260720a — the per-segment guard could not help because chaining
+        // re-merges the pieces). Split pinched chains in half until every
+        // chain's quad is simple; only grazing chains split (an extra seam
+        // there beats a missing surface), everything else renders identically.
+        const finalChains = [];
+        const pushChain = (ch, depth) => {
+          if (ch.length > 1 && depth < 5) {
+            // v20260720g: chain validity = the strip-fold criterion (see
+            // _ribbonStripFolded) — J-sign-constant chains provably cannot
+            // lose fill to winding cancellation, so crossing detection (and
+            // its escape modes) is no longer the gatekeeper. A flip is a
+            // genuine fold; split at it.
+            const pin = this._ribbonStripFolded(ch, mvpFront, mvpBack, true);
+            if (pin) {
+              let at = (pin.frac !== undefined) ? Math.round(pin.frac) : Math.floor(ch.length / 2);
+              at = Math.max(1, Math.min(ch.length - 1, at));
+              pushChain(ch.slice(0, at), depth + 1);
+              pushChain(ch.slice(at), depth + 1);
+              return;
+            }
+          }
+          finalChains.push(ch);
+        };
+        chains.forEach(ch => pushChain(ch, 0));
+
+        // v20260720e: re-merge pass. The pinch guard and multi-subpath loop
+        // wraparounds (the stitcher above only ever joins the globally-first
+        // and globally-last chain, so with 2+ subpaths EVERY loop kept a
+        // spurious closure seam) leave chains split at joins that are smooth,
+        // sign-compatible and un-pinched when merged — measured 17 of 32
+        // seams removable on the donut-'a' repro. Greedily merge adjacent
+        // chains; the pinch check gates every candidate, so splits the guard
+        // still needs never re-merge. Single-subpath already-stitched scenes
+        // find no candidates (horizon joins differ in sign, creases fail
+        // isSmooth) and come out bit-identical.
+        if (finalChains.length > 1) {
+          const cStartPt = (ch) => { const s = ch[0]; return (s.type === 'C' || s.type === 'Q') ? s.p0 : s.pStart; };
+          const cEndPt = (ch) => { const s = ch[ch.length - 1]; if (s.type === 'C') return s.p3; if (s.type === 'Q') return s.p2; return s.pEnd; };
+          const nearPt = (p, q) => {
+            const dx = p[0] - q[0], dy = p[1] - q[1], dz = (p[2] || 0) - (q[2] || 0);
+            return dx * dx + dy * dy + dz * dz < 1e-10;
+          };
+          const chainSign = (ch) => {
+            let sgn = 0;
+            for (const s of ch) {
+              const d0 = getDot(s);
+              const s0 = d0 > 0.0001 ? 1 : (d0 < -0.0001 ? -1 : 0);
+              if (s0 !== 0) { if (sgn === 0) sgn = s0; else if (sgn !== s0) return 2; /* mixed — never merge */ }
+            }
+            return sgn;
+          };
+          // v20260720f: "harmless in order" gate — the exact prism ordering
+          // relies on every chain being angle-monotone from the projected eye
+          // in the profile plane (constant-sign chains are, and pairwise
+          // first-hit order is then provably constant). Verify it directly on
+          // the merged candidate; refusal just keeps the chains separate.
+          const eLen2 = Math.hypot(extrudeVector[0], extrudeVector[1], extrudeVector[2]) || 1;
+          const n2 = [extrudeVector[0] / eLen2, extrudeVector[1] / eLen2, extrudeVector[2] / eLen2];
+          const ax2 = Math.abs(n2[0]), ay2 = Math.abs(n2[1]), az2 = Math.abs(n2[2]);
+          const ref2 = (ax2 <= ay2 && ax2 <= az2) ? [1, 0, 0] : ((ay2 <= ax2 && ay2 <= az2) ? [0, 1, 0] : [0, 0, 1]);
+          const bu2 = vectorNormalize(vectorCross(ref2, n2));
+          const bv2 = vectorCross(n2, bu2);
+          const eyeU = eyeLocal[0] * bu2[0] + eyeLocal[1] * bu2[1] + eyeLocal[2] * bu2[2];
+          const eyeV = eyeLocal[0] * bv2[0] + eyeLocal[1] * bv2[1] + eyeLocal[2] * bv2[2];
+          const evalSegPt = (seg, t) => {
+            if (seg.type === 'L') return [0, 1, 2].map(k => (seg.pStart[k] || 0) + t * ((seg.pEnd[k] || 0) - (seg.pStart[k] || 0)));
+            const u = 1 - t;
+            if (seg.type === 'Q') return [0, 1, 2].map(k => u * u * (seg.p0[k] || 0) + 2 * u * t * (seg.p1[k] || 0) + t * t * (seg.p2[k] || 0));
+            return [0, 1, 2].map(k => u * u * u * (seg.p0[k] || 0) + 3 * u * u * t * (seg.p1[k] || 0) + 3 * u * t * t * (seg.p2[k] || 0) + t * t * t * (seg.p3[k] || 0));
+          };
+          const candMonotone = (cand) => {
+            let prev = null, inc = false, dec = false;
+            for (let si = 0; si < cand.length; si++) {
+              for (let i = (si === 0 ? 0 : 1); i <= 8; i++) {
+                const p = evalSegPt(cand[si], i / 8);
+                const pu = p[0] * bu2[0] + p[1] * bu2[1] + p[2] * bu2[2];
+                const pv = p[0] * bv2[0] + p[1] * bv2[1] + p[2] * bv2[2];
+                let ang = Math.atan2(pv - eyeV, pu - eyeU);
+                if (prev !== null) {
+                  let d0 = ang - prev;
+                  while (d0 > Math.PI) d0 -= Math.PI * 2;
+                  while (d0 < -Math.PI) d0 += Math.PI * 2;
+                  if (d0 > 1e-7) inc = true; else if (d0 < -1e-7) dec = true;
+                  if (inc && dec) return false;
+                }
+                prev = ang;
+              }
+            }
+            return true;
+          };
+          const signs = finalChains.map(chainSign);
+          let mergedAny = true, guardIter = 0;
+          while (mergedAny && guardIter++ < 128) {
+            mergedAny = false;
+            outer:
+            for (let i = 0; i < finalChains.length; i++) {
+              for (let j = 0; j < finalChains.length; j++) {
+                if (i === j) continue;
+                // v20260720f: STRICT sign rule — both nonzero and equal.
+                // Sign-0 (near-tangent) or mixed chains never merge: gluing
+                // through a tangency reverses the profile-plane angle sweep
+                // and breaks the ordering invariant.
+                if (signs[i] !== signs[j] || signs[i] === 0 || signs[i] === 2) continue;
+                const A = finalChains[i], B = finalChains[j];
+                if (!nearPt(cEndPt(A), cStartPt(B))) continue;
+                if (!isSmooth(A[A.length - 1], B[0])) continue; // crease — keep
+                const cand = A.concat(B);
+                if (!candMonotone(cand)) continue; // order safety — keep
+                // v20260720g: fold criterion instead of crossing detection —
+                // a J-sign-constant merged strip provably cannot cancel fill,
+                // so accepted merges are safe by construction, not by the
+                // sampler having found nothing.
+                if (this._ribbonStripFolded(cand, mvpFront, mvpBack)) continue; // fold — keep separate
+                finalChains[i] = cand;
+                finalChains.splice(j, 1);
+                signs.splice(j, 1);
+                mergedAny = true;
+                break outer;
+              }
+            }
+          }
+        }
+
+        finalChains.forEach(chain => {
           // Generate Ribbon for each chain
           if (chain.length === 0) return;
 
@@ -34880,6 +35725,7 @@
             const cubics = chain.map(toCubic);
             ribbon.ixCurved = { kind: 'xr', chainA: cubics, chainB: cubics, mvpF: mvpFront, mvpB: mvpBack };
           }
+          ribbon.srcSegs = chain; // v20260720c: chain segments for exact prism ordering
           ribbons.push(ribbon);
         });
 
@@ -40887,12 +41733,25 @@
         const toolBakeRow = document.getElementById('toolDrawerBakeRow');
         if (toolBakeRow) toolBakeRow.style.display = selectedObject.primitiveData ? '' : 'none';
 
+        // MOTION PATH (v20260719f): in On Path mode position is inert (the
+        // anchor is P(u) pure; the PIVOT is the offset control) — grey it,
+        // with a tooltip pointing at the 3D Mapping tab so the grey state is
+        // self-explaining. In On Path + Offset (v20260719g) position is the
+        // live offset knob, so it stays enabled.
+        const _mpS = selectedObject.motionPathSettings;
+        const _mpPosInert = !!(_mpS && _mpS.enabled && _mpS.targetId && _mpS.mode !== 'relative' && _mpS.mode !== 'pathOffset');
+        const _mpPosTitle = _mpPosInert
+          ? 'Driven by Motion Path (On Path mode) — see the 3D Mapping tab. Use the Pivot tool to offset, or switch to "On Path + Offset".'
+          : '';
         if (document.activeElement !== posXInput) posXInput.value = fmtDisplay(selectedObject.position[0]);
-        posXInput.disabled = false;
+        posXInput.disabled = _mpPosInert;
+        posXInput.title = _mpPosTitle;
         if (document.activeElement !== posYInput) posYInput.value = fmtDisplay(selectedObject.position[1]);
-        posYInput.disabled = false;
+        posYInput.disabled = _mpPosInert;
+        posYInput.title = _mpPosTitle;
         if (document.activeElement !== posZInput) posZInput.value = fmtDisplay(selectedObject.position[2]);
-        posZInput.disabled = false;
+        posZInput.disabled = _mpPosInert;
+        posZInput.title = _mpPosTitle;
 
         const euler = selectedObject.rotationEuler || matrixToEuler(selectedObject.rotationMatrix);
         // matrixToEuler returns DEGREES.
@@ -42295,6 +43154,63 @@
         if (smAxisVEl) smAxisVEl.disabled = smDisabled;
       }
 
+      // MOTION PATH (v20260719f) — Paths AND Groups. Target list = sibling
+      // Paths excluding self/descendants (UI-level cycle guard; the runtime
+      // re-entrancy guard in computeMotionPathAnchor is the backstop).
+      {
+        const mpEnabledInput = document.getElementById('motionPathEnabledInput');
+        const mpTargetSelect = document.getElementById('motionPathTargetSelect');
+        const mpModeInput = document.getElementById('motionPathModeInput');
+        const mpPercentInput = document.getElementById('motionPathPercentInput');
+        const mpOverflowInput = document.getElementById('motionPathOverflowInput');
+        const mpOrientInput = document.getElementById('motionPathOrientInput');
+        const mpAxisInput = document.getElementById('motionPathAxisInput');
+        if (mpEnabledInput && mpTargetSelect) {
+          const mpOk = !!selectedObject;
+          const mp = mpOk ? selectedObject.motionPathSettings : null;
+          const mpEnabled = !!(mp && mp.enabled);
+          if (document.activeElement !== mpEnabledInput) {
+            mpEnabledInput.checked = mpEnabled;
+            mpEnabledInput.disabled = !mpOk;
+          }
+          const mpParamsEl = document.getElementById('motionPathParams');
+          if (mpParamsEl) mpParamsEl.classList.toggle('collapsed', !mpEnabled);
+          if (document.activeElement !== mpTargetSelect) {
+            mpTargetSelect.innerHTML = '<option value="">-- None --' + '<' + '/option>';
+            if (mpOk) {
+              const isSelfOrDesc = (o) => {
+                for (let p = o; p; p = p.parent) if (p === selectedObject) return true;
+                return false;
+              };
+              const siblings = selectedObject.parent ? selectedObject.parent.children : sceneObjects;
+              siblings.forEach(obj => {
+                if (!(obj instanceof Path) || isSelfOrDesc(obj)) return;
+                const opt = document.createElement('option');
+                opt.value = obj.id;
+                opt.textContent = obj.name || obj.id;
+                if (mp && obj.id === mp.targetId) opt.selected = true;
+                mpTargetSelect.appendChild(opt);
+              });
+            }
+          }
+          const mpDisabled = !mpOk || !mpEnabled;
+          mpTargetSelect.disabled = mpDisabled;
+          if (mpModeInput && document.activeElement !== mpModeInput) mpModeInput.value = (mp && mp.mode) || 'path';
+          if (mpModeInput) mpModeInput.disabled = mpDisabled;
+          if (mpPercentInput && document.activeElement !== mpPercentInput) mpPercentInput.value = (mp && mp.percent) || 0;
+          if (mpPercentInput) mpPercentInput.disabled = mpDisabled;
+          if (mpOverflowInput && document.activeElement !== mpOverflowInput) {
+            const _ovf = mp && mp.overflow;
+            mpOverflowInput.value = (_ovf === 'overflow' || _ovf === 'around') ? _ovf : 'clip'; // legacy 'ignore' shows as Clip
+          }
+          if (mpOverflowInput) mpOverflowInput.disabled = mpDisabled;
+          if (mpOrientInput && document.activeElement !== mpOrientInput) mpOrientInput.checked = !!(mp && mp.orient);
+          if (mpOrientInput) mpOrientInput.disabled = mpDisabled;
+          if (mpAxisInput && document.activeElement !== mpAxisInput) mpAxisInput.value = (mp && mp.forwardAxis) || 'x';
+          if (mpAxisInput) mpAxisInput.disabled = mpDisabled || !(mp && mp.orient);
+        }
+      }
+
       if (typeof updateVertexOperationsUI === 'function') updateVertexOperationsUI();
 
       // Sync Quick Style Bar
@@ -43189,6 +44105,48 @@
       });
     }
 
+    // --- MOTION PATH listeners (v20260719f) --------------------------------
+    // Mapping-tab convention: dedicated listeners, coalesced undo, store the
+    // value whenever the settings object exists, multi-select broadcast,
+    // refresh the panel (row enable states depend on the values).
+    (function () {
+      const mpTargets = () => selectedObjects.length > 0 ? selectedObjects : (selectedObject ? [selectedObject] : []);
+      const mpApply = (fn) => {
+        pushUndoStateCoalesced();
+        mpTargets().forEach(o => { if (o.motionPathSettings) fn(o.motionPathSettings, o); });
+        updateStylePanel();
+        updatePropertiesPanel(); // Position inputs grey out in On Path mode
+        requestRender();
+      };
+      document.getElementById('motionPathEnabledInput')?.addEventListener('change', (e) => {
+        mpApply(mp => { mp.enabled = e.target.checked; });
+      });
+      document.getElementById('motionPathTargetSelect')?.addEventListener('change', (e) => {
+        mpApply(mp => { mp.targetId = e.target.value || null; });
+      });
+      document.getElementById('motionPathModeInput')?.addEventListener('change', (e) => {
+        mpApply(mp => {
+          const v = e.target.value;
+          mp.mode = (v === 'relative' || v === 'pathOffset') ? v : 'path';
+        });
+      });
+      document.getElementById('motionPathPercentInput')?.addEventListener('input', (e) => {
+        mpApply(mp => { mp.percent = parseFloat(e.target.value) || 0; });
+      });
+      document.getElementById('motionPathOverflowInput')?.addEventListener('change', (e) => {
+        mpApply(mp => {
+          const v = e.target.value;
+          mp.overflow = (v === 'overflow' || v === 'around') ? v : 'clip';
+        });
+      });
+      document.getElementById('motionPathOrientInput')?.addEventListener('change', (e) => {
+        mpApply(mp => { mp.orient = e.target.checked; });
+      });
+      document.getElementById('motionPathAxisInput')?.addEventListener('change', (e) => {
+        mpApply(mp => { mp.forwardAxis = e.target.value; });
+      });
+    })();
+
     // Reset Pivot Button
     const resetPivotBtn = document.getElementById('resetPivotBtn');
     if (resetPivotBtn) {
@@ -43367,6 +44325,10 @@
         if (obj.surfaceConstraint) {
           newGroup.surfaceConstraint = JSON.parse(JSON.stringify(obj.surfaceConstraint));
         }
+        // GROUP EXTRUDE (v20260719b, copy added v20260719f — was missed) +
+        // MOTION PATH (v20260719f)
+        if (obj.extrudeSettings) newGroup.extrudeSettings = JSON.parse(JSON.stringify(obj.extrudeSettings));
+        if (obj.motionPathSettings) newGroup.motionPathSettings = JSON.parse(JSON.stringify(obj.motionPathSettings));
 
         // Recursively duplicate children
         obj.children.forEach(child => {
@@ -43410,6 +44372,8 @@
         if (obj.surfaceConstraint) {
           newPath.surfaceConstraint = JSON.parse(JSON.stringify(obj.surfaceConstraint));
         }
+        // MOTION PATH (v20260719f)
+        if (obj.motionPathSettings) newPath.motionPathSettings = JSON.parse(JSON.stringify(obj.motionPathSettings));
 
         // Copy transform extras
         newPath.pivot = [...obj.pivot];
@@ -53176,6 +54140,12 @@
         data.surfaceConstraint = obj.surfaceConstraint;
       }
 
+      // MOTION PATH (v20260719f): Paths and Groups; written only when enabled
+      // so pre-feature files stay byte-identical.
+      if (obj.motionPathSettings && obj.motionPathSettings.enabled) {
+        data.motionPathSettings = obj.motionPathSettings;
+      }
+
       if (obj.isGroup) {
         data.children = obj.children.map(child => serializeObject(child));
         if (obj.zSortChildren) data.zSortChildren = true;
@@ -53300,6 +54270,11 @@
         obj.surfaceConstraint = { ...obj.surfaceConstraint, ...data.surfaceConstraint };
         if (!obj.surfaceConstraint.resolution) obj.surfaceConstraint.resolution = 16;
         if (!obj.surfaceConstraint.algorithm) obj.surfaceConstraint.algorithm = 'subdivision'; // Default
+      }
+
+      // MOTION PATH (v20260719f): merge over ctor defaults (absent = old behavior)
+      if (data.motionPathSettings) {
+        obj.motionPathSettings = { ...obj.motionPathSettings, ...data.motionPathSettings };
       }
 
       // Restore Transform
@@ -54454,6 +55429,9 @@
       // Stroke Trim param (style-backed, v20260719c) — absent key = default
       const trDef = _strokeTrimParams.find(p => p.prop === prop);
       if (trDef) return (obj.style && obj.style[trDef.styleKey] !== undefined) ? obj.style[trDef.styleKey] : trDef.default;
+      // Motion Path param (v20260719f)
+      const mpDef = _motionPathParams.find(p => p.prop === prop);
+      if (mpDef && obj.motionPathSettings) return obj.motionPathSettings[mpDef.mpKey] ?? null;
       // 3D Settings param
       const tdInfo = _get3dSettingsParamsForObj(obj);
       if (tdInfo) {
@@ -54559,6 +55537,9 @@
         else obj.style[trDef.styleKey] = v;
         return;
       }
+      // Motion Path (v20260719f): unclamped — closed targets wrap (multi-lap)
+      const mpDef = _motionPathParams.find(p => p.prop === prop);
+      if (mpDef && obj.motionPathSettings) { obj.motionPathSettings[mpDef.mpKey] = val; return; }
       const tdInfo = _get3dSettingsParamsForObj(obj);
       if (tdInfo) {
         const tdDef = tdInfo.params.find(p => p.prop === prop);
@@ -55165,6 +56146,16 @@
           }
         }
 
+        // --- Motion Path params (v20260719f) ---
+        if (obj.motionPathSettings) {
+          for (const paramDef of _motionPathParams) {
+            const kfs = objTracks.get(paramDef.prop);
+            if (!kfs) continue;
+            const val = tlInterpolate(kfs, frame);
+            if (val !== null) obj.motionPathSettings[paramDef.mpKey] = val;
+          }
+        }
+
         // --- 3D Settings params ---
         const tdInfo = _get3dSettingsParamsForObj(obj);
         if (tdInfo) {
@@ -55389,6 +56380,15 @@
       const hasStroke = obj.style.stroke && obj.style.stroke !== 'none';
       const hasKeys = obj.style['stroke-trim-start'] !== undefined || obj.style['stroke-trim-end'] !== undefined;
       return (hasStroke || hasKeys) ? _strokeTrimParams : null;
+    };
+
+    // MOTION PATH (v20260719f) animatable parameter definitions (Paths AND Groups).
+    const _motionPathParams = [
+      { prop: 'mpPercent', label: 'Percent', mpKey: 'percent', precision: 1, step: 1 },
+    ];
+    const _getMotionPathParamsForObj = (obj) => {
+      if (!obj || !obj.motionPathSettings || !obj.motionPathSettings.enabled) return null;
+      return _motionPathParams;
     };
 
     // 3D Settings animatable parameter definitions (per feature)
@@ -55624,6 +56624,9 @@
               if (!paramDef) {
                 paramDef = _strokeTrimParams.find(p => p.prop === prop);
               }
+              if (!paramDef) {
+                paramDef = _motionPathParams.find(p => p.prop === prop);
+              }
             }
             inputs[0].value = (typeof selVal === 'number' ? selVal : 0).toFixed(paramDef ? paramDef.precision : 2);
           }
@@ -55713,6 +56716,17 @@
                 const obj = _tlFindObjectByName(objectName);
                 val = (obj?.style && obj.style[trParamDef.styleKey] !== undefined)
                   ? obj.style[trParamDef.styleKey] : trParamDef.default;
+              }
+            }
+          }
+          // Motion Path param fallback (v20260719f)
+          if (!paramDef) {
+            const mpParamDef = _motionPathParams.find(p => p.prop === prop);
+            if (mpParamDef) {
+              paramDef = mpParamDef;
+              if (val === null) {
+                const obj = _tlFindObjectByName(objectName);
+                val = obj?.motionPathSettings ? (obj.motionPathSettings[mpParamDef.mpKey] ?? 0) : 0;
               }
             }
           }
@@ -56277,6 +57291,17 @@
                       ? obj.style[trParamDef.styleKey] : trParamDef.default;
                     tlAddKeyframe(objectName, prop, frame, val);
                     keyed = true;
+                  }
+                }
+                // Motion Path param (v20260719f)
+                if (!keyed) {
+                  const mpParamDef = _motionPathParams.find(p => p.prop === prop);
+                  if (mpParamDef && obj.motionPathSettings) {
+                    const val = obj.motionPathSettings[mpParamDef.mpKey];
+                    if (val !== undefined && val !== null) {
+                      tlAddKeyframe(objectName, prop, frame, val);
+                      keyed = true;
+                    }
                   }
                 }
               }
@@ -56952,6 +57977,16 @@
               tlAddKeyframe(objectName, paramDef.prop, frame, val);
             }
           }
+          // Also key motion path params if applicable (v20260719f)
+          const mpParams = obj ? _getMotionPathParamsForObj(obj) : null;
+          if (mpParams) {
+            for (const paramDef of mpParams) {
+              const val = obj.motionPathSettings[paramDef.mpKey];
+              if (val !== undefined && val !== null) {
+                tlAddKeyframe(objectName, paramDef.prop, frame, val);
+              }
+            }
+          }
           tlRenderTracks();
         });
 
@@ -57030,6 +58065,20 @@
           const trCollapsed = addSubGroupHeader(objectName, 'stroketrim', 'Stroke Trim');
           if (!trCollapsed) {
             for (const paramDef of trParams) {
+              const kfs = objTracks ? objTracks.get(paramDef.prop) || null : null;
+              addSubTrack(objectName, paramDef.prop, paramDef.label, kfs, paramDef.precision, {
+                step: paramDef.step,
+              });
+            }
+          }
+        }
+
+        // --- Motion Path params sub-group (v20260719f) ---
+        const mpParams = obj ? _getMotionPathParamsForObj(obj) : null;
+        if (mpParams) {
+          const mpCollapsed = addSubGroupHeader(objectName, 'motionpath', 'Motion Path');
+          if (!mpCollapsed) {
+            for (const paramDef of mpParams) {
               const kfs = objTracks ? objTracks.get(paramDef.prop) || null : null;
               addSubTrack(objectName, paramDef.prop, paramDef.label, kfs, paramDef.precision, {
                 step: paramDef.step,

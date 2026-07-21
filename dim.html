@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260721n -->
+<!-- dim v20260721p -->
 
 <!--
   MIT License
@@ -59496,24 +59496,38 @@
           inp.dispatchEvent(new Event('change', { bubbles: true }));
         };
         const bindSpinBtn = (btn, dir) => {
+          // The first doStep() SYNCHRONOUSLY rebuilds the whole track DOM
+          // (change -> tlAddKeyframe -> tlRenderTracks), detaching this
+          // button - so element-level mouseup/mouseleave can never fire,
+          // and a rebuild-time cleanup registry (the v20260721o attempt)
+          // cannot work either: the hold timer is armed AFTER doStep
+          // returns, i.e. after the rebuild already ran the cleanups. The
+          // only stop signal that survives the rebuild is a DOCUMENT-level
+          // mouseup (the scrub handle's long-standing pattern). The hold
+          // lives on this closure and keeps stepping the detached input -
+          // detached elements still dispatch change, and the handler works
+          // by (objectName, prop), so the data path is unaffected - until
+          // the user releases the mouse anywhere (or the window blurs).
           let holdTimer = null;
           let holdInterval = null;
-          btn.addEventListener('mousedown', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            doStep(dir);
-            holdTimer = setTimeout(() => {
-              holdInterval = setInterval(() => doStep(dir), 80);
-            }, 400);
-          });
           const stopHold = () => {
             clearTimeout(holdTimer);
             clearInterval(holdInterval);
             holdTimer = null;
             holdInterval = null;
+            document.removeEventListener('mouseup', stopHold);
+            window.removeEventListener('blur', stopHold);
           };
-          btn.addEventListener('mouseup', stopHold);
-          btn.addEventListener('mouseleave', stopHold);
+          btn.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            document.addEventListener('mouseup', stopHold);
+            window.addEventListener('blur', stopHold);
+            holdTimer = setTimeout(() => {
+              holdInterval = setInterval(() => doStep(dir), 80);
+            }, 400);
+            doStep(dir); // last: synchronously rebuilds the track DOM under us
+          });
         };
         bindSpinBtn(upBtn, 1);
         bindSpinBtn(downBtn, -1);
@@ -59608,6 +59622,13 @@
           document.addEventListener('mouseup', onScrubUp);
           document.addEventListener('keydown', onScrubKey);
         });
+        // NOTE: no rebuild-time cleanup here. The scrub is rebuild-safe by
+        // construction - its move/up/key listeners live on document, so a
+        // mid-drag DOM rebuild (every value change re-renders the tracks)
+        // leaves the drag running until the real mouseup. The v20260721o
+        // registry FORCED onScrubUp() on every rebuild, which terminated a
+        // live drag after its first value change - that was a regression,
+        // verified and removed in v20260721p.
 
         inputEntry.inputs.push(inp);
         label.appendChild(wrap);

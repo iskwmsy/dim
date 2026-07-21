@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260721p -->
+<!-- dim v20260721r -->
 
 <!--
   MIT License
@@ -3352,6 +3352,18 @@
     .tl-checkbox-label .ui-checkbox {
       width: 14px;
       height: 14px;
+    }
+
+    /* Auto-Key ARMED indicator (v20260721q): auto-key silently records
+       keyframes on every edit, so the armed state must be unmissable —
+       the DCC convention is a red recording tint. */
+    #tlAutoKeyLabel.tl-autokey-armed {
+      color: #e05252;
+      font-weight: 600;
+    }
+
+    #tlAutoKeyLabel.tl-autokey-armed .ui-checkbox {
+      accent-color: #e05252;
     }
 
     /* --- Curve Editor Popover --- */
@@ -7272,9 +7284,11 @@
       <label class="tl-checkbox-label" title="Show only layers with keyframes">
         <input type="checkbox" id="tlShowKeyframed" class="ui-checkbox"> Show keyframed layers
       </label>
-      <!-- Auto Keyframing -->
-      <label class="tl-checkbox-label" title="Automatically record keyframes when changing object properties">
-        <input type="checkbox" id="tlAutoKeyframing" class="ui-checkbox"> Auto keyframing
+      <!-- Auto-Key (v20260721q: any edit anywhere records at the playhead,
+           creating tracks on first touch; camera NAVIGATION exempt) -->
+      <label class="tl-checkbox-label" id="tlAutoKeyLabel"
+        title="Record a keyframe at the playhead for every property you edit — from any panel, tool, or drag. Creates the track on first edit. Camera orbit/truck/zoom only re-key an already-animated camera; camera panel fields always record.">
+        <input type="checkbox" id="tlAutoKeyframing" class="ui-checkbox"> Auto-Key
       </label>
       <!-- Key Selected: snapshot the full transform of ALL selected objects -->
       <button class="tl-transport-btn" id="tlKeySelectedBtn"
@@ -8208,6 +8222,8 @@
         const moveVector = vectorScale(rightAxis, delta);
         cam.position = vectorAdd(cam.position, moveVector);
         cam.target = vectorAdd(cam.target, moveVector);
+        // AUTO-KEY (v20260721q): deliberate panel edit — creates on touch
+        if (typeof tlAutoKeyProps === 'function' && cam === activeCamera) tlAutoKeyProps('__camera__', ['truck']);
         requestRender();
       });
     }
@@ -8228,6 +8244,8 @@
         const moveVector = vectorScale(upAxis, delta);
         cam.position = vectorAdd(cam.position, moveVector);
         cam.target = vectorAdd(cam.target, moveVector);
+        // AUTO-KEY (v20260721q): deliberate panel edit — creates on touch
+        if (typeof tlAutoKeyProps === 'function' && cam === activeCamera) tlAutoKeyProps('__camera__', ['pedestal']);
         requestRender();
       });
     }
@@ -8240,6 +8258,8 @@
         const displacement = vectorSubtract(cam.target, cam.initialTarget);
         cam.position = vectorSubtract(cam.position, displacement);
         cam.target = [...cam.initialTarget];
+        // AUTO-KEY (v20260721q): reset is a deliberate truck/pedestal edit
+        if (typeof tlAutoKeyProps === 'function' && cam === activeCamera) tlAutoKeyProps('__camera__', ['truck', 'pedestal']);
         requestRender();
       });
     }
@@ -10101,6 +10121,9 @@
           moveToolSession.startPos[1] + dY_final,
           moveToolSession.startPos[2] + dZ_final
         ];
+        // AUTO-KEY (v20260721q): Move-tool numeric edits record like drags.
+        // Vertex modes stay unkeyed — vertices are not animatable.
+        if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['posX', 'posY', 'posZ']);
       } else if (moveToolSession.mode === 'vertex') {
         const s = moveToolSession;
         if (!s.target || !s.target.object) return;
@@ -10236,6 +10259,8 @@
         if (!selectedObject) return;
         selectedObject.position = [...newPos];
         notifyPathUpdated(selectedObject);
+        // AUTO-KEY (v20260721q): absolute position edit records like a drag
+        if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['posX', 'posY', 'posZ']);
       } else if (moveToolSession.mode === 'vertex') {
         const s = moveToolSession;
         if (!s.target || !s.target.object) return;
@@ -10410,6 +10435,18 @@
       updateRotateToolUI();
     };
 
+    // AUTO-KEY (v20260721q): Rotate-tool numeric edits record like drags —
+    // rotation for every affected object, plus position when the group path
+    // orbited positions (multi non-inPlace, or single about world origin).
+    const _autoKeyRotateEdit = () => {
+      if (typeof tlAutoKeyProps !== 'function' || !selectedObject) return;
+      const isMulti = selectedObjects && selectedObjects.length > 1;
+      const grouped = isMulti || rotatePivotMode === 'origin';
+      const props = ['rotX', 'rotY', 'rotZ'];
+      if (grouped && rotatePivotMode !== 'inPlace') props.push('posX', 'posY', 'posZ');
+      (isMulti ? selectedObjects : [selectedObject]).forEach(o => tlAutoKeyProps(o.name, props));
+    };
+
     const processRotateToolInput = () => {
       if (!selectedObject) return;
 
@@ -10439,6 +10476,7 @@
         if (rotateDeltaZ) rotateDeltaZ.value = fmt(dz - se[2]);
       }
 
+      _autoKeyRotateEdit();
       updatePropertiesPanel();
       requestRender();
     };
@@ -10471,6 +10509,7 @@
       if (rotateToolInputY) rotateToolInputY.value = fmt(newEuler[1]);
       if (rotateToolInputZ) rotateToolInputZ.value = fmt(newEuler[2]);
 
+      _autoKeyRotateEdit();
       updatePropertiesPanel();
       requestRender();
     };
@@ -10584,6 +10623,18 @@
     // Uses a tiny epsilon so typing "0" → "0.5" doesn't produce NaN/Infinity.
     const clampScale = (v) => Math.abs(v) < 1e-6 ? (v < 0 ? -1e-6 : 1e-6) : v;
 
+    // AUTO-KEY (v20260721q): Scale-tool numeric edits record like drags —
+    // scale for every affected object, plus position when the group path
+    // orbited positions (multi non-inPlace, or single about world origin).
+    const _autoKeyScaleEdit = () => {
+      if (typeof tlAutoKeyProps !== 'function' || !selectedObject) return;
+      const isMulti = selectedObjects && selectedObjects.length > 1;
+      const grouped = isMulti || scalePivotMode === 'origin';
+      const props = ['sclX', 'sclY', 'sclZ'];
+      if (grouped && scalePivotMode !== 'inPlace') props.push('posX', 'posY', 'posZ');
+      (isMulti ? selectedObjects : [selectedObject]).forEach(o => tlAutoKeyProps(o.name, props));
+    };
+
     const processScaleToolInput = () => {
       if (!selectedObject) return;
 
@@ -10611,6 +10662,7 @@
         if (scaleDeltaZ) scaleDeltaZ.value = fmt(sz - ss[2]);
       }
 
+      _autoKeyScaleEdit();
       updatePropertiesPanel();
       requestRender();
     };
@@ -10638,6 +10690,7 @@
       if (scaleToolInputY) scaleToolInputY.value = fmt(newScale[1]);
       if (scaleToolInputZ) scaleToolInputZ.value = fmt(newScale[2]);
 
+      _autoKeyScaleEdit();
       updatePropertiesPanel();
       requestRender();
     };
@@ -10766,6 +10819,8 @@
       const nz = fromDisplay(parseFloat(pivotToolZEl.value));
       if (isNaN(nx) || isNaN(ny) || isNaN(nz)) return;
       setObjectPivot(selectedObject, [nx, ny, nz]);
+      // AUTO-KEY (v20260721q): typed pivot edit records like a pivot drag
+      if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['pivX', 'pivY', 'pivZ']);
       updatePivotToolUI();
     };
 
@@ -10807,6 +10862,8 @@
         });
         const center = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
         setObjectPivot(selectedObject, center);
+        // AUTO-KEY (v20260721q): a deliberate pivot edit like any other
+        if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['pivX', 'pivY', 'pivZ']);
         updatePivotToolUI();
         updatePropertiesPanel();
       });
@@ -10817,6 +10874,8 @@
       pivotResetBtn.addEventListener('click', () => {
         if (!selectedObject) return;
         setObjectPivot(selectedObject, [0, 0, 0]);
+        // AUTO-KEY (v20260721q): a deliberate pivot edit like any other
+        if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['pivX', 'pivY', 'pivZ']);
         updatePivotToolUI();
         updatePropertiesPanel();
         requestRender();
@@ -12235,8 +12294,23 @@
       }
       const wasCycloid = pendingPolygon.name && (pendingPolygon.name.startsWith('Cyc_') || pendingPolygon.name.startsWith('LCyc_') || pendingPolygon.name.startsWith('PCyc_'));
       const wasSpiral = pendingPolygon.name && pendingPolygon.name.startsWith('Spl_');
+      const _akOldPd = pendingPolygon.primitiveData || null; // AUTO-KEY: pre-edit params
       pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
       pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
+      // AUTO-KEY (v20260721r): primitive params commit HERE (the drawer edits
+      // are a transactional session; primitiveData only updates on Confirm).
+      // Diff old vs new pd and record the params this re-edit changed —
+      // creation (no prior pd) records nothing.
+      if (typeof tlAutoKeyProps === 'function' && _akOldPd) {
+        const newPd = pendingPolygon.primitiveData;
+        const fam = newPd && _primitiveParams[newPd.type];
+        if (fam) {
+          const changed = fam.filter(p =>
+            Math.abs((parseFloat(newPd[p.pdKey]) || 0) - (parseFloat(_akOldPd[p.pdKey]) || 0)) > 1e-9
+          ).map(p => p.prop);
+          if (changed.length) tlAutoKeyProps(pendingPolygon.name, changed);
+        }
+      }
       const p = pendingPolygon;
       delete p._isReEditing;
       const _reTag = document.getElementById('toolDrawerReEditTag');
@@ -43508,6 +43582,7 @@
           // Invalidate frame cache to recompute
           const targetPath = findObjectById(selectedObject.surfaceConstraint.targetId);
           if (targetPath && targetPath._frameData) targetPath._frameData = null;
+          _akSel(['sfBank']); // AUTO-KEY (v20260721r)
           requestRender();
         } else if (selectedObjects.length > 0) {
           selectedObjects.forEach(obj => {
@@ -43517,6 +43592,7 @@
               if (tp && tp._frameData) tp._frameData = null;
             }
           });
+          _akSel(['sfBank']); // AUTO-KEY (v20260721r)
           requestRender();
         }
       });
@@ -43534,6 +43610,7 @@
           selectedObject.surfaceConstraint.twist = val;
           const targetPath = findObjectById(selectedObject.surfaceConstraint.targetId);
           if (targetPath && targetPath._frameData) targetPath._frameData = null;
+          _akSel(['sfTwist']); // AUTO-KEY (v20260721r)
           requestRender();
         } else if (selectedObjects.length > 0) {
           selectedObjects.forEach(obj => {
@@ -43543,6 +43620,7 @@
               if (tp && tp._frameData) tp._frameData = null;
             }
           });
+          _akSel(['sfTwist']); // AUTO-KEY (v20260721r)
           requestRender();
         }
       });
@@ -43554,6 +43632,7 @@
         pushUndoStateCoalesced();
         if (selectedObject && selectedObject.surfaceConstraint?.active) {
           selectedObject.surfaceConstraint.scaleU = parseFloat(e.target.value) || 1;
+          _akSel(['sfScaleU']); // AUTO-KEY (v20260721r)
           requestRender();
         }
       });
@@ -43565,6 +43644,7 @@
         pushUndoStateCoalesced();
         if (selectedObject && selectedObject.surfaceConstraint?.active) {
           selectedObject.surfaceConstraint.scaleV = parseFloat(e.target.value) || 1;
+          _akSel(['sfScaleV']); // AUTO-KEY (v20260721r)
           requestRender();
         }
       });
@@ -43579,6 +43659,7 @@
           pushUndoStateCoalesced();
           if (selectedObject && selectedObject.surfaceConstraint?.active) {
             selectedObject.surfaceConstraint[prop] = parseFloat(e.target.value) || 0;
+            _akSel([prop === 'rotation' ? 'sfRotZ' : (prop === 'rotationX' ? 'sfRotX' : 'sfRotY')]); // AUTO-KEY (v20260721r)
             requestRender();
           }
         });
@@ -43592,6 +43673,7 @@
         pushUndoStateCoalesced();
         if (selectedObject && selectedObject.surfaceConstraint?.active) {
           selectedObject.surfaceConstraint.repeat = Math.max(1, parseInt(e.target.value) || 1);
+          _akSel(['sfRepeat']); // AUTO-KEY (v20260721r)
           requestRender();
         }
       });
@@ -43602,6 +43684,7 @@
         pushUndoStateCoalesced();
         if (selectedObject && selectedObject.surfaceConstraint?.active) {
           selectedObject.surfaceConstraint.repeatOffset = parseFloat(e.target.value) || 0;
+          _akSel(['sfGap']); // AUTO-KEY (v20260721r)
           requestRender();
         }
       });
@@ -45478,6 +45561,13 @@
       if (!selectedObject) return;
       pushUndoStateCoalesced(); // Coalesced undo for property edits
 
+      // AUTO-KEY (v20260721q): snapshot before mutating — this handler
+      // applies BOTH position and scale every call, so only the channels
+      // whose value actually changed may key (a typed X edit must not key
+      // scale). Typed edits and drags behave identically under Auto-Key.
+      const prevPos = [...selectedObject.position];
+      const prevScale = [...(selectedObject.scale || [1, 1, 1])];
+
       const newPos = [
         fromDisplay(parseFloat(document.getElementById('posXInput').value) || 0),
         fromDisplay(parseFloat(document.getElementById('posYInput').value) || 0),
@@ -45499,6 +45589,16 @@
         clampScale(parseFloat(document.getElementById('scaleZInput').value) || 0)
       ];
       selectedObject.scale = newScale;
+
+      if (typeof tlAutoKeyProps === 'function') {
+        const posProps = ['posX', 'posY', 'posZ'].filter((p, i) => Math.abs(newPos[i] - prevPos[i]) > 1e-9);
+        const sclProps = ['sclX', 'sclY', 'sclZ'].filter((p, i) => Math.abs(newScale[i] - prevScale[i]) > 1e-9);
+        if (posProps.length) {
+          const targets = (selectedObjects && selectedObjects.length > 1) ? selectedObjects : [selectedObject];
+          targets.forEach(o => tlAutoKeyProps(o.name, posProps)); // delta moved every one
+        }
+        if (sclProps.length) tlAutoKeyProps(selectedObject.name, sclProps); // scale writes primary only
+      }
 
       if (typeof updateMoveToolUI === 'function') updateMoveToolUI(); // Update Delta Panel
       if (typeof updateScaleToolUI === 'function') updateScaleToolUI();
@@ -45525,9 +45625,18 @@
           // objects — a matrix delta is the correct composition.)
           const R = matrixMultiply(matrixFromEuler([x, y, z]), matrixInverse(selectedObject.rotationMatrix));
           applyGroupRotation(R);
+          // AUTO-KEY (v20260721q): group rotation touches every selected
+          // object's rotation, and (in orbit pivot modes) position too.
+          if (typeof tlAutoKeyProps === 'function') {
+            const props = ['rotX', 'rotY', 'rotZ'];
+            if (rotatePivotMode !== 'inPlace') props.push('posX', 'posY', 'posZ');
+            selectedObjects.forEach(o => tlAutoKeyProps(o.name, props));
+          }
         } else {
           selectedObject.rotationEuler = [x, y, z];
           selectedObject.rotationMatrix = matrixFromEuler(selectedObject.rotationEuler);
+          // AUTO-KEY (v20260721q): typed rotation edit records like a drag
+          if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['rotX', 'rotY', 'rotZ']);
         }
 
         if (typeof updateRotateToolUI === 'function') updateRotateToolUI();
@@ -45615,6 +45724,9 @@
       ];
 
       setObjectPivot(selectedObject, newPivot);
+      // AUTO-KEY (v20260721q): typed pivot edit records like a pivot drag
+      // (pivotShift stays derived — tlAddKeyframe snapshots its baselines)
+      if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['pivX', 'pivY', 'pivZ']);
     };
 
     document.getElementById('pivotXInput').addEventListener('input', updatePivotFromInput);
@@ -45821,6 +45933,7 @@
         const val = parseFloat(e.target.value);
         if (selectedObject && selectedObject.surfaceConstraint?.active) {
           selectedObject.surfaceConstraint.offset = val;
+          _akSel(['sfOffset']); // AUTO-KEY (v20260721r)
           requestRender();
         }
       });
@@ -45833,6 +45946,7 @@
         const val = parseFloat(e.target.value);
         if (selectedObject && selectedObject.surfaceConstraint?.active) {
           selectedObject.surfaceConstraint.hOffset = val;
+          _akSel(['sfHOffset']); // AUTO-KEY (v20260721r)
           requestRender();
         }
       });
@@ -46037,6 +46151,7 @@
         pushUndoStateCoalesced();
         if (selectedObject && selectedObject.surfaceConstraint?.surfaceMapping?.enabled) {
           selectedObject.surfaceConstraint.surfaceMapping.offsetU = parseFloat(e.target.value) || 0;
+          _akSel(['smOffsetU']); // AUTO-KEY (v20260721r)
           requestRender();
         }
       });
@@ -46048,6 +46163,7 @@
         pushUndoStateCoalesced();
         if (selectedObject && selectedObject.surfaceConstraint?.surfaceMapping?.enabled) {
           selectedObject.surfaceConstraint.surfaceMapping.offsetV = parseFloat(e.target.value) || 0;
+          _akSel(['smOffsetV']); // AUTO-KEY (v20260721r)
           requestRender();
         }
       });
@@ -46059,6 +46175,7 @@
         pushUndoStateCoalesced();
         if (selectedObject && selectedObject.surfaceConstraint?.surfaceMapping?.enabled) {
           selectedObject.surfaceConstraint.surfaceMapping.offsetN = fromDisplay(parseFloat(e.target.value) || 0);
+          _akSel(['smOffsetN']); // AUTO-KEY (v20260721r)
           requestRender();
         }
       });
@@ -46081,6 +46198,7 @@
         pushUndoStateCoalesced();
         if (selectedObject && selectedObject.surfaceConstraint?.surfaceMapping?.enabled) {
           selectedObject.surfaceConstraint.surfaceMapping.scaleU = parseFloat(e.target.value) || 1;
+          _akSel(['smScaleU']); // AUTO-KEY (v20260721r)
           requestRender();
         }
       });
@@ -46092,6 +46210,7 @@
         pushUndoStateCoalesced();
         if (selectedObject && selectedObject.surfaceConstraint?.surfaceMapping?.enabled) {
           selectedObject.surfaceConstraint.surfaceMapping.scaleV = parseFloat(e.target.value) || 1;
+          _akSel(['smScaleV']); // AUTO-KEY (v20260721r)
           requestRender();
         }
       });
@@ -46103,6 +46222,7 @@
         pushUndoStateCoalesced();
         if (selectedObject && selectedObject.surfaceConstraint?.surfaceMapping?.enabled) {
           selectedObject.surfaceConstraint.surfaceMapping.rotation = parseFloat(e.target.value) || 0;
+          _akSel(['smRotation']); // AUTO-KEY (v20260721r)
           requestRender();
         }
       });
@@ -46202,15 +46322,27 @@
       });
     }
 
+    // AUTO-KEY (v20260721r) broadcast helper for the mapping/panel listener
+    // families: with Auto-Key armed, record the given timeline props on every
+    // selected object (creation semantics — tlAutoKeyProps handles the gates
+    // and reads values back through the timeline's own resolver chain).
+    const _akSel = (props) => {
+      if (typeof tlAutoKeyProps !== 'function') return;
+      const ts = (selectedObjects && selectedObjects.length) ? selectedObjects : (selectedObject ? [selectedObject] : []);
+      ts.forEach(o => tlAutoKeyProps(o.name, props));
+    };
+
     // --- MOTION PATH listeners (v20260719f) --------------------------------
     // Mapping-tab convention: dedicated listeners, coalesced undo, store the
     // value whenever the settings object exists, multi-select broadcast,
     // refresh the panel (row enable states depend on the values).
     (function () {
       const mpTargets = () => selectedObjects.length > 0 ? selectedObjects : (selectedObject ? [selectedObject] : []);
-      const mpApply = (fn) => {
+      // v20260721r: akProps = animatable timeline props this edit touched
+      const mpApply = (fn, akProps) => {
         pushUndoStateCoalesced();
         mpTargets().forEach(o => { if (o.motionPathSettings) fn(o.motionPathSettings, o); });
+        if (akProps) _akSel(akProps);
         updateStylePanel();
         updatePropertiesPanel(); // Position inputs grey out in On Path mode
         requestRender();
@@ -46228,7 +46360,7 @@
         });
       });
       document.getElementById('motionPathPercentInput')?.addEventListener('input', (e) => {
-        mpApply(mp => { mp.percent = parseFloat(e.target.value) || 0; });
+        mpApply(mp => { mp.percent = parseFloat(e.target.value) || 0; }, ['mpPercent']);
       });
       document.getElementById('motionPathOverflowInput')?.addEventListener('change', (e) => {
         mpApply(mp => {
@@ -46251,7 +46383,8 @@
     // descendants as one sheet; its foldSettings installs lazily on first touch).
     (function () {
       const fdTargets = () => selectedObjects.length > 0 ? selectedObjects : (selectedObject ? [selectedObject] : []);
-      const fdApply = (fn) => {
+      // v20260721r: akProps = animatable timeline props this edit touched
+      const fdApply = (fn, akProps) => {
         pushUndoStateCoalesced();
         fdTargets().forEach(o => {
           // GROUP FOLD (v20260721g, stage G2): groups carry foldSettings too
@@ -46270,6 +46403,7 @@
             fn(o.foldSettings, o.foldSettings.creases[0], o);
           }
         });
+        if (akProps) _akSel(akProps); // AUTO-KEY (v20260721r)
         updateStylePanel();
         requestRender();
       };
@@ -46284,13 +46418,13 @@
         });
       });
       document.getElementById('foldRadiusInput')?.addEventListener('input', (e) => {
-        fdApply((fd, cr) => { const v = parseFloat(e.target.value); cr.radius = isFinite(v) ? Math.max(0, v) : 0.5; });
+        fdApply((fd, cr) => { const v = parseFloat(e.target.value); cr.radius = isFinite(v) ? Math.max(0, v) : 0.5; }, ['fdRadius']);
       });
       document.getElementById('foldPitchInput')?.addEventListener('input', (e) => {
-        fdApply((fd, cr) => { const v = parseFloat(e.target.value); cr.pitch = isFinite(v) ? v : 0; });
+        fdApply((fd, cr) => { const v = parseFloat(e.target.value); cr.pitch = isFinite(v) ? v : 0; }, ['fdPitch']);
       });
       document.getElementById('foldTightenInput')?.addEventListener('input', (e) => {
-        fdApply((fd, cr) => { const v = parseFloat(e.target.value); cr.tighten = isFinite(v) ? v : 0; });
+        fdApply((fd, cr) => { const v = parseFloat(e.target.value); cr.tighten = isFinite(v) ? v : 0; }, ['fdTighten']);
       });
       document.getElementById('foldAxisUInput')?.addEventListener('change', (e) => {
         fdApply(fd => { if (fdAxisOk(e.target.value)) fd.axisU = e.target.value; });
@@ -46299,22 +46433,22 @@
         fdApply(fd => { if (fdAxisOk(e.target.value)) fd.axisV = e.target.value; });
       });
       document.getElementById('foldScaleUInput')?.addEventListener('input', (e) => {
-        fdApply(fd => { const v = parseFloat(e.target.value); fd.scaleU = isFinite(v) ? v : 1; });
+        fdApply(fd => { const v = parseFloat(e.target.value); fd.scaleU = isFinite(v) ? v : 1; }, ['fdScaleU']);
       });
       document.getElementById('foldScaleVInput')?.addEventListener('input', (e) => {
-        fdApply(fd => { const v = parseFloat(e.target.value); fd.scaleV = isFinite(v) ? v : 1; });
+        fdApply(fd => { const v = parseFloat(e.target.value); fd.scaleV = isFinite(v) ? v : 1; }, ['fdScaleV']);
       });
       document.getElementById('foldSideInput')?.addEventListener('change', (e) => {
         fdApply((fd, cr) => { cr.side = e.target.value === 'left' ? 'left' : 'right'; });
       });
       document.getElementById('foldPositionInput')?.addEventListener('input', (e) => {
-        fdApply((fd, cr) => { cr.position = parseFloat(e.target.value) || 0; });
+        fdApply((fd, cr) => { cr.position = parseFloat(e.target.value) || 0; }, ['fdPosition']);
       });
       document.getElementById('foldRotationInput')?.addEventListener('input', (e) => {
-        fdApply((fd, cr) => { cr.rotation = parseFloat(e.target.value) || 0; });
+        fdApply((fd, cr) => { cr.rotation = parseFloat(e.target.value) || 0; }, ['fdRotation']);
       });
       document.getElementById('foldAngleInput')?.addEventListener('input', (e) => {
-        fdApply((fd, cr) => { cr.angle = parseFloat(e.target.value) || 0; });
+        fdApply((fd, cr) => { cr.angle = parseFloat(e.target.value) || 0; }, ['fdAngle']);
       });
       // MULTI-CREASE (v20260721a): Add Crease appends a crease record
       // (accordion-friendly default: alternate the last crease's angle);
@@ -46344,7 +46478,11 @@
           return;
         }
         const v = parseFloat(inp.value);
-        fdApply((fd) => { if (fd.creases[ci]) fd.creases[ci][kk] = isFinite(v) ? v : 0; });
+        // AUTO-KEY (v20260721r): crease 1 keeps legacy fd* props, crease
+        // N ≥ 2 uses fdN* — the same naming _foldParamOf resolves.
+        const akCap = kk.charAt(0).toUpperCase() + kk.slice(1);
+        const akProp = ci === 0 ? ('fd' + akCap) : ('fd' + (ci + 1) + akCap);
+        fdApply((fd) => { if (fd.creases[ci]) fd.creases[ci][kk] = isFinite(v) ? v : 0; }, [akProp]);
       });
       document.getElementById('foldCreaseList')?.addEventListener('click', (e) => {
         // Move Up (v20260721b): swap with the crease above — LIST ORDER IS
@@ -47715,6 +47853,37 @@
         }
       });
 
+      // AUTO-KEY (v20260721r): with Auto-Key armed, the edited FIELD records
+      // for every target object — id → animatable timeline props. Only the
+      // touched field keys (the family write above is wholesale, but the
+      // edit wasn't); linked taper edits key both axes (the link wrote
+      // both). Enables/colors/modes are not animatable — absent from the
+      // map, they record nothing. _tlReadPropertyValue's family gates skip
+      // objects without the feature (e.g. exDepth on a non-extruded path
+      // resolves null → no key); trim is style-backed with a default, so
+      // groups are excluded explicitly (trim is Path-only, §8.2).
+      if (typeof tlAutoKeyProps === 'function' && targetId) {
+        const AK = {
+          strokeTrimStartInput: ['trimStart'],
+          strokeTrimEndInput: ['trimEnd'],
+          extrudeDepthInput: ['exDepth'],
+          extrudeVecXInput: ['exVecX'], extrudeVecYInput: ['exVecY'], extrudeVecZInput: ['exVecZ'],
+          extrudeScaleFrontUInput: taperLinked ? ['exScaleFrontU', 'exScaleFrontV'] : ['exScaleFrontU'],
+          extrudeScaleFrontVInput: taperLinked ? ['exScaleFrontU', 'exScaleFrontV'] : ['exScaleFrontV'],
+          extrudeScaleBackUInput: taperLinked ? ['exScaleBackU', 'exScaleBackV'] : ['exScaleBackU'],
+          extrudeScaleBackVInput: taperLinked ? ['exScaleBackU', 'exScaleBackV'] : ['exScaleBackV'],
+          revolveAngleInput: ['rvAngle'], revolveSegmentsInput: ['rvSegments'], revolveOffsetInput: ['rvOffset'],
+          revolveScaleStartInput: ['rvScaleStart'], revolveScaleEndInput: ['rvScaleEnd'],
+          sweepScaleStartInput: ['swScaleStart'], sweepScaleEndInput: ['swScaleEnd'],
+          loftDepthInput: ['lfDepth'], loftSegmentsInput: ['lfSegments'],
+        };
+        const akProps = AK[targetId];
+        if (akProps) {
+          const trimEdit = targetId.startsWith('strokeTrim');
+          targets.forEach(o => { if (!(trimEdit && o.isGroup)) tlAutoKeyProps(o.name, akProps); });
+        }
+      }
+
       updatePropertiesPanel();
       updateStylePanel();
 
@@ -48390,6 +48559,30 @@
         cam.setObliqueAngle(obliqueAngle);
       } else if (activeId === 'camObliqueScaleInput') {
         cam.setObliqueScale(obliqueScale);
+      }
+
+      // AUTO-KEY (v20260721q): a camera-PANEL numeric edit is a deliberate
+      // camera edit (unlike navigation), so with Auto-Key armed it records —
+      // creating tracks on first touch. Only the ACTIVE camera is animatable
+      // ('__camera__' reads activeCamera), so edits to another selected
+      // camera never key. Field → orbital-prop mapping; pos/target edits
+      // redefine the whole orbit, so they key the orbital quintet.
+      if (typeof tlAutoKeyProps === 'function' && cam === activeCamera) {
+        let camProps = null;
+        if (activeId === 'camFovInput') {
+          camProps = projectionType === 'perspective'
+            ? (keepSizeComp ? ['fov', 'distance'] : ['fov']) : ['orthoZoom'];
+        } else if (activeId === 'camDistInput') {
+          camProps = (keepSizeComp && projectionType === 'perspective') ? ['distance', 'fov'] : ['distance'];
+        } else if (activeId === 'camAzimuthInput') camProps = ['azimuth'];
+        else if (activeId === 'camElevationInput') camProps = ['elevation'];
+        else if (['camPosXInput', 'camPosYInput', 'camPosZInput',
+                  'camTargetXInput', 'camTargetYInput', 'camTargetZInput'].includes(activeId)) {
+          camProps = ['azimuth', 'elevation', 'distance', 'truck', 'pedestal'];
+        } else if (['camPanInput', 'camTiltInput'].includes(activeId)) {
+          camProps = ['azimuth', 'elevation', 'truck', 'pedestal']; // distance preserved
+        }
+        if (camProps) tlAutoKeyProps('__camera__', camProps);
       }
 
       requestRender();
@@ -53893,19 +54086,37 @@
       // --- Auto-keying: record keyframes on drag end ---
       if (typeof tlAutoKeyCamera === 'function' && typeof tlAutoKeyObject === 'function') {
         const cameraModes = ['orbit', 'truck', 'zoom', 'fov'];
-        const objectModes = ['translate', 'translate-local', 'rotate-screen', 'rotate-local', 'scale'];
+        const translateModes = ['translate', 'translate-local', 'translate-planar', 'translate-free', 'translate-radial'];
+        const rotateModes = ['rotate-screen', 'rotate-local'];
         const pivotModes = ['translate-pivot', 'translate-pivot-free', 'translate-pivot-planar'];
+        const isTranslate = translateModes.includes(_prevDragMode);
+        const isRotate = rotateModes.includes(_prevDragMode);
+        const isScale = _prevDragMode === 'scale';
         if (cameraModes.includes(_prevDragMode)) {
+          // Camera NAVIGATION: re-key-only, never creates tracks (v20260721q
+          // carve-out — looking around is viewing, not editing).
           tlAutoKeyCamera();
-        } else if (objectModes.includes(_prevDragMode) && selectedObject) {
-          // Multi-aware: after a multi-select transform (Multi Rotate,
-          // multi-translate) every selected object moved, so auto-key each.
-          // tlAutoKeyObject records each object's OWN already-tracked props at
-          // its current value — so once "Key Selected" has created the
-          // position+rotation tracks, an orbit's new position is captured too.
-          const akTargets = (selectedObjects && selectedObjects.length > 1) ? selectedObjects : [selectedObject];
-          akTargets.forEach(o => tlAutoKeyObject(o));
+        } else if ((isTranslate || isRotate || isScale) && selectedObject) {
+          // v20260721q: channel-scoped CREATION — the dragged channels get
+          // tracks on first touch (Auto-Key v2, Blender-style). Orbit-style
+          // pivot modes move position too, so those include position. Then
+          // tlAutoKeyObject re-keys each object's OTHER already-tracked
+          // channels (unchanged legacy behavior — a rotate about a pivot
+          // updates an existing position track even in inPlace mode edits).
+          const isMulti = selectedObjects && selectedObjects.length > 1;
+          const props = [];
+          if (isTranslate) props.push('posX', 'posY', 'posZ');
+          else if (isRotate) {
+            props.push('rotX', 'rotY', 'rotZ');
+            if (rotatePivotMode === 'origin' || (isMulti && rotatePivotMode !== 'inPlace')) props.push('posX', 'posY', 'posZ');
+          } else if (isScale) {
+            props.push('sclX', 'sclY', 'sclZ');
+            if (scalePivotMode === 'origin' || (isMulti && scalePivotMode !== 'inPlace')) props.push('posX', 'posY', 'posZ');
+          }
+          const akTargets = isMulti ? selectedObjects : [selectedObject];
+          akTargets.forEach(o => { tlAutoKeyProps(o.name, props); tlAutoKeyObject(o); });
         } else if (pivotModes.includes(_prevDragMode) && selectedObject) {
+          tlAutoKeyProps(selectedObject.name, ['pivX', 'pivY', 'pivZ']); // create
           tlAutoKeyObject(selectedObject);   // pivot editing is single-object
         }
       }
@@ -54360,12 +54571,16 @@
             selectedObjects.forEach(obj => {
               obj.position = vectorAdd(obj.position, worldSpaceDelta);
             });
+            // AUTO-KEY (v20260721q): a nudge is a position edit like a drag
+            if (typeof tlAutoKeyProps === 'function') selectedObjects.forEach(o => tlAutoKeyProps(o.name, ['posX', 'posY', 'posZ']));
             updatePropertiesPanel();
             updateMoveToolUI();
             requestRender();
           } else if (selectedObject) {
             // Move single object
             selectedObject.position = vectorAdd(selectedObject.position, worldSpaceDelta);
+            // AUTO-KEY (v20260721q): a nudge is a position edit like a drag
+            if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['posX', 'posY', 'posZ']);
             updatePropertiesPanel();
             updateMoveToolUI();
             requestRender();
@@ -59331,6 +59546,46 @@
       }
     };
 
+    // AUTO-KEY v2 (v20260721q, user decision 2026-07-21): with the Auto-Key
+    // checkbox armed, ANY user edit to an animatable property records a
+    // keyframe at the playhead — CREATING the track on first touch
+    // (Blender-style). `props` lists the timeline prop names the edit
+    // actually touched; values are read back through _tlReadPropertyValue,
+    // the same resolver chain the timeline itself uses, so every param
+    // family (transform, camera, primitive, spline flow, surface mapping,
+    // stroke trim, motion path, fold incl. fdN*, 3D settings) works through
+    // this ONE helper — no per-family read logic at the call sites.
+    // Carve-out on record: camera NAVIGATION (orbit/truck/wheel/HUD) stays
+    // on the re-key-only tlAutoKeyCamera above — looking around is viewing,
+    // not editing; deliberate camera-panel numeric edits DO route here.
+    const tlAutoKeyProps = (objectName, props) => {
+      if (!_tlAutoKeyframing) return false;
+      const animCb = document.getElementById('animationEnabledCb');
+      if (!animCb || !animCb.checked) return false;
+      if (animationTimeline.isPlaying) return false;
+      if (!objectName || !props || !props.length) return false;
+      const frame = animationTimeline.currentFrame;
+      let changed = false;
+      for (const prop of props) {
+        let val = _tlReadPropertyValue(objectName, prop);
+        if (val === null || val === undefined) continue;
+        val = parseFloat(val);
+        if (!isFinite(val)) continue;
+        if (!changed) pushAnimUndoStateCoalesced();
+        if (objectName === '__camera__' && prop === 'azimuth') {
+          _tlAddCamKeyframe('azimuth', frame, val); // shortest-path unwrap
+        } else {
+          tlAddKeyframe(objectName, prop, frame, val);
+        }
+        changed = true;
+      }
+      if (changed) {
+        tlRenderTracks();
+        tlUpdateTrackInputs();
+      }
+      return changed;
+    };
+
     // Keyframe transform channels of a SET of objects at a frame, CREATING
     // tracks as needed (tlAddKeyframe snapshots each track's original value
     // on creation — for pivot tracks that includes the rest pivotShift
@@ -60828,6 +61083,8 @@
     // Auto Keyframing checkbox
     tlAutoKeyframingCb.addEventListener('change', () => {
       _tlAutoKeyframing = tlAutoKeyframingCb.checked;
+      // Armed indicator (v20260721q): red recording tint while ON
+      document.getElementById('tlAutoKeyLabel')?.classList.toggle('tl-autokey-armed', _tlAutoKeyframing);
     });
     tlAutoKeyframingCb.addEventListener('click', (e) => e.stopPropagation());
 

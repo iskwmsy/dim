@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260721r -->
+<!-- dim v20260722h -->
 
 <!--
   MIT License
@@ -7188,6 +7188,65 @@
                           <option value="left">Left (-U)</option>
                         </select>
                       </div>
+                    </div>
+                    <!-- v20260722b: Fold only — OFF = bend at creases (one
+                         continuous path, cut only at silhouettes/overlaps);
+                         ON = legacy render, cut at every crease -->
+                    <div class="style-row" id="foldForceSplitRow">
+                      <label class="ui-checkbox-label">Force Split</label>
+                      <input type="checkbox" id="foldForceSplitInput" class="ui-checkbox" />
+                    </div>
+                    <!-- v20260722c: stroke drawn ON the crease lines (Fold
+                         mode). Row mirrors the Style tab's Stroke row:
+                         toggle + width + hex + swatch. Angle Fade ramps the
+                         stroke opacity 0 → 100% at Fade Angle degrees, so an
+                         animated fold develops its crease as it sharpens. -->
+                    <div class="style-row" id="foldDrawCreaseRow">
+                      <label class="ui-checkbox-label">Draw Crease</label>
+                      <input type="checkbox" id="foldDrawCreaseInput" class="ui-checkbox" />
+                    </div>
+                    <!-- v20260722e: stroke inputs on their own row (the long
+                         Draw Crease label was crowding them out) -->
+                    <div class="style-row" id="foldCreaseStrokeRow">
+                      <label>Stroke</label>
+                      <input type="number" id="foldCreaseWidthInput" step="0.5" min="0" />
+                      <input type="text" id="foldCreaseHexInput" class="color-hex-input" maxlength="6"
+                        placeholder="000000" spellcheck="false" />
+                      <input type="color" id="foldCreaseColorInput" class="color-stroke" />
+                    </div>
+                    <!-- v20260722d: Ends + Dash for the crease stroke (the
+                         Style tab's Stroke conventions; Join is omitted — a
+                         crease mark is a single straight segment) -->
+                    <div class="xyz-row" id="foldCreaseEndsRow">
+                      <label>Ends</label>
+                      <div class="xyz-inputs">
+                        <div class="xyz-field">
+                          <span class="xyz-col-label">Cap</span>
+                          <select id="foldCreaseCapInput">
+                            <option value="butt">Butt</option>
+                            <option value="round">Round</option>
+                            <option value="square">Square</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="xyz-row" id="foldCreaseDashRow">
+                      <label>Dash</label>
+                      <div class="xyz-inputs">
+                        <input type="text" id="foldCreaseDashInput" placeholder="e.g. 5, 5" />
+                      </div>
+                    </div>
+                    <!-- v20260722e: keep the crease stroke visible when the
+                         angle is 0 (a scored, not-yet-folded sheet) -->
+                    <div class="style-row" id="foldCreaseShow0Row">
+                      <label class="ui-checkbox-label">Visible at 0°</label>
+                      <input type="checkbox" id="foldCreaseShow0Input" class="ui-checkbox" />
+                    </div>
+                    <div class="style-row" id="foldCreaseFadeRow">
+                      <label class="ui-checkbox-label">Angle Fade</label>
+                      <input type="checkbox" id="foldCreaseFadeInput" class="ui-checkbox" />
+                      <input type="number" id="foldCreaseFadeAngleInput" step="5" min="0"
+                        title="Angle (deg) where the crease stroke reaches 100% opacity (starts at 0)" />
                     </div>
                     <!-- v20260721a: multi-crease (Fold mode) — dynamic groups for creases 2+ -->
                     <div id="foldCreaseList"></div>
@@ -28691,22 +28750,27 @@
               }
               for (const [fr, bands] of ordFrames) {
                 const remove = new Set();
-                const sections = [], sectionPolys = [];
+                const sections = [], sectionPolys = [], sectionCells = [];
                 const bandKeys = [...bands.keys()].sort((a, b) => a < b ? -1 : (a > b ? 1 : 0)); // sigs are strings (v20260721n)
                 for (const bk of bandKeys) {
                   const members = bands.get(bk);
                   members.forEach(m => remove.add(m));
-                  // Facing: projected signed area (screen y is flipped, so a
-                  // front-facing CCW-normalized piece accumulates NEGATIVE
-                  // area). Back-facing ⇒ reversed layer order.
+                  // Facing (v20260722a): RELATIVE to the unfolded sheet's own
+                  // projected orientation (_foldOrd.refSign) — the base sheet
+                  // never flips regardless of axis pair or camera side; a
+                  // section whose summed projected area has the OPPOSITE sign
+                  // is rotated past edge-on and shows its back ⇒ reversed
+                  // layer order (the folded sticker's white backing).
                   let area = 0, zSum = 0;
                   members.forEach(m => { area += (m._area || 0); zSum += m.z; });
-                  const backFacing = area > 0;
+                  const refSign = members[0]._foldOrd.refSign || -1;
+                  const backFacing = area * refSign < 0;
                   const gSec = document.createElementNS('http://www.w3.org/2000/svg', 'g');
                   (backFacing ? members.slice().reverse() : members)
                     .forEach(m => gSec.appendChild(m.element));
                   sections.push({ element: gSec, z: zSum / members.length });
                   sectionPolys.push(members.flatMap(m => m._foldOrd.polys));
+                  sectionCells.push(members.flatMap(m => m._foldOrd.cells || []));
                 }
                 for (let i = sharedFaceList.length - 1; i >= 0; i--) {
                   if (remove.has(sharedFaceList[i])) sharedFaceList.splice(i, 1);
@@ -28728,7 +28792,17 @@
                     near.z = Math.min(near.z, far.z - 1e-4);
                   }
                 } else if (sections.length > 1) {
-                  Path._orderFoldBands(sections, sectionPolys, fr, eyeL);
+                  // v20260722g: the profile reduction needs a SHARED crease
+                  // direction — for mixed-rotation fold chains it projected
+                  // into a meaningless plane (user report: rotated folds
+                  // z-sorted worse than rotation 0). Flat sections under
+                  // arbitrary rotations order EXACTLY by plane separation.
+                  if (fr.mode === 'fold' && !fr.allParallel) {
+                    // v20260722h: sub-cell separation (flat cells, not polys).
+                    Path._orderFlatPieces(sections, sectionCells, eyeL);
+                  } else {
+                    Path._orderFoldBands(sections, sectionPolys, fr, eyeL);
+                  }
                 }
               }
             }
@@ -29010,6 +29084,15 @@
           scaleU: 1,     // v20260720n: UV scale about the bbox center (keyframable)
           scaleV: 1,
           mode: 'fold',  // 'fold' | 'wrap' | 'curl' (v20260720x: curl = endless roll)
+          forceSplit: false, // v20260722b: fold cuts at EVERY crease (legacy render); off = bend, cut only at silhouettes/overlaps
+          drawCrease: false,     // v20260722c: stroke drawn ON the crease lines (fold mode)
+          creaseColor: '#000000',
+          creaseWidth: 1,        // display units (same conversion as the Style tab stroke width)
+          creaseFade: false,     // v20260722c: opacity ramps 0 → 1 with |angle| / creaseFadeAngle
+          creaseFadeAngle: 90,   // deg at which the crease stroke reaches 100% opacity
+          creaseCap: 'round',    // v20260722d: Ends (linecap) for the crease stroke
+          creaseDash: '',        // v20260722d: dash array string ('' = solid), Style-tab convention
+          creaseShowAt0: false,  // v20260722e: keep the crease stroke visible at angle 0 (scored, unfolded)
           creases: [{
             position: 0.5, // 0..1 across the bbox U extent (keyframable)
             rotation: 0,   // deg, crease-line orientation in UV; 0 = ⊥ to U (keyframable)
@@ -29646,6 +29729,147 @@
       // (aggressive Tighten) may show a local painter artifact at the
       // crossing — the documented trade for clean, wrap-like curls.
 
+      // Exact painter order for FLAT fold pieces under ARBITRARY crease
+      // rotations (v20260722g): every cut cell is planar, so pairwise
+      // occlusion is decided by PLANE SEPARATION — the hinge rule
+      // generalized. If piece i's plane has all of piece j strictly on one
+      // side, the piece sharing the eye's side is nearer — exact, with no
+      // profile-invariance assumption (the parallel-chain profile orderer
+      // keeps its job; this covers mixed-rotation chains, which previously
+      // fell to avg-z for single paths and — worse — to a MEANINGLESS
+      // profile projection for group sections). Bend-merged pieces are
+      // piecewise-flat (non-planar): they get edges only from planar
+      // partners; coplanar pairs tie by AUTHORED order (the sticker rule);
+      // undecided pairs keep avg-z. Plane order can be intransitive, so
+      // cycles break greedily (the v20260721k pattern).
+      static _orderFlatPieces(faces, cellsList, eyeLIn) {
+        // v20260722h: verdicts at CELL granularity. A bend-merged piece is
+        // only PIECEWISE flat — whole-piece plane separation straddles as
+        // soon as one merged run rises through a neighbour's plane (the
+        // work-49 repro: a 179° flap hovers a hair over the base while the
+        // far side bends 42.5° up THROUGH the flap plane → the pair got no
+        // verdict, fell to avg-z, and the rise dragged the merged piece
+        // "nearer" — the folded flap vanished under the sheet). Each band
+        // now carries its flat sub-cells ({n, pts} under the exact
+        // per-bit-pattern transforms, recorded by _foldChainCells); a
+        // pair's verdict aggregates cell-vs-cell sub-verdicts, and ONLY
+        // cell pairs that overlap in PROJECTION constrain — non-overlapping
+        // cells impose no paint order, and their far-field "verdicts" would
+        // poison the aggregate (the 42.5° rise says the flap is behind ITS
+        // plane, but they never overlap on screen). Unanimous ⇒ edge;
+        // conflicting ⇒ genuinely interleaved from this eye, no edge
+        // (honest avg-z); coplanar-only ⇒ authored order (earlier =
+        // behind, the sticker doctrine).
+        try {
+          const eyeL = eyeLIn;
+          if (!eyeL) return false;
+          const n = faces.length;
+          // Screen frame for the overlap gate: gnomonic angular coords
+          // about the eye→centroid axis. Conservative bbox test — a point
+          // at/behind the eye plane makes that cell's bbox infinite
+          // (always "overlaps", never silently drops a constraint).
+          let C = [0, 0, 0], cN = 0;
+          for (const cells of cellsList) for (const c of (cells || [])) for (const p of c.pts) {
+            C[0] += p[0]; C[1] += p[1]; C[2] += p[2]; cN++;
+          }
+          if (!cN) return false;
+          C = [C[0] / cN - eyeL[0], C[1] / cN - eyeL[1], C[2] / cN - eyeL[2]];
+          const ZL = Math.hypot(C[0], C[1], C[2]);
+          if (ZL < 1e-12) return false;
+          const Z = [C[0] / ZL, C[1] / ZL, C[2] / ZL];
+          const ref = Math.abs(Z[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+          let U = [Z[1] * ref[2] - Z[2] * ref[1], Z[2] * ref[0] - Z[0] * ref[2], Z[0] * ref[1] - Z[1] * ref[0]];
+          const UL = Math.hypot(U[0], U[1], U[2]);
+          U = [U[0] / UL, U[1] / UL, U[2] / UL];
+          const V = [Z[1] * U[2] - Z[2] * U[1], Z[2] * U[0] - Z[0] * U[2], Z[0] * U[1] - Z[1] * U[0]];
+          const prep = cellsList.map(cells => (cells || []).map(c => {
+            const P = c.pts;
+            if (!P || P.length < 3) return null;
+            const L = Math.hypot(c.n[0], c.n[1], c.n[2]);
+            if (L < 1e-12) return null;
+            const nv = [c.n[0] / L, c.n[1] / L, c.n[2] / L], p0 = P[0];
+            let ext = 0, u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity, open = false;
+            for (const p of P) {
+              ext = Math.max(ext, Math.abs(p[0] - p0[0]), Math.abs(p[1] - p0[1]), Math.abs(p[2] - p0[2]));
+              const dx = p[0] - eyeL[0], dy = p[1] - eyeL[1], dz = p[2] - eyeL[2];
+              const w = dx * Z[0] + dy * Z[1] + dz * Z[2];
+              if (w < 1e-9 * ZL) { open = true; continue; }
+              const pu = (dx * U[0] + dy * U[1] + dz * U[2]) / w;
+              const pv = (dx * V[0] + dy * V[1] + dz * V[2]) / w;
+              if (pu < u0) u0 = pu; if (pu > u1) u1 = pu;
+              if (pv < v0) v0 = pv; if (pv > v1) v1 = pv;
+            }
+            if (open) { u0 = v0 = -Infinity; u1 = v1 = Infinity; }
+            return { n: nv, p0, eps: Math.max(1e-9, 1e-6 * ext), pts: P, bb: [u0, u1, v0, v1] };
+          }).filter(Boolean));
+          const distTo = (pl, p) => (p[0] - pl.p0[0]) * pl.n[0] + (p[1] - pl.p0[1]) * pl.n[1] + (p[2] - pl.p0[2]) * pl.n[2];
+          const sideOfAll = (pl, P) => {
+            let pos = false, neg = false;
+            for (const p of P) {
+              const d = distTo(pl, p);
+              if (d > pl.eps) pos = true; else if (d < -pl.eps) neg = true;
+              if (pos && neg) return null; // straddles
+            }
+            return pos ? 1 : (neg ? -1 : 0); // 0 = coplanar
+          };
+          // +1 ⇒ the tested point set sits on the eye's side of pl (nearer).
+          const sub = (pl, P) => {
+            const s = sideOfAll(pl, P);
+            if (s === null || s === 0) return s;
+            const es = distTo(pl, eyeL);
+            if (Math.abs(es) <= pl.eps) return null;
+            return s === Math.sign(es) ? 1 : -1;
+          };
+          const bbOverlap = (a, b) => a[0] <= b[1] && b[0] <= a[1] && a[2] <= b[3] && b[2] <= a[3];
+          const edges = [], indeg = new Array(n).fill(0);
+          for (let i = 0; i < n; i++) {
+            for (let j = i + 1; j < n; j++) {
+              let near = false, far = false, cop = false; // j relative to i
+              for (const A of prep[i]) {
+                for (const B of prep[j]) {
+                  if (!bbOverlap(A.bb, B.bb)) continue; // no screen overlap ⇒ no constraint
+                  let v = sub(A, B.pts);                // +1 ⇒ this j-cell nearer
+                  if (v === null) {
+                    const r = sub(B, A.pts);            // +1 ⇒ the i-cell nearer
+                    v = r === null ? null : (r === 0 ? 0 : -r);
+                  }
+                  if (v === 1) near = true; else if (v === -1) far = true; else if (v === 0) cop = true;
+                }
+                if (near && far) break;
+              }
+              if (near && !far) { edges.push([i, j]); indeg[j]++; }       // i draws first (far)
+              else if (far && !near) { edges.push([j, i]); indeg[i]++; }
+              else if (!near && !far && cop) { edges.push([i, j]); indeg[j]++; } // authored: earlier = behind
+            }
+          }
+          if (!edges.length) return false;
+          const order = [], done = new Array(n).fill(false);
+          for (let step = 0; step < n; step++) {
+            let pick = -1;
+            for (let i = 0; i < n; i++) {
+              if (done[i] || indeg[i] > 0) continue;
+              if (pick < 0 || faces[i].z > faces[pick].z) pick = i;
+            }
+            if (pick < 0) {
+              for (let i = 0; i < n; i++) {
+                if (done[i]) continue;
+                if (pick < 0 || faces[i].z > faces[pick].z) pick = i;
+              }
+              if (pick < 0) break;
+            }
+            done[pick] = true;
+            order.push(pick);
+            for (const [a, b2] of edges) if (a === pick && !done[b2]) indeg[b2]--;
+          }
+          let prev = Infinity;
+          for (const idx of order) {
+            faces[idx].z = Math.min(faces[idx].z, prev - 1e-4);
+            prev = faces[idx].z;
+          }
+          return true;
+        } catch (e) { return false; }
+      }
+
       static _orderFoldBands(faces, polys3, fr, eyeLIn) {
         // Exact painter order for curved (wrap/curl) band faces
         // (v20260720y): avg-z is noise once a roll has 3+ silhouette bands —
@@ -29815,7 +30039,219 @@
           createTranslationMatrix(-c3[0], -c3[1], -c3[2]));
       }
 
-      _foldChainCells(fr, rings, openRuns) {
+      // CREASE ROLES + WORLD MATRICES (v20260722b): classify every crease as
+      // 'cut' | 'bend' | 'skip' and build the exact per-crease world
+      // rotations W_k = H_k·R_k·H_k⁻¹ (the v20260721c composition — moved
+      // here so classification can use the matrices BEFORE splitting).
+      // Default (Force Split OFF): a crease only BENDS the paper — the path
+      // stays one continuous piece — and CUTS only where a split is NEEDED:
+      //  • silhouette creases (the two sides face the camera differently —
+      //    required for painter order and the sticker back-face flip), and
+      //  • overlap cuts (keeping cells merged would make a piece overlap
+      //    ITSELF in projection — greedy walk over each same-facing run in
+      //    the profile plane; adjacent cells can never overlap while
+      //    same-facing, so only non-adjacent members are tested).
+      // Classification is CAMERA-dependent (like wrap/curl horizon cuts) —
+      // the caller keys the piece cache on the role string. Mixed-rotation
+      // chains (no profile reduction) and a missing eye cut everywhere
+      // (v1-conservative = the Force Split render).
+      static _foldCreaseRoles(fr, eyeL, forceSplit) {
+        const AXu = fr.AX[0], AXv = fr.AX[1], sgU = fr.SG[0], sgV = fr.SG[1];
+        const hingeRep = (ck) => {
+          let t0 = -Infinity, t1 = Infinity, miss = false;
+          const slab = (a0, d0, lo, hi) => {
+            if (Math.abs(d0) < 1e-12) { if (a0 < lo || a0 > hi) miss = true; return; }
+            let u0 = (lo - a0) / d0, u1 = (hi - a0) / d0;
+            if (u0 > u1) { const tt = u0; u0 = u1; u1 = tt; }
+            if (u0 > t0) t0 = u0;
+            if (u1 < t1) t1 = u1;
+          };
+          slab(ck.A2[0], ck.dir2[0], fr.uMin, fr.uMax);
+          slab(ck.A2[1], ck.dir2[1], fr.vMin, fr.vMax);
+          if (miss || t0 > t1) return ck.A2;
+          const tm = (t0 + t1) / 2;
+          return [ck.A2[0] + ck.dir2[0] * tm, ck.A2[1] + ck.dir2[1] * tm];
+        };
+        const Wk = [], Winv = [];
+        for (let k = 0; k < fr.creaseList.length; k++) {
+          const ck = fr.creaseList[k];
+          if (Math.abs(ck.angle) < 1e-12) { Wk.push(null); Winv.push(null); continue; }
+          const d3 = [0, 0, 0], A3 = [0, 0, 0];
+          d3[AXu] = sgU * ck.dir2[0]; d3[AXv] = sgV * ck.dir2[1];
+          A3[AXu] = sgU * ck.A2[0]; A3[AXv] = sgV * ck.A2[1]; A3[fr.AX[2]] = fr.wMid;
+          const rot = (ang) => matrixMultiply(
+            matrixMultiply(createTranslationMatrix(A3[0], A3[1], A3[2]),
+              createRotationAxisAngleMatrix(d3, ang)),
+            createTranslationMatrix(-A3[0], -A3[1], -A3[2]));
+          const th = ck.sideSign * ck.angle * Math.PI / 180; // per-crease side (v20260721d)
+          const R = rot(th), Ri = rot(-th);
+          // H = the earlier W's whose flap side holds this hinge (exact
+          // inverses built from the same rotations — no matrix inversion).
+          const rep = hingeRep(ck);
+          let H = null, Hi = null;
+          for (let j = 0; j < k; j++) {
+            if (!Wk[j]) continue;
+            const cj = fr.creaseList[j];
+            if ((rep[0] - cj.A2[0]) * cj.n2[0] + (rep[1] - cj.A2[1]) * cj.n2[1] > 0) {
+              H = H ? matrixMultiply(Wk[j], H) : Wk[j];
+              Hi = Hi ? matrixMultiply(Hi, Winv[j]) : Winv[j];
+            }
+          }
+          Wk.push(H ? matrixMultiply(matrixMultiply(H, R), Hi) : R);
+          Winv.push(H ? matrixMultiply(matrixMultiply(H, Ri), Hi) : Ri);
+        }
+        const roles = fr.creaseList.map(ck => Math.abs(ck.angle) < 1e-12 ? 'skip' : 'cut');
+        // NON-PARALLEL chains (mixed crease rotations, v20260722f): the
+        // FACING test needs no shared profile plane — evaluate it per crease
+        // at the hinge's sheet-clipped midpoint with the exact W products
+        // (same-facing ⇒ bend). Only the OVERLAP test is parallel-only, so
+        // multi-bend runs here skip overlap protection: adjacent-pair
+        // merging is still theorem-safe (two half-planes at a hinge never
+        // overlap while same-facing); non-adjacent overlap in a ≥2-bend run
+        // is the documented residue — Force Split escapes. Previously the
+        // whole classifier bailed to all-cut for mixed rotations, which
+        // silently killed Draw Crease marks + fade (user report).
+        if (!forceSplit && eyeL && !fr.allParallel && fr.mode === 'fold') {
+          try {
+            const N3 = [0, 0, 0]; N3[fr.AX[2]] = fr.SG[2];
+            const tMemo = new Map();
+            const tOfBits = (bits) => {
+              let T = tMemo.get(bits);
+              if (T !== undefined) return T;
+              T = null;
+              for (let k = 0; k < bits.length; k++) {
+                if (bits[k] === '1' && Wk[k]) T = T ? matrixMultiply(Wk[k], T) : Wk[k];
+              }
+              tMemo.set(bits, T);
+              return T;
+            };
+            const facing = (bits, p2) => {
+              const T = tOfBits(bits);
+              const p3 = [0, 0, 0];
+              p3[AXu] = sgU * p2[0]; p3[AXv] = sgV * p2[1]; p3[fr.AX[2]] = fr.wMid;
+              const mp = (p) => T ? pointApplyMatrix(p, T) : p;
+              const a = mp(p3), b = mp([p3[0] + N3[0], p3[1] + N3[1], p3[2] + N3[2]]);
+              const n = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+              const f = (eyeL[0] - a[0]) * n[0] + (eyeL[1] - a[1]) * n[1] + (eyeL[2] - a[2]) * n[2];
+              const d = Math.hypot(eyeL[0] - a[0], eyeL[1] - a[1], eyeL[2] - a[2]) || 1;
+              return Math.abs(f) < 1e-9 * d ? 0 : Math.sign(f);
+            };
+            for (let k = 0; k < roles.length; k++) {
+              if (roles[k] !== 'cut') continue;
+              const ck = fr.creaseList[k];
+              const rep = hingeRep(ck);
+              let bits = '';
+              for (let q = 0; q < roles.length; q++) {
+                if (q === k || roles[q] === 'skip') { bits += '0'; continue; }
+                const cq = fr.creaseList[q];
+                bits += ((rep[0] - cq.A2[0]) * cq.n2[0] + (rep[1] - cq.A2[1]) * cq.n2[1] >= 0) ? '1' : '0';
+              }
+              const bitsPlus = bits.slice(0, k) + '1' + bits.slice(k + 1);
+              const fm = facing(bits, rep), fp = facing(bitsPlus, rep);
+              if (fm !== 0 && fm === fp) roles[k] = 'bend';
+            }
+          } catch (e) { /* conservative: roles stay 'cut' */ }
+        }
+        if (!forceSplit && eyeL && fr.allParallel && fr.mode === 'fold') {
+          try {
+            // Active creases sorted spatially along the shared flap normal.
+            const act = [];
+            roles.forEach((r, k) => { if (r !== 'skip') act.push(k); });
+            const off = (k) => {
+              const ck = fr.creaseList[k];
+              return (ck.A2[0] - fr.A2[0]) * fr.n2[0] + (ck.A2[1] - fr.A2[1]) * fr.n2[1];
+            };
+            act.sort((a, b) => off(a) - off(b));
+            if (act.length) {
+              let cMin = Infinity, cMax = -Infinity;
+              for (const cu of [fr.uMin, fr.uMax]) for (const cv of [fr.vMin, fr.vMax]) {
+                const s = (cu - fr.A2[0]) * fr.n2[0] + (cv - fr.A2[1]) * fr.n2[1];
+                if (s < cMin) cMin = s; if (s > cMax) cMax = s;
+              }
+              const cutsC = act.map(off);
+              const lo = Math.min(cMin, cutsC[0]) - 1e-6, hi = Math.max(cMax, cutsC[cutsC.length - 1]) + 1e-6;
+              const bounds = [lo, ...cutsC, hi];
+              // Per interval: bit vector (LIST order) at its 2D midpoint,
+              // exact transform, 3D facing sign, and profile-plane segment.
+              const p3Of = (c) => {
+                const p = [0, 0, 0];
+                p[AXu] = sgU * (fr.A2[0] + fr.n2[0] * c);
+                p[AXv] = sgV * (fr.A2[1] + fr.n2[1] * c);
+                p[fr.AX[2]] = fr.wMid;
+                return p;
+              };
+              const N3 = [0, 0, 0]; N3[fr.AX[2]] = fr.SG[2];
+              const tMemo = new Map();
+              const tOfBits = (bits) => {
+                let T = tMemo.get(bits);
+                if (T !== undefined) return T;
+                T = null;
+                for (let k = 0; k < bits.length; k++) {
+                  if (bits[k] === '1' && Wk[k]) T = T ? matrixMultiply(Wk[k], T) : Wk[k];
+                }
+                tMemo.set(bits, T);
+                return T;
+              };
+              const e1v = [0, 0, 0], e2v = [0, 0, 0], A30 = p3Of(0);
+              e1v[AXu] = sgU * fr.n2[0]; e1v[AXv] = sgV * fr.n2[1];
+              e2v[fr.AX[2]] = fr.SG[2];
+              const to2 = (p) => [
+                (p[0] - A30[0]) * e1v[0] + (p[1] - A30[1]) * e1v[1] + (p[2] - A30[2]) * e1v[2],
+                (p[0] - A30[0]) * e2v[0] + (p[1] - A30[1]) * e2v[1] + (p[2] - A30[2]) * e2v[2]
+              ];
+              const eye2 = to2(eyeL);
+              const iv = [];
+              for (let i = 0; i + 1 < bounds.length; i++) {
+                const cMid = (bounds[i] + bounds[i + 1]) / 2;
+                const pm2 = [fr.A2[0] + fr.n2[0] * cMid, fr.A2[1] + fr.n2[1] * cMid];
+                let bits = '';
+                for (let k = 0; k < fr.creaseList.length; k++) {
+                  const ck = fr.creaseList[k];
+                  bits += (roles[k] !== 'skip'
+                    && (pm2[0] - ck.A2[0]) * ck.n2[0] + (pm2[1] - ck.A2[1]) * ck.n2[1] >= 0) ? '1' : '0';
+                }
+                const T = tOfBits(bits);
+                const mp = (p) => T ? pointApplyMatrix(p, T) : p;
+                const pMid = mp(p3Of(cMid));
+                const nTip = mp([p3Of(cMid)[0] + N3[0], p3Of(cMid)[1] + N3[1], p3Of(cMid)[2] + N3[2]]);
+                const n3 = [nTip[0] - pMid[0], nTip[1] - pMid[1], nTip[2] - pMid[2]];
+                const f = (eyeL[0] - pMid[0]) * n3[0] + (eyeL[1] - pMid[1]) * n3[1] + (eyeL[2] - pMid[2]) * n3[2];
+                const eDist = Math.hypot(eyeL[0] - pMid[0], eyeL[1] - pMid[1], eyeL[2] - pMid[2]) || 1;
+                const pA = to2(mp(p3Of(bounds[i]))), pB = to2(mp(p3Of(bounds[i + 1])));
+                let a1 = Math.atan2(pA[1] - eye2[1], pA[0] - eye2[0]);
+                let a2 = Math.atan2(pB[1] - eye2[1], pB[0] - eye2[0]);
+                while (a2 - a1 > Math.PI) a2 -= 2 * Math.PI;
+                while (a2 - a1 < -Math.PI) a2 += 2 * Math.PI;
+                iv.push({ face: Math.abs(f) < 1e-9 * eDist ? 0 : Math.sign(f), ang: [Math.min(a1, a2), Math.max(a1, a2)] });
+              }
+              const angOverlap = (x, y) => {
+                for (const sh of [-2 * Math.PI, 0, 2 * Math.PI]) {
+                  const l2 = Math.max(x[0], y[0] + sh), h2 = Math.min(x[1], y[1] + sh);
+                  if (h2 > l2 + 1e-9) return true;
+                }
+                return false;
+              };
+              // Greedy: bend a crease unless it is a silhouette (facing
+              // differs / edge-on) or merging would self-overlap the run.
+              let runStart = 0;
+              for (let i = 1; i < iv.length; i++) {
+                const kCrease = act[i - 1];
+                let cut = iv[i].face === 0 || iv[i - 1].face === 0 || iv[i].face !== iv[i - 1].face;
+                if (!cut) {
+                  for (let j = runStart; j <= i - 2; j++) {
+                    if (angOverlap(iv[i].ang, iv[j].ang)) { cut = true; break; }
+                  }
+                }
+                if (cut) runStart = i;
+                else roles[kCrease] = 'bend';
+              }
+            }
+          } catch (e) { /* conservative: all remaining roles stay 'cut' */ }
+        }
+        return { roles, Wk, Winv };
+      }
+
+      _foldChainCells(fr, rings, openRuns, roleInfo, drawCrease, creaseShowAt0) {
         // MULTI-CREASE FOLD CHAINS (v20260721b): creases are independent
         // lines (own position AND rotation) applied in LIST ORDER — crease
         // 1 folds first and carries deeper creases' paper with it (Move Up
@@ -30052,17 +30488,35 @@
           return { m1, p1 };
         };
 
-        // ITERATE: split every cell by every crease in LIST order. A cell
-        // wholly on one side just extends its sign bit without splitting.
+        // ITERATE: process every crease in LIST order per its ROLE
+        // (v20260722b — Path._foldCreaseRoles):
+        //  'cut'  → the exact cutting pass (sig bit appended);
+        //  'bend' → the ring is NOT cut: entries just split at the line so
+        //           an anchor lands exactly on the hinge and each side can
+        //           carry its own transform (the W-composition keeps both
+        //           sides seam-tight → the path stays continuous, stroke
+        //           unbroken). Sig gets a '0' PLACEHOLDER so sig[k] stays
+        //           aligned with W_k across children (section keying).
+        //  'skip' → 0-angle crease (v20260721e): untouched, placeholder.
+        const roles = roleInfo.roles;
+        const bendCell = (cell, L) => {
+          cell.rings = cell.rings.map(ens => {
+            const out = [];
+            for (const en of ens) splitEntry(L, en, out);
+            return out;
+          });
+          cell.opens = cell.opens.map(run => {
+            const out = [];
+            for (const en of run) splitEntry(L, en, out);
+            return out;
+          });
+        };
         let cells = [{ sig: '', rings: rings, opens: openRuns }];
-        for (const ck of fr.creaseList) {
-          // v20260721e: a 0-angle crease does NOT divide the paper (user
-          // request) — no seam until the first nonzero degree. Its sign
-          // bit stays '0' (identity — W_k is null at the same threshold),
-          // so sig indexing and the transform chain stay aligned.
-          if (Math.abs(ck.angle) < 1e-12) {
+        fr.creaseList.forEach((ck, kIdx) => {
+          if (roles[kIdx] !== 'cut') {
+            if (roles[kIdx] === 'bend') cells.forEach(cell => bendCell(cell, ck));
             cells.forEach(cell => { cell.sig += '0'; });
-            continue;
+            return;
           }
           const next = [];
           for (const cell of cells) {
@@ -30071,75 +30525,68 @@
             if (p1.rings.length || p1.opens.length) next.push({ sig: cell.sig + '1', rings: p1.rings, opens: p1.opens });
           }
           cells = next;
-        }
+        });
         cells.sort((a, b) => a.sig < b.sig ? -1 : (a.sig > b.sig ? 1 : 0));
 
-        // TRANSFORMS (v20260721c): WORLD-rotation composition. The source
-        // rotation R_k alone is only right for a hinge no earlier fold has
-        // moved; in general fold k applies W_k = H_k·R_k·H_k⁻¹, where H_k
-        // is what the EARLIER folds already did to crease k's own hinge
-        // line (its sheet-clipped midpoint decides which side of each
-        // earlier crease the hinge sits on). Cells compose newest-fold-
-        // leftmost: T = W_K^{σK}·…·W_1^{σ1}. This keeps every parallel /
-        // nested chain seam-tight in ANY list order (nested flaps commute
-        // — the physical result; the naive list-order product tore the
-        // deep chord after a reorder), while mutually-containing and
-        // crossing arrangements keep genuine order semantics. A hinge BENT
-        // by an earlier crossing fold has no single rigid W — the midpoint
-        // side wins and the far segment separates (the documented limit).
-        const hingeRep = (ck) => {
-          let t0 = -Infinity, t1 = Infinity, miss = false;
-          const slab = (a0, d0, lo, hi) => {
-            if (Math.abs(d0) < 1e-12) { if (a0 < lo || a0 > hi) miss = true; return; }
-            let u0 = (lo - a0) / d0, u1 = (hi - a0) / d0;
-            if (u0 > u1) { const tt = u0; u0 = u1; u1 = tt; }
-            if (u0 > t0) t0 = u0;
-            if (u1 < t1) t1 = u1;
-          };
-          slab(ck.A2[0], ck.dir2[0], fr.uMin, fr.uMax);
-          slab(ck.A2[1], ck.dir2[1], fr.vMin, fr.vMax);
-          if (miss || t0 > t1) return ck.A2;
-          const tm = (t0 + t1) / 2;
-          return [ck.A2[0] + ck.dir2[0] * tm, ck.A2[1] + ck.dir2[1] * tm];
-        };
-        const Wk = [], Winv = [];
-        for (let k = 0; k < fr.creaseList.length; k++) {
-          const ck = fr.creaseList[k];
-          if (Math.abs(ck.angle) < 1e-12) { Wk.push(null); Winv.push(null); continue; }
-          const d3 = [0, 0, 0], A3 = [0, 0, 0];
-          d3[AXu] = sgU * ck.dir2[0]; d3[AXv] = sgV * ck.dir2[1];
-          A3[AXu] = sgU * ck.A2[0]; A3[AXv] = sgV * ck.A2[1]; A3[fr.AX[2]] = fr.wMid;
-          const rot = (ang) => matrixMultiply(
-            matrixMultiply(createTranslationMatrix(A3[0], A3[1], A3[2]),
-              createRotationAxisAngleMatrix(d3, ang)),
-            createTranslationMatrix(-A3[0], -A3[1], -A3[2]));
-          const th = ck.sideSign * ck.angle * Math.PI / 180; // per-crease side (v20260721d)
-          const R = rot(th), Ri = rot(-th);
-          // H = the earlier W's whose flap side holds this hinge (exact
-          // inverses built from the same rotations — no matrix inversion).
-          const rep = hingeRep(ck);
-          let H = null, Hi = null;
-          for (let j = 0; j < k; j++) {
-            if (!Wk[j]) continue;
-            const cj = fr.creaseList[j];
-            if ((rep[0] - cj.A2[0]) * cj.n2[0] + (rep[1] - cj.A2[1]) * cj.n2[1] > 0) {
-              H = H ? matrixMultiply(Wk[j], H) : Wk[j];
-              Hi = Hi ? matrixMultiply(Hi, Winv[j]) : Winv[j];
-            }
+        // TRANSFORMS (v20260721c world-rotation composition; per-ENTRY since
+        // v20260722b): W_k = H_k·R_k·H_k⁻¹ arrive prebuilt in roleInfo
+        // (Path._foldCreaseRoles). A merged ring SPANS bend creases, so the
+        // transform is chosen per entry: full bit vector = the cell's sig
+        // for CUT creases + a midpoint side test for BEND creases (entries
+        // were split at every bend line, so each entry is wholly one side).
+        // T composes newest-fold-leftmost over the '1' bits, memoized per
+        // bit pattern — the same exact matrices as ever; with all creases
+        // cut (Force Split) the bits equal the cell sig and the output is
+        // bit-identical to the per-cell path.
+        const Wk = roleInfo.Wk;
+        const tMemo = new Map();
+        const tOfBits = (bits) => {
+          let T = tMemo.get(bits);
+          if (T !== undefined) return T;
+          T = null;
+          for (let k = 0; k < bits.length; k++) {
+            if (bits[k] === '1' && Wk[k]) T = T ? matrixMultiply(Wk[k], T) : Wk[k];
           }
-          Wk.push(H ? matrixMultiply(matrixMultiply(H, R), Hi) : R);
-          Winv.push(H ? matrixMultiply(matrixMultiply(H, Ri), Hi) : Ri);
-        }
+          tMemo.set(bits, T);
+          return T;
+        };
+        const hasBend = roles.some(r => r === 'bend');
         const bands = [];
         for (const cell of cells) {
-          let T = null;
-          for (let k = 0; k < fr.creaseList.length; k++) {
-            if (cell.sig[k] === '1' && Wk[k]) T = T ? matrixMultiply(Wk[k], T) : Wk[k];
-          }
-          const mapP = T ? ((p) => pointApplyMatrix(p, T)) : ((p) => p);
-          const mapEnt = T ? ((en) => en.line
-            ? { line: [mapP(en.line[0]), mapP(en.line[1])] }
-            : { p0: mapP(en.p0), p1: mapP(en.p1), p2: mapP(en.p2), p3: mapP(en.p3) }) : ((en) => en);
+          const bitsForPt = (m) => {
+            let bits = '';
+            for (let k = 0; k < roles.length; k++) {
+              if (roles[k] === 'cut') bits += cell.sig[k];
+              else if (roles[k] === 'bend') {
+                const ck = fr.creaseList[k];
+                bits += ((sgU * m[AXu] - ck.A2[0]) * ck.n2[0] + (sgV * m[AXv] - ck.A2[1]) * ck.n2[1] >= 0) ? '1' : '0';
+              } else bits += '0';
+            }
+            return bits;
+          };
+          // v20260722h: while transforming, bucket every entry's points by
+          // its FULL bit pattern — each bucket is one FLAT sub-cell of the
+          // band (a bend-merged band is only piecewise flat). The orderer
+          // needs these to run plane separation per sub-cell; control
+          // points ride along (Bézier hull ⊇ curve — conservative for
+          // straddle tests, exact for one-side verdicts).
+          const subPts = new Map();
+          const mapEnt = (en) => {
+            const bits = hasBend ? bitsForPt(entMid(en)) : cell.sig;
+            const T = tOfBits(bits);
+            let out = en;
+            if (T) {
+              const mp = (p) => pointApplyMatrix(p, T);
+              out = en.line
+                ? { line: [mp(en.line[0]), mp(en.line[1])] }
+                : { p0: mp(en.p0), p1: mp(en.p1), p2: mp(en.p2), p3: mp(en.p3) };
+            }
+            let acc = subPts.get(bits);
+            if (!acc) subPts.set(bits, acc = []);
+            if (out.line) acc.push(out.line[0], out.line[1]);
+            else acc.push(out.p0, out.p1, out.p2, out.p3);
+            return out;
+          };
           // Piece assembly (phase E analog): normalize winding by
           // containment, nest holes into their smallest containing
           // boundary; orphans stay visible as their own piece.
@@ -30173,22 +30620,151 @@
             if (best) best.rings.push(ens);
             else boundaries.push({ rings: [ens], poly: [], area: 0 });
           }
+          // v20260722h: the band's flat sub-cells — exact plane (normal =
+          // the sheet normal through the bit pattern's rotation) + the
+          // transformed point soup. _orderFlatPieces separates PER sub-cell.
+          // Opens map FIRST so their points land in the soup too.
+          const opensM = cell.opens.map(run => run.map(mapEnt));
+          const bandCells = [];
+          for (const [bits, P] of subPts) {
+            const T = tOfBits(bits);
+            let nrm = [0, 0, 0];
+            nrm[fr.AX[2]] = 1;
+            if (T) {
+              const o = pointApplyMatrix([0, 0, 0], T), q = pointApplyMatrix(nrm, T);
+              nrm = [q[0] - o[0], q[1] - o[1], q[2] - o[2]];
+            }
+            bandCells.push({ n: nrm, pts: P });
+          }
           bands.push({
             pieces: boundaries.map(B => ({ rings: B.rings })),
-            opens: cell.opens.map(run => run.map(mapEnt)),
+            opens: opensM,
+            cells: bandCells,
             // v20260721n: the cell's GLOBAL identity. Children only produce
             // the cells they occupy, so an array INDEX is not comparable
             // across children — a fully-flap child's single cell sits at
             // index 0 and would bucket into the BASE sticker section
             // (the user's hidden-head repro). Sig strings align across
             // children (same crease list ⇒ same bit positions).
-            sig: cell.sig
+            sig: cell.sig,
+            marks: [] // v20260722c: Draw Crease stroke segments (3D, transformed)
           });
+        }
+
+        // DRAW CREASE marks (v20260722c, user feature): a decorative stroke
+        // ON each crease line, clipped to the actual paper — the crossing
+        // points of every SOURCE ring with the line, sorted along it, pair
+        // evenodd into paper spans (exactly how the cut chords are found).
+        // Spans subdivide at every other crease line so each sub-segment
+        // rides its region's exact transform (both sides agree ON the line,
+        // so either side's T maps it identically — seam-safe). Segments
+        // attach to their region's band (cut-sig projection) so they sort,
+        // travel, and back-face flip WITH their sticker section. Color /
+        // width / angle-fade opacity are applied at emit time (not cached).
+        if (drawCrease) {
+          const sigToBand = new Map(bands.map((b, i) => [b.sig, i]));
+          const crossPtsOf = (L, en) => {
+            const pts = [];
+            if (en.line) {
+              const s0 = sLine(L, en.line[0]), s1 = sLine(L, en.line[1]);
+              if ((s0 < 0) !== (s1 < 0) && Math.abs(s0 - s1) > 1e-15) {
+                const t = s0 / (s0 - s1);
+                const a = en.line[0], b = en.line[1];
+                pts.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]);
+              }
+              return pts;
+            }
+            const sv = [sLine(L, en.p0), sLine(L, en.p1), sLine(L, en.p2), sLine(L, en.p3)];
+            const ev = (t) => {
+              const mt = 1 - t;
+              return mt * mt * mt * sv[0] + 3 * mt * mt * t * sv[1] + 3 * mt * t * t * sv[2] + t * t * t * sv[3];
+            };
+            let pv = ev(0), pt = 0;
+            for (let i = 1; i <= 24; i++) {
+              const t = i / 24, v = ev(t);
+              if ((pv < 0) !== (v < 0)) {
+                let lo = pt, hi = t, vlo = pv;
+                for (let q = 0; q < 60; q++) {
+                  const mid = (lo + hi) / 2, vm = ev(mid);
+                  if ((vlo < 0) !== (vm < 0)) hi = mid; else { lo = mid; vlo = vm; }
+                }
+                const r = (lo + hi) / 2;
+                const [left] = splitCubicBezier(en.p0, en.p1, en.p2, en.p3, r);
+                pts.push(left[3]);
+              }
+              pv = v; pt = t;
+            }
+            return pts;
+          };
+          for (let k = 0; k < roles.length; k++) {
+            // v20260722d (user): a CUT crease already shows its piece edge —
+            // the crease stroke draws only where the paper BENDS uncut.
+            // (Force Split ⇒ all cut ⇒ no marks, consistently.)
+            // v20260722e: with "Visible at 0°" a 0-angle ('skip') crease
+            // marks too — the scored, not-yet-folded line. Its W_k is null,
+            // so region transforms are unaffected; with Angle Fade the mark
+            // still starts at opacity 0 (fade wins, by design).
+            if (!(roles[k] === 'bend' || (creaseShowAt0 && roles[k] === 'skip'))) continue;
+            const ck = fr.creaseList[k];
+            const ts = [];
+            for (const ring of rings) {
+              for (const en of ring) {
+                for (const p of crossPtsOf(ck, en)) ts.push(tLine(ck, p));
+              }
+            }
+            if (ts.length < 2) continue;
+            ts.sort((a, b) => a - b);
+            const p2Of = (t) => [ck.A2[0] + ck.dir2[0] * t, ck.A2[1] + ck.dir2[1] * t];
+            const p3Of = (t) => {
+              const p = [0, 0, 0];
+              p[AXu] = sgU * (ck.A2[0] + ck.dir2[0] * t);
+              p[AXv] = sgV * (ck.A2[1] + ck.dir2[1] * t);
+              p[fr.AX[2]] = fr.wMid;
+              return p;
+            };
+            for (let i = 0; i + 1 < ts.length; i += 2) {
+              const ta = ts[i], tb = ts[i + 1];
+              if (tb - ta < 1e-9) continue;
+              // subdivide at the other crease lines crossing this span
+              const subs = [ta];
+              for (let j = 0; j < roles.length; j++) {
+                if (j === k || roles[j] === 'skip') continue;
+                const cj = fr.creaseList[j];
+                const c1 = ck.dir2[0] * cj.n2[0] + ck.dir2[1] * cj.n2[1];
+                if (Math.abs(c1) < 1e-12) continue;
+                const c0 = (ck.A2[0] - cj.A2[0]) * cj.n2[0] + (ck.A2[1] - cj.A2[1]) * cj.n2[1];
+                const tx = -c0 / c1;
+                if (tx > ta + 1e-9 && tx < tb - 1e-9) subs.push(tx);
+              }
+              subs.push(tb);
+              subs.sort((a, b) => a - b);
+              for (let m = 0; m + 1 < subs.length; m++) {
+                const tm2 = (subs[m] + subs[m + 1]) / 2;
+                const pm = p2Of(tm2);
+                let bits = '';
+                for (let q = 0; q < roles.length; q++) {
+                  if (roles[q] === 'skip') { bits += '0'; continue; }
+                  const cq = fr.creaseList[q];
+                  bits += ((pm[0] - cq.A2[0]) * cq.n2[0] + (pm[1] - cq.A2[1]) * cq.n2[1] >= 0) ? '1' : '0';
+                }
+                let cutSig = '';
+                for (let q = 0; q < roles.length; q++) cutSig += roles[q] === 'cut' ? bits[q] : '0';
+                const bandIdx = sigToBand.get(cutSig);
+                if (bandIdx === undefined) continue;
+                const T = tOfBits(bits);
+                const mp = (p) => T ? pointApplyMatrix(p, T) : p;
+                bands[bandIdx].marks.push({
+                  a: mp(p3Of(subs[m])), b: mp(p3Of(subs[m + 1])),
+                  angle: Math.abs(ck.angle)
+                });
+              }
+            }
+          }
         }
         return { frame: fr, bands };
       }
 
-      _generateFoldPieces(wrapCuts, inh) {
+      _generateFoldPieces(wrapCuts, inh, eyeL) {
         // Returns { frame, bands: [{pieces, opens}, …] } in LOCAL space with
         // the flap transform APPLIED (the caller projects through the
         // object's MVP, so pivot/motion-path/faceCamera compose for free),
@@ -30218,7 +30794,11 @@
         // Curl is EXEMPT (v20260720x): its angle carries only the curl
         // direction — an enabled curl always rolls. Multi-crease
         // (v20260721a): EVERY crease must be at 0 for the pristine path.
+        // Draw Crease + Visible at 0° (v20260722e) ALSO exempts: the scored
+        // -but-unfolded sheet must still render its crease marks, so the
+        // fold path stays engaged (one unsplit piece, identity transforms).
         if (fr.mode !== 'curl' && fr.scaleU === 1 && fr.scaleV === 1
+          && !(fs.drawCrease && fs.creaseShowAt0)
           && fr.creaseList.every(ck => Math.abs(ck.angle) < 1e-9)) return null;
         const spSig = this.subPathData.map(sp => `${sp.start},${sp.count},${sp.closed ? 1 : 0}`).join(';');
         // Inherited-mode cache additions: the child→group matrix (child or
@@ -30227,7 +30807,15 @@
         const inhSig = inh
           ? `|G:${inh.sourceRel.map(r => r.join(',')).join(';')}|B:${fr.uMin},${fr.uMax},${fr.vMin},${fr.vMax},${fr.wMid}`
           : '';
-        const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.creases.map(c2 => [c2.position, c2.rotation, c2.angle, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}${inhSig}`;
+        // FOLD crease roles (v20260722b): 'cut'/'bend'/'skip' per crease —
+        // CAMERA-dependent (silhouette + overlap cuts), so the role string
+        // joins the key exactly like wrap's horizon cuts: orbiting past a
+        // classification boundary rebuilds, a static camera hits.
+        const roleInfo = fr.mode === 'fold'
+          ? Path._foldCreaseRoles(fr, eyeL || null, !!fs.forceSplit)
+          : null;
+        const roleSig = roleInfo ? `|R:${roleInfo.roles.map(r => r[0]).join('')}|DC:${fs.drawCrease ? 1 : 0}${fs.creaseShowAt0 ? 1 : 0}` : '';
+        const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.creases.map(c2 => [c2.position, c2.rotation, c2.angle, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}${inhSig}${roleSig}`;
         if (this._foldCache && this._foldCache.key === key) return this._foldCache.val;
 
         let segs = this.getBezierSegments();
@@ -30273,7 +30861,7 @@
             if (Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-9) closedR.push(ens);
             else openR.push(ens);
           }
-          const val = this._foldChainCells(fr, closedR, openR);
+          const val = this._foldChainCells(fr, closedR, openR, roleInfo, !!fs.drawCrease, !!fs.creaseShowAt0);
           this._foldCache = { key, val };
           return val;
         }
@@ -31050,7 +31638,7 @@
               anchorMVP: foldSrcInh.anchorMVP
             };
             foldEye = foldSrcInh.eyeL;
-            foldPieces = this._generateFoldPieces(foldSrcInh.wrapCuts, foldInh);
+            foldPieces = this._generateFoldPieces(foldSrcInh.wrapCuts, foldInh, foldSrcInh.eyeL);
             if (!foldPieces) foldInh = null;
           } else {
             const frF = this._foldFrame();
@@ -31060,7 +31648,7 @@
               // the cache rebuilds on orbit and hits when the camera is still.
               foldEye = this._foldEyeLocal();
               const foldCuts = (frF.mode === 'wrap' || frF.mode === 'curl') ? Path._foldWrapCuts(frF, foldEye) : null;
-              foldPieces = this._generateFoldPieces(foldCuts);
+              foldPieces = this._generateFoldPieces(foldCuts, null, foldEye);
             }
           }
         }
@@ -31122,6 +31710,9 @@
               const fillOn = this.style.fill && this.style.fill !== 'none';
               const strokeOn = effStyle.stroke && effStyle.stroke !== 'none';
               const wrapMode = pieces.frame.mode !== 'fold'; // wrap OR curl: curved sheet
+              // Effective fold settings for LIVE style (Draw Crease color /
+              // width / fade — v20260722c): group folds read the GROUP's.
+              const fsRender = foldInh ? foldInh.settings : this.foldSettings;
               const emitBand = (bandObj, allowIx) => {
                 if (!fillOn && !strokeOn) return null;
                 let zSum = 0, count = 0, projFail = false;
@@ -31205,6 +31796,35 @@
                   const dd = runD(O);
                   if (dd) g.appendChild(mkPath(dd.trim(), fillOn, strokeOn));
                 }
+                // DRAW CREASE (v20260722c): stroke segments on the crease
+                // lines, drawn ON TOP of the band's pieces (last children of
+                // the band <g>, so they travel/sort/flip with the sticker
+                // section). Style is live (not cached): color + width from
+                // the fold settings; Angle Fade ramps opacity 0 → 1 as
+                // |crease angle| reaches Fade Angle — an animated fold
+                // "develops" its crease line as it sharpens. Projected via
+                // transformVertex directly so the marks never pollute the
+                // face's avg-z / ix-plane statistics.
+                if (bandObj.marks && bandObj.marks.length && fsRender && fsRender.drawCrease) {
+                  const fa = Math.abs(parseFloat(fsRender.creaseFadeAngle)) || 0;
+                  const cw = getEffectiveStrokeWidth(fromDisplayStroke(parseFloat(fsRender.creaseWidth)) || 1);
+                  for (const mk of bandObj.marks) {
+                    let op = 1;
+                    if (fsRender.creaseFade) op = fa > 1e-9 ? Math.min(1, mk.angle / fa) : 1;
+                    if (op <= 1e-4) continue;
+                    const sa = transformVertex(mk.a, foldMVP), sb = transformVertex(mk.b, foldMVP);
+                    if (!sa || !sb) continue;
+                    const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    el.setAttribute('d', `M ${(sa[0] * FRAME_SIZE) / 2} ${(-sa[1] * FRAME_SIZE) / 2} L ${(sb[0] * FRAME_SIZE) / 2} ${(-sb[1] * FRAME_SIZE) / 2}`);
+                    el.setAttribute('fill', 'none');
+                    setSvgColor(el, 'stroke', fsRender.creaseColor || '#000000');
+                    el.setAttribute('stroke-width', cw);
+                    if (op < 1) el.setAttribute('stroke-opacity', op);
+                    el.setAttribute('stroke-linecap', fsRender.creaseCap || 'round'); // Ends (v20260722d)
+                    if (fsRender.creaseDash) el.setAttribute('stroke-dasharray', fsRender.creaseDash); // Dash (v20260722d)
+                    g.appendChild(el);
+                  }
+                }
                 if (projFail || count === 0 || !g.childNodes.length) return null;
                 const face = { element: g, z: zSum / count, _area: areaSum };
                 if (allowIx && this._collectIx && fillOn && ixPts.length >= 3) {
@@ -31241,15 +31861,48 @@
               // shows its back — the white-background-of-a-sticker
               // behavior) and depth-orders only those few sections.
               // Local hinge/ordering are skipped for tagged faces.
-              const groupOrd = !!(foldInh && externalFaceList
-                && (wrapMode || pieces.frame.allParallel));
+              // v20260722g: the gate no longer requires parallel creases —
+              // mixed-rotation group folds were silently EXCLUDED from
+              // sticker sections (children dumped loose per-child-ordered
+              // faces into the z-sort: no authored-layer compositing, no
+              // back-face flip, scrambled stacking — the user's rotated-fold
+              // z-sort report). The compositor now has a valid orderer for
+              // every case (profile for parallel/curved, plane separation
+              // for mixed), so ALL inherited folds composite into sections.
+              const groupOrd = !!(foldInh && externalFaceList);
               if (groupOrd) {
+                // Facing REFERENCE (v20260722a): the projected orientation of
+                // the UNFOLDED sheet plane itself (a small CCW-in-uv triangle
+                // at the frame anchor, through the same MVP). Sections flip
+                // their layer order only RELATIVE to this — the base sheet
+                // never flips (matching the plain 2D painter from any camera
+                // side, and the pristine angle→0 render), only pieces rotated
+                // past edge-on show their back. A fixed screen-sign constant
+                // was calibrated on the XY pair and inverted every stack on
+                // XZ (N = X×Z = −Y faces away from the usual camera — the
+                // user's layer-invert repro).
+                const fr2 = pieces.frame;
+                const refSign = (() => {
+                  const e = 0.01 * Math.max(1e-6, fr2.uMax - fr2.uMin);
+                  const pts = [[0, 0], [e, 0], [0, e]].map(q => {
+                    const p = [0, 0, 0];
+                    p[fr2.AX[0]] = fr2.SG[0] * (fr2.A2[0] + q[0]);
+                    p[fr2.AX[1]] = fr2.SG[1] * (fr2.A2[1] + q[1]);
+                    p[fr2.AX[2]] = fr2.wMid;
+                    const s = transformVertex(p, foldMVP);
+                    return s ? [s[0], -s[1]] : null;
+                  });
+                  if (pts.some(p => !p)) return -1; // degenerate → XY-era constant
+                  const a2 = (pts[1][0] - pts[0][0]) * (pts[2][1] - pts[0][1])
+                    - (pts[2][0] - pts[0][0]) * (pts[1][1] - pts[0][1]);
+                  return a2 < 0 ? -1 : 1;
+                })();
                 pieces.bands.forEach((b, bi) => {
                   const face = bandFaces[bi];
                   // Fold cells key by SIG (global identity, v20260721n);
                   // curved bands by index (their band arrays are always
                   // full-length per child, so the index IS global).
-                  if (face) face._foldOrd = { frame: foldInh.frame, eye: foldEye, band: b.sig !== undefined ? b.sig : bi, polys: bandPolys(b) };
+                  if (face) face._foldOrd = { frame: foldInh.frame, eye: foldEye, band: b.sig !== undefined ? b.sig : bi, refSign, polys: bandPolys(b), cells: b.cells || null };
                 });
               }
               // Exact hinge rule (FOLD only — base | flap about the crease
@@ -31283,19 +31936,28 @@
               // profile-plane band ordering (v20260720y/v20260721a —
               // replaces avg-z, which turns to noise once 3+ bands share
               // one thin depth band; parallel fold chain cells are flat
-              // profile segments under the same reduction). Mixed-rotation
-              // chains (v20260721b) have no shared invariance direction —
-              // they keep honest avg-z, and their cells are FLAT with exact
-              // ix planes, so PathRender/RI resolve any residual order.
-              if (!groupOrd && (wrapMode || (pieces.frame.allParallel
-                && pieces.frame.creaseList.length > 1 && pieces.bands.length > 1))) {
-                const live = [], livePolys = [];
+              // profile segments under the same reduction). MIXED-ROTATION
+              // chains have no shared invariance direction — since
+              // v20260722g their FLAT pieces order exactly by pairwise
+              // PLANE SEPARATION instead (previously honest avg-z; the
+              // user's rotated-fold z-sort report).
+              if (!groupOrd && pieces.bands.length > 1
+                && (wrapMode || pieces.frame.creaseList.length > 1)) {
+                const live = [], livePolys = [], liveCells = [];
                 pieces.bands.forEach((b, bi) => {
                   const face = bandFaces[bi];
                   if (!face) return;
-                  live.push(face); livePolys.push(bandPolys(b));
+                  live.push(face); livePolys.push(bandPolys(b)); liveCells.push(b.cells || []);
                 });
-                if (live.length > 1) Path._orderFoldBands(live, livePolys, pieces.frame, foldEye);
+                if (live.length > 1) {
+                  if (!wrapMode && !pieces.frame.allParallel) {
+                    // v20260722h: sub-cell separation — pass the flat cells
+                    // ({n, pts}), not the sampled band polys.
+                    Path._orderFlatPieces(live, liveCells, foldEye);
+                  } else {
+                    Path._orderFoldBands(live, livePolys, pieces.frame, foldEye);
+                  }
+                }
               }
               bandFaces.forEach(f => { if (f) faceList.push(f); });
             }
@@ -45340,6 +46002,66 @@
           const fdAddRow = document.getElementById('foldAddCreaseRow');
           const crs = (fd && Array.isArray(fd.creases)) ? fd.creases : [];
           const fdMulti = fdMode === 'fold';
+          // Force Split (v20260722b, Fold mode only): OFF = bend at creases,
+          // cut only where needed; ON = legacy cut-at-every-crease render.
+          const fdFsRow = document.getElementById('foldForceSplitRow');
+          const fdFsInput = document.getElementById('foldForceSplitInput');
+          if (fdFsRow) fdFsRow.style.display = fdMulti ? '' : 'none';
+          if (fdFsInput && document.activeElement !== fdFsInput) {
+            fdFsInput.checked = !!(fd && fd.forceSplit);
+            fdFsInput.disabled = fdDisabled;
+          }
+          // Draw Crease (v20260722c, Fold mode only): stroke row mirrors the
+          // Style tab; the fade row shows only while Draw Crease is on.
+          {
+            const dcRow = document.getElementById('foldDrawCreaseRow');
+            const dcOn = !!(fd && fd.drawCrease);
+            if (dcRow) dcRow.style.display = fdMulti ? '' : 'none';
+            const dcCb = document.getElementById('foldDrawCreaseInput');
+            if (dcCb && document.activeElement !== dcCb) { dcCb.checked = dcOn; dcCb.disabled = fdDisabled; }
+            const strokeRow = document.getElementById('foldCreaseStrokeRow');
+            if (strokeRow) strokeRow.style.display = (fdMulti && dcOn) ? '' : 'none';
+            const dcW = document.getElementById('foldCreaseWidthInput');
+            if (dcW && document.activeElement !== dcW) {
+              dcW.value = toDisplayStroke(parseFloat(fd?.creaseWidth ?? 1) || 1);
+              dcW.disabled = fdDisabled || !dcOn;
+            }
+            const hex = ((fd && fd.creaseColor) || '#000000').replace('#', '');
+            const dcHex = document.getElementById('foldCreaseHexInput');
+            if (dcHex && document.activeElement !== dcHex) { dcHex.value = hex; dcHex.disabled = fdDisabled || !dcOn; }
+            const dcCol = document.getElementById('foldCreaseColorInput');
+            if (dcCol && document.activeElement !== dcCol) { dcCol.value = '#' + hex; dcCol.disabled = fdDisabled || !dcOn; }
+            const endsRow = document.getElementById('foldCreaseEndsRow');
+            if (endsRow) endsRow.style.display = (fdMulti && dcOn) ? '' : 'none';
+            const capSel = document.getElementById('foldCreaseCapInput');
+            if (capSel && document.activeElement !== capSel) {
+              capSel.value = (fd && fd.creaseCap) || 'round';
+              capSel.disabled = fdDisabled;
+            }
+            const dashRow = document.getElementById('foldCreaseDashRow');
+            if (dashRow) dashRow.style.display = (fdMulti && dcOn) ? '' : 'none';
+            const dashIn = document.getElementById('foldCreaseDashInput');
+            if (dashIn && document.activeElement !== dashIn) {
+              dashIn.value = (fd && fd.creaseDash) || '';
+              dashIn.disabled = fdDisabled;
+            }
+            const show0Row = document.getElementById('foldCreaseShow0Row');
+            if (show0Row) show0Row.style.display = (fdMulti && dcOn) ? '' : 'none';
+            const show0Cb = document.getElementById('foldCreaseShow0Input');
+            if (show0Cb && document.activeElement !== show0Cb) {
+              show0Cb.checked = !!(fd && fd.creaseShowAt0);
+              show0Cb.disabled = fdDisabled;
+            }
+            const fadeRow = document.getElementById('foldCreaseFadeRow');
+            if (fadeRow) fadeRow.style.display = (fdMulti && dcOn) ? '' : 'none';
+            const fadeCb = document.getElementById('foldCreaseFadeInput');
+            if (fadeCb && document.activeElement !== fadeCb) { fadeCb.checked = !!(fd && fd.creaseFade); fadeCb.disabled = fdDisabled; }
+            const fadeIn = document.getElementById('foldCreaseFadeAngleInput');
+            if (fadeIn && document.activeElement !== fadeIn) {
+              fadeIn.value = parseFloat(fd?.creaseFadeAngle ?? 90) || 0;
+              fadeIn.disabled = fdDisabled || !(fd && fd.creaseFade);
+            }
+          }
           if (fdAddRow) fdAddRow.style.display = fdMulti ? '' : 'none';
           if (fdAddRow) {
             const btn = document.getElementById('foldAddCreaseBtn');
@@ -46392,7 +47114,9 @@
           // untouched groups serialize byte-identically).
           if (o.isGroup && !o.foldSettings) {
             o.foldSettings = {
-              enabled: false, axisU: 'X', axisV: 'Y', scaleU: 1, scaleV: 1, mode: 'fold',
+              enabled: false, axisU: 'X', axisV: 'Y', scaleU: 1, scaleV: 1, mode: 'fold', forceSplit: false,
+              drawCrease: false, creaseColor: '#000000', creaseWidth: 1, creaseFade: false, creaseFadeAngle: 90,
+              creaseCap: 'round', creaseDash: '', creaseShowAt0: false,
               creases: [{ position: 0.5, rotation: 0, angle: 0, radius: 0.5, pitch: 0, tighten: 0, side: 'right' }]
             };
           }
@@ -46455,6 +47179,40 @@
       // dynamic per-crease inputs and remove buttons are delegated on the
       // list container (rows are rebuilt by updateStylePanel when the
       // count changes).
+      document.getElementById('foldForceSplitInput')?.addEventListener('change', (e) => {
+        fdApply(fd => { fd.forceSplit = e.target.checked; });
+      });
+      // DRAW CREASE (v20260722c)
+      document.getElementById('foldDrawCreaseInput')?.addEventListener('change', (e) => {
+        fdApply(fd => { fd.drawCrease = e.target.checked; });
+      });
+      document.getElementById('foldCreaseWidthInput')?.addEventListener('input', (e) => {
+        const v = fromDisplayStroke(parseFloat(e.target.value));
+        fdApply(fd => { fd.creaseWidth = isFinite(v) && v >= 0 ? v : 1; });
+      });
+      document.getElementById('foldCreaseColorInput')?.addEventListener('input', (e) => {
+        fdApply(fd => { fd.creaseColor = e.target.value; });
+      });
+      document.getElementById('foldCreaseHexInput')?.addEventListener('input', (e) => {
+        const h = e.target.value.trim().replace('#', '');
+        if (/^[0-9a-fA-F]{6}$/.test(h)) fdApply(fd => { fd.creaseColor = '#' + h.toLowerCase(); });
+      });
+      document.getElementById('foldCreaseShow0Input')?.addEventListener('change', (e) => {
+        fdApply(fd => { fd.creaseShowAt0 = e.target.checked; });
+      });
+      document.getElementById('foldCreaseCapInput')?.addEventListener('change', (e) => {
+        fdApply(fd => { fd.creaseCap = e.target.value; });
+      });
+      document.getElementById('foldCreaseDashInput')?.addEventListener('input', (e) => {
+        fdApply(fd => { fd.creaseDash = e.target.value.trim(); });
+      });
+      document.getElementById('foldCreaseFadeInput')?.addEventListener('change', (e) => {
+        fdApply(fd => { fd.creaseFade = e.target.checked; });
+      });
+      document.getElementById('foldCreaseFadeAngleInput')?.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        fdApply(fd => { fd.creaseFadeAngle = isFinite(v) && v >= 0 ? v : 0; });
+      });
       document.getElementById('foldAddCreaseBtn')?.addEventListener('click', () => {
         fdApply((fd) => {
           const last = fd.creases[fd.creases.length - 1];

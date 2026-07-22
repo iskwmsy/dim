@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260722h -->
+<!-- dim v20260723b -->
 
 <!--
   MIT License
@@ -3989,6 +3989,8 @@
       </g>
       <g id="vertexGizmoGroup"></g>
     </g>
+    <rect id="frameGuideRect" fill="none" stroke="var(--accent-color)" stroke-width="1.5"
+      style="display: none; pointer-events: none;" />
     <g id="axisIndicatorGroup"></g>
     <rect id="marqueeRect" fill="var(--accent-color)" fill-opacity="0.1" stroke="var(--accent-color)" stroke-width="1"
       style="display: none; pointer-events: none;" />
@@ -4406,6 +4408,17 @@
           <label>Background</label>
           <div class="xyz-inputs">
             <input type="color" id="bgColorInput" value="#ffffff" class="color-fill" />
+          </div>
+        </div>
+
+        <div class="xyz-row">
+          <label for="frameGuideSelect">Frame Guide</label>
+          <div class="xyz-inputs">
+            <select id="frameGuideSelect">
+              <option value="none">None</option>
+              <option value="16:9">16:9</option>
+              <option value="9:16">9:16</option>
+            </select>
           </div>
         </div>
 
@@ -7533,6 +7546,7 @@
     const refImageGroup = document.getElementById('refImageGroup'); // New Group
     const targetGizmoGroup = document.getElementById('targetGizmoGroup');
     const frameRect = document.getElementById('frameRect');
+    const frameGuideRect = document.getElementById('frameGuideRect');
     const clipRect = document.getElementById('clipRect');
     const gizmoGroup = document.getElementById('gizmoGroup');
     const selectionGizmoGroup = document.getElementById('selectionGizmoGroup');
@@ -8432,6 +8446,15 @@
         // No pending coalesced state — record directly (single-click case)
         pushUndoState();
       }
+    });
+
+    // Frame Guide Logic — a <select> only fires one 'change' per pick, so
+    // (unlike the color picker above) no separate input/change split is needed.
+    document.getElementById('frameGuideSelect').addEventListener('change', (e) => {
+      // Capture undo BEFORE updating model variable so the "before" snapshot has the old ratio
+      pushUndoStateCoalesced();
+      _currentFrameGuide = e.target.value;
+      requestRender();
     });
 
     const wpOffsetInput = document.getElementById('custom-offset-z-field');
@@ -10994,6 +11017,14 @@
     // captureSceneState() snapshots the old value, not the already-changed DOM value.
     let _currentBackgroundColor = document.getElementById('bgColorInput')?.value || '#ffffff';
 
+    // Frame Guide (aspect-ratio overlay) — same "scalar scene setting" treatment
+    // as background color: a plain model variable, mirrored to the DOM each
+    // frame, unconditionally serialized. Dimensions are in the same 1000-unit
+    // frame space as FRAME_SIZE, not physical pixels — they stretch with the
+    // frame rather than staying pixel-accurate.
+    const FRAME_GUIDE_RATIOS = { '16:9': [960, 540], '9:16': [540, 960] };
+    let _currentFrameGuide = document.getElementById('frameGuideSelect')?.value || 'none';
+
     // Legacy aliases (for tool session auto-commit snapshot check)
     let undoHistory = sceneUndoHistory;
     let redoHistory = sceneRedoHistory;
@@ -11077,6 +11108,7 @@
       return {
         objects: sceneObjects.map(obj => serializeObject(obj)),
         backgroundColor: _currentBackgroundColor,
+        frameGuide: _currentFrameGuide,
         workplane: {
           active: workplanes.indexOf(activeWorkplane),
           list: workplanes.map(wp => wp.serialize())
@@ -11245,6 +11277,13 @@
         if (bgInput) bgInput.value = state.backgroundColor;
         if (frameRectEl) frameRectEl.setAttribute('fill', state.backgroundColor);
         _currentBackgroundColor = state.backgroundColor;
+      }
+      // Restore Frame Guide (render() re-derives frameGuideRect every frame,
+      // so only the model variable + dropdown need restoring here)
+      if (state.frameGuide) {
+        const fgSelect = document.getElementById('frameGuideSelect');
+        if (fgSelect) fgSelect.value = state.frameGuide;
+        _currentFrameGuide = state.frameGuide;
       }
       updateMoveToolUI();
       updateRotateToolUI();
@@ -50072,6 +50111,19 @@
       frameRect.setAttribute('width', FRAME_SIZE * scale);
       frameRect.setAttribute('height', FRAME_SIZE * scale);
 
+      // --- Frame Guide (aspect-ratio overlay) ---
+      const _fgRatio = FRAME_GUIDE_RATIOS[_currentFrameGuide];
+      if (_fgRatio) {
+        const [fgw, fgh] = _fgRatio;
+        frameGuideRect.style.display = 'block';
+        frameGuideRect.setAttribute('width', fgw * scale);
+        frameGuideRect.setAttribute('height', fgh * scale);
+        frameGuideRect.setAttribute('x', frameX + (FRAME_SIZE * scale - fgw * scale) / 2);
+        frameGuideRect.setAttribute('y', frameY + (FRAME_SIZE * scale - fgh * scale) / 2);
+      } else {
+        frameGuideRect.style.display = 'none';
+      }
+
       const indicatorX = width / 2 + CANVAS_OFFSET_X - FRAME_SIZE / 2 * scale + 80;
       const indicatorY = height / 2 + FRAME_SIZE / 2 * scale - 80;
       axisIndicatorGroup.setAttribute('transform', `translate(${indicatorX}, ${indicatorY})`);
@@ -55097,6 +55149,27 @@
 
       exportSVG.appendChild(clonedGroup);
 
+      // Frame Guide (aspect-ratio overlay): built directly in this function's
+      // native -FRAME_SIZE/2..FRAME_SIZE/2 unit space, so no scale math is
+      // needed here. Reads the resolved accent hex (not var(--accent-color))
+      // since the exported file carries no stylesheet to resolve it against.
+      // Shared by ALL export paths that call generateSVGString(): Cmd+C copy,
+      // the Export SVG button, and both animation export modes.
+      const _fgRatioExp = FRAME_GUIDE_RATIOS[_currentFrameGuide];
+      if (_fgRatioExp) {
+        const [fgw, fgh] = _fgRatioExp;
+        const guide = document.createElementNS(svgNS, 'rect');
+        guide.setAttribute('x', -fgw / 2);
+        guide.setAttribute('y', -fgh / 2);
+        guide.setAttribute('width', fgw);
+        guide.setAttribute('height', fgh);
+        guide.setAttribute('fill', 'none');
+        const accentColor = document.getElementById('accentColorInput')?.value || '#2645d2';
+        guide.setAttribute('stroke', accentColor);
+        guide.setAttribute('stroke-width', '2');
+        exportSVG.appendChild(guide);
+      }
+
       const serializer = new XMLSerializer();
       return serializer.serializeToString(exportSVG);
     };
@@ -57353,6 +57426,7 @@
           timestamp: Date.now(),
           fileName: (fileNameInput && fileNameInput.value.trim()) || 'Untitled 3D work',
           backgroundColor: _currentBackgroundColor,
+          frameGuide: _currentFrameGuide,
           scaleStrokeWithZoom: scaleStrokeWithZoom,
           camera: {
             position: activeCamera.position,
@@ -57467,6 +57541,7 @@
         version: '1.0',
         timestamp: Date.now(),
         backgroundColor: _currentBackgroundColor,
+        frameGuide: _currentFrameGuide,
         scaleStrokeWithZoom: scaleStrokeWithZoom,
         camera: {
           position: activeCamera.position,
@@ -57686,6 +57761,16 @@
         if (bgInput) bgInput.value = data.backgroundColor;
         if (frameRect) frameRect.setAttribute('fill', data.backgroundColor);
         _currentBackgroundColor = data.backgroundColor;
+      }
+
+      // Restore Frame Guide (render() re-derives frameGuideRect every frame,
+      // so only the model variable + dropdown need restoring here). Absent
+      // field (pre-feature files) leaves the current setting untouched, same
+      // convention as Scale Stroke with Zoom below.
+      if (data.frameGuide !== undefined) {
+        const fgSelect = document.getElementById('frameGuideSelect');
+        if (fgSelect) fgSelect.value = data.frameGuide;
+        _currentFrameGuide = data.frameGuide;
       }
 
       // Restore Scale Stroke with Zoom

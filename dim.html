@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260723b -->
+<!-- dim v20260723c -->
 
 <!--
   MIT License
@@ -27916,7 +27916,15 @@
       }
 
       setView(type, targetPosition = null) {
-        this.up = [...this.initialUp];
+        // Canonical world-up, NOT this.initialUp: every camera uses [0,1,0]
+        // here except the "Top Camera" preset (initialUp=[0,0,-1], a hack
+        // needed only for ITS OWN construction, since up parallel to view
+        // direction is degenerate at construction time). Front/Side/Top are
+        // supposed to be canonical axis-aligned views regardless of which
+        // camera is active — using the active camera's own initialUp let
+        // that one preset's hack leak into Front/Side (degenerate or
+        // 90°-rolled result) whenever it was made active+unlocked.
+        this.up = [0, 1, 0];
         this.target = targetPosition ? [...targetPosition] : [...this.initialTarget];
 
         let radius = vectorLength(vectorSubtract(this.position, this.target));
@@ -27939,10 +27947,16 @@
       }
 
       invertView() {
+        // Keep `up` fixed: walking around to view the opposite side should
+        // mirror left/right, not flip vertically. Negating `up` here used to
+        // cancel the expected mirror and produce an upside-down view instead
+        // (the "unexpected axis rotation" report) — verified via
+        // getRightVector()'s cross(up, viewDir): with `up` negated too, the
+        // screen-right direction came out IDENTICAL before/after invert
+        // (nothing mirrored), while the vertical flipped instead.
         let relPos = vectorSubtract(this.position, this.target);
         relPos = vectorScale(relPos, -1);
         this.position = vectorAdd(this.target, relPos);
-        this.up = vectorScale(this.up, -1);
       }
 
       reset() {

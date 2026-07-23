@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260723c -->
+<!-- dim v20260723d -->
 
 <!--
   MIT License
@@ -59029,8 +59029,9 @@
           _tlOriginalValues.delete(objectName + '::pshZ');
         }
       }
-      const isAlwaysVisible = objectName === '__camera__' || (selectedObject && selectedObject.name === objectName);
-      if (objTracks.size === 0 && !isAlwaysVisible) animationTimeline.tracks.delete(objectName);
+      // NOTE: the top-level animationTimeline.tracks entry for objectName is
+      // deliberately NOT deleted here even when objTracks is now empty — see
+      // the pruning pass at the top of tlRenderTracks() for why.
     };
 
     const tlGetAllKeyframesAtFrame = (objectName, frame) => {
@@ -60496,6 +60497,26 @@
 
     const tlRenderTracks = () => {
       if (!tlTrackLabels || !tlTracksArea) return;
+
+      // Prune object entries that emptied out (their last property track was
+      // removed) — done HERE, at render time, rather than inside
+      // tlRemoveKeyframe. A "move" operation (segment drag, keyframe drag,
+      // batch drag, arrow-nudge) removes then immediately re-adds keyframes
+      // for the SAME object within one synchronous call; if the object had
+      // only one animated property, deleting its (transiently empty) entry
+      // from the tracks Map and then re-adding it via tlAddKeyframe's
+      // `tracks.set()` reinserts it at the END of Map iteration order —
+      // silently moving that object's row to a different position in the
+      // timeline panel (reported bug: "the object I just edited goes
+      // somewhere"). Pruning only here, after any such move has already
+      // completed, means a genuinely-emptied track (no re-add followed) still
+      // gets cleaned up, while a move never sees the entry actually leave the
+      // Map, so its position never changes.
+      for (const [objName, objTracks] of animationTimeline.tracks) {
+        const isAlwaysVisible = objName === '__camera__' || (selectedObject && selectedObject.name === objName);
+        if (objTracks.size === 0 && !isAlwaysVisible) animationTimeline.tracks.delete(objName);
+      }
+
       // Preserve scroll position across re-renders
       const container = tlTrackLabels.parentElement;
       const savedScroll = container ? container.scrollTop : 0;

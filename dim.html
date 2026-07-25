@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260723d -->
+<!-- dim v20260725l -->
 
 <!--
   MIT License
@@ -2171,9 +2171,21 @@
       text-overflow: ellipsis;
     }
 
-    /* Pin label to fixed column when row has multiple inputs (number, color, hex) */
-    .style-row:has(> input[type="number"], > .num-spin-wrap, > .color-hex-input, > input[type="color"])>label {
+    /* Pin label to fixed column when row has multiple inputs (number, color, hex)
+       — and for a bare <select> too (v20260725i). .ui-select is width:100%, so a
+       select-only row let the dropdown claim the entire width and collapsed the
+       label to ZERO (flex:1 + overflow:hidden + ellipsis = invisible). That is
+       why "Trim Mode" and "3D Stroke" rendered as unlabelled dropdowns. */
+    .style-row:has(> input[type="number"], > .num-spin-wrap, > .color-hex-input, > input[type="color"], > select)>label {
       flex: 0 0 68px;
+    }
+
+    /* A select sharing a row with its label must not demand the full width. */
+    .style-row>label+select,
+    .style-row>label+.ui-select {
+      flex: 1 1 auto;
+      width: auto;
+      min-width: 0;
     }
 
     .style-row .ui-checkbox {
@@ -2802,23 +2814,9 @@
     }
 
 
-    .ui-panel-inner {
-      margin-bottom: var(--space-md);
-      padding: var(--space-md);
-      background: var(--bg-panel-inner, rgba(0, 0, 0, 0.5));
-      border-radius: 2px;
-      pointer-events: auto;
-    }
-
     .ui-hr {
       border: 0;
       border-top: 1px solid rgba(0, 0, 0, 0.04);
-      margin: calc(var(--section-gap) / 2) 0;
-    }
-
-    .ui-hr-dark {
-      border: 0;
-      border-top: 1px solid #444;
       margin: calc(var(--section-gap) / 2) 0;
     }
 
@@ -2836,18 +2834,6 @@
 
     .mr-6px {
       margin-right: var(--space-sm);
-    }
-
-    .color-spline {
-      color: var(--text-secondary) !important;
-      border-left: 3px solid #cc66cc;
-      padding-left: 6px;
-    }
-
-    .color-surface {
-      color: var(--text-secondary) !important;
-      border-left: 3px solid #66cccc;
-      padding-left: 6px;
     }
 
     /* SPECIFIC LAYOUTS */
@@ -2994,13 +2980,6 @@
     }
 
 
-    /* Camera List Styles */
-    .camera-list-item {
-      padding: 4px 8px;
-      cursor: pointer;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
     /* Utility Classes for Cleanup */
     .ui-list-scrollable {
       list-style: none;
@@ -3024,31 +3003,10 @@
     }
 
     /* Text Highlights */
-    .text-highlight-cyan {
-      color: cyan !important;
-      font-weight: bold;
-    }
-
-    .text-highlight-yellow {
-      color: yellow !important;
-      font-weight: bold;
-    }
-
     .text-highlight {
       color: white !important;
       font-weight: bold;
     }
-
-    /* Button Variants — clean overrides using color-mix for relative hover */
-    .ui-btn-primary {
-      background-color: var(--btn-active-bg);
-    }
-
-    .ui-btn-primary:hover {
-      background-color: color-mix(in srgb, var(--btn-active-bg), black 15%);
-    }
-
-
 
     .ui-btn-danger {
       background-color: var(--btn-danger-bg);
@@ -3147,17 +3105,6 @@
     }
 
     /* Utility */
-
-    /* Reference Image UI Styles */
-    .remove-btn {
-      background: #442222 !important;
-      color: #ffaaaa !important;
-      border: 1px solid #663333 !important;
-    }
-
-    .remove-btn:hover {
-      background: #663333 !important;
-    }
 
     /* ═══════════════════════════════════════════
        ANIMATION TIMELINE PANEL
@@ -4726,6 +4673,29 @@
           <input type="checkbox" id="snapToGridCheckbox" class="ui-checkbox" />
         </div>
 
+        <div class="style-row">
+          <label class="ui-checkbox-label">Grid Color</label>
+          <input type="text" id="gridColorHexInput" class="color-hex-input" maxlength="6" placeholder="000000"
+            spellcheck="false" style="margin-left: auto;" />
+          <input type="color" id="gridColorInput" value="#000000" class="color-fill" />
+        </div>
+        <div class="prop-row prop-inline slider-fill" id="gridOpacityRow" style="--fill: 20%">
+          <label for="gridOpacitySlider">Grid Opacity</label>
+          <input type="range" id="gridOpacitySlider" min="0" max="1" step="0.05" value="0.2">
+          <input type="number" class="slider-fill-value" id="gridOpacityInput" min="0" max="1" step="0.05"
+            value="0.2">
+        </div>
+        <div class="xyz-row">
+          <label for="gridWeightInput">Grid Weight</label>
+          <div class="xyz-inputs">
+            <input type="number" id="gridWeightInput" value="1" step="0.1" min="0.1" />
+          </div>
+        </div>
+        <div class="prop-row prop-inline">
+          <label for="keepGridOnHideCheckbox" class="ui-checkbox-label">Keep grid when hiding (Tab)</label>
+          <input type="checkbox" id="keepGridOnHideCheckbox" class="ui-checkbox" />
+        </div>
+
 
         <hr class="ui-hr" />
 
@@ -6096,31 +6066,40 @@
                         <option value="evenodd">Even-Odd</option>
                         <option value="nonzero">Non-Zero</option>
                       </select>
-                      <div class="xyz-field">
-                        <span class="xyz-col-label">Blend</span>
-                        <select id="blendModeInput">
-                          <option value="normal">Normal</option>
-                          <option value="multiply">Multiply</option>
-                          <option value="screen">Screen</option>
-                          <option value="overlay">Overlay</option>
-                          <option value="darken">Darken</option>
-                          <option value="lighten">Lighten</option>
-                          <option value="color-dodge">Color Dodge</option>
-                          <option value="color-burn">Color Burn</option>
-                          <option value="hard-light">Hard Light</option>
-                          <option value="soft-light">Soft Light</option>
-                          <option value="difference">Difference</option>
-                          <option value="exclusion">Exclusion</option>
-                          <option value="hue">Hue</option>
-                          <option value="saturation">Saturation</option>
-                          <option value="color">Color</option>
-                          <option value="luminosity">Luminosity</option>
-                        </select>
-                      </div>
                       <div class="xyz-field" style="flex:0 0 auto; gap:4px;">
                         <span class="xyz-col-label">Close</span>
                         <input type="checkbox" id="loopPathInput" class="ui-checkbox" />
                       </div>
+                    </div>
+                  </div>
+
+                  <!-- Blend has its own row (v20260725i): sharing the Rule row it
+                       got an EQUAL flex share yet also had to fit a 31px column
+                       label, so its select was starved to 26px — too narrow to
+                       read "Multiply"/"Luminosity". Readable widths needed ~226px
+                       in a 167px row, so the row was genuinely over-subscribed;
+                       splitting is the fix, not re-weighting the flex. -->
+                  <div class="xyz-row" id="blendModeRow">
+                    <label>Blend</label>
+                    <div class="xyz-inputs">
+                      <select id="blendModeInput">
+                        <option value="normal">Normal</option>
+                        <option value="multiply">Multiply</option>
+                        <option value="screen">Screen</option>
+                        <option value="overlay">Overlay</option>
+                        <option value="darken">Darken</option>
+                        <option value="lighten">Lighten</option>
+                        <option value="color-dodge">Color Dodge</option>
+                        <option value="color-burn">Color Burn</option>
+                        <option value="hard-light">Hard Light</option>
+                        <option value="soft-light">Soft Light</option>
+                        <option value="difference">Difference</option>
+                        <option value="exclusion">Exclusion</option>
+                        <option value="hue">Hue</option>
+                        <option value="saturation">Saturation</option>
+                        <option value="color">Color</option>
+                        <option value="luminosity">Luminosity</option>
+                      </select>
                     </div>
                   </div>
 
@@ -6167,6 +6146,13 @@
                     </div>
                   </div>
 
+                  <div class="prop-row prop-inline slider-fill" id="strokeOpacityRow" style="--fill: 100%">
+                    <label for="strokeOpacityInput">Opacity</label>
+                    <input type="range" id="strokeOpacityInput" min="0" max="1" step="0.01" />
+                    <input type="number" id="strokeOpacityValue" class="slider-fill-value" min="0" max="1" step="0.01"
+                      value="1.0" />
+                  </div>
+
                   <!-- STROKE TRIM (v20260719c): AE-style positions in % of arc
                        length; 0/100 = untrimmed. Mode (v20260719e): Individual =
                        each subpath by its own length; Sequential = one sweep
@@ -6186,11 +6172,39 @@
                     </select>
                   </div>
 
-                  <div class="prop-row prop-inline slider-fill" id="strokeOpacityRow" style="--fill: 100%">
-                    <label for="strokeOpacityInput">Opacity</label>
-                    <input type="range" id="strokeOpacityInput" min="0" max="1" step="0.01" />
-                    <input type="number" id="strokeOpacityValue" class="slider-fill-value" min="0" max="1" step="0.01"
-                      value="1.0" />
+                  <!-- 3D STROKE (v20260725e): depth-varying stroke width — the
+                       stroke is outlined into a filled region so one stroke can
+                       be thick near and thin far. Perspective = physically true
+                       (a tube of constant world radius; no variation in ortho by
+                       definition). Depth Range = art-directed Near/Far widths,
+                       works in every projection. Per-object; overall thickness
+                       still comes from stroke width x Scale Stroke with Zoom. -->
+                  <div class="style-row" id="stroke3dModeRow">
+                    <label>3D Stroke</label>
+                    <select id="stroke3dModeInput" class="ui-select">
+                      <option value="">Off</option>
+                      <option value="perspective">Perspective</option>
+                      <option value="range">Depth Range</option>
+                    </select>
+                  </div>
+                  <div class="style-row" id="stroke3dStrengthRow">
+                    <label>Depth Strength</label>
+                    <input type="number" id="stroke3dStrengthInput" value="1" min="0" max="5" step="0.1" />
+                  </div>
+                  <div class="style-row" id="stroke3dRangeRow">
+                    <label>Width %</label>
+                    <span class="axis-label">Near</span>
+                    <input type="number" id="stroke3dNearInput" value="200" min="0" max="800" step="10" />
+                    <span class="axis-label">Far</span>
+                    <input type="number" id="stroke3dFarInput" value="40" min="0" max="800" step="10" />
+                  </div>
+                  <!-- v20260725h: split the stroke at its screen-space
+                       self-crossings and paint the pieces far->near, so a
+                       stroke that passes over itself reads as a ribbon in 3D
+                       instead of one flat shape. -->
+                  <div class="style-row" id="stroke3dOccludeRow">
+                    <label for="stroke3dOccludeInput" class="ui-checkbox-label">Self-Occlude</label>
+                    <input type="checkbox" id="stroke3dOccludeInput" class="ui-checkbox" />
                   </div>
 
                   <hr class="ui-separator" id="drawPointsSeparator" />
@@ -8755,6 +8769,52 @@
       element: null // The SVG Image Element
     };
 
+    // Serialize the reference image for scene persistence (v20260724g). Returns
+    // null when inactive so pre-feature files / images-off scenes stay
+    // byte-identical (the restore side skips a null/absent value). 'element' is a
+    // live DOM node and is deliberately never included (a whitelist, not a spread).
+    const serializeReferenceImage = () => {
+      if (!referenceImage.active || !referenceImage.url) return null;
+      return {
+        active: true,
+        url: referenceImage.url,
+        x: referenceImage.x,
+        y: referenceImage.y,
+        scaleU: referenceImage.scaleU,
+        scaleV: referenceImage.scaleV,
+        opacity: referenceImage.opacity,
+        aspect: referenceImage.aspect
+      };
+    };
+
+    // Apply a serialized reference image (or null/absent) to the live state +
+    // panel (v20260724g Phase 1 restore; v20260724h Phase 2 shares it with undo).
+    // drawReferenceImage rebuilds the <img> from .url every frame, so only the
+    // model fields + panel UI need setting. AUTHORITATIVE: null/absent CLEARS any
+    // current image — an imported/restored scene owns its content (like objects/
+    // cameras), unlike the "leave untouched" app-preference scalars. Numeric
+    // fields are typeof-guarded (a corrupt file must not poison the live object);
+    // negative scaleU/V are valid (mirror), copied verbatim; aspect must be > 0
+    // (0 would divide-by-zero in drawReferenceImage's height = scaleV / aspect).
+    const applyReferenceImage = (ri) => {
+      if (ri && ri.active && ri.url) {
+        referenceImage.active = true;
+        referenceImage.url = ri.url;
+        referenceImage.x = (typeof ri.x === 'number') ? ri.x : 0;
+        referenceImage.y = (typeof ri.y === 'number') ? ri.y : 0;
+        referenceImage.scaleU = (typeof ri.scaleU === 'number') ? ri.scaleU : 10;
+        referenceImage.scaleV = (typeof ri.scaleV === 'number') ? ri.scaleV : 10;
+        referenceImage.opacity = (typeof ri.opacity === 'number') ? ri.opacity : 0.5;
+        referenceImage.aspect = (typeof ri.aspect === 'number' && ri.aspect > 0) ? ri.aspect : 1.0;
+      } else {
+        referenceImage.active = false;
+        referenceImage.url = '';
+        const overlay = document.getElementById('refImageOverlay');
+        if (overlay) overlay.innerHTML = '';
+      }
+      if (typeof updateRefImageUI === 'function') updateRefImageUI();
+    };
+
     const refImageInput = document.getElementById('refImageInput');
     const refImageBtn = document.getElementById('refImageBtn');
     const refImageControls = document.getElementById('refImageControls');
@@ -8776,6 +8836,9 @@
           if (overlay) overlay.innerHTML = '';
           updateRefImageUI();
           requestRender();
+          // Undoable (v20260724h): discrete action — push AFTER the mutation
+          // (pushUndoState diffs the last-committed state, which still has the image).
+          pushUndoState('Remove Reference Image');
         } else {
           // Import mode
           refImageInput.click();
@@ -8802,6 +8865,11 @@
 
             updateRefImageUI();
             requestRender();
+            // Undoable (v20260724h): discrete action — push AFTER the mutation.
+            // This is the ONE push whose diff carries the (possibly large) data
+            // URL; slider/numeric edits below never re-diff the url (it is
+            // unchanged), so the cost stays bounded to actual image loads.
+            pushUndoState('Add Reference Image');
           };
           img.src = event.target.result;
         };
@@ -8838,19 +8906,26 @@
       if (el) el.addEventListener('keydown', (e) => e.stopPropagation());
     });
 
+    // Undoable (v20260724h): coalesced push BEFORE the mutation so the "before"
+    // snapshot has the old value (the Background Color convention). The url is
+    // unchanged by these edits, so the coalesced diff only carries the numeric field.
     refImagePosX.addEventListener('input', (e) => {
+      pushUndoStateCoalesced();
       referenceImage.x = parseFloat(e.target.value) || 0;
       requestRender();
     });
     refImagePosY.addEventListener('input', (e) => {
+      pushUndoStateCoalesced();
       referenceImage.y = parseFloat(e.target.value) || 0;
       requestRender();
     });
     refImageScaleU.addEventListener('input', (e) => {
+      pushUndoStateCoalesced();
       referenceImage.scaleU = parseFloat(e.target.value) || 1;
       requestRender();
     });
     refImageScaleV.addEventListener('input', (e) => {
+      pushUndoStateCoalesced();
       referenceImage.scaleV = parseFloat(e.target.value) || 1;
       requestRender();
     });
@@ -8858,12 +8933,14 @@
     // Sync Opacity inputs
     const refOpacityRow = document.getElementById('refImageOpacityRow');
     refImageOpacitySlider.addEventListener('input', (e) => {
+      pushUndoStateCoalesced();
       referenceImage.opacity = parseFloat(e.target.value);
       refImageOpacityInput.value = referenceImage.opacity;
       if (refOpacityRow) refOpacityRow.style.setProperty('--fill', (referenceImage.opacity * 100) + '%');
       requestRender();
     });
     refImageOpacityInput.addEventListener('input', (e) => {
+      pushUndoStateCoalesced();
       referenceImage.opacity = parseFloat(e.target.value);
       refImageOpacitySlider.value = referenceImage.opacity;
       if (refOpacityRow) refOpacityRow.style.setProperty('--fill', (referenceImage.opacity * 100) + '%');
@@ -8872,6 +8949,13 @@
 
     // --- Global State Variables ---
     let showGuides = true;
+    // Grid appearance (global app preference — persisted in dim-settings, NOT the scene).
+    // Defaults reproduce the historical look exactly: base = black @ 20%, width 1; the
+    // YZ center-axis emphasis is DERIVED from these in updateVisualGrid.
+    let gridColor = '#000000';   // hex (from <input type=color>)
+    let gridOpacity = 0.2;       // 0..1  → SVG stroke-opacity
+    let gridWeight = 1;          // frame-unit stroke-width (scales with zoom)
+    let keepGridOnHide = false;  // Tab hides info layers but keeps the grid
     let scaleStrokeWithZoom = false;
     let width, height;
     let dragMode = 'none'; // none, truck, orbit, translate, translate-local, rotate-screen, rotate-local, scale, draw-polygon
@@ -10090,9 +10174,11 @@
 
     // Helper: push tool session's change to undo history (diff-based)
     // Always diffs against authoritative _lastSceneState to keep the chain continuous.
-    // The snapshot parameter is kept for API compatibility but not used for diffing.
-    const _pushUndoSnapshot = (snapshot) => {
-      if (!snapshot) return;
+    // `armed` is just a boolean flag set at session start (see the tool sessions) —
+    // its only job is to confirm a session actually began; the diff is recomputed
+    // here from live state, so no snapshot content is (or ever was) consulted.
+    const _pushUndoSnapshot = (armed) => {
+      if (!armed) return;
       const current = captureSceneState();
       if (!_lastSceneState) {
         _lastSceneState = deepClone(current);
@@ -10180,10 +10266,10 @@
         }
       }
 
-      // Capture "before" snapshot for this new session
-      if (moveToolSession && typeof captureSceneSnapshot === 'function') {
-        moveToolSession.undoSnapshot = captureSceneSnapshot();
-      }
+      // Mark that this session started. The undo push at session end only reads
+      // undoSnapshot's TRUTHINESS (the diff-based undo recomputes state itself),
+      // so a full-scene JSON snapshot per tool-grab was pure waste (v20260725c).
+      if (moveToolSession) moveToolSession.undoSnapshot = true;
 
       updateMoveToolUI();
     };
@@ -10509,10 +10595,8 @@
           // remember it to restore on Cancel (other modes leave position alone).
           startPos: [...selectedObject.position]
         };
-        // Capture "before" snapshot for this new session
-        if (typeof captureSceneSnapshot === 'function') {
-          rotateToolSession.undoSnapshot = captureSceneSnapshot();
-        }
+        // Mark session start; undo push only reads truthiness (v20260725c).
+        rotateToolSession.undoSnapshot = true;
       }
       updateRotateToolUI();
     };
@@ -10693,10 +10777,8 @@
           startAll: (selectedObjects && selectedObjects.length ? selectedObjects : [selectedObject])
             .map(o => ({ obj: o, scale: [...(o.scale || [1, 1, 1])], position: [...o.position] }))
         };
-        // Capture "before" snapshot for this new session
-        if (typeof captureSceneSnapshot === 'function') {
-          scaleToolSession.undoSnapshot = captureSceneSnapshot();
-        }
+        // Mark session start; undo push only reads truthiness (v20260725c).
+        scaleToolSession.undoSnapshot = true;
       }
       updateScaleToolUI();
     };
@@ -10861,10 +10943,8 @@
           startPivotShift: [...(selectedObject.pivotShift || [0, 0, 0])],
           startPivotRot: [...(selectedObject.pivotRotation || [0, 0, 0])]
         };
-        // Capture "before" snapshot for this new session
-        if (typeof captureSceneSnapshot === 'function') {
-          pivotToolSession.undoSnapshot = captureSceneSnapshot();
-        }
+        // Mark session start; undo push only reads truthiness (v20260725c).
+        pivotToolSession.undoSnapshot = true;
       }
       updatePivotToolUI();
     };
@@ -11109,6 +11189,12 @@
         objects: sceneObjects.map(obj => serializeObject(obj)),
         backgroundColor: _currentBackgroundColor,
         frameGuide: _currentFrameGuide,
+        // Reference image (v20260724h Phase 2): enters the scene undo diff so
+        // position/scale/opacity edits and add/remove are undoable. null when
+        // inactive (diffs cleanly against a present image on remove). The data
+        // URL only changes on a NEW image load — a discrete, coalesce-free push
+        // — so slider/numeric edits never re-diff the (potentially large) url.
+        referenceImage: serializeReferenceImage(),
         workplane: {
           active: workplanes.indexOf(activeWorkplane),
           list: workplanes.map(wp => wp.serialize())
@@ -11134,17 +11220,9 @@
       list: cameras.map(cam => serializeCamera(cam))
     });
 
-    // Legacy: full snapshot for tool session undoSnapshot (still uses JSON string)
-    const captureSceneSnapshot = () => {
-      return JSON.stringify({
-        objects: sceneObjects.map(obj => serializeObject(obj)),
-        camera: captureCameraState(),
-        workplane: {
-          active: workplanes.indexOf(activeWorkplane),
-          list: workplanes.map(wp => wp.serialize())
-        }
-      });
-    };
+    // (captureSceneSnapshot removed v20260725c — its only callers were the four
+    //  tool-session starts, which now just set undoSnapshot = true; nothing ever
+    //  read the JSON string it produced.)
 
     // --- Scene Undo Push (diff-based) ---
     const pushUndoState = (label) => {
@@ -11255,8 +11333,10 @@
           activeWorkplane.syncUI();
           updateWorkplaneList();
         } else {
-          // Legacy format: write directly to activeWorkplane
-          activeWorkplane.mode = state.workplane.mode || 'horizontal';
+          // Legacy format: write directly to activeWorkplane. Default 'vertical'
+          // to match the Workplane ctor and every other call site (was
+          // 'horizontal' here alone — v20260725c papercut sweep).
+          activeWorkplane.mode = state.workplane.mode || 'vertical';
           activeWorkplane.offset = state.workplane.offset || 0;
           activeWorkplane.syncUI();
         }
@@ -11285,6 +11365,10 @@
         if (fgSelect) fgSelect.value = state.frameGuide;
         _currentFrameGuide = state.frameGuide;
       }
+      // Restore Reference Image (v20260724h Phase 2 — undo/redo). Same shared
+      // authoritative helper as importScene; absent in an old undo snapshot
+      // (pre-Phase-2 entries) is treated as "no image", matching capture.
+      applyReferenceImage(state.referenceImage);
       updateMoveToolUI();
       updateRotateToolUI();
       updateScaleToolUI();
@@ -11328,7 +11412,8 @@
         activeCamera.target = [...state.target];
         activeCamera.up = [...state.up];
         activeCamera.fovDegrees = state.fovDegrees;
-        activeCamera.fovRadians = state.fovDegrees * Math.PI / 180;
+        // (fovRadians is a getter derived from fovDegrees — no write needed; the
+        //  old assignment to it was a silent no-op. v20260725c papercut sweep.)
         if (state.name) activeCamera.name = state.name;
       }
       updateCameraList();
@@ -14166,7 +14251,6 @@
       if (!letters.length) {
         const nameEl = document.getElementById('textFontName');
         if (nameEl) nameEl.textContent = 'Nothing to split (no visible glyphs)';
-        letters.forEach(l => l.destroy && l.destroy());
         return false;
       }
 
@@ -15324,9 +15408,12 @@
 
     const applySvgStyles = (element, style) => {
       for (const [key, value] of Object.entries(style)) {
-        // STROKE TRIM (v20260719c): app-internal style keys, not SVG
-        // presentation attributes — consumed by the 2D trim overlay only.
+        // STROKE TRIM (v20260719c) / 3D STROKE (v20260725e): app-internal style
+        // keys, not SVG presentation attributes — consumed by the 2D trim
+        // overlay and the 3D-stroke outline respectively. Writing them as
+        // attributes would emit junk into the DOM and every SVG export.
         if (key === 'stroke-trim-start' || key === 'stroke-trim-end' || key === 'stroke-trim-mode') continue;
+        if (key.startsWith('stroke-3d-')) continue;
         if (key === 'fill' || key === 'stroke') {
           setSvgColor(element, key, value);
         } else if (key === 'mix-blend-mode') {
@@ -16475,28 +16562,6 @@
           i = j;
         }
         return cmds;
-      }
-
-      static evaluateCurveDerivative(seg, t) {
-        if (seg.type === 'L') {
-          return vectorSubtract(seg.pEnd, seg.pStart);
-        } else {
-          // Cubic Derivative: 3(1-t)^2(p1-p0) + 6(1-t)t(p2-p1) + 3t^2(p3-p2)
-          const mt = 1 - t;
-          const k = 3 * mt * mt;
-          const l = 6 * mt * t;
-          const m = 3 * t * t;
-
-          const d1 = vectorSubtract(seg.p1, seg.p0);
-          const d2 = vectorSubtract(seg.p2, seg.p1);
-          const d3 = vectorSubtract(seg.p3, seg.p2);
-
-          return [
-            k * d1[0] + l * d2[0] + m * d3[0],
-            k * d1[1] + l * d2[1] + m * d3[1],
-            k * d1[2] + l * d2[2] + m * d3[2]
-          ];
-        }
       }
 
       static evaluateCurvePoint(seg, t) {
@@ -18510,8 +18575,6 @@
             ops: [], // Store operations instead of string
             zSum: 0,
             count: 0,
-            zSum: 0,
-            count: 0,
             layer: layer,
             subPathId: currentSubPathId, // Use closure variable
             bounds: { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity },
@@ -18559,32 +18622,6 @@
               }
             });
             return d;
-          };
-
-          // Helper to reverse ops for Back Face Correction
-          const getReversedOps = (ops) => {
-            if (!ops.length) return [];
-            // 1. Reverse the array
-            const reversed = [...ops].reverse();
-            const result = [];
-
-            let forceMove = true; // First op must be Move
-
-            reversed.forEach((op, i) => {
-              const type = forceMove ? 'M' : 'L';
-
-              result.push({ type: type, x: op.x, y: op.y });
-
-              // If we hit an original 'M', it marks the end of a segment in valid time order.
-              // In reverse time, it becomes the break point. 
-              // The NEXT op must be a Move (Jump).
-              if (op.type === 'M') {
-                forceMove = true;
-              } else {
-                forceMove = false;
-              }
-            });
-            return result;
           };
 
           // v20260128f: "Seam Stitching" for Closed Loop Subpaths
@@ -23022,6 +23059,33 @@
         return [a, b];
       },
 
+      // _rdp, but returning INDICES into pts instead of the points. Same split
+      // and tie-breaking as _rdp, so _rdpIdx(p,e).map(i => p[i]) === _rdp(p,e)
+      // (selfTest asserts it). The indices are what carry the PROOF _rdp throws
+      // away: a surviving segment whose endpoint indices are not adjacent
+      // swallowed points, i.e. RDP established that span is straight to within
+      // eps. _fitRunClean's lineSpans mode needs that proof — see there.
+      _rdpIdx(pts, eps) {
+        const rec = (lo, hi) => {
+          if (hi - lo < 2) return [lo, hi];
+          const a = pts[lo], b = pts[hi];
+          const abx = b[0] - a[0], aby = b[1] - a[1];
+          const l2 = abx * abx + aby * aby || 1e-12;
+          let dmax = -1, idx = lo;
+          for (let i = lo + 1; i < hi; i++) {
+            let t = ((pts[i][0] - a[0]) * abx + (pts[i][1] - a[1]) * aby) / l2;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            const dx = pts[i][0] - (a[0] + t * abx), dy = pts[i][1] - (a[1] + t * aby);
+            const d = dx * dx + dy * dy;
+            if (d > dmax) { dmax = d; idx = i; }
+          }
+          if (dmax > eps * eps) return rec(lo, idx).slice(0, -1).concat(rec(idx, hi));
+          return [lo, hi];
+        };
+        if (pts.length < 3) return pts.map((_, i) => i);
+        return rec(0, pts.length - 1);
+      },
+
       // Schneider (Graphics Gems 1990) least-squares fit of one corner-free
       // polyline to a chain of cubics. Returns [[p0,c1,c2,p3], …].
       _fitBezier(pts, err) {
@@ -23068,33 +23132,73 @@
       // angle corners, then fit each smooth span. (Doing corner detection
       // before RDP would treat every staircase step as a corner and preserve
       // the jaggies.)
-      _fitRunClean(pts, isLine) {
+      // rdpEps / fitTol are OPTIONAL (v20260725g): they default to the seam
+      // constants, so every pre-existing caller is byte-identical. The 3D-stroke
+      // outliner passes tighter values — a seam only has to land within
+      // SMOOTH_FIT_TOL of its true position, but a stroke EDGE is something the
+      // eye tracks along its whole length, where 0.6 px of fit slack reads as
+      // visible bumpiness.
+      // lineSpans (v20260725l) is OPT-IN and defaults off, so all pre-existing
+      // callers stay byte-identical. When on, a span RDP *proved* straight is
+      // emitted as an exact line instead of being handed to _fitBezier.
+      //
+      // Why that is needed, from a user-reported "a straight path kind of
+      // curves" (a stroked letterform under the 3D Stroke): after RDP, ONE fit
+      // run can hold a 200-px straight letter edge next to 0.3-px join-arc
+      // steps. _fitBezier parameterises by CHORD LENGTH and checks its error
+      // ONLY at the input samples — so the 200-px span becomes t ∈ [0, 0.998]
+      // with no test point inside it, and 99.8% of the curve is unconstrained.
+      // There, its least-squares normal matrix degenerates (the lone interior
+      // sample sits at u ≈ 1, where B1 ≈ B2 ≈ 0), the aL = aR = seg/3 fallback
+      // fires, and the END tangent — inherited from a 0.3-px arc step rotated
+      // ~12° off the chord — plants the second handle 14.6 px off the line.
+      // Measured result: a 6.48-px bow on a dead-straight edge that still
+      // PASSES the 0.05-px tolerance, because the tolerance never looks there.
+      // Subdividing per-sample cannot help: the span has no interior sample to
+      // split at. The straightness proof is the only thing that fixes it, and
+      // RDP already computed it — it just throws it away (hence _rdpIdx).
+      _fitRunClean(pts, isLine, rdpEps, fitTol, lineSpans) {
+        const _eps = (rdpEps === undefined) ? this.SMOOTH_RDP_EPS : rdpEps;
+        const _tol = (fitTol === undefined) ? this.SMOOTH_FIT_TOL : fitTol;
         if (pts.length < 2) return [];
+        const _lp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+        const _lineSeg = (a, b) => [a, _lp(a, b, 1 / 3), _lp(a, b, 2 / 3), b];
         if (isLine) {
           const R = this._rdp(pts, 0.5);
           if (R.length < 2) return [];
           let segs = [];
-          const _lp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-          for (let i = 0; i < R.length - 1; i++) {
-            const a = R[i], b = R[i + 1];
-            segs.push([a, _lp(a, b, 1 / 3), _lp(a, b, 2 / 3), b]);
-          }
+          for (let i = 0; i < R.length - 1; i++) segs.push(_lineSeg(R[i], R[i + 1]));
           return segs;
         }
-        const clean = this._rdp(pts, this.SMOOTH_RDP_EPS);
+        const keep = lineSpans ? this._rdpIdx(pts, _eps) : null;
+        const clean = keep ? keep.map(i => pts[i]) : this._rdp(pts, _eps);
         if (clean.length < 2) return [];
         const cc = this.SMOOTH_CORNER_COS;
-        let segs = [], start = 0;
+        // Break points shared by both modes: genuine angle corners (>32°).
+        // Spans SHARE their boundary vertex (slice(a, b+1), next span starts at
+        // b) — the original start/i handoff, kept so the pieces still chain.
+        const brk = new Set([0, clean.length - 1]);
         for (let i = 1; i < clean.length - 1; i++) {
           const ax = clean[i][0] - clean[i - 1][0], ay = clean[i][1] - clean[i - 1][1];
           const bx = clean[i + 1][0] - clean[i][0], by = clean[i + 1][1] - clean[i][1];
           const la = Math.hypot(ax, ay) || 1e-12, lb = Math.hypot(bx, by) || 1e-12;
-          if ((ax * bx + ay * by) / (la * lb) < cc) {
-            segs = segs.concat(this._fitBezier(clean.slice(start, i + 1), this.SMOOTH_FIT_TOL));
-            start = i;
+          if ((ax * bx + ay * by) / (la * lb) < cc) brk.add(i);
+        }
+        if (keep) {
+          // Isolate every certified-straight span so it can never share a fit
+          // (and therefore a shared tangent) with the short steps beside it.
+          for (let i = 0; i < clean.length - 1; i++) {
+            if (keep[i + 1] - keep[i] > 1) { brk.add(i); brk.add(i + 1); }
           }
         }
-        return segs.concat(this._fitBezier(clean.slice(start), this.SMOOTH_FIT_TOL));
+        const bs = [...brk].sort((a, b) => a - b);
+        let segs = [];
+        for (let k = 0; k < bs.length - 1; k++) {
+          const a = bs[k], b = bs[k + 1];
+          if (keep && b - a === 1 && keep[b] - keep[a] > 1) segs.push(_lineSeg(clean[a], clean[b]));
+          else segs = segs.concat(this._fitBezier(clean.slice(a, b + 1), _tol));
+        }
+        return segs;
       },
 
       // ===== B (exact arcs): emit the TRUE source sub-curve, not a refit =======
@@ -25039,6 +25143,57 @@
             `frags=${on.length} on==off=${dOn === dOff} unit==ref=${unit.dStroke === unitRef.dStroke}`);
         }
 
+        // 35. _rdpIdx / lineSpans (v20260725l). (a) _rdpIdx must agree with
+        //     _rdp point-for-point, or the straightness "proof" indexes the
+        //     wrong span. (b) the reported bug shape — one long straight span
+        //     RDP collapses, followed by short arc steps rotated off its chord
+        //     — must come out DEAD straight with lineSpans on. (c) lineSpans
+        //     off must be byte-identical to the pre-v20260725l fitter, since
+        //     every other caller relies on that.
+        {
+          // The REAL failing polyline, greedily reduced from the 57-point offset
+          // side the 3D-stroke outliner built for the reported scene (a stroked
+          // letter N, trim 33.75–68, strength 5). Points 0→1 are a 200.4-px
+          // DEAD-STRAIGHT letter edge; the rest are 0.2–0.5-px round-join arc
+          // steps and two more straight edges. Real numbers on purpose: a hand
+          // -built synthetic did not reproduce (the bow needs this exact mix of
+          // chord-length parameterisation, a degenerate least-squares solve and
+          // an inherited off-axis end tangent — see _fitRunClean).
+          const P = [[42.794, 48.08], [-31.011, -138.265], [-31.162, -138.551],
+            [-31.372, -138.797], [-32.245, -139.189], [-78.222, -143.145],
+            [-79.507, -143.255], [-80.089, -143.169], [-80.566, -142.825],
+            [-80.832, -142.3], [-80.818, -136.21], [-79.472, 31.81]];
+          const eqIdx = JSON.stringify(this._rdpIdx(P, 0.03).map(i => P[i])) === JSON.stringify(this._rdp(P, 0.03));
+          // Worst deviation of any emitted piece longer than 20 px from its own
+          // chord. Every long piece here IS a straight edge, so the exact answer
+          // is 0 — and the fitter's own tolerance is 0.05 px, which the OLD path
+          // violated by 130× without noticing.
+          const bowOf = (lineSpans) => {
+            let mx = 0;
+            for (const q of this._fitRunClean(P, false, 0.03, 0.05, lineSpans)) {
+              const L = Math.hypot(q[3][0] - q[0][0], q[3][1] - q[0][1]);
+              if (L < 20) continue;
+              const nx = -(q[3][1] - q[0][1]) / L, ny = (q[3][0] - q[0][0]) / L;
+              for (let s = 0; s <= 60; s++) {
+                const tt = s / 60, u = 1 - tt;
+                const x = u * u * u * q[0][0] + 3 * u * u * tt * q[1][0] + 3 * u * tt * tt * q[2][0] + tt * tt * tt * q[3][0];
+                const y = u * u * u * q[0][1] + 3 * u * u * tt * q[1][1] + 3 * u * tt * tt * q[2][1] + tt * tt * tt * q[3][1];
+                const dv = Math.abs((x - q[0][0]) * nx + (y - q[0][1]) * ny);
+                if (dv > mx) mx = dv;
+              }
+            }
+            return mx;
+          };
+          const bowOn = bowOf(true), bowOff = bowOf(false);
+          // (c) legacy-neutral: default-arg call on a plain flattened arc run
+          const arc = [];
+          for (let i = 0; i <= 24; i++) { const a = i / 24 * 1.4; arc.push([60 * Math.cos(a), 60 * Math.sin(a)]); }
+          const legacy = JSON.stringify(this._fitRunClean(arc, false)) === JSON.stringify(this._fitRunClean(arc, false, undefined, undefined, false));
+          t('lineSpans: _rdpIdx matches _rdp, RDP-certified straight span stays straight, default off unchanged',
+            eqIdx && bowOn < 0.02 && bowOff > 3 && legacy,
+            `idxEq=${eqIdx} bowOn=${bowOn.toFixed(4)}px bowOff=${bowOff.toFixed(3)}px legacyNeutral=${legacy}`);
+        }
+
         console.table(results);
         const pass = results.every(r => r.ok === 'PASS');
         console.log(pass ? '[RenderIntersections] selfTest: ALL PASS' : '[RenderIntersections] selfTest: FAILURES — see table');
@@ -25449,7 +25604,6 @@
             }
             if (!runs.length) continue;
             any = true;
-            if (hits > NS) { /* unreachable */ }
             const bothOutline = curves[i].kind === 'outline' && curves[j].kind === 'outline'
               && curves[i].faces && curves[j].faces;
             if (hits === NS + 1) {                       // whole-curve coincidence
@@ -26894,47 +27048,6 @@
         return null;
       },
 
-      // Robust depth for classification probes (V3b): near a silhouette
-      // fold the shared Newton oracle (_xrRayDepth) legitimately fails
-      // (det → 0, two sheets merging) and returns null — measured on
-      // ix_05: the column ribbon COVERS the cell but cannot answer, so a
-      // behind face wins and a rim band misfills. Classification only
-      // needs a branch-correct estimate, so fall back to a pattern search
-      // over (t, w) accepting the nearest surface point's z when it lies
-      // within 2 px of the probe. PathRender-only — the shared oracle and
-      // the painter pipeline are untouched.
-      _xrDepthRobust(rec, x, y) {
-        // The screen-distance function over (t, w) is MULTI-MODAL on a
-        // folded ribbon (measured: nearest-seed descent stuck 11 px away
-        // while another ruling passes 1.2 px from the probe) — so scan the
-        // whole rectangle coarsely first, then refine the best basin.
-        const RI = RenderIntersections;
-        const tMax = RI._xrTMax(rec.xr);
-        let t = 0, w = 0, bd = Infinity, bz = 0;
-        for (let i = 0; i <= 64; i++) for (let j = 0; j <= 16; j++) {
-          const tt = tMax * i / 64, ww = -0.25 + 1.5 * j / 16;
-          const s = RI._xrScreen(rec.xr, tt, ww);
-          if (!s) continue;
-          const d2 = (s.x - x) * (s.x - x) + (s.y - y) * (s.y - y);
-          if (d2 < bd) { bd = d2; t = tt; w = ww; bz = s.z; }
-        }
-        if (!isFinite(bd)) return null;
-        let sT = tMax / 64, sW = 1.5 / 16;
-        for (let it = 0; it < 60; it++) {
-          let improved = false;
-          for (const [dt, dw] of [[sT, 0], [-sT, 0], [0, sW], [0, -sW]]) {
-            const t2 = Math.min(tMax + 0.5, Math.max(-0.5, t + dt));
-            const w2 = Math.min(1.5, Math.max(-0.5, w + dw));
-            const q = RI._xrScreen(rec.xr, t2, w2);
-            if (!q) continue;
-            const d2 = (q.x - x) * (q.x - x) + (q.y - y) * (q.y - y);
-            if (d2 < bd) { bd = d2; t = t2; w = w2; bz = q.z; improved = true; }
-          }
-          if (!improved) { sT /= 2; sW /= 2; if (sT < 1e-4 && sW < 1e-4) break; }
-        }
-        return bd < 4 ? bz : null;                 // within 2 px of the probe
-      },
-
       // ---- sheet-true xr probes (S2) ----------------------------------------
       // A silhouette-split rec is SINGLE-SHEETED, but its (t,w)
       // parameterization is the whole surface: the screen map folds, and a
@@ -27495,7 +27608,8 @@
       // hash collisions) and reuse it. Static frames (panel edits, selection,
       // other-object animation) skip the whole pipeline; declines are cached
       // too (a declined group otherwise pays the full pipeline every frame
-      // just to fall back). Small LRU — multiple pathRender groups cycle it.
+      // just to fall back). Small TRUE LRU (16 entries, touch-on-hit since
+      // v20260725d) — multiple pathRender groups cycle it.
       FRAME_CACHE: true,
       LINE_ART: false,          // V3d: hidden-line drawing (set per group by the caller)
       LINE_ART_COLOR: null,     // uniform line-art stroke color (null = per-face colors)
@@ -27528,6 +27642,16 @@
         if (!this._frameCache) this._frameCache = new Map();
         const hit = this._frameCache.get(key);
         if (hit) {
+          // LRU touch (v20260725d): Map iteration order is INSERTION order and
+          // the eviction below drops keys().next() — so without re-inserting on
+          // a hit, "oldest inserted" was evicted regardless of recency (a FIFO
+          // wearing an LRU label). Re-insert the SAME hit object (a decline
+          // entry is {els:null, stats:undefined} — re-wrapping would lose that)
+          // so the evictor drops the least-recently-USED key instead. Applies to
+          // declines too: they are cached precisely so a declined group doesn't
+          // re-run the whole pipeline every frame just to fall back.
+          this._frameCache.delete(key);
+          this._frameCache.set(key, hit);
           // declines leave this.stats untouched — same contract as a re-run
           if (hit.els) this.stats = hit.stats;
           return hit.els;
@@ -28483,6 +28607,8 @@
           pointSize: 5.0,
           pointColor: '#0000ff',
           pointShape: 'circle',
+          // vestigial for extrude (side color = useSideColor/sideColor above);
+          // kept for serialization stability
           useSurfaceColor: false,
           surfaceColor: '#888888'
         };
@@ -28997,6 +29123,8 @@
           pointSize: 5.0,
           pointColor: '#0000ff',
           pointShape: 'circle',
+          // vestigial for extrude (side color = useSideColor/sideColor above);
+          // kept for serialization stability
           useSurfaceColor: false,
           surfaceColor: '#888888'
         };
@@ -31402,15 +31530,22 @@
       // concatenated length of all subpaths in draw order (write-on effect);
       // default = each subpath trimmed Individually by the same %. For a
       // single-subpath path the two modes are identical (grand == total).
-      _buildTrimStrokeD(mvpMatrix, sFrac, eFrac, mode) {
-        if (!(eFrac > sFrac)) return '';
+      // The ONE definition of "which arc-length window of each subpath does the
+      // trim cover" (v20260725j). Extracted from _buildTrimStrokeD so the 3D
+      // Stroke outliner can bound its sampler to exactly the same window — two
+      // separate derivations would drift by a rounding step and a trimmed 3D
+      // stroke would silently end somewhere the flat trimmed stroke does not.
+      // Returns one entry per NON-EMPTY subpath, in draw order.
+      _trimWindows(sFrac, eFrac, mode) {
+        if (!(eFrac > sFrac)) return [];
         const data = this._trimArcData();
         const sequential = mode === 'sequential';
         let grand = 0;
         if (sequential) for (const sub of data.subs) grand += sub.total;
         let seqOffset = 0;
-        let d = '';
-        for (const sub of data.subs) {
+        const out = [];
+        for (let si = 0; si < data.subs.length; si++) {
+          const sub = data.subs[si];
           let startLen, endLen;
           if (sequential) {
             startLen = sFrac * grand - seqOffset;
@@ -31423,6 +31558,16 @@
             endLen = eFrac * sub.total;
           }
           if (sub.total <= 1e-9 || !(endLen > startLen)) continue;
+          out.push({ subIndex: si, sub, startLen, endLen });
+        }
+        return out;
+      }
+
+      _buildTrimStrokeD(mvpMatrix, sFrac, eFrac, mode) {
+        if (!(eFrac > sFrac)) return '';
+        let d = '';
+        for (const win of this._trimWindows(sFrac, eFrac, mode)) {
+          const sub = win.sub, startLen = win.startLen, endLen = win.endLen;
           let penDown = false;
           for (let i = 0; i < sub.segs.length; i++) {
             const segStart = sub.cum[i], segEnd = sub.cum[i + 1];
@@ -31448,6 +31593,522 @@
           }
         }
         return d.trim();
+      }
+
+      // --- 3D STROKE (v20260725e) -------------------------------------------
+      // Depth-varying stroke width: thick near, thin far, VARYING WITHIN one
+      // stroke. SVG cannot express this on a <path> stroke, so the stroke is
+      // OUTLINED into a closed FILLED path (the Illustrator Width Tool model) —
+      // one clean <path> per object, not a stamped run of circles (which would
+      // explode element count, break the Illustrator round-trip, and
+      // double-darken at every overlap under stroke-opacity < 1).
+      //
+      // App-internal style keys (the stroke-trim-* template, §8.2): absent =
+      // feature off = byte-identical legacy output.
+      // Fit tolerances for the 3D-stroke outline (px). Tunable/measurable — see
+      // _build3dStrokeD. Kept as statics so a harness can sweep them.
+      static get STROKE3D_RDP_EPS() { return 0.03; }
+      static get STROKE3D_FIT_TOL() { return 0.05; }
+
+      _stroke3dParams() {
+        const st = this.style || {};
+        const mode = st['stroke-3d-mode'];
+        if (mode !== 'perspective' && mode !== 'range') return null;
+        let strength = parseFloat(st['stroke-3d-strength']);
+        if (!isFinite(strength)) strength = 1;
+        let near = parseFloat(st['stroke-3d-near']);
+        let far = parseFloat(st['stroke-3d-far']);
+        if (!isFinite(near)) near = 200;
+        if (!isFinite(far)) far = 40;
+        return { mode, strength, near: near / 100, far: far / 100 };
+      }
+
+      // Build the outline 'd' (a FILLED region, fill-rule nonzero) for the
+      // depth-varying stroke. baseHalf is the half-width in frame units at the
+      // REFERENCE depth — the caller derives it from the same
+      // getEffectiveStrokeWidth() every other stroke uses, so the Camera tab's
+      // "Scale Stroke with Zoom" keeps governing overall thickness globally
+      // while this only redistributes thickness ALONG the stroke.
+      // Returns '' when degenerate (caller then leaves the normal stroke alone).
+      // Returns an ARRAY of pieces [{d, z}] ordered FAR → NEAR. With occlude
+      // off there is exactly one piece per subpath run and concatenating their
+      // d strings reproduces the single-path output byte-for-byte.
+      _build3dStrokeD(mvpMatrix, baseHalf, prm, styleCap, styleJoin, occlude, trim) {
+        const SEG_SAMPLES = 10;
+        const evalC = (g, t) => {
+          const u = 1 - t;
+          const a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, dd = t * t * t;
+          return [
+            a * g.p0[0] + b * g.p1[0] + c * g.p2[0] + dd * g.p3[0],
+            a * g.p0[1] + b * g.p1[1] + c * g.p2[1] + dd * g.p3[1],
+            a * (g.p0[2] || 0) + b * (g.p1[2] || 0) + c * (g.p2[2] || 0) + dd * (g.p3[2] || 0)
+          ];
+        };
+        // 1. Sample each SUBPATH into its own run (command:'M' marks subpath
+        //    starts — runs must never be joined or a compound path grows a
+        //    bridge between its letters/islands).
+        const runs = [];
+        if (trim) {
+          // TRIM + 3D STROKE composed (v20260725j): sample ONLY the trimmed
+          // arc-length window, so the outline covers exactly the span the flat
+          // trimmed stroke would have drawn. The window comes from the SHARED
+          // _trimWindows — deriving it a second time here would drift from
+          // _buildTrimStrokeD by a rounding step and the trimmed 3D stroke
+          // would end somewhere the flat one does not. Everything downstream
+          // (depth→width, joins, caps, fitting, self-occlusion) then needs no
+          // knowledge of trim at all: bounding the SAMPLER is the whole change.
+          for (const win of this._trimWindows(trim.sFrac, trim.eFrac, trim.mode)) {
+            const sub = win.sub, startLen = win.startLen, endLen = win.endLen;
+            const cur = [];
+            for (let i = 0; i < sub.segs.length; i++) {
+              const segStart = sub.cum[i], segEnd = sub.cum[i + 1];
+              if (segEnd <= startLen || segStart >= endLen) continue;
+              const entry = sub.segs[i];
+              // EXACT boundary t values (same inversion _buildTrimStrokeD uses),
+              // so the run starts/ends precisely on the trim point rather than
+              // at the nearest sample.
+              const t0 = segStart >= startLen ? 0 : Path._trimArcToT(entry, startLen - segStart);
+              const t1 = segEnd <= endLen ? 1 : Path._trimArcToT(entry, endLen - segStart);
+              if (!(t1 > t0)) continue;
+              // Density proportional to the COVERED fraction: a 5%-of-a-segment
+              // sliver must not get the same sample count as a full segment, or
+              // the fitter burns anchors on nothing. Floor of TWO intervals, not
+              // one (v20260725l): a span with no INTERIOR sample gives the
+              // fitter no evidence that it is straight, so _fitRunClean's
+              // lineSpans rule cannot certify it and a long trimmed sliver could
+              // still be bowed by a neighbouring join's tangent.
+              const N = Math.max(2, Math.ceil(SEG_SAMPLES * (t1 - t0)));
+              for (let k = (cur.length ? 1 : 0); k <= N; k++) {
+                cur.push(evalC(entry.seg, t0 + (t1 - t0) * k / N));
+              }
+            }
+            if (cur.length >= 2) runs.push(cur);
+          }
+        } else {
+          let cur = null;
+          for (const seg of this.getBezierSegments()) {
+            if (seg.command === 'M' || !cur) { cur = []; runs.push(cur); }
+            for (let i = (cur.length ? 1 : 0); i <= SEG_SAMPLES; i++) cur.push(evalC(seg, i / SEG_SAMPLES));
+          }
+        }
+        // 2. Project. transformVertex returns [x/w, y/w, z/w, w]; w IS the
+        //    perspective depth divisor, which is exactly the quantity a
+        //    constant-world-radius tube's projected width scales by.
+        const projRuns = [];
+        let wSum = 0, wCount = 0, dMin = Infinity, dMax = -Infinity;
+        let wMin = Infinity, wMax = -Infinity;
+        for (const run of runs) {
+          const out = [];
+          let bad = false;
+          for (const p of run) {
+            const s = transformVertex(p, mvpMatrix);
+            if (!s) { bad = true; break; }             // behind the eye — drop this run
+            const q = {
+              x: (s[0] * FRAME_SIZE) / 2, y: (-s[1] * FRAME_SIZE) / 2,
+              z: s[2], w: s[3]
+            };
+            // drop duplicate consecutive samples (a zero-length edge gives a NaN normal)
+            const pv = out[out.length - 1];
+            if (pv && Math.abs(pv.x - q.x) < 1e-9 && Math.abs(pv.y - q.y) < 1e-9) continue;
+            out.push(q);
+            wSum += q.w; wCount++;
+            if (q.w < wMin) wMin = q.w; if (q.w > wMax) wMax = q.w;
+            if (q.z < dMin) dMin = q.z; if (q.z > dMax) dMax = q.z;
+          }
+          if (!bad && out.length >= 2) projRuns.push(out);
+        }
+        if (!projRuns.length || !wCount) return [];
+        // 3. Depth → width factor.
+        //    perspective: ratio = wRef / w — the exact projected-size law for a
+        //      tube of constant world radius. Normalized by the MEAN w so the
+        //      stroke's average weight is unchanged and only its DISTRIBUTION
+        //      varies (global thickness stays with Scale Stroke with Zoom).
+        //      In orthographic w does not vary ⇒ ratio 1 ⇒ constant width,
+        //      which is physically correct — use 'range' mode for a stylistic
+        //      taper in ortho.
+        //    range: linear map of depth across the object's own span.
+        const wRef = wSum / wCount;
+        const wVaries = (wMax - wMin) > Math.abs(wRef) * 1e-4;
+        const dSpan = dMax - dMin;
+        // EFFECTIVE STRENGTH (v20260725k). Strength blends additively:
+        //   f = 1 + strength·(g − 1),  g = the raw depth factor.
+        // At high strength that goes NEGATIVE at the far end (g < 1), and the
+        // old per-sample max(0.02, …) floor then pinned just those samples —
+        // which BENDS a straight stroke's edge, because the edge is only exactly
+        // collinear while f stays affine in the screen parameter (1/w is affine
+        // along a projected straight line, and so is any affine function of it).
+        // Measured on a straight line: 0.000 px deviation up to strength 3, then
+        // 0.24 px at 5 and 2.64 px at 8, with the fitter subdividing 2 → 6 curves.
+        // Fix: bound the strength ONCE per stroke from the factor's own extremes
+        // so no sample can leave [F_FLOOR, F_CEIL]. A single scalar keeps f
+        // affine ⇒ straight stays exactly straight, width stays positive, and a
+        // too-large Strength SATURATES instead of distorting geometry.
+        const F_FLOOR = 0.02, F_CEIL = 8;
+        let gMin, gMax;
+        if (prm.mode === 'perspective') {
+          if (wVaries && wMin > 1e-9 && wMax > 1e-9) { gMin = wRef / wMax; gMax = wRef / wMin; }
+          else { gMin = 1; gMax = 1; }
+        } else { gMin = Math.min(prm.near, prm.far); gMax = Math.max(prm.near, prm.far); }
+        let sEff = prm.strength;
+        if (gMin < 1) sEff = Math.min(sEff, (1 - F_FLOOR) / (1 - gMin));
+        if (gMax > 1) sEff = Math.min(sEff, (F_CEIL - 1) / (gMax - 1));
+        if (!isFinite(sEff) || sEff < 0) sEff = 0;
+        const factorOf = (q) => {
+          let f;
+          if (prm.mode === 'perspective') {
+            f = (wVaries && Math.abs(q.w) > 1e-9) ? (wRef / q.w) : 1;
+          } else {
+            // nearest sample => 'near' width. Use w when it varies (linear view
+            // depth under perspective), else NDC z (the only depth that varies
+            // in ortho/oblique).
+            let u;
+            if (wVaries) u = (wMax - wMin) > 1e-12 ? (q.w - wMin) / (wMax - wMin) : 0;
+            else u = dSpan > 1e-12 ? (q.z - dMin) / dSpan : 0;
+            f = prm.near + (prm.far - prm.near) * u;
+          }
+          f = 1 + sEff * (f - 1);        // Strength: 0 = flat, 1 = true (sEff saturates)
+          // Safety net only — sEff is chosen so this can no longer bind on a
+          // sampled point. Kept as a NaN / degenerate-input guard.
+          return Math.max(F_FLOOR, Math.min(F_CEIL, f));
+        };
+        // 2b. SELF-OCCLUSION (v20260725h): find every screen-space self-crossing
+        // of the centreline — within a run AND between runs — so the nearer
+        // strand can paint over the farther one instead of the whole stroke
+        // reading as one flat ribbon.
+        //
+        // Load-bearing rule: at a crossing, split ONLY the FARTHER strand. The
+        // nearer strand stays continuous and covers the farther one's butt
+        // joint, so no crack shows. Splitting both would leave the NEAR strand
+        // with a seam exactly at the crossing, where nothing covers it.
+        const crossings = [];                       // {ra,pa,za, rb,pb,zb}
+        if (occlude) {
+          const lerpN = (a, b, t) => (a + (b - a) * t);
+          for (let ra = 0; ra < projRuns.length; ra++) {
+            const A = projRuns[ra];
+            for (let rb = ra; rb < projRuns.length; rb++) {
+              const B = projRuns[rb];
+              for (let i = 0; i + 1 < A.length; i++) {
+                // within one run skip self + adjacent segments (they legitimately touch)
+                const jStart = (rb === ra) ? i + 2 : 0;
+                for (let j = jStart; j + 1 < B.length; j++) {
+                  const p1 = A[i], p2 = A[i + 1], p3 = B[j], p4 = B[j + 1];
+                  // cheap bbox reject first — this loop is O(n²) over samples
+                  if (Math.min(p1.x, p2.x) > Math.max(p3.x, p4.x) || Math.max(p1.x, p2.x) < Math.min(p3.x, p4.x)
+                    || Math.min(p1.y, p2.y) > Math.max(p3.y, p4.y) || Math.max(p1.y, p2.y) < Math.min(p3.y, p4.y)) continue;
+                  const d1x = p2.x - p1.x, d1y = p2.y - p1.y, d2x = p4.x - p3.x, d2y = p4.y - p3.y;
+                  const den = d1x * d2y - d1y * d2x;
+                  if (Math.abs(den) < 1e-12) continue;          // parallel
+                  const ex = p3.x - p1.x, ey = p3.y - p1.y;
+                  const ua = (ex * d2y - ey * d2x) / den;
+                  const ub = (ex * d1y - ey * d1x) / den;
+                  if (ua <= 1e-9 || ua >= 1 - 1e-9 || ub <= 1e-9 || ub >= 1 - 1e-9) continue;
+                  crossings.push({
+                    ra, pa: i + ua, za: lerpN(p1.z, p2.z, ua), wa: lerpN(p1.w, p2.w, ua),
+                    rb, pb: j + ub, zb: lerpN(p3.z, p4.z, ub), wb: lerpN(p3.w, p4.w, ub)
+                  });
+                }
+              }
+            }
+          }
+          // BREAK the farther strand at each crossing (smaller z = nearer, the
+          // app-wide painter convention). A gap — not merely a cut — is what
+          // makes self-occlusion VISIBLE: two opaque same-coloured pieces have
+          // the same union whichever order they paint in, so paint order alone
+          // changes nothing on screen. Retracting the far strand by a little
+          // more than the near strand's half-width leaves the classic
+          // knot-diagram break, and it is pure geometry — it composites
+          // correctly over any artwork and exports as real vector, unlike a
+          // background-coloured "halo" fake.
+          const spacingAt = (pp, p) => {
+            const i = Math.min(pp.length - 2, Math.max(0, Math.floor(p)));
+            return Math.hypot(pp[i + 1].x - pp[i].x, pp[i + 1].y - pp[i].y) || 1e-6;
+          };
+          const gapsFor = projRuns.map(() => []);
+          for (const c of crossings) {
+            if (Math.abs(c.za - c.zb) < 1e-12) continue;        // coplanar touch — leave merged
+            const aFar = c.za > c.zb;
+            const rFar = aFar ? c.ra : c.rb, pFar = aFar ? c.pa : c.pb;
+            // half-width of the NEAR strand at the crossing, in screen units
+            const nearQ = aFar ? { z: c.zb, w: c.wb } : { z: c.za, w: c.wa };
+            const hwNear = Math.max(1e-4, baseHalf * factorOf(nearQ));
+            // The break must clear the covering strand's HALF-WIDTH plus a
+            // margin, or it is hidden underneath and reads as no break at all.
+            // ~0.45 of the base half-width is the usual knot-diagram look.
+            const gScreen = hwNear + Math.max(2, baseHalf * 0.45);
+            const gParam = gScreen / spacingAt(projRuns[rFar], pFar);
+            gapsFor[rFar].push([pFar - gParam, pFar + gParam]);
+          }
+          const lerpPt = (a, b, t) => ({
+            x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t,
+            z: a.z + (b.z - a.z) * t, w: a.w + (b.w - a.w) * t
+          });
+          const outRuns = [];
+          for (let r = 0; r < projRuns.length; r++) {
+            const pts = projRuns[r];
+            const LEN = pts.length - 1;
+            // merge overlapping gaps (two crossings close together share one break)
+            let gs = gapsFor[r].slice().sort((a, b) => a[0] - b[0]);
+            const merged = [];
+            for (const g of gs) {
+              const last = merged[merged.length - 1];
+              if (last && g[0] <= last[1] + 1e-9) last[1] = Math.max(last[1], g[1]);
+              else merged.push([g[0], g[1]]);
+            }
+            if (!merged.length) { outRuns.push({ pts, run: r, from: 0, to: LEN, len: LEN }); continue; }
+            const closedR = Math.hypot(pts[0].x - pts[LEN].x, pts[0].y - pts[LEN].y) < 1e-6 && pts.length > 2;
+            const wrapP = (p) => closedR ? (((p % LEN) + LEN) % LEN) : Math.min(LEN, Math.max(0, p));
+            const atP = (p) => {
+              const q = wrapP(p);
+              const i = Math.min(LEN - 1, Math.max(0, Math.floor(q)));
+              return lerpPt(pts[i], pts[i + 1], Math.min(1, Math.max(0, q - i)));
+            };
+            const sliceP = (s, e) => {                // s → e (e may exceed LEN when wrapping)
+              const arr = [atP(s)];
+              for (let k = Math.ceil(s + 1e-9); k <= Math.floor(e - 1e-9); k++) arr.push(atP(k));
+              arr.push(atP(e));
+              return arr;
+            };
+            // Pieces are the COMPLEMENT of the gaps. On a closed run the gap
+            // itself opens the loop, so no synthetic seam is needed — one
+            // crossing yields one arc that simply starts and ends at the break.
+            const spans = [];
+            if (closedR) {
+              for (let k = 0; k < merged.length; k++) {
+                const s = merged[k][1];
+                const e = (k + 1 < merged.length) ? merged[k + 1][0] : merged[0][0] + LEN;
+                if (e - s > 1e-6) spans.push([s, e]);
+              }
+            } else {
+              let prev = 0;
+              for (const g of merged) {
+                if (g[0] - prev > 1e-6) spans.push([prev, Math.min(LEN, g[0])]);
+                prev = Math.max(prev, g[1]);
+              }
+              if (LEN - prev > 1e-6) spans.push([prev, LEN]);
+            }
+            for (const [s, e] of spans) {
+              const seg = sliceP(s, e);
+              if (seg.length >= 2) outRuns.push({ pts: seg, run: r, from: s, to: e, len: LEN });
+            }
+          }
+          projRuns.length = 0;
+          for (const o of outRuns) { projRuns.push(o.pts); projRuns[projRuns.length - 1]._meta = o; }
+        }
+        // 4. Offset both sides in screen space and emit.
+        // The two offset sides are REFIT TO CUBIC BÉZIERS (v20260725f) rather
+        // than emitted as raw polylines, so the exported outline is a compact
+        // editable curve in Illustrator instead of a few hundred anchors.
+        // RenderIntersections._fitRunClean is the app's existing fitter and is
+        // the right one here: it RDP-simplifies FIRST (0.3 px), then splits at
+        // genuine angle corners (>32°) and fits each smooth span separately
+        // (0.6 px tolerance) — so a hard corner in the source path stays a hard
+        // corner in the outline instead of being rounded off by a fit that ran
+        // straight through it. It preserves first/last points exactly, which is
+        // what lets the caps and the Z closure still meet without a crack.
+        const fmt = (n) => (Math.abs(n) < 1e-4 ? 0 : +n.toFixed(3));
+        const RI3 = RenderIntersections;
+        // Tighter than the seam defaults (0.3 / 0.6): a stroke EDGE is tracked by
+        // the eye along its length, so fit slack shows up as bumpiness. Chosen by
+        // measuring radial ripple on a front-on stroked circle (exact answer =
+        // two concentric rings) against anchor count — see the changelog table.
+        const FIT_RDP_EPS = Path.STROKE3D_RDP_EPS, FIT_TOL = Path.STROKE3D_FIT_TOL;
+        const fitSide = (arr) => {
+          if (arr.length < 2) return null;
+          let segs = null;
+          // lineSpans = true (v20260725l): a stroke outline mixes long straight
+          // letter edges with 0.3-px join/cap arc steps in ONE run, which is
+          // exactly the case where a chord-length least-squares fit bows a
+          // straight edge by several px without tripping its own tolerance.
+          try { segs = RI3._fitRunClean(arr, false, FIT_RDP_EPS, FIT_TOL, true); } catch (e) { segs = null; }
+          return (segs && segs.length) ? segs : null;
+        };
+        // "C ..." for each fitted cubic; the caller has already emitted the
+        // starting point (via M or a cap arc), so no M is written here.
+        const curvesOf = (segs) => segs.map(q =>
+          `C ${fmt(q[1][0])} ${fmt(q[1][1])}, ${fmt(q[2][0])} ${fmt(q[2][1])}, ${fmt(q[3][0])} ${fmt(q[3][1])}`).join(' ');
+        const pieces = [];       // one per run (per SPLIT run when occluding)
+        // Join/cap semantics come from the SAME style keys a flat stroke uses, so
+        // a 3D stroke looks like its 2D self. Absent keys fall back to the SVG
+        // defaults (butt / miter) exactly as a plain <path> stroke would.
+        // 'miter-clip' and 'arcs' are SVG2 values with little real support — map
+        // them to their closest classic behaviour rather than silently ignoring.
+        const _lj0 = (styleJoin || 'miter');
+        const join = _lj0 === 'miter-clip' ? 'miter' : (_lj0 === 'arcs' ? 'round' : _lj0);
+        const cap = styleCap || 'butt';
+        const MITER_LIMIT = 4;                       // SVG default
+        const CORNER_DOT = Math.cos(28 * Math.PI / 180); // above this = smooth, use the exact miter point
+        for (const pts of projRuns) {
+          let d = '';
+          const n = pts.length;
+          const closed = Math.hypot(pts[0].x - pts[n - 1].x, pts[0].y - pts[n - 1].y) < 1e-6 && n > 2;
+          const hw = pts.map(q => Math.max(1e-4, baseHalf * factorOf(q)));
+          // Unit direction of every edge. Unit-normalizing BEFORE any averaging is
+          // what makes the offset independent of sample spacing — a raw central
+          // difference (p[i+1]-p[i-1]) is biased toward whichever neighbour is
+          // farther, and under perspective the screen spacing varies strongly
+          // along one stroke, which is what made curves look wavy.
+          const dirs = [];
+          for (let i = 0; i < n - 1; i++) {
+            const dx = pts[i + 1].x - pts[i].x, dy = pts[i + 1].y - pts[i].y;
+            const l = Math.hypot(dx, dy) || 1e-12;
+            dirs.push([dx / l, dy / l]);
+          }
+          if (!dirs.length) continue;
+          const nE = dirs.length;
+          // Build one side (sign +1 / -1) start→end, inserting join geometry.
+          const buildSide = (sign) => {
+            const out = [];
+            const perp = (dd) => [-dd[1] * sign, dd[0] * sign];
+            const push = (p) => {
+              const q = out[out.length - 1];
+              if (!q || Math.abs(q[0] - p[0]) > 1e-7 || Math.abs(q[1] - p[1]) > 1e-7) out.push(p);
+            };
+            const joinAt = (i, kIn, kOut) => {
+              const d0 = dirs[kIn], d1 = dirs[kOut], c = pts[i], h = hw[i];
+              const dot = d0[0] * d1[0] + d0[1] * d1[1];
+              const crs = d0[0] * d1[1] - d0[1] * d1[0];
+              const sx = d0[0] + d1[0], sy = d0[1] + d1[1];
+              const L2 = sx * sx + sy * sy;
+              // EXACT offset intersection ("miter point"). |d0+d1| = 2cos(φ/2),
+              // so the true offset vertex is h/cos(φ/2) along the bisector normal,
+              // which reduces to this closed form. Using it on smooth spans is
+              // what removes the bumpiness: offsetting a mere h along the bisector
+              // lands INSIDE the true offset by h·(1−cos(φ/2)), and that error
+              // grows and shrinks with the local turn.
+              const miter = L2 > 1e-12
+                ? [c.x + (-sy * sign) * (2 * h / L2), c.y + (sx * sign) * (2 * h / L2)] : null;
+              if (dot > CORNER_DOT && miter) { push(miter); return; }   // smooth span
+              const nA = perp(d0), nB = perp(d1);
+              const pA = [c.x + nA[0] * h, c.y + nA[1] * h];
+              const pB = [c.x + nB[0] * h, c.y + nB[1] * h];
+              // perp() points to the RIGHT of travel in the y-down SVG frame, so
+              // this side is the OUTSIDE of the turn when sign·cross < 0. The
+              // inner side's two offsets simply cross; nonzero fill absorbs the
+              // overlap, which is exactly the union we want.
+              if (sign * crs >= 0) { push(pA); push(pB); return; }
+              if (join === 'miter' && miter) {
+                const ml = 2 / Math.sqrt(L2);                 // = 1/cos(φ/2)
+                if (ml <= MITER_LIMIT) { push(pA); push(miter); push(pB); return; }
+                push(pA); push(pB); return;                    // over the limit ⇒ bevel (SVG rule)
+              }
+              if (join === 'round') {
+                // Sweep the outer normal through the turn. nB is exactly nA
+                // rotated by the turn angle (perp is itself a rotation), so
+                // rotating avoids any atan2 wrap-around.
+                const turn = Math.atan2(crs, dot);
+                const K = Math.max(2, Math.ceil(Math.abs(turn) / (Math.PI / 12)));
+                for (let k = 0; k <= K; k++) {
+                  const a = turn * k / K, ca = Math.cos(a), sa = Math.sin(a);
+                  push([c.x + (nA[0] * ca - nA[1] * sa) * h, c.y + (nA[0] * sa + nA[1] * ca) * h]);
+                }
+                return;
+              }
+              push(pA); push(pB);                              // bevel
+            };
+            if (closed) {
+              for (let i = 0; i < nE; i++) joinAt(i, (i - 1 + nE) % nE, i);
+            } else {
+              const n0 = perp(dirs[0]);
+              push([pts[0].x + n0[0] * hw[0], pts[0].y + n0[1] * hw[0]]);
+              for (let i = 1; i <= nE - 1; i++) joinAt(i, i - 1, i);
+              const nZ = perp(dirs[nE - 1]);
+              push([pts[n - 1].x + nZ[0] * hw[n - 1], pts[n - 1].y + nZ[1] * hw[n - 1]]);
+            }
+            return out;
+          };
+          const L = buildSide(1), R = buildSide(-1);
+          if (L.length < 2 || R.length < 2) continue;
+          const poly = (arr) => arr.map(p => `${fmt(p[0])} ${fmt(p[1])}`).join(' L ');
+          const M = (p) => `M ${fmt(p[0])} ${fmt(p[1])} `;
+          const Lp = (p) => `L ${fmt(p[0])} ${fmt(p[1])} `;
+          if (closed) {
+            // Annulus: L forward + R REVERSED gives opposite winding, so
+            // fill-rule nonzero leaves the interior hollow.
+            const Rc = R.slice().reverse();
+            const lf = fitSide(L), rf = fitSide(Rc);
+            if (lf && rf) d += M(L[0]) + curvesOf(lf) + ' Z ' + M(Rc[0]) + curvesOf(rf) + ' Z ';
+            else d += `M ${poly(L)} Z M ${poly(Rc)} Z `;
+          } else {
+            const Rr = R.slice().reverse();          // end → start
+            const hEnd = hw[n - 1], hStart = hw[0];
+            const tEnd = dirs[nE - 1], tStart = dirs[0];
+            // Cap geometry between the two sides. BUTT is a plain straight edge
+            // (the SVG default and previously missing); ROUND is a semicircular
+            // arc; SQUARE extends both sides a half-width along the tangent.
+            // sweep-flag 0: the L→R end cap runs +90°→−90° through 0° (the
+            // FORWARD direction) = DECREASING angle in the y-down SVG frame.
+            // sweep 1 takes the short way round the other side and bulges the cap
+            // INWARD — a notch (caught originally by a bbox test: a true round cap
+            // pushes the bbox a half-width PAST the centreline endpoint).
+            const capEnd = cap === 'round'
+              ? `A ${fmt(hEnd)} ${fmt(hEnd)} 0 0 0 ${fmt(Rr[0][0])} ${fmt(Rr[0][1])} `
+              : cap === 'square'
+                ? Lp([L[L.length - 1][0] + tEnd[0] * hEnd, L[L.length - 1][1] + tEnd[1] * hEnd])
+                + Lp([Rr[0][0] + tEnd[0] * hEnd, Rr[0][1] + tEnd[1] * hEnd]) + Lp(Rr[0])
+                : Lp(Rr[0]);
+            const capStart = cap === 'round'
+              ? `A ${fmt(hStart)} ${fmt(hStart)} 0 0 0 ${fmt(L[0][0])} ${fmt(L[0][1])} Z `
+              : cap === 'square'
+                ? Lp([Rr[Rr.length - 1][0] - tStart[0] * hStart, Rr[Rr.length - 1][1] - tStart[1] * hStart])
+                + Lp([L[0][0] - tStart[0] * hStart, L[0][1] - tStart[1] * hStart]) + 'Z '
+                : 'Z ';
+            const lf = fitSide(L), rf = fitSide(Rr);
+            if (lf && rf) {
+              // The fitter preserves first/last points exactly, so the fitted L
+              // ends on L[last] and the fitted return starts on Rr[0] — the caps
+              // meet both sides with no crack.
+              d += M(L[0]) + curvesOf(lf) + ' ' + capEnd + curvesOf(rf) + ' ' + capStart;
+            } else {
+              d += `M ${poly(L)} ` + capEnd + `L ${poly(Rr.slice(1))} ` + capStart;
+            }
+          }
+          if (!d) continue;
+          let zs = 0; for (const q of pts) zs += q.z;
+          pieces.push({ d: d.trim(), z: zs / n, meta: pts._meta || null });
+        }
+        if (!occlude || pieces.length < 2) return pieces;
+        // Depth-order the pieces FAR → NEAR. Start from the crossing verdicts
+        // (an exact, local comparison at the actual overlap point) rather than
+        // trusting average depth, which is the classic painter failure — a long
+        // piece's mean is a poor proxy for its depth AT the crossing.
+        const N = pieces.length;
+        const adj = Array.from({ length: N }, () => []);
+        const indeg = new Int32Array(N);
+        const zArr = pieces.map(p => p.z);
+        const owning = (run, param) => {            // pieces covering this param
+            const hit = [];
+            for (let k = 0; k < N; k++) {
+              const m = pieces[k].meta;
+              if (!m || m.run !== run) continue;
+              // A wrapped arc of a closed run has to > len, so the param may need
+              // one lap added before it falls inside the range.
+              const inRange = (p) => p >= m.from - 1e-6 && p <= m.to + 1e-6;
+              if (inRange(param) || (m.len && inRange(param + m.len))) hit.push(k);
+            }
+            return hit;
+          };
+        const addEdge = (far, near) => {            // far paints BEFORE near
+          if (far === near) return;
+          if (adj[far].includes(near)) return;
+          adj[far].push(near); indeg[near]++;
+        };
+        for (const c of crossings) {
+          const A = owning(c.ra, c.pa), B = owning(c.rb, c.pb);
+          if (!A.length || !B.length) continue;
+          const aFar = c.za > c.zb;
+          for (const x of (aFar ? A : B)) for (const y of (aFar ? B : A)) addEdge(x, y);
+        }
+        // Deepest-available-first Kahn (RenderIntersections._kahnMaxZ): with no
+        // edges it degenerates to exactly the stable z-descending painter sort,
+        // and a cyclic overlap (piece over piece over piece) breaks greedily in
+        // depth order rather than dumping the whole ordering.
+        let order;
+        try { order = RenderIntersections._kahnMaxZ(N, adj, indeg, zArr); }
+        catch (e) { order = null; }
+        if (!order || order.length !== N) {
+          order = pieces.map((_, k) => k).sort((a, b) => zArr[b] - zArr[a]);
+        }
+        return order.map(k => pieces[k]);
       }
 
       // --- Per-island cap grouping (wide-compound painter fix) --------------
@@ -32698,9 +33359,14 @@
           // frontFace untouched — byte-identical to pre-feature output.
           {
             const _trimRange = this._strokeTrimRange();
-            const _effTrim = _trimRange ? getEffectiveStyle(this) : null;
+            // OWNERSHIP (v20260725j): the 3D Stroke now COMPOSES with trim — it
+            // outlines only the trimmed span — so when it is on it owns the
+            // stroke and this flat overlay stands down. Previously trim won and
+            // the 3D stroke was skipped entirely.
+            const _s3Owns = !!this._stroke3dParams();
+            const _effTrim = (_trimRange && !_s3Owns) ? getEffectiveStyle(this) : null;
             const _trimStrokeOn = _effTrim && _effTrim.stroke && _effTrim.stroke !== 'none';
-            if (_trimRange && _trimStrokeOn) {
+            if (_trimRange && !_s3Owns && _trimStrokeOn) {
               if (!this.trimStrokeEl) {
                 this.trimStrokeEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 this.trimStrokeEl.setAttribute('fill', 'none');
@@ -32718,6 +33384,87 @@
             } else {
               if (this.trimStrokeEl && this.trimStrokeEl.parentNode) this.trimStrokeEl.parentNode.removeChild(this.trimStrokeEl);
               this.frontFace.removeAttribute('stroke');
+            }
+          }
+
+          // --- 3D STROKE (v20260725e): depth-varying width overlay ---
+          // The stroke is OUTLINED into a filled region (see _build3dStrokeD).
+          // COMPOSES with Stroke Trim since v20260725j: an active trim bounds
+          // the outliner's SAMPLER to the trimmed arc-length span, so the two
+          // features stack (a keyframed trim + 3D stroke is a write-on whose
+          // line thickens as it comes toward the camera). Known limitation kept
+          // on record: the outline ignores stroke-dasharray, so a DASHED trimmed
+          // stroke loses its dashes once the 3D Stroke takes over.
+          // Inactive ⇒ the element is REMOVED from the DOM (not just emptied),
+          // so untouched output — including SVG export — stays byte-identical.
+          {
+            const _s3 = this._stroke3dParams();
+            const _trimRange3 = this._strokeTrimRange();
+            const _eff3 = _s3 ? getEffectiveStyle(this) : null;
+            const _s3On = _eff3 && _eff3.stroke && _eff3.stroke !== 'none';
+            const _occl = !!(this.style && this.style['stroke-3d-occlude']);
+            let _p3 = [];
+            if (_s3On) {
+              // Base width flows through the SAME getEffectiveStrokeWidth every
+              // other stroke uses, so the Camera tab's "Scale Stroke with Zoom"
+              // still governs overall thickness scene-wide; the depth law only
+              // redistributes thickness ALONG this one stroke.
+              const _bw = parseFloat(getEffectiveStrokeWidth(_eff3['stroke-width'] || (2 / FRAME_SIZE).toString()));
+              // Caps/joins come from the object's own stroke style, so a 3D
+              // stroke honours Ends / Joins exactly like the flat stroke does.
+              // An active trim bounds the sampler; null = outline the whole path.
+              const _tr3 = _trimRange3
+                ? { sFrac: _trimRange3.s, eFrac: _trimRange3.e, mode: this.style && this.style['stroke-trim-mode'] }
+                : null;
+              if (isFinite(_bw) && _bw > 0) _p3 = this._build3dStrokeD(mvpMatrix, _bw / 2, _s3,
+                _eff3['stroke-linecap'], _eff3['stroke-linejoin'], _occl, _tr3) || [];
+            }
+            if (_p3.length) {
+              // Self-occlusion needs the pieces as SEPARATE siblings painted
+              // far→near, so the element becomes a <g>; without it the stroke
+              // stays ONE <path> (byte-identical to pre-occlusion output). The
+              // tag therefore has to match the current mode — recreate on switch.
+              const wantTag = _occl && _p3.length > 1 ? 'g' : 'path';
+              if (this.stroke3dEl && this.stroke3dEl.tagName !== wantTag) {
+                if (this.stroke3dEl.parentNode) this.stroke3dEl.parentNode.removeChild(this.stroke3dEl);
+                this.stroke3dEl = null;
+              }
+              if (!this.stroke3dEl) {
+                this.stroke3dEl = document.createElementNS('http://www.w3.org/2000/svg', wantTag);
+                if (wantTag === 'path') this.stroke3dEl.setAttribute('stroke', 'none');
+              }
+              const xEl = this.stroke3dEl;
+              // NONZERO is load-bearing: a variable-width offset self-overlaps on
+              // tight concave turns, and the v20260720g strip-fold result proves
+              // every self-overlap winds the SAME sign — so nonzero fill is exactly
+              // the covered union. evenodd here would punch holes in the stroke.
+              const paint = (el, dStr) => {
+                el.setAttribute('d', dStr);
+                el.setAttribute('fill-rule', 'nonzero');
+                el.setAttribute('stroke', 'none');
+                setSvgColor(el, 'fill', _eff3.stroke);
+                // The outline is FILLED — stroke-opacity must become fill-opacity
+                // or the stroke would render fully opaque.
+                if (_eff3['stroke-opacity'] !== undefined) el.setAttribute('fill-opacity', _eff3['stroke-opacity']);
+                else el.removeAttribute('fill-opacity');
+              };
+              if (wantTag === 'g') {
+                // _build3dStrokeD returned the pieces already ordered far→near,
+                // so plain document order IS the paint order.
+                const kids = [];
+                for (const pc of _p3) {
+                  const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                  paint(el, pc.d);
+                  kids.push(el);
+                }
+                xEl.replaceChildren(...kids);
+              } else {
+                paint(xEl, _p3.map(p => p.d).join(' '));
+              }
+              this.svgElement.insertBefore(xEl, this.sidesGroup);
+              this.frontFace.setAttribute('stroke', 'none');
+            } else if (this.stroke3dEl && this.stroke3dEl.parentNode) {
+              this.stroke3dEl.parentNode.removeChild(this.stroke3dEl);
             }
           }
 
@@ -33044,16 +33791,6 @@
             cp1: tvCP1 ? { x: (tvCP1[0] * FRAME_SIZE) / 2, y: (-tvCP1[1] * FRAME_SIZE) / 2 } : null,
             cp2: tvCP2 ? { x: (tvCP2[0] * FRAME_SIZE) / 2, y: (-tvCP2[1] * FRAME_SIZE) / 2 } : null
           };
-        };
-
-        const getSweepCommand = (ptFrom, ptTo) => {
-          // Generates the command to connect From -> To (The sweep direction)
-          // From is 'a' side, To is 'b' side.
-          // But wait, the loop goes: A -> B -> Back to A.
-          // Bottom Edge: End.A -> End.B.
-          // Top Edge: Start.B -> Start.A.
-          // This helper is not enough because Top Edge needs Reversed CPs.
-          return '';
         };
 
         segmentsA.forEach((segA, i) => {
@@ -33913,1318 +34650,6 @@
           prevT = t;
         }
         return roots;
-      }
-
-      // v20260106a: Revolve Logic
-      drawRevolve(faceList, vpMatrix, modelMatrix, getPathData) {
-        if (!this.revolveSettings.enabled) return;
-
-        const rs = this.revolveSettings;
-        const axis = rs.axis || 'y';
-        const segments = rs.segments || 32;
-        const totalAngle = rs.angle || 360;
-        const offset = rs.offset || 0;
-        const capStart = rs.capStart;
-        const capEnd = rs.capEnd;
-
-        // Axis-dependent helpers to avoid scattering three-way ternaries
-        const rotFn = axis === 'y' ? createRotationYMatrix
-          : axis === 'z' ? createRotationZMatrix
-            : createRotationXMatrix;
-        // Coordinate index that represents the "axial" direction in profile space
-        // Y-axis revolve: axial = p[1], radial = p[0]
-        // X-axis revolve: axial = p[0], radial = p[1]
-        // Z-axis revolve: axial = p[1], radial = p[0]  (profile drawn in XY, revolves around Z)
-        const axialIdx = (axis === 'x') ? 0 : 1;
-        const radialIdx = (axis === 'x') ? 1 : 0;
-
-        // Use normalized Cubic Beziers for consistent handling
-        let profileSegments = this.getBezierSegments();
-
-        // Offset Matrix — translates profile perpendicular to the rotation axis
-        let matOffset = createIdentityMatrix();
-        if (offset !== 0) {
-          if (axis === 'y') matOffset = createTranslationMatrix(offset, 0, 0);
-          else if (axis === 'z') matOffset = createTranslationMatrix(offset, 0, 0);
-          else matOffset = createTranslationMatrix(0, offset, 0);
-        }
-
-        const degToRad = Math.PI / 180;
-
-        // Strip alpha from rgba() colors to ensure opaque 3D face rendering.
-        // Preserve fill='none' for wireframe rendering when fill is disabled.
-        const _effRevolve = getEffectiveStyle(this);
-        const resolvedFill = (this.style.fill && this.style.fill !== 'none') ? rgbToHex(this.style.fill) : this.style.fill;
-        const resolvedStroke = (this.style.stroke && this.style.stroke !== 'none') ? rgbToHex(this.style.stroke) : this.style.stroke;
-
-        // --- Optimization: Planar Merging ---
-        let planarChains = [];
-        let curvedSegments = profileSegments;
-
-        if (this.revolveSettings.simpleSides) {
-          const chains = [];
-          let currentChain = [];
-
-          // Helper: Approx Tangent
-          const getTangent = (seg, isEnd) => {
-            let p0, p1;
-            // All segments are Type 'C' from getBezierSegments
-            if (seg.type === 'C') {
-              if (!isEnd) { p0 = seg.p0; p1 = seg.p1; }
-              else { p0 = seg.p2; p1 = seg.p3; }
-            }
-            if (p0 && p1) {
-              const dx = p1[0] - p0[0], dy = p1[1] - p0[1], dz = (p1[2] || 0) - (p0[2] || 0);
-              const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-              return len > 1e-9 ? [dx / len, dy / len, dz / len] : [0, 0, 0];
-            }
-            return [0, 0, 0];
-          };
-
-          const isSegmentSmooth = (s1, s2) => {
-            const t1 = getTangent(s1, true);
-            const t2 = getTangent(s2, false);
-            return (t1[0] * t2[0] + t1[1] * t2[1] + t1[2] * t2[2]) > 0.9;
-          };
-
-          profileSegments.forEach((seg) => {
-            if (currentChain.length === 0) currentChain.push(seg);
-            else {
-              const prev = currentChain[currentChain.length - 1];
-              // Connectivity Check (Cubic: prev.p3 vs seg.p0)
-              const prevEnd = prev.p3;
-              const currStart = seg.p0;
-              const dist = Math.hypot(currStart[0] - prevEnd[0], currStart[1] - prevEnd[1], (currStart[2] || 0) - (prevEnd[2] || 0));
-
-              if (dist < 1e-4 && isSegmentSmooth(prev, seg)) {
-                currentChain.push(seg);
-              } else {
-                chains.push(currentChain);
-                currentChain = [seg];
-              }
-            }
-          });
-          if (currentChain.length > 0) chains.push(currentChain);
-
-          // RESET local vars
-          curvedSegments = [];
-
-          chains.forEach(chain => {
-            let isPlanar = true;
-            for (const seg of chain) {
-              if (seg.type === 'C') {
-                const coords = [seg.p0, seg.p1, seg.p2, seg.p3].map(p => p[axialIdx]);
-                const ref = coords[0];
-                if (coords.some(c => Math.abs(c - ref) > 1e-3)) { isPlanar = false; break; }
-              } else if (seg.type === 'L') {
-                const a = seg.pStart[axialIdx];
-                const b = seg.pEnd[axialIdx];
-                if (Math.abs(a - b) > 1e-3) { isPlanar = false; break; }
-              } else {
-                isPlanar = false; break;
-              }
-            }
-            if (isPlanar) planarChains.push(chain);
-            else curvedSegments.push(...chain);
-          });
-
-          if (planarChains.length > 0) {
-            // Deferred execution: Just update the list of segments to be revolved smoothly
-            profileSegments = curvedSegments;
-          }
-        }
-
-
-        // --- Dynamic Step Generation for Silhouettes ---
-        // We must insert steps exactly at the "Horizon" angles so that a face edge is generated there.
-        // Horizon = where Surface Normal is perpendicular to View Vector.
-        // For Axis Y Rev: Normal is (sin, 0, cos), View is eyeLocal.
-        // Angle = atan2(eye.x, eye.z) +/- 90deg.
-
-        // --- Dynamic Step Generation (Adaptive Subdivision) ---
-        // 1. Identify Mandatory Angles (Caps + Horizons)
-        // 2. Recursively subdivide intervals if screen-space error is high.
-
-        // Pre-calc Eye in Object Local Space (Reuse from previous logic)
-        const invModel = matrixInverse(modelMatrix);
-
-        // --- Ortho / Low FOV Fix (v20260210) ---
-        // If Ortho or Low FOV, rays are parallel. Finite Eye causes "Perspective Horizon" mismatch.
-        // We must simulate an Infinite Eye along the View Vector.
-        const isOrthoOld = (activeCamera.type === 'orthographic') || (activeCamera.fov && activeCamera.fov < 5);
-
-        if (false) {
-          // View Vector = Target - Position
-          const viewDir = vectorNormalize(vectorSubtract(activeCamera.target, activeCamera.position));
-
-          // Move "Eye" to effective infinity (e.g. 1e9 units away)
-          // But we need this in LOCAL space.
-          // Point = CamPos + ViewDir * LargeDist
-          // LocalPoint = InvModel * Point
-
-          const infiniteDist = 1000000000; // 1e9
-          const infiniteEyeWorld = vectorAdd(activeCamera.position, vectorScale(viewDir, -infiniteDist));
-          // Wait, ViewDir is Towards Target. Eye is "Behind" position? 
-          // No, Eye IS Position. 
-          // For Parallel projection, the "Source" is at infinity BEHIND the camera.
-          // So we want vectorScale(viewDir, -infiniteDist).
-          // Let's verify: 
-          // Perspective: Lines converge to Eye.
-          // Ortho: Lines are parallel. Equivalent to Eye at -Infinity along Forward vector.
-
-          // Actually, 'eyeLocal' is used for:
-          // 1. Horizon Angle: atan2(eye.x, eye.z). 
-          // 2. Horizon Split: Dot(Normal, Eye - P).
-
-          // If Eye is at -Infinity (behind camera), then (Eye - P) is huge vector pointing BACKWARDS?
-          // The View Vector usually points Geometry -> Camera (for lighting/backface).
-          // In this app's logic: "View Vector = Eye - P".
-          // If Eye is at (0,0,100) and P is (0,0,0), View is (0,0,100). Points TOWARDS Eye.
-          // So if we want parallel rays coming FROM camera Z, we want Eye to be at +Infinity along Camera Z (which is -Forward).
-          // Camera looks down -Z?
-          // Let's rely on `activeCamera.position`.
-          // If we move it "backwards" relative to the look direction (away from target), it simulates telephoto.
-
-          const backDir = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-          const virtualEyeWorld = vectorAdd(activeCamera.position, vectorScale(backDir, infiniteDist));
-
-          eyeLocalRaw = transformVertex(virtualEyeWorld, invModel);
-        }
-
-
-
-        // --- Ortho / Low FOV Fix (Direction Based) ---
-        const fovVal = activeCamera.fovDegrees !== undefined ? activeCamera.fovDegrees : 60;
-        const isOrtho = (projectionType === 'orthographic') || (projectionType === 'oblique') || (fovVal < 5);
-
-        let eyeLocal = null;
-
-        if (isOrtho) {
-          // Ortho/LowFOV: View Vector is used as Horizon Reference
-          const viewDirWorld = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-
-          // Transform Direction: Apply Inverse Model Rotation (Ignore Translation)
-          const viewDirLocal = vectorNormalize(vectorApplyMatrix(viewDirWorld, invModel));
-          eyeLocal = viewDirLocal;
-        } else {
-          // Perspective: Point
-          eyeLocal = transformVertex(activeCamera.position, invModel);
-        }
-
-        if (!eyeLocal) eyeLocal = [0, 0, 100];
-
-        let mandatoryAngles = [];
-
-        // 1. Regular Segments (Crucial for smoothness)
-        // For "Simple Sides" (Parametric Merging), we bypass subdivision and rely on analytical curves (Beziers)
-        // We ensure 90-degree intervals to support valid cubic bezier approximation.
-        if (segments > 0 && !(this.revolveSettings.simpleSides)) {
-          const step = totalAngle / segments;
-          for (let i = 0; i <= segments; i++) {
-            mandatoryAngles.push(i * step);
-          }
-        } else {
-          // Analytical Start/End
-          mandatoryAngles.push(0);
-          mandatoryAngles.push(totalAngle);
-
-          // Analytical intervals (Parametric Validity)
-          const step = 90; // Reverted to 90 for investigation
-          for (let ang = step; ang < totalAngle; ang += step) {
-            mandatoryAngles.push(ang);
-          }
-        }
-
-        // Horizon Angles
-        // Only calculate horizons for smooth, high-poly surfaces.
-        if (eyeLocal && segments >= 4) { // Lowered threshold for horizon calc
-          let eyeAngleDeg;
-          if (axis === 'y') {
-            const angRad = Math.atan2(eyeLocal[0], eyeLocal[2]);
-            eyeAngleDeg = (angRad * (180 / Math.PI)) - 90;
-          } else if (axis === 'z') {
-            const angRad = Math.atan2(eyeLocal[1], eyeLocal[0]);
-            eyeAngleDeg = (angRad * (180 / Math.PI));
-          } else {
-            const angRad = Math.atan2(eyeLocal[1], eyeLocal[2]);
-            eyeAngleDeg = 90 - (angRad * (180 / Math.PI));
-          }
-
-          let dist = 0;
-          if (axis === 'y') dist = Math.sqrt(eyeLocal[0] * eyeLocal[0] + eyeLocal[2] * eyeLocal[2]);
-          else if (axis === 'z') dist = Math.sqrt(eyeLocal[0] * eyeLocal[0] + eyeLocal[1] * eyeLocal[1]);
-          else dist = Math.sqrt(eyeLocal[1] * eyeLocal[1] + eyeLocal[2] * eyeLocal[2]);
-
-          let maxR = 0;
-          let minR = 999999;
-
-          if (this.localVertices.length > 0) {
-            this.localVertices.forEach(v => {
-              let r = 0;
-              r = v[radialIdx] + offset;
-              r = Math.abs(r);
-              if (r > maxR) maxR = r;
-              if (r < minR) minR = r;
-            });
-          } else {
-            maxR = 10; minR = 0;
-          }
-
-          let angOuter = 90;
-          let angInner = 90;
-
-          if (dist > maxR) {
-            angOuter = Math.acos(maxR / dist) * (180 / Math.PI);
-          }
-          if (dist > minR) {
-            angInner = Math.acos(minR / dist) * (180 / Math.PI);
-          }
-
-          // Push Horizon Angles
-          mandatoryAngles.push(eyeAngleDeg + angOuter);
-          mandatoryAngles.push(eyeAngleDeg - angOuter);
-          mandatoryAngles.push(eyeAngleDeg + 180 + angOuter);
-          mandatoryAngles.push(eyeAngleDeg + 180 - angOuter);
-
-          if (Math.abs(angInner - angOuter) > 1) {
-            mandatoryAngles.push(eyeAngleDeg + angInner);
-            mandatoryAngles.push(eyeAngleDeg - angInner);
-            mandatoryAngles.push(eyeAngleDeg + 180 + angInner);
-            mandatoryAngles.push(eyeAngleDeg + 180 - angInner);
-          }
-        }
-
-        // Normalize and Deduplicate Mandatory Angles
-        mandatoryAngles = mandatoryAngles.map(ang => {
-          while (ang < 0) ang += 360;
-          while (ang >= 360) ang -= 360;
-          return ang;
-        });
-
-        // Ensure 0 and Total are respected relative to the cyclic nature
-        // If Total < 360, we just clamp.
-        // If Total = 360, 0 and 360 are effectively the same in modulo, but we treat them as linear start/end.
-        // We need to filter angles to be within [0, totalAngle].
-        // But wait, the normalization above forces 0..360.
-        // If we want to support angles > 360 (spiral?), we'd need different logic.
-        // Assuming Standard Revolve 0..360.
-
-        mandatoryAngles = mandatoryAngles.filter(ang => ang > 0.001 && ang < totalAngle - 0.001);
-        mandatoryAngles.push(0);
-        mandatoryAngles.push(totalAngle);
-        mandatoryAngles.sort((a, b) => a - b);
-
-        const uniqueMandatory = [mandatoryAngles[0]];
-        for (let i = 1; i < mandatoryAngles.length; i++) {
-          if (mandatoryAngles[i] - uniqueMandatory[uniqueMandatory.length - 1] > 0.001) {
-            uniqueMandatory.push(mandatoryAngles[i]);
-          }
-        }
-
-        if (this.revolveSettings.simpleSides && planarChains.length > 0) {
-          const pFaces = this.generatePlanarRevolveFaces(planarChains, axis, matOffset, uniqueMandatory, vpMatrix, modelMatrix);
-          const pRibbonColor = (this.revolveSettings.useRibbonColor && this.revolveSettings.ribbonColor) ? this.revolveSettings.ribbonColor : null;
-          pFaces.forEach(f => {
-            if (pRibbonColor && f.element) f.element.setAttribute('fill', pRibbonColor);
-          });
-          faceList.push(...pFaces);
-        }
-
-        // Prepare for Adaptive Subdivision
-        // We select a Test Point for error estimation (Max Outer Radius).
-        // Find reference point in local space (before offset/rotation)
-        let testPoint = [0, 0, 0];
-        let maxR_found = -1;
-        this.localVertices.forEach(v => {
-          let r = Math.abs(v[radialIdx] + offset);
-          if (r > maxR_found) {
-            maxR_found = r;
-            testPoint = [v[0], v[1], v[2]];
-          }
-        });
-
-        // const matOffset = (offset !== 0) ? ((axis === 'y') ? createTranslationMatrix(offset, 0, 0) : createTranslationMatrix(0, offset, 0)) : createIdentityMatrix();
-        // Uses the matOffset declared at top of function.
-
-
-        // Helper: Generate geometry for a sector
-        const renderSector = (degA, degB) => {
-          const thetaA = degA * degToRad;
-          const thetaB = degB * degToRad;
-          const deltaDeg = degB - degA;
-          const deltaRad = deltaDeg * degToRad;
-
-          // Tangent Skew K
-          const k = (4 / 3) * Math.tan(deltaRad / 4);
-          const matSkewPos = createTangentSkewMatrix(axis, k);
-          const matSkewNeg = createTangentSkewMatrix(axis, -k);
-
-          // Matrices
-          const rotA = rotFn(thetaA);
-          const rotB = rotFn(thetaB);
-
-          // Composition
-          const matA = matrixMultiply(rotA, matOffset);
-          const matB = matrixMultiply(rotB, matOffset);
-          const matCP1 = matrixMultiply(rotA, matrixMultiply(matSkewPos, matOffset));
-          const matCP2 = matrixMultiply(rotB, matrixMultiply(matSkewNeg, matOffset));
-
-          const matBaseA = matrixMultiply(vpMatrix, matrixMultiply(modelMatrix, matA));
-          const matBaseB = matrixMultiply(vpMatrix, matrixMultiply(modelMatrix, matB));
-          const matFinalCP1 = matrixMultiply(vpMatrix, matrixMultiply(modelMatrix, matCP1));
-          const matFinalCP2 = matrixMultiply(vpMatrix, matrixMultiply(modelMatrix, matCP2));
-
-          // Profile Handling (Same as before)
-          let segsA = profileSegments;
-          let segsB = profileSegments;
-
-          // Horizon Splitting (Reuse Logic)
-          if (eyeLocal) {
-          }
-
-          // Helper to get View coords for Horizon T (encapsulate logic)
-          const getHorizonProfileCoords = (deg) => {
-            const theta = deg * degToRad;
-            const invRot = rotFn(-theta);
-            let invMatOffset = createIdentityMatrix();
-            if (offset !== 0) {
-              if (axis === 'y' || axis === 'z') invMatOffset = createTranslationMatrix(-offset, 0, 0);
-              else invMatOffset = createTranslationMatrix(0, -offset, 0);
-            }
-            if (isOrtho) {
-              const dirProfile = vectorApplyMatrix(eyeLocal, invRot);
-              return { vx: dirProfile[0], vy: dirProfile[1] };
-            } else {
-              const matInvFull = matrixMultiply(invMatOffset, invRot);
-              const eyeProfile = transformVertex(eyeLocal, matInvFull);
-              return { vx: eyeProfile[0], vy: eyeProfile[1] };
-            }
-          };
-
-          const coordsA = getHorizonProfileCoords(degA);
-          const coordsB = getHorizonProfileCoords(degB);
-          const vxA = coordsA.vx; const vyA = coordsA.vy;
-          const vxB = coordsB.vx; const vyB = coordsB.vy;
-
-          // Adaptive Subdivision: If horizon-t delta is too large for accurate
-          // first-order slide approximation, split sector and render recursively.
-          if ((degB - degA) > 1.0) {
-            let maxHorizonDelta = 0;
-            profileSegments.forEach(seg => {
-              if (seg.type === 'C') {
-                let tsAc = this.findBezierHorizonT(seg.p0, seg.p1, seg.p2, seg.p3, vxA, vyA, isOrtho);
-                let tsBc = this.findBezierHorizonT(seg.p0, seg.p1, seg.p2, seg.p3, vxB, vyB, isOrtho);
-                tsAc = tsAc.filter(t => t > 0.001 && t < 0.999).sort((a, b) => a - b);
-                tsBc = tsBc.filter(t => t > 0.001 && t < 0.999).sort((a, b) => a - b);
-                // Check paired deltas (same count = paired horizon crossings)
-                if (tsAc.length === tsBc.length) {
-                  tsAc.forEach((tA, i) => {
-                    const d = Math.abs(tA - tsBc[i]);
-                    if (d > maxHorizonDelta) maxHorizonDelta = d;
-                  });
-                } else {
-                  // Mismatched root count implies large transition
-                  maxHorizonDelta = 1.0;
-                }
-              }
-            });
-            if (maxHorizonDelta > 0.20) {
-              const degMid = (degA + degB) / 2;
-              renderSector(degA, degMid);
-              renderSector(degMid, degB);
-              return;
-            }
-          }
-
-          if (true) {
-            const E = [0, 0, 1];
-            // Robust Parallel Splitter with Topology Matching
-
-            let newSegsA = [];
-            let newSegsB = [];
-
-            profileSegments.forEach(seg => {
-              if (seg.type === 'C') {
-                // Find roots for A and B
-                let tsA = this.findBezierHorizonT(seg.p0, seg.p1, seg.p2, seg.p3, vxA, vyA, isOrtho);
-                let tsB = this.findBezierHorizonT(seg.p0, seg.p1, seg.p2, seg.p3, vxB, vyB, isOrtho);
-
-                tsA.sort((a, b) => a - b);
-                tsB.sort((a, b) => a - b);
-
-                // Filter
-                tsA = tsA.filter(t => t > 0.001 && t < 0.999);
-                tsB = tsB.filter(t => t > 0.001 && t < 0.999);
-                // Topological Alignment: Guarantee strict 1:1 segment mapping.
-                if (tsA.length !== tsB.length) {
-                  const matchRoots = (source, target) => {
-                    const newTarget = [...target];
-                    source.forEach(tSrc => {
-                      let minD = 999;
-                      target.forEach(tTgt => { if (Math.abs(tSrc - tTgt) < minD) minD = Math.abs(tSrc - tTgt); });
-                      if (minD > 0.1) {
-                        // Inherit the exact split point to prevent diagonal slashes
-                        newTarget.push(tSrc);
-                      }
-                    });
-                    newTarget.sort((a, b) => a - b);
-                    return newTarget;
-                  };
-
-                  if (tsA.length > tsB.length) tsB = matchRoots(tsA, tsB);
-                  else tsA = matchRoots(tsB, tsA);
-
-                  // Safety: Force identical length by copying corresponding index
-                  while (tsA.length > tsB.length) tsB.push(tsA[tsB.length] !== undefined ? tsA[tsB.length] : tsA[tsA.length - 1]);
-                  while (tsB.length > tsA.length) tsA.push(tsB[tsA.length] !== undefined ? tsB[tsA.length] : tsB[tsB.length - 1]);
-                }
-
-                tsA.sort((a, b) => a - b);
-                tsB.sort((a, b) => a - b);
-
-                // Calculate Slide Vectors using True Parametric Tangents
-                // Uses the exact derivative at each anchor for correct Bézier CP direction.
-                // Adaptive subdivision (above) ensures deltas stay small enough for accuracy.
-                const getSlideVecA = (tA, tB) => {
-                  if (Math.abs(tA - tB) < 1e-6) return [0, 0, 0];
-                  const tangent = this.getCubicTangent(seg.p0, seg.p1, seg.p2, seg.p3, tA);
-                  return vectorScale(tangent, (tB - tA) / 3);
-                };
-
-                const getSlideVecB = (tA, tB) => {
-                  if (Math.abs(tA - tB) < 1e-6) return [0, 0, 0];
-                  const tangent = this.getCubicTangent(seg.p0, seg.p1, seg.p2, seg.p3, tB);
-                  return vectorScale(tangent, (tB - tA) / 3);
-                };
-
-                const slideVecsA = tsA.map((tA, i) => getSlideVecA(tA, tsB[i]));
-                const slideVecsB = tsB.map((tB, i) => getSlideVecB(tsA[i], tB));
-
-                // Split Helper with Slide Vectors Restored
-                const runSplit = (s, roots, slideVecs) => {
-                  let res = [];
-                  let curr = { type: 'C', p0: s.p0, p1: s.p1, p2: s.p2, p3: s.p3, command: s.command };
-                  let lastT = 0;
-
-                  roots.forEach((tRaw, idx) => {
-                    let t = tRaw; if (t < 0) t = 0; if (t > 1) t = 1;
-                    const sv = slideVecs[idx] || [0, 0, 0];
-
-                    let den = (1 - lastT);
-                    if (den < 0.0001) den = 0.0001;
-                    let tRel = (t - lastT) / den;
-                    if (tRel < 0) tRel = 0; if (tRel > 1) tRel = 1;
-
-                    const split = this.splitCubicBezierObj(curr.p0, curr.p1, curr.p2, curr.p3, tRel);
-
-                    let left = { type: 'C', command: curr.command, ...split.left };
-                    if (curr.horizonSlideVecStart) left.horizonSlideVecStart = curr.horizonSlideVecStart;
-                    left.horizonSlideVecEnd = sv;
-                    res.push(left);
-
-                    curr = { type: 'C', command: 'L', ...split.right };
-                    curr.forcedBreak = true;
-                    curr.horizonSlideVecStart = sv;
-                    lastT = t;
-                  });
-
-                  res.push(curr);
-                  return res;
-                };
-
-                newSegsA.push(...runSplit(seg, tsA, slideVecsA));
-                newSegsB.push(...runSplit(seg, tsB, slideVecsB));
-              } else {
-                newSegsA.push(seg);
-                newSegsB.push(seg);
-              }
-            });
-            segsA = newSegsA;
-            segsB = newSegsB;
-          }
-
-
-          let faces;
-          if (this.revolveSettings.simpleSides) {
-            faces = this.generateSimpleRevolveRibbons(segsA, matBaseA, matBaseB, matFinalCP1, matFinalCP2, segsB, { skipSlideCorrection: true });
-          } else {
-            faces = this.generateLoftFaces(segsA, matBaseA, matBaseB, matFinalCP1, matFinalCP2, segsB, { skipSlideCorrection: true });
-          }
-          const ribbonColor = (this.revolveSettings.useRibbonColor && this.revolveSettings.ribbonColor) ? this.revolveSettings.ribbonColor : null;
-          faces.forEach(f => {
-            if (f.element) {
-              if (ribbonColor) {
-                f.element.setAttribute('fill', ribbonColor);
-              }
-              faceList.push(f);
-            } else {
-              const sidePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-              sidePath.setAttribute('d', f.d);
-              const ribbonColor = (this.revolveSettings.useRibbonColor && this.revolveSettings.ribbonColor) ? this.revolveSettings.ribbonColor : null;
-              sidePath.setAttribute('fill', ribbonColor || resolvedFill);
-              sidePath.setAttribute('fill-opacity', _effRevolve['fill-opacity']);
-              sidePath.setAttribute('stroke', resolvedStroke);
-              sidePath.setAttribute('stroke-width', getEffectiveStrokeWidth(_effRevolve['stroke-width']));
-              if (_effRevolve['stroke-opacity'] !== undefined) {
-                sidePath.setAttribute('stroke-opacity', _effRevolve['stroke-opacity']);
-              }
-              faceList.push({ element: sidePath, z: f.z });
-            }
-          });
-        };
-
-        // Recursive Subdivision Function
-        // Recursive Subdivision Function
-        var processInterval = (degA, degB, depth) => {
-          // 1. Check Error at Midpoint
-          const degMid = (degA + degB) * 0.5;
-          const deltaDeg = degB - degA;
-
-          if (depth < 5) {
-            // Calculate True Projected Point at Mid
-            const thetaMid = degMid * degToRad;
-            const rotMid = rotFn(thetaMid);
-            const matMid = matrixMultiply(rotMid, matOffset);
-            const mvpMid = matrixMultiply(vpMatrix, matrixMultiply(modelMatrix, matMid));
-            const trueProj = transformProjectedVertex(testPoint, mvpMid);
-
-            // Calculate Approx Point (Bezier) at t=0.5
-            // Bezier = (1-t)^3 A + 3(1-t)^2 t CP1 + 3(1-t) t^2 CP2 + t^3 B
-            // at t=0.5: 0.125 A + 0.375 CP1 + 0.375 CP2 + 0.125 B
-
-            // We need Approx Points A, B, CP1, CP2. 
-            // Reuse logic from renderSector (matrices)
-            const thetaA = degA * degToRad;
-            const thetaB = degB * degToRad;
-            const deltaRad = deltaDeg * degToRad;
-            const k = (4 / 3) * Math.tan(deltaRad / 4);
-            const matSkewPos = createTangentSkewMatrix(axis, k);
-            const matSkewNeg = createTangentSkewMatrix(axis, -k);
-
-            const rotA = rotFn(thetaA);
-            const rotB = rotFn(thetaB);
-
-            const matA = matrixMultiply(rotA, matOffset);
-            const matB = matrixMultiply(rotB, matOffset);
-            const matCP1 = matrixMultiply(rotA, matrixMultiply(matSkewPos, matOffset));
-            const matCP2 = matrixMultiply(rotB, matrixMultiply(matSkewNeg, matOffset));
-
-            const mvpA = matrixMultiply(vpMatrix, matrixMultiply(modelMatrix, matA));
-            const mvpB = matrixMultiply(vpMatrix, matrixMultiply(modelMatrix, matB));
-            const mvpCP1 = matrixMultiply(vpMatrix, matrixMultiply(modelMatrix, matCP1));
-            const mvpCP2 = matrixMultiply(vpMatrix, matrixMultiply(modelMatrix, matCP2));
-
-            const pA = transformProjectedVertex(testPoint, mvpA);
-            const pB = transformProjectedVertex(testPoint, mvpB);
-            const pCP1 = transformProjectedVertex(testPoint, mvpCP1);
-            const pCP2 = transformProjectedVertex(testPoint, mvpCP2);
-
-            if (trueProj && pA && pB && pCP1 && pCP2) {
-              // Calculate Approx at 0.5
-              // 0.125 (pA + pB) + 0.375 (pCP1 + pCP2)
-              const approxX = 0.125 * (pA[0] + pB[0]) + 0.375 * (pCP1[0] + pCP2[0]);
-              const approxY = 0.125 * (pA[1] + pB[1]) + 0.375 * (pCP1[1] + pCP2[1]);
-
-              // Screen Space Delta (Normalized NDC [-1, 1], convert to Pixel approx)
-              // FRAME_SIZE = 1000? Roughly.
-              const dx = (trueProj[0] - approxX) * 500; // Half of 1000
-              const dy = (trueProj[1] - approxY) * 500;
-              const errSq = dx * dx + dy * dy;
-
-              if (errSq > 0.25) {
-                // Error too high, subdivide
-                processInterval(degA, degMid, depth + 1);
-                processInterval(degMid, degB, depth + 1);
-                return;
-              }
-            }
-          }
-
-          // If we are here, either max depth reached or error is low enough.
-          renderSector(degA, degB);
-        };
-
-        // Start Processing
-        // For "Simple Sides", we bypass adaptive recursion and render analytically defined sectors directly.
-        // This ensures smooth, continuous curved surfaces instead of faceted bands.
-        if (this.revolveSettings.simpleSides) {
-          for (let i = 0; i < uniqueMandatory.length - 1; i++) {
-            renderSector(uniqueMandatory[i], uniqueMandatory[i + 1]);
-          }
-        } else {
-          // Standard Adaptive Rendering (for faceted/non-parametric look)
-          for (let i = 0; i < uniqueMandatory.length - 1; i++) {
-            processInterval(uniqueMandatory[i], uniqueMandatory[i + 1], 0);
-          }
-        }
-
-
-        // Caps
-        // If angle < 360, we have an opening.
-        // Cap Start: at angle 0.
-        // Cap End: at angle Total.
-        if (totalAngle < 360) {
-          const drawCap = (angle, isStart) => {
-            const rad = angle * degToRad;
-            let rot;
-            rot = rotFn(rad);
-            const mvp = matrixMultiply(vpMatrix, matrixMultiply(modelMatrix, matrixMultiply(rot, matOffset)));
-
-            // Use getPathData from closure to generate proper filled shape
-            const d = getPathData(mvp);
-
-            // Calculate Z (Average of transformed vertices)
-            let zSum = 0; let ptCount = 0;
-            for (const v of this.localVertices) {
-              const tv = transformVertex(v, mvp);
-              if (tv) { zSum += tv[2]; ptCount++; }
-            }
-            const z = ptCount > 0 ? zSum / ptCount : 0;
-
-            if (d) {
-              const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-              p.setAttribute('d', d);
-              p.setAttribute('fill', resolvedFill);
-              p.setAttribute('fill-opacity', _effRevolve['fill-opacity']);
-              if (_effRevolve.stroke && _effRevolve.stroke !== 'none') {
-                p.setAttribute('stroke', resolvedStroke);
-                p.setAttribute('stroke-width', getEffectiveStrokeWidth(_effRevolve['stroke-width']));
-                if (_effRevolve['stroke-opacity'] !== undefined) {
-                  p.setAttribute('stroke-opacity', _effRevolve['stroke-opacity']);
-                }
-              }
-              faceList.push({ element: p, z: z });
-            }
-          };
-
-          if (capStart) drawCap(0, true);
-          if (capEnd) drawCap(totalAngle, false);
-        }
-      }
-
-      isSegmentSmooth(segA, segB) {
-        // Robust Tangent Helper
-        const getT = (seg, isEnd) => {
-          if (seg.type === 'L') {
-            const dx = seg.pEnd[0] - seg.pStart[0], dy = seg.pEnd[1] - seg.pStart[1], dz = (seg.pEnd[2] || 0) - (seg.pStart[2] || 0);
-            const l = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            return l > 1e-9 ? [dx / l, dy / l, dz / l] : [0, 0, 0];
-          }
-          // Handle C (Cubic) and Q (Quadratic)
-          let pts = [];
-          if (seg.type === 'C') pts = [seg.p0, seg.p1, seg.p2, seg.p3];
-          else if (seg.type === 'Q') pts = [seg.p0, seg.p1, seg.p2];
-
-          if (isEnd) pts.reverse();
-
-          for (let i = 0; i < pts.length - 1; i++) {
-            const dx = pts[i + 1][0] - pts[i][0], dy = pts[i + 1][1] - pts[i][1], dz = (pts[i + 1][2] || 0) - (pts[i][2] || 0);
-            const l = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            if (l > 1e-9) return [dx / l, dy / l, dz / l];
-          }
-          return [0, 0, 0];
-        };
-        const tA = getT(segA, true);
-        const tB = getT(segB, false);
-        const dot = tA[0] * tB[0] + tA[1] * tB[1] + tA[2] * tB[2];
-        return dot > 0.9;
-      }
-
-      generateSimpleRevolveRibbons(segments, matBaseA, matBaseB, matFinalCP1, matFinalCP2, segmentsB, options = {}) {
-        const { skipSlideCorrection } = options;
-        const faces = [];
-
-        // Helper: Get Normalized Tangent at Start of Segment (Robust)
-        const getTangentStart = (seg) => {
-          if (seg.type === 'L') {
-            const dx = seg.pEnd[0] - seg.pStart[0];
-            const dy = seg.pEnd[1] - seg.pStart[1];
-            const dz = (seg.pEnd[2] || 0) - (seg.pStart[2] || 0);
-            const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            return len > 1e-9 ? [dx / len, dy / len, dz / len] : [0, 0, 0];
-          } else if (seg.type === 'C') {
-            // Try p0 -> p1
-            let dx = seg.p1[0] - seg.p0[0], dy = seg.p1[1] - seg.p0[1], dz = (seg.p1[2] || 0) - (seg.p0[2] || 0);
-            let len = dx * dx + dy * dy + dz * dz;
-            if (len < 1e-9) {
-              // Try p0 -> p2
-              dx = seg.p2[0] - seg.p0[0]; dy = seg.p2[1] - seg.p0[1]; dz = (seg.p2[2] || 0) - (seg.p0[2] || 0);
-              len = dx * dx + dy * dy + dz * dz;
-              if (len < 1e-9) {
-                // Try p0 -> p3
-                dx = seg.p3[0] - seg.p0[0]; dy = seg.p3[1] - seg.p0[1]; dz = (seg.p3[2] || 0) - (seg.p0[2] || 0);
-                len = dx * dx + dy * dy + dz * dz;
-              }
-            }
-            len = Math.sqrt(len);
-            return len > 1e-9 ? [dx / len, dy / len, dz / len] : [0, 0, 0];
-          } else if (seg.type === 'Q') {
-            // Try p0 -> p1
-            let dx = seg.p1[0] - seg.p0[0], dy = seg.p1[1] - seg.p0[1], dz = (seg.p1[2] || 0) - (seg.p0[2] || 0);
-            let len = dx * dx + dy * dy + dz * dz;
-            if (len < 1e-9) {
-              // Try p0 -> p2
-              dx = seg.p2[0] - seg.p0[0]; dy = seg.p2[1] - seg.p0[1]; dz = (seg.p2[2] || 0) - (seg.p0[2] || 0);
-              len = dx * dx + dy * dy + dz * dz;
-            }
-            len = Math.sqrt(len);
-            return len > 1e-9 ? [dx / len, dy / len, dz / len] : [0, 0, 0];
-          }
-          return [0, 0, 0];
-        };
-
-        // Helper: Get Normalized Tangent at End of Segment (Robust)
-        const getTangentEnd = (seg) => {
-          if (seg.type === 'L') {
-            const dx = seg.pEnd[0] - seg.pStart[0];
-            const dy = seg.pEnd[1] - seg.pStart[1];
-            const dz = (seg.pEnd[2] || 0) - (seg.pStart[2] || 0);
-            const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            return len > 1e-9 ? [dx / len, dy / len, dz / len] : [0, 0, 0];
-          } else if (seg.type === 'C') {
-            // Try p2 -> p3
-            let dx = seg.p3[0] - seg.p2[0], dy = seg.p3[1] - seg.p2[1], dz = (seg.p3[2] || 0) - (seg.p2[2] || 0);
-            let len = dx * dx + dy * dy + dz * dz;
-            if (len < 1e-9) {
-              // Try p1 -> p3
-              dx = seg.p3[0] - seg.p1[0]; dy = seg.p3[1] - seg.p1[1]; dz = (seg.p3[2] || 0) - (seg.p1[2] || 0);
-              len = dx * dx + dy * dy + dz * dz;
-              if (len < 1e-9) {
-                // Try p0 -> p3
-                dx = seg.p3[0] - seg.p0[0]; dy = seg.p3[1] - seg.p0[1]; dz = (seg.p3[2] || 0) - (seg.p0[2] || 0);
-                len = dx * dx + dy * dy + dz * dz;
-              }
-            }
-            len = Math.sqrt(len);
-            return len > 1e-9 ? [dx / len, dy / len, dz / len] : [0, 0, 0];
-          } else if (seg.type === 'Q') {
-            // Try p1 -> p2
-            let dx = seg.p2[0] - seg.p1[0], dy = seg.p2[1] - seg.p1[1], dz = (seg.p2[2] || 0) - (seg.p1[2] || 0);
-            let len = dx * dx + dy * dy + dz * dz;
-            if (len < 1e-9) {
-              // Try p0 -> p2
-              dx = seg.p2[0] - seg.p0[0]; dy = seg.p2[1] - seg.p0[1]; dz = (seg.p2[2] || 0) - (seg.p0[2] || 0);
-              len = dx * dx + dy * dy + dz * dz;
-            }
-            len = Math.sqrt(len);
-            return len > 1e-9 ? [dx / len, dy / len, dz / len] : [0, 0, 0];
-          }
-          return [0, 0, 0];
-        };
-
-        // Helper: Check if connection is smooth
-        const isSmooth = (segA, segB) => {
-          const tA = getTangentEnd(segA);
-          const tB = getTangentStart(segB);
-
-          const dotA = tA[0] * tA[0] + tA[1] * tA[1] + tA[2] * tA[2];
-          const dotB = tB[0] * tB[0] + tB[1] * tB[1] + tB[2] * tB[2];
-          // If vectors are zero-length or invalid, assume smooth to prevent breaking chains unnecessarily
-          if (dotA < 0.5 || dotB < 0.5) return true;
-
-          const dotProduct = tA[0] * tB[0] + tA[1] * tB[1] + tA[2] * tB[2];
-          // Relax threshold to merge more aggressively (approx 45 degrees, dot > 0.7)
-          return dotProduct > 0.7;
-        };
-
-        // 1. Group Segments into Chains based on Smoothness
-        const chains = [];
-        let currentChain = [];
-
-        segments.forEach((seg, i) => {
-          if (currentChain.length === 0) {
-            currentChain.push(seg);
-          } else {
-            const prevSeg = currentChain[currentChain.length - 1];
-            // Check connectivity
-            // Support both Linear (pStart/pEnd) and Cubic (p0/p3)
-            const pEndPrev = (prevSeg.type === 'C' || prevSeg.type === 'Q') ? prevSeg.p3 : prevSeg.pEnd;
-            const pStartCurr = (seg.type === 'C' || seg.type === 'Q') ? seg.p0 : seg.pStart;
-
-            const dist = Math.hypot(pStartCurr[0] - pEndPrev[0], pStartCurr[1] - pEndPrev[1], (pStartCurr[2] || 0) - (pEndPrev[2] || 0));
-            // Relax connectivity check slightly for float precision
-            const connected = dist < 1e-3;
-
-            // Use local isSmooth which supports C/Q via getTangent helpers
-            if (connected && isSmooth(prevSeg, seg) && !seg.forcedBreak) {
-              currentChain.push(seg);
-            } else {
-              chains.push(currentChain);
-              currentChain = [seg];
-            }
-          }
-        });
-        if (currentChain.length > 0) chains.push(currentChain);
-
-        // 2. Generate Ribbon for each Chain -> INDIVIDUAL PATHS
-        // [RevolveDebug] log removed
-        chains.forEach((chain, chainIdx) => {
-          if (chain.length === 0) return;
-
-          let dChain = '';
-          let zChain = 0;
-          let zCountChain = 0;
-          let hasStarted = false; // Flag to track if path has started with M
-
-          // Helper definitions
-          const p = (v) => {
-            if (!v) return null;
-            return { x: (v[0] * FRAME_SIZE) / 2, y: (-v[1] * FRAME_SIZE) / 2 };
-          };
-
-          // Robust Transform Helper (Handles 2D points by defaulting Z=0)
-          const tpv = (pt, mat) => {
-            if (!pt) return null;
-            const p3 = (pt.length === 2) ? [pt[0], pt[1], 0] : pt;
-            return transformProjectedVertex(p3, mat);
-          };
-
-          // 4D Homogeneous Addition Helper (Fixes Perspective & Skew Distortion)
-          const tpvWithSlide = (pt, matCP, vSlide, matBase) => {
-            if (!pt) return null;
-            const p3 = (pt.length === 2) ? [pt[0], pt[1], 0] : pt;
-            const x = p3[0], y = p3[1], z = p3[2];
-
-            let resX = x * matCP[0][0] + y * matCP[0][1] + z * matCP[0][2] + matCP[0][3];
-            let resY = x * matCP[1][0] + y * matCP[1][1] + z * matCP[1][2] + matCP[1][3];
-            let resZ = x * matCP[2][0] + y * matCP[2][1] + z * matCP[2][2] + matCP[2][3];
-            let resW = x * matCP[3][0] + y * matCP[3][1] + z * matCP[3][2] + matCP[3][3];
-
-            if (vSlide) {
-              const vx = vSlide[0], vy = vSlide[1], vz = vSlide[2];
-              resX += vx * matBase[0][0] + vy * matBase[0][1] + vz * matBase[0][2];
-              resY += vx * matBase[1][0] + vy * matBase[1][1] + vz * matBase[1][2];
-              resZ += vx * matBase[2][0] + vy * matBase[2][1] + vz * matBase[2][2];
-              resW += vx * matBase[3][0] + vy * matBase[3][1] + vz * matBase[3][2];
-            }
-
-            if (Math.abs(resW) > 1e-9) {
-              return [resX / resW, resY / resW, resZ / resW];
-            }
-            return [resX, resY, resZ];
-          };
-
-          const addCmd = (cmd, ...args) => {
-            const len = args.length;
-            if (len < 2) return;
-
-            // Robust Start Logic:
-            // If path hasn't started yet (no M), force the first command to be M
-            if (!hasStarted) {
-              // The last two args are always x, y for drawing commands
-              const x = args[len - 2];
-              const y = args[len - 1];
-              dChain += `M ${x} ${y} `;
-              hasStarted = true;
-
-              // If the original command was NOT M (e.g. L, C, Q), we still need to execute it
-              // AFTER moving to the start point?
-              // Actually, usually L/C/Q implies "draw TO here".
-              // For "Simple Sides", we are tracing the boundary.
-              // If the true start point was clipped, we start drawing from the first visible point.
-              // So treating the first visible point as a MoveTo is correct to "start" the path visually there.
-              // However, if we replace L with M, we lose the line segment. But since we just moved there, we can't draw a line from nowhere.
-              return;
-            }
-
-            dChain += `${cmd} ${args.join(' ')} `;
-          };
-
-          // Trace Start Edge (Forward)
-          const startSeg = chain[0];
-          let pStart;
-          if (startSeg.type === 'C' || startSeg.type === 'Q') pStart = startSeg.p0;
-          else pStart = startSeg.pStart;
-
-          const tStartA = tpv(pStart, matBaseA);
-
-          if (tStartA) {
-            const ptStart = p(tStartA);
-            // Explicit M for valid start
-            addCmd('M', ptStart.x, ptStart.y);
-            zChain += tStartA[2]; zCountChain++;
-          } else {
-            // console.warn(`[RevolveDebug] Chain ${chainIdx}: Start Point clipped/invalid.`);
-          }
-
-          chain.forEach((seg, segIdx) => {
-            // A-Side (Forward)
-            if (seg.type === 'L') {
-              const tv = tpv(seg.pEnd, matBaseA);
-              if (tv) {
-                const ptV = p(tv);
-                addCmd('L', ptV.x, ptV.y);
-                zChain += tv[2]; zCountChain++;
-              }
-            } else if (seg.type === 'C') {
-              const tv1 = tpv(seg.p1, matBaseA);
-              const tv2 = tpv(seg.p2, matBaseA);
-              const tv3 = tpv(seg.p3, matBaseA);
-              if (tv1 && tv2 && tv3) {
-                const p1 = p(tv1); const p2 = p(tv2); const p3 = p(tv3);
-                addCmd('C', p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
-                zChain += tv1[2] + tv2[2] + tv3[2]; zCountChain += 3;
-              } else {
-                // console.warn(`[RevolveDebug] Chain ${chainIdx} Seg ${segIdx} (C): Control points clipped.`);
-              }
-            } else if (seg.type === 'Q') {
-              const tv1 = tpv(seg.p1, matBaseA);
-              const tv2 = tpv(seg.p2, matBaseA);
-              if (tv1 && tv2) {
-                const p1 = p(tv1); const p2 = p(tv2);
-                addCmd('Q', p1.x, p1.y, p2.x, p2.y);
-                zChain += tv1[2] + tv2[2]; zCountChain += 2;
-              }
-            }
-          });
-
-          // Connection to B-Side
-          const lastSeg = chain[chain.length - 1];
-          let pEndA;
-          if (lastSeg.type === 'C') pEndA = lastSeg.p3;
-          else if (lastSeg.type === 'Q') pEndA = lastSeg.p2;
-          else pEndA = lastSeg.pEnd;
-          // Find corresponding B segment
-          const lastIdx = segments.indexOf(lastSeg);
-          const lastSegB = (lastIdx >= 0 && segmentsB && segmentsB[lastIdx]) ? segmentsB[lastIdx] : lastSeg;
-          let pEndB;
-          if (lastSegB.type === 'C') pEndB = lastSegB.p3;
-          else if (lastSegB.type === 'Q') pEndB = lastSegB.p2;
-          else pEndB = lastSegB.pEnd;
-
-          // Apply Homogeneous 4D Slide using exact parametric tangent vector
-          let slideVecEndA = null;
-          if (lastSeg.horizonSlideVecEnd) {
-            slideVecEndA = lastSeg.horizonSlideVecEnd;
-          }
-          let tEndCP1 = tpvWithSlide(pEndA, matFinalCP1, slideVecEndA, matBaseA);
-
-          let slideVecEndB = null;
-          if (lastSegB.horizonSlideVecEnd) {
-            slideVecEndB = [-lastSegB.horizonSlideVecEnd[0], -lastSegB.horizonSlideVecEnd[1], -lastSegB.horizonSlideVecEnd[2]];
-          }
-          let tEndCP2 = tpvWithSlide(pEndB, matFinalCP2, slideVecEndB, matBaseB);
-
-          const tEndA = tpv(pEndA, matBaseA);
-          const tEndB = tpv(pEndB, matBaseB);
-
-          if (tEndB && tEndCP1 && tEndCP2) {
-            const ptB = p(tEndB);
-            const ptCP1 = p(tEndCP1);
-            const ptCP2 = p(tEndCP2);
-            addCmd('C', ptCP1.x, ptCP1.y, ptCP2.x, ptCP2.y, ptB.x, ptB.y);
-            zChain += tEndB[2] + tEndCP1[2] + tEndCP2[2]; zCountChain += 3;
-          } else if (tEndB) {
-            const ptB = p(tEndB);
-            addCmd('L', ptB.x, ptB.y);
-            zChain += tEndB[2]; zCountChain++;
-          }
-
-          // Trace B-Side (Backward)
-          for (let i = chain.length - 1; i >= 0; i--) {
-            const segA = chain[i];
-            const idx = segments.indexOf(segA); // Find index in original array
-            const segB = (idx >= 0 && segmentsB && segmentsB[idx]) ? segmentsB[idx] : segA;
-
-            if (segB.type === 'L') {
-              const tv = tpv(segB.pStart, matBaseB); // Backward: End -> Start
-              if (tv) {
-                const ptV = p(tv);
-                addCmd('L', ptV.x, ptV.y);
-                zChain += tv[2]; zCountChain++;
-              }
-            } else if (segB.type === 'C') {
-              // Backward Cubic: p3 -> p0.
-              // Control points: p2, p1.
-              const tv2 = tpv(segB.p2, matBaseB);
-              const tv1 = tpv(segB.p1, matBaseB);
-              const tv0 = tpv(segB.p0, matBaseB);
-              if (tv0 && tv1 && tv2) {
-                const p2 = p(tv2); const p1 = p(tv1); const p0 = p(tv0);
-                addCmd('C', p2.x, p2.y, p1.x, p1.y, p0.x, p0.y);
-                zChain += tv2[2] + tv1[2] + tv0[2]; zCountChain += 3;
-              }
-            } else if (segB.type === 'Q') {
-              const tv1 = tpv(segB.p1, matBaseB);
-              const tv0 = tpv(segB.p0, matBaseB);
-              if (tv1 && tv0) {
-                const p1 = p(tv1); const p0 = p(tv0);
-                addCmd('Q', p1.x, p1.y, p0.x, p0.y);
-                zChain += tv1[2] + tv0[2]; zCountChain += 2;
-              }
-            }
-          }
-
-          // Close Loop (Back to Start of A)
-          // pStart (A) is already defined as 'pStart' variable at top of loop
-
-          //ここから
-          // Find corresponding B start segment
-          const startIdx = segments.indexOf(startSeg);
-          const startSegB = (startIdx >= 0 && segmentsB && segmentsB[startIdx]) ? segmentsB[startIdx] : startSeg;
-          let pStartB;
-          if (startSegB.type === 'C' || startSegB.type === 'Q') pStartB = startSegB.p0;
-          else pStartB = startSegB.pStart;
-
-          const tStartB = tpv(pStartB, matBaseB);
-
-          // Apply Homogeneous 4D Slide using exact parametric tangent vector
-          let slideVecStartB = null;
-          if (startSegB.horizonSlideVecStart) {
-            slideVecStartB = [-startSegB.horizonSlideVecStart[0], -startSegB.horizonSlideVecStart[1], -startSegB.horizonSlideVecStart[2]];
-          }
-          let tStartCP1_Rev = tpvWithSlide(pStartB, matFinalCP2, slideVecStartB, matBaseB);
-
-          let slideVecStartA = null;
-          if (startSeg.horizonSlideVecStart) {
-            slideVecStartA = startSeg.horizonSlideVecStart;
-          }
-          let tStartCP2_Rev = tpvWithSlide(pStart, matFinalCP1, slideVecStartA, matBaseA);
-
-          if (tStartA && tStartCP1_Rev && tStartCP2_Rev) {
-            //ここまで
-            const ptA = p(tStartA);
-            const ptC1 = p(tStartCP1_Rev);
-            const ptC2 = p(tStartCP2_Rev);
-            addCmd('C', ptC1.x, ptC1.y, ptC2.x, ptC2.y, ptA.x, ptA.y);
-            zChain += tStartA[2] + tStartCP1_Rev[2] + tStartCP2_Rev[2];
-            zCountChain += 3;
-          } else {
-            addCmd('Z'); // Fallback
-          }
-
-          addCmd('Z'); // Close subpath
-
-          // Push Face for this chain
-          if (hasStarted && dChain.length > 0) { // Only push if we actually started a path
-            // For zAvg, check if count > 0
-            const zAvg = zCountChain > 0 ? zChain / zCountChain : 0;
-            // Also if zCountChain is 0 (everything clipped?), dont push?
-            // If hasStarted is true, we have at least one valid point or vertex processed.
-            faces.push({ d: dChain, z: zAvg });
-            // console.log(`[RevolveDebug] Face pushed. dChain length: ${dChain.length}, zAvg: ${zAvg}`);
-          } else {
-            // console.log(`[RevolveDebug] Chain ${chainIdx}: Empty dChain.`);
-          }
-        });
-
-        return faces; // Return array of faces
-      }
-
-
-
-      generatePlanarRevolveFaces(chains, axis, matOffset, uniqueMandatory, vpMatrix, modelMatrix) {
-        const faces = [];
-        const degToRad = Math.PI / 180;
-        const rotFn = axis === 'y' ? createRotationYMatrix
-          : axis === 'z' ? createRotationZMatrix
-            : createRotationXMatrix;
-
-        // Helper to project point: VP * Model * Rot(angle) * vOffset
-        const project = (vOffset, angleRad) => {
-          const rot = rotFn(angleRad);
-          const colMat = matrixMultiply(vpMatrix, matrixMultiply(modelMatrix, rot));
-
-          // Mat4 * Vec3(with w=1)
-          const x = vOffset[0], y = vOffset[1], z = vOffset[2];
-          // Fix: Access matrix elements as m[row][col] (Row-Major)
-          const resX = x * colMat[0][0] + y * colMat[0][1] + z * colMat[0][2] + colMat[0][3];
-          const resY = x * colMat[1][0] + y * colMat[1][1] + z * colMat[1][2] + colMat[1][3];
-          const resZ = x * colMat[2][0] + y * colMat[2][1] + z * colMat[2][2] + colMat[2][3];
-          const resW = x * colMat[3][0] + y * colMat[3][1] + z * colMat[3][2] + colMat[3][3];
-
-          if (Math.abs(resW) < 1e-9) return null;
-          const invW = 1 / resW;
-          return [resX * invW, resY * invW, resZ * invW];
-        };
-
-        // Helper to project Control Point: VP * Model * Rot(angle) * Skew(k) * vOffset
-        const projectCP = (vOffset, angleRad, k) => {
-          const rot = rotFn(angleRad);
-          const skew = createTangentSkewMatrix(axis, k);
-          // Order: Rot * Skew * vector => Rot(Skew(v))
-          const colMat = matrixMultiply(vpMatrix, matrixMultiply(modelMatrix, matrixMultiply(rot, skew)));
-
-          const x = vOffset[0], y = vOffset[1], z = vOffset[2];
-          const resX = x * colMat[0][0] + y * colMat[0][1] + z * colMat[0][2] + colMat[0][3];
-          const resY = x * colMat[1][0] + y * colMat[1][1] + z * colMat[1][2] + colMat[1][3];
-          const resZ = x * colMat[2][0] + y * colMat[2][1] + z * colMat[2][2] + colMat[2][3];
-          const resW = x * colMat[3][0] + y * colMat[3][1] + z * colMat[3][2] + colMat[3][3];
-
-          if (Math.abs(resW) < 1e-9) return null;
-          const invW = 1 / resW;
-          return [resX * invW, resY * invW, resZ * invW];
-        };
-
-        const toScreen = (ndc) => {
-          if (!ndc) return { x: 0, y: 0 };
-          return { x: (ndc[0] * FRAME_SIZE) / 2, y: (-ndc[1] * FRAME_SIZE) / 2 };
-        };
-
-        chains.forEach(chain => {
-          if (chain.length === 0) return;
-
-          // Helper to access verts
-          const getStart = (s) => (s.type === 'C' || s.type === 'Q') ? s.p0 : s.pStart;
-          const getEnd = (s) => (s.type === 'C') ? s.p3 : (s.type === 'Q' ? s.p2 : s.pEnd);
-
-          // Helper to add Sweep Curve (Arc approximation matching mandatory boundaries)
-          const addSweepCurve = (vOffset, isForward) => {
-            const angles = isForward ? uniqueMandatory : [...uniqueMandatory].reverse();
-            for (let i = 0; i < angles.length - 1; i++) {
-              const ang1 = angles[i] * degToRad;
-              const ang2 = angles[i + 1] * degToRad;
-              const delta = Math.abs(ang2 - ang1);
-
-              // Use correct sign for k based on direction
-              const k = isForward ? (4 / 3) * Math.tan(delta / 4) : -(4 / 3) * Math.tan(delta / 4);
-
-              const ndcCP1 = projectCP(vOffset, ang1, k);
-              const ndcCP2 = projectCP(vOffset, ang2, -k);
-              const ndcEnd = project(vOffset, ang2);
-
-              if (ndcCP1 && ndcCP2 && ndcEnd) {
-                const cp1 = toScreen(ndcCP1);
-                const cp2 = toScreen(ndcCP2);
-                const pt = toScreen(ndcEnd);
-                d += `C ${cp1.x} ${cp1.y} ${cp2.x} ${cp2.y} ${pt.x} ${pt.y} `;
-                zSum += ndcEnd[2] + ndcCP1[2] + ndcCP2[2]; zCount += 3;
-              } else {
-                const ndc = project(vOffset, ang2);
-                if (ndc) {
-                  const pt = toScreen(ndc);
-                  d += `L ${pt.x} ${pt.y} `;
-                  zSum += ndc[2]; zCount++;
-                }
-              }
-            }
-          };
-
-          // Start Point (Raw Profile)
-          const p0 = getStart(chain[0]);
-          // We MUST offset the raw profile points
-          const tP0 = transformVertex(p0, matOffset);
-
-          // End Point (Raw Profile)
-          const profileLastSeg = chain[chain.length - 1];
-          const pLast = getEnd(profileLastSeg);
-          const tPLast = transformVertex(pLast, matOffset);
-
-          let d = "";
-          let zSum = 0, zCount = 0;
-          let hasStarted = false;
-
-          // A. Trace Profile at Angle 0 (Forward)
-          if (chain.length > 0) {
-            const startNDC = project(tP0, 0);
-            if (startNDC) {
-              const pt = toScreen(startNDC);
-              d += `M ${pt.x} ${pt.y} `;
-              hasStarted = true;
-              zSum += startNDC[2]; zCount++;
-            }
-          }
-
-          chain.forEach(seg => {
-            const t = (v) => transformVertex(v, matOffset);
-            if (seg.type === 'L') {
-              const tv = t(seg.pEnd);
-              const ndc = project(tv, 0);
-              if (ndc) {
-                const pt = toScreen(ndc);
-                d += `L ${pt.x} ${pt.y} `;
-                zSum += ndc[2]; zCount++;
-              }
-            } else if (seg.type === 'C') {
-              const tv1 = t(seg.p1); const tv2 = t(seg.p2); const tv3 = t(seg.p3);
-              const ndcCP1 = project(tv1, 0);
-              const ndcCP2 = project(tv2, 0);
-              const ndcEnd = project(tv3, 0);
-
-              if (ndcCP1 && ndcCP2 && ndcEnd) {
-                const cp1 = toScreen(ndcCP1);
-                const cp2 = toScreen(ndcCP2);
-                const pt = toScreen(ndcEnd);
-                d += `C ${cp1.x} ${cp1.y} ${cp2.x} ${cp2.y} ${pt.x} ${pt.y} `;
-                zSum += ndcEnd[2] + ndcCP1[2] + ndcCP2[2]; zCount += 3;
-              }
-            } else if (seg.type === 'Q') {
-              const tv1 = t(seg.p1); const tv2 = t(seg.p2);
-              const ndcCP1 = project(tv1, 0);
-              const ndcEnd = project(tv2, 0);
-              if (ndcCP1 && ndcEnd) {
-                const cp1 = toScreen(ndcCP1);
-                const pt = toScreen(ndcEnd);
-                d += `Q ${cp1.x} ${cp1.y} ${pt.x} ${pt.y} `;
-                zSum += ndcEnd[2] + ndcCP1[2]; zCount += 2;
-              }
-            }
-          });
-
-          // B. Sweep Outer Edge
-          addSweepCurve(tPLast, true);
-
-          // C. Trace Profile at Angle Total (Backward)
-          const totalRad = uniqueMandatory[uniqueMandatory.length - 1] * degToRad;
-          for (let i = chain.length - 1; i >= 0; i--) {
-            const seg = chain[i];
-            const t = (v) => transformVertex(v, matOffset);
-
-            if (seg.type === 'L') {
-              const tv = t(seg.pStart);
-              const ndc = project(tv, totalRad);
-              if (ndc) {
-                const pt = toScreen(ndc);
-                d += `L ${pt.x} ${pt.y} `;
-                zSum += ndc[2]; zCount++;
-              }
-            } else if (seg.type === 'C') {
-              // Reverse Cubic: p3 -> p0. CPs: p2, p1
-              const tv2 = t(seg.p2); const tv1 = t(seg.p1); const tv0 = t(seg.p0);
-              const ndcCP2 = project(tv2, totalRad);
-              const ndcCP1 = project(tv1, totalRad);
-              const ndcEnd = project(tv0, totalRad);
-
-              if (ndcCP1 && ndcCP2 && ndcEnd) {
-                const cp2 = toScreen(ndcCP2);
-                const cp1 = toScreen(ndcCP1);
-                const pt = toScreen(ndcEnd);
-                d += `C ${cp2.x} ${cp2.y} ${cp1.x} ${cp1.y} ${pt.x} ${pt.y} `;
-                zSum += ndcEnd[2] + ndcCP1[2] + ndcCP2[2]; zCount += 3;
-              }
-            } else if (seg.type === 'Q') {
-              const tv1 = t(seg.p1); const tv0 = t(seg.p0);
-              const ndcCP1 = project(tv1, totalRad);
-              const ndcEnd = project(tv0, totalRad);
-              if (ndcCP1 && ndcEnd) {
-                const cp1 = toScreen(ndcCP1);
-                const pt = toScreen(ndcEnd);
-                d += `Q ${cp1.x} ${cp1.y} ${pt.x} ${pt.y} `;
-                zSum += ndcEnd[2] + ndcCP1[2]; zCount += 2;
-              }
-            }
-          }
-
-          // D. Sweep Inner Edge (Back to 0)
-          addSweepCurve(tP0, false);
-
-          if (hasStarted) d += "Z";
-
-          const zAvg = zCount > 0 ? zSum / zCount : 0;
-          const sidePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          sidePath.setAttribute('d', d);
-          sidePath.setAttribute('fill', resolvedFill);
-          sidePath.setAttribute('fill-opacity', _effRevolve['fill-opacity']);
-          sidePath.setAttribute('stroke', resolvedStroke);
-          sidePath.setAttribute('stroke-width', getEffectiveStrokeWidth(_effRevolve['stroke-width']));
-          if (_effRevolve['stroke-opacity'] !== undefined) {
-            sidePath.setAttribute('stroke-opacity', _effRevolve['stroke-opacity']);
-          }
-
-          if (hasStarted) faces.push({ element: sidePath, z: zAvg });
-        });
-
-        return faces;
       }
 
       // v20260302: Revolve using 3D Surface pipeline (replaces old drawRevolve)
@@ -39125,6 +38550,23 @@
       // Helper to align start to 0
       const start = Math.ceil(-GRID_EXTENT / spacing) * spacing;
 
+      // Grid line styling reads the global grid-appearance prefs (color/opacity/
+      // weight). Base lines are uniform; the YZ center-axis line keeps a RELATIVE
+      // emphasis derived from the base so the defaults (black, 0.2, 1) reproduce the
+      // historical look (axis opacity 0.5, width 2) and larger weights stay
+      // proportional.
+      const _styleBase = (line) => {
+        line.setAttribute('stroke', gridColor);
+        line.setAttribute('stroke-opacity', gridOpacity);
+        line.setAttribute('stroke-width', gridWeight);
+      };
+      const _styleAxis = (line, val) => {
+        const isAxis = Math.abs(val) < 0.001;
+        line.setAttribute('stroke', gridColor);
+        line.setAttribute('stroke-opacity', isAxis ? Math.min(1, gridOpacity * 2.5) : gridOpacity);
+        line.setAttribute('stroke-width', isAxis ? gridWeight * 2 : gridWeight);
+      };
+
       // XZ Grid
       for (let i = start; i <= GRID_EXTENT; i += spacing) {
         // Avoid floating point drift
@@ -39132,8 +38574,7 @@
         if (val > GRID_EXTENT) break;
 
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('stroke', 'rgba(0, 0, 0, 0.2)');
-        line.setAttribute('stroke-width', '1');
+        _styleBase(line);
         gridGroup.appendChild(line);
         gridLines.push({ line: line, v1: [val, 0, -GRID_EXTENT], v2: [val, 0, GRID_EXTENT] });
       }
@@ -39142,21 +38583,18 @@
         if (val > GRID_EXTENT) break;
 
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('stroke', 'rgba(0, 0, 0, 0.2)');
-        line.setAttribute('stroke-width', '1');
+        _styleBase(line);
         gridGroup.appendChild(line);
         gridLines.push({ line: line, v1: [-GRID_EXTENT, 0, val], v2: [GRID_EXTENT, 0, val] });
       }
 
       // XY Grid (Workplane XY)
-      const gridColor = 'rgba(0, 0, 0, 0.2)';
       for (let i = start; i <= GRID_EXTENT; i += spacing) {
         const val = Math.round(i * 1000) / 1000;
         if (val > GRID_EXTENT) break;
 
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('stroke', gridColor);
-        line.setAttribute('stroke-width', '1');
+        _styleBase(line);
         gridGroupXY.appendChild(line);
         gridLinesXY.push({ line: line, v1: [val, -GRID_EXTENT, 0], v2: [val, GRID_EXTENT, 0] });
       }
@@ -39165,22 +38603,18 @@
         if (val > GRID_EXTENT) break;
 
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('stroke', gridColor);
-        line.setAttribute('stroke-width', '1');
+        _styleBase(line);
         gridGroupXY.appendChild(line);
         gridLinesXY.push({ line: line, v1: [-GRID_EXTENT, val, 0], v2: [GRID_EXTENT, val, 0] });
       }
 
-      // YZ Grid
-      const axisColor = 'rgba(0, 0, 0, 0.5)';
+      // YZ Grid (center axis line emphasized)
       for (let i = start; i <= GRID_EXTENT; i += spacing) {
         const val = Math.round(i * 1000) / 1000;
         if (val > GRID_EXTENT) break;
 
         const line = document.createElementNS(svgNS, 'line');
-        line.setAttribute('stroke', gridColor);
-        line.setAttribute('stroke-width', Math.abs(val) < 0.001 ? '2' : '1');
-        if (Math.abs(val) < 0.001) line.setAttribute('stroke', axisColor);
+        _styleAxis(line, val);
         gridGroupYZ.appendChild(line);
         gridLinesYZ.push({ line: line, v1: [0, val, -GRID_EXTENT], v2: [0, val, GRID_EXTENT] });
       }
@@ -39189,9 +38623,7 @@
         if (val > GRID_EXTENT) break;
 
         const line = document.createElementNS(svgNS, 'line');
-        line.setAttribute('stroke', gridColor);
-        line.setAttribute('stroke-width', Math.abs(val) < 0.001 ? '2' : '1');
-        if (Math.abs(val) < 0.001) line.setAttribute('stroke', axisColor);
+        _styleAxis(line, val);
         gridGroupYZ.appendChild(line);
         gridLinesYZ.push({ line: line, v1: [0, -GRID_EXTENT, val], v2: [0, GRID_EXTENT, val] });
       }
@@ -42991,6 +42423,62 @@
      * or null if nothing remains after clipping.
      * The output is always algorithm:'linear' since clipping breaks bezier continuity.
      */
+    // Clip an open polyline against a (possibly concave) simple polygon.
+    // Returns an ARRAY OF RUNS (each an array of [x,y] points) — a polyline can
+    // exit and re-enter the clip region. Even-odd containment; segment×edge
+    // intersections computed parametrically. (2026-07-24: replaces the closed-
+    // polygon approximation for open subpaths.)
+    const clipPolylineByPolygon = (polyline, clipPoly) => {
+      const inside = (p) => {
+        let inside = false;
+        for (let i = 0, j = clipPoly.length - 1; i < clipPoly.length; j = i++) {
+          const [xi, yi] = clipPoly[i], [xj, yj] = clipPoly[j];
+          if ((yi > p[1]) !== (yj > p[1]) &&
+              p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) inside = !inside;
+        }
+        return inside;
+      };
+      const runs = [];
+      let cur = null;
+      const pushPt = (p) => {
+        if (!cur) cur = [];
+        const prev = cur[cur.length - 1];
+        if (!prev || prev[0] !== p[0] || prev[1] !== p[1]) cur.push(p);
+      };
+      const endRun = () => { if (cur && cur.length >= 2) runs.push(cur); cur = null; };
+      for (let i = 0; i < polyline.length - 1; i++) {
+        const a = polyline[i], b = polyline[i + 1];
+        // gather intersection params of segment a→b with every clip edge
+        const ts = [0, 1];
+        for (let j = 0, k = clipPoly.length - 1; j < clipPoly.length; k = j++) {
+          const c = clipPoly[k], d = clipPoly[j];
+          const rx = b[0] - a[0], ry = b[1] - a[1];
+          const sx = d[0] - c[0], sy = d[1] - c[1];
+          const den = rx * sy - ry * sx;
+          if (den === 0) continue;                    // parallel/collinear: endpoints cover it
+          const t = ((c[0] - a[0]) * sy - (c[1] - a[1]) * sx) / den;
+          const u = ((c[0] - a[0]) * ry - (c[1] - a[1]) * rx) / den;
+          if (t > 0 && t < 1 && u >= 0 && u <= 1) ts.push(t);
+        }
+        ts.sort((p, q) => p - q);
+        // walk sub-segments; keep those whose midpoint is inside
+        for (let s = 0; s < ts.length - 1; s++) {
+          const t0 = ts[s], t1 = ts[s + 1];
+          if (t1 - t0 < 1e-12) continue;
+          const tm = (t0 + t1) / 2;
+          const mid = [a[0] + tm * (b[0] - a[0]), a[1] + tm * (b[1] - a[1])];
+          if (inside(mid)) {
+            pushPt([a[0] + t0 * (b[0] - a[0]), a[1] + t0 * (b[1] - a[1])]);
+            pushPt([a[0] + t1 * (b[0] - a[0]), a[1] + t1 * (b[1] - a[1])]);
+          } else {
+            endRun();
+          }
+        }
+      }
+      endRun();
+      return runs;
+    };
+
     const clipParsedVerticesByPolygon = (allVertices, subPathData, algorithm, clipPoly, S) => {
       const newVertices = [];
       const newSubPathData = [];
@@ -43006,27 +42494,21 @@
         const isClosed = sp.closed;
 
         // Clip the polyline polygon against the clip polygon
-        let clipped;
         if (isClosed && polyline.length >= 3) {
-          clipped = sutherlandHodgmanClip(polyline, clipPoly);
+          const clipped = sutherlandHodgmanClip(polyline, clipPoly);
+          if (clipped && clipped.length >= 2) {
+            const startIdx = newVertices.length;
+            clipped.forEach(p => newVertices.push([p[0] * S, -p[1] * S, 0]));
+            newSubPathData.push({ start: startIdx, count: clipped.length, closed: true });
+          }
         } else {
-          // For open paths, clip as a thin polygon (duplicate points in reverse)
-          // This is a simplification — true line clipping would use Cohen-Sutherland
-          // but for SVG import the shapes are typically closed
-          clipped = sutherlandHodgmanClip(polyline, clipPoly);
-        }
-
-        if (clipped && clipped.length >= 2) {
-          // Convert back to app space and add to output
-          const startIdx = newVertices.length;
-          clipped.forEach(p => {
-            newVertices.push([p[0] * S, -p[1] * S, 0]);
-          });
-          newSubPathData.push({
-            start: startIdx,
-            count: clipped.length,
-            closed: isClosed
-          });
+          // Open subpath (or degenerate closed <3 pts): true polyline clipping —
+          // may yield several disjoint runs (2026-07-24 fix).
+          for (const run of clipPolylineByPolygon(polyline, clipPoly)) {
+            const startIdx = newVertices.length;
+            run.forEach(p => newVertices.push([p[0] * S, -p[1] * S, 0]));
+            newSubPathData.push({ start: startIdx, count: run.length, closed: false });
+          }
         }
       });
 
@@ -44146,6 +43628,9 @@
           delete currentStyle['stroke-trim-start'];
           delete currentStyle['stroke-trim-end'];
           delete currentStyle['stroke-trim-mode'];
+          // 3D STROKE (v20260725e): same rule — per-object, never adopted as a
+          // brush property, so a new path never inherits a depth-varying stroke.
+          for (const k of Object.keys(currentStyle)) if (k.startsWith('stroke-3d-')) delete currentStyle[k];
         }
         // If no style (e.g. Group), keep previous currentStyle or do nothing.
         if (!_isDrawingTool && selectedObject instanceof Path && selectedObject.algorithm) {
@@ -44567,8 +44052,6 @@
         if (document.activeElement !== pivotYInput) pivotYInput.value = fmtDisplay(selectedObject.pivot[1]);
         if (document.activeElement !== pivotZInput) pivotZInput.value = fmtDisplay(selectedObject.pivot[2]);
 
-        if (document.activeElement !== pivotZInput) pivotZInput.value = fmtDisplay(selectedObject.pivot[2]);
-
         // Pivot Rotation Inputs
         const pivotRotXInput = document.getElementById('pivotRotXInput');
         const pivotRotYInput = document.getElementById('pivotRotYInput');
@@ -44701,6 +44184,46 @@
         if (_trimMode && document.activeElement !== _trimMode) {
           _trimMode.value = styleSource['stroke-trim-mode'] === 'sequential' ? 'sequential' : 'individually';
           _trimMode.disabled = !hasStroke || _trimIsGroup;
+        }
+        // 3D STROKE (v20260725e): Path-only, same as trim. Strength always
+        // shows when on; the Near/Far row is Depth-Range-only.
+        const _s3Mode = document.getElementById('stroke3dModeInput');
+        const _s3Str = document.getElementById('stroke3dStrengthInput');
+        const _s3Near = document.getElementById('stroke3dNearInput');
+        const _s3Far = document.getElementById('stroke3dFarInput');
+        const _s3ModeVal = styleSource['stroke-3d-mode'] === 'perspective' ? 'perspective'
+          : (styleSource['stroke-3d-mode'] === 'range' ? 'range' : '');
+        const _s3Row = document.getElementById('stroke3dModeRow');
+        if (_s3Row) _s3Row.style.display = _trimIsGroup ? 'none' : '';
+        const _strRow = document.getElementById('stroke3dStrengthRow');
+        if (_strRow) _strRow.style.display = (_trimIsGroup || !_s3ModeVal) ? 'none' : '';
+        const _rngRow = document.getElementById('stroke3dRangeRow');
+        if (_rngRow) _rngRow.style.display = (_trimIsGroup || _s3ModeVal !== 'range') ? 'none' : '';
+        const _occRow = document.getElementById('stroke3dOccludeRow');
+        if (_occRow) _occRow.style.display = (_trimIsGroup || !_s3ModeVal) ? 'none' : '';
+        const _occCb = document.getElementById('stroke3dOccludeInput');
+        if (_occCb && document.activeElement !== _occCb) {
+          _occCb.checked = !!styleSource['stroke-3d-occlude'];
+          _occCb.disabled = !hasStroke || _trimIsGroup;
+        }
+        if (_s3Mode && document.activeElement !== _s3Mode) {
+          _s3Mode.value = _s3ModeVal;
+          _s3Mode.disabled = !hasStroke || _trimIsGroup;
+        }
+        if (_s3Str && document.activeElement !== _s3Str) {
+          const v = styleSource['stroke-3d-strength'];
+          _s3Str.value = (v === undefined || v === null) ? 1 : v;
+          _s3Str.disabled = !hasStroke || _trimIsGroup;
+        }
+        if (_s3Near && document.activeElement !== _s3Near) {
+          const v = styleSource['stroke-3d-near'];
+          _s3Near.value = (v === undefined || v === null) ? 200 : v;
+          _s3Near.disabled = !hasStroke || _trimIsGroup;
+        }
+        if (_s3Far && document.activeElement !== _s3Far) {
+          const v = styleSource['stroke-3d-far'];
+          _s3Far.value = (v === undefined || v === null) ? 40 : v;
+          _s3Far.disabled = !hasStroke || _trimIsGroup;
         }
       }
 
@@ -45573,9 +45096,14 @@
       // Algorithm (hide for Groups — Groups don't have path type)
       const algorithmRow = document.getElementById('algorithmRow');
       const ruleBlendCloseRow = document.getElementById('ruleBlendCloseRow');
+      // Blend moved to its own row (v20260725i) — it was previously inside
+      // ruleBlendCloseRow and therefore hidden for Groups; keep that behaviour
+      // identical rather than silently exposing a new control on Groups.
+      const blendModeRow = document.getElementById('blendModeRow');
       const isGroupSelected = selectedObject && selectedObject.isGroup;
       if (algorithmRow) algorithmRow.style.display = isGroupSelected ? 'none' : '';
       if (ruleBlendCloseRow) ruleBlendCloseRow.style.display = isGroupSelected ? 'none' : '';
+      if (blendModeRow) blendModeRow.style.display = isGroupSelected ? 'none' : '';
       if (document.activeElement !== algorithmInput) {
         if (selectedObject && selectedObject instanceof Path) {
           algorithmInput.value = selectedObject.algorithm || 'linear';
@@ -45791,8 +45319,7 @@
           if (meshDivField) meshDivField.style.display = (sc.algorithm === 'subdivision') ? '' : 'none';
           const sfOverflowModeSelect = document.getElementById('splineFlowOverflowModeSelect');
           if (sfOverflowModeSelect && document.activeElement !== sfOverflowModeSelect) {
-            sfOverflowModeSelect.value = sc.overflowMode
-              || (sc.mappingOverflow ? 'overflow' : 'overflow');  // backward compat (default: overflow)
+            sfOverflowModeSelect.value = sc.overflowMode || 'overflow';  // backward compat (default: overflow)
           }
           if (sfRepeatCountInput && document.activeElement !== sfRepeatCountInput) sfRepeatCountInput.value = sc.repeat || 1;
           if (sfRepeatGapInput && document.activeElement !== sfRepeatGapInput) sfRepeatGapInput.value = sc.repeatOffset || 0;
@@ -47998,6 +47525,27 @@
       object.subPathData = [{ start: 0, count: object.localVertices.length, closed: object.loop }];
     }
 
+    // Shared cleanup for a Path whose last vertex was just deleted: mirror the
+    // object-delete branch of deleteSelection (destroy DOM, detach from parent
+    // OR sceneObjects, drop animation tracks). Group-child paths used to leak
+    // a zero-vertex ghost here (fixed 2026-07-24).
+    const removeEmptiedObject = (object) => {
+      if (object.destroy && typeof object.destroy === 'function') object.destroy();
+      else if (object.svgElement) object.svgElement.remove();
+      if (object.parent) {
+        object.parent.remove(object);
+      } else {
+        const index = sceneObjects.indexOf(object);
+        if (index > -1) sceneObjects.splice(index, 1);
+      }
+      removeAnimTracksFor(object);
+      if (typeof tlRenderTracks === 'function' && typeof tlExpanded !== 'undefined' && tlExpanded) {
+        tlRenderTracks();
+      }
+      selectedObjects = selectedObjects.filter(o => o !== object);
+      selectedObject = null;
+    };
+
     const deleteSelectedVertex = () => {
       if (selectedVertexInfo) {
         pushUndoState(); // Snapshot before vertex delete
@@ -48008,10 +47556,7 @@
         hoveredVertexInfo = null;
 
         if (object.localVertices.length === 0) {
-          // If object empty, maybe delete object? Consistent with current behavior
-          const index = sceneObjects.indexOf(object);
-          if (index > -1) sceneObjects.splice(index, 1);
-          selectedObject = null;
+          removeEmptiedObject(object);
         }
 
         updateTreeView();
@@ -48366,6 +47911,34 @@
           if (_tm === 'sequential') s['stroke-trim-mode'] = 'sequential';
           else delete s['stroke-trim-mode'];
         }
+        // 3D STROKE (v20260725e): Paths only. Every key is REMOVED at its
+        // default (mode Off / strength 1 / 200-40) so an untouched object
+        // serializes byte-identically to a pre-feature scene.
+        if ((forceAll || targetId === 'stroke3dModeInput' || targetId === 'stroke3dStrengthInput'
+          || targetId === 'stroke3dNearInput' || targetId === 'stroke3dFarInput'
+          || targetId === 'stroke3dOccludeInput') && !obj.isGroup) {
+          const _m3 = document.getElementById('stroke3dModeInput')?.value;
+          if (_m3 === 'perspective' || _m3 === 'range') {
+            s['stroke-3d-mode'] = _m3;
+            const _st = parseFloat(document.getElementById('stroke3dStrengthInput')?.value);
+            if (isFinite(_st) && Math.abs(_st - 1) > 1e-9) s['stroke-3d-strength'] = Math.max(0, _st);
+            else delete s['stroke-3d-strength'];
+            if (_m3 === 'range') {
+              const _nr = parseFloat(document.getElementById('stroke3dNearInput')?.value);
+              const _fr = parseFloat(document.getElementById('stroke3dFarInput')?.value);
+              if (isFinite(_nr) && Math.abs(_nr - 200) > 1e-9) s['stroke-3d-near'] = Math.max(0, _nr);
+              else delete s['stroke-3d-near'];
+              if (isFinite(_fr) && Math.abs(_fr - 40) > 1e-9) s['stroke-3d-far'] = Math.max(0, _fr);
+              else delete s['stroke-3d-far'];
+            } else { delete s['stroke-3d-near']; delete s['stroke-3d-far']; }
+            if (document.getElementById('stroke3dOccludeInput')?.checked) s['stroke-3d-occlude'] = true;
+            else delete s['stroke-3d-occlude'];
+          } else {
+            delete s['stroke-3d-mode']; delete s['stroke-3d-strength'];
+            delete s['stroke-3d-near']; delete s['stroke-3d-far'];
+            delete s['stroke-3d-occlude'];
+          }
+        }
 
         const forceFillProps = forceAll || targetId === 'fillEnabledInput' || targetId === 'fillColorInput' || targetId === 'fillColorHexInput';
         if (forceFillProps) {
@@ -48432,8 +48005,6 @@
           const extRenderMode = document.getElementById('extrudeRenderModeInput')?.value || 'clean';
           const extDivsU = parseInt(document.getElementById('extrudeDivisionsUInput')?.value) || 8;
           const extDivsV = parseInt(document.getElementById('extrudeDivisionsVInput')?.value) || 8;
-          const extUseColor = document.getElementById('extrudeSurfaceColorEnabledInput')?.checked || false;
-          const extSurfColor = document.getElementById('extrudeSurfaceColorInput')?.value || '#888888';
           obj.extrudeSettings.renderMode = extRenderMode;
           obj.extrudeSettings.cleanRender = (extRenderMode === 'clean'); // backward compat
           obj.extrudeSettings.layerCount = parseInt(document.getElementById('extrudeLayerCountInput')?.value) || 16;
@@ -48726,6 +48297,12 @@
     document.getElementById('strokeTrimStartInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('strokeTrimEndInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('strokeTrimModeInput').addEventListener('change', updateStyleFromInput); // v20260719e
+    // 3D STROKE (v20260725e)
+    document.getElementById('stroke3dModeInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('stroke3dStrengthInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('stroke3dNearInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('stroke3dFarInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('stroke3dOccludeInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('strokeOpacityInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('fillEnabledInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('fillColorInput').addEventListener('input', function (e) {
@@ -49621,14 +49198,113 @@
       requestRender();
     };
 
+    // --- CORPUS FILL-HASH VERIFIER (dev tool, console-invoked, v20260725a) -----
+    // Deletable by marker sweep. Never runs on load; no UI. Automates the manual
+    // "fillHash spot check on the corpus" the project already relies on (state
+    // report 9) — NOT the rolled-back in-app battery runner. Reachable by bare
+    // name in the DevTools console. See _plans/PLAN-corpus-fillhash-verifier.md.
+    const _fnv1a = (str) => {
+      let h = 0x811c9dc5;
+      for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        // 32-bit FNV prime multiply via shifts, kept in uint32
+        h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+      }
+      return ('00000000' + h.toString(16)).slice(-8);
+    };
+
+    // Hash the current live render: sorted 'd' of every FILLED <path> in pathGroup.
+    // Fill-less (stroke-only) paths are excluded — the signature is the filled
+    // region set, matching the project's "fill hash" convention (state report 9).
+    // <g fill stroke> wrappers hold their real 'd' on a child <path>, which
+    // querySelectorAll('path') reaches; bare <g> nodes have no 'd' and are skipped.
+    const dimFillHash = () => {
+      const ds = [];
+      pathGroup.querySelectorAll('path').forEach(p => {
+        const fill = p.getAttribute('fill');
+        if (!fill || fill === 'none') return;
+        const d = p.getAttribute('d');
+        if (d) ds.push(d);
+      });
+      ds.sort();
+      return { hash: _fnv1a(ds.join('\n')), count: ds.length };
+    };
+
+    // Default corpus: the PathRender/RI stress + regression scenes plus revolve /
+    // surface-mapping coverage. Override by passing your own array of scene paths.
+    const DIM_CORPUS = [
+      'scenes/dim_stress_ix_01_planar_trio.json',
+      'scenes/dim_stress_ix_02_curved_blobs.json',
+      'scenes/dim_stress_ix_03_vase_blades.json',
+      'scenes/dim_stress_ix_04_sweep_pierce.json',
+      'scenes/dim_stress_ix_05_mixed_modes.json',
+      'scenes/dim_stress_ix_06_touch_apart.json',
+      'scenes/dim_test_render_intersections_cross.json',
+      'scenes/dim_test_render_intersections_revolve.json',
+      'scenes/intersection_simple.json',
+      'scenes/dim_test_sr_x_xr.json',
+      'scenes/dim_scene_sample_surfacemapping_01_RtoExtrudedSquare.json',
+      'scenes/dim_scene_sample_surfacemapping_02_Earth.json',
+    ];
+
+    // Hash the whole corpus and print a table. SERIAL (one import per await) —
+    // concurrent imports race the shared sceneObjects / pathGroup. Uses the
+    // directly-awaitable render() (requestRender parks in a hidden tab). Two
+    // renders: the first may still resolve async GPU/mapping caches on a cold
+    // import, the second is the measured frame. Clears PathRender's whole-frame
+    // cache first so a leftover import-redraw entry is never served.
+    //   opts.baseline : a prior return value; each scene is marked PASS/CHANGED.
+    //                   Hashes are SESSION-LOCAL (sub-pixel FP ordering), so this
+    //                   is a same-session before/after differ, not a golden file.
+    //   opts.frame    : pin animated scenes to a fixed frame (tlSetFrame) for
+    //                   determinism; omit for the static corpus.
+    // Returns { path: {hash,count}, ... }.
+    const dimCorpusHash = async (scenePaths = DIM_CORPUS, opts = {}) => {
+      const results = {};
+      for (const path of scenePaths) {
+        try {
+          const data = await fetch(path).then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+          });
+          importScene(data, true);                       // skipUndo
+          if (opts.frame != null && typeof tlSetFrame === 'function') tlSetFrame(opts.frame);
+          if (PathRender._frameCache) PathRender._frameCache.clear();
+          await render();                                // first frame (may warm caches)
+          await render();                                // measured frame
+          results[path] = dimFillHash();
+        } catch (err) {
+          results[path] = { hash: 'ERROR', count: 0, error: String(err.message || err) };
+        }
+      }
+      const base = opts.baseline || null;
+      const rows = Object.keys(results).map(p => {
+        const r = results[p];
+        const b = base && base[p];
+        const status = !base ? '' : (r.hash === 'ERROR' ? 'ERROR'
+          : (b && b.hash === r.hash) ? 'PASS' : 'CHANGED');
+        return { scene: p.replace('scenes/', ''), hash: r.hash, faces: r.count, status };
+      });
+      console.table(rows);
+      if (base) {
+        const changed = rows.filter(r => r.status === 'CHANGED' || r.status === 'ERROR');
+        console.log(changed.length === 0
+          ? '%c[dimCorpusHash] ALL PASS — corpus bit-identical.'
+          : '%c[dimCorpusHash] ' + changed.length + ' scene(s) CHANGED/ERROR: '
+            + changed.map(c => c.scene).join(', '),
+          'font-weight:bold;color:' + (changed.length ? '#b45309' : '#2f8f4e'));
+      }
+      return results;
+    };
+    // --- /CORPUS FILL-HASH VERIFIER --------------------------------------------
+
     // --- Main Render Loop ---
     let renderRequested = false;
     let renderInProgress = false;  // Guard against overlapping async renders
-    let renderPending = false;     // Re-render needed after current completes
     const requestRender = () => {
       if (renderInProgress) {
-        // A render is already running (awaiting GPU). Mark pending and return.
-        renderPending = true;
+        // A render is already running (awaiting GPU). The continuous rAF loop at
+        // the end of render() re-schedules the next frame, so just return.
         return;
       }
       if (!renderRequested) {
@@ -49641,7 +49317,6 @@
           // persistent crash can't hot-loop at 60fps).
           console.error('[render] Render crashed:', err);
           renderInProgress = false;
-          renderPending = false;
         }));
       }
     };
@@ -49661,15 +49336,19 @@
 
       mainGroup.setAttribute('transform', `translate(${translateX}, ${translateY}) scale(${scale})`);
 
-      gridGroup.style.display = showGuides ? 'block' : 'none';
-      gridGroupXY.style.display = showGuides ? 'block' : 'none';
+      // Tab hides guides. With keepGridOnHide, the GRID (and only the grid) survives
+      // the hide while all annotation gizmos still disappear. showGrid drives the grid
+      // groups + per-mode grid dispatch; showGuides still drives every gizmo.
+      const showGrid = showGuides || keepGridOnHide;
+
+      gridGroup.style.display = showGrid ? 'block' : 'none';
+      gridGroupXY.style.display = showGrid ? 'block' : 'none';
       gizmoGroup.style.display = showGuides ? 'block' : 'none';
       targetGizmoGroup.style.display = showGuides ? 'block' : 'none';
 
       // --- Grid Rendering Logic ---
       const linesXZ = gridGroup.querySelectorAll('line');
       linesXZ.forEach((l) => (l.style.display = 'none'));
-      const linesYZ = gridGroupYZ.querySelectorAll('line');
 
       // Reset all
       gridGroup.style.display = 'none';
@@ -49686,6 +49365,10 @@
       // Helper to draw reference image (True Perspective via CSS3D)
       let _refImageDrawnThisFrame = false;
       const drawReferenceImage = (mvp) => {
+        // The reference image is an INFO layer: Tab hides it even when the grid is
+        // kept (keepGridOnHide). Leaving _refImageDrawnThisFrame false lets the
+        // per-frame stale-overlay cleanup clear the HTML overlay.
+        if (!showGuides) return;
         if (!referenceImage.active || !referenceImage.url || !refImageGroup) return;
         _refImageDrawnThisFrame = true;
 
@@ -49806,7 +49489,7 @@
         overlay.appendChild(div);
       };
 
-      if (showGuides) {
+      if (showGrid) {
         const wpMode = activeWorkplane.mode;
         const wpOffset = activeWorkplane.offset;
         if (wpMode === 'horizontal') {
@@ -49975,8 +49658,12 @@
           drawXYGrid(mvp);
           drawReferenceImage(mvp); // Same custom right/normal basis as the grid
         }
-        drawAxisGizmo(vpMatrix, scale);
-        drawTargetGizmo(vpMatrix);
+        // Axis + target gizmos are annotations, not grid — hide them on Tab even
+        // when the grid is kept (keepGridOnHide).
+        if (showGuides) {
+          drawAxisGizmo(vpMatrix, scale);
+          drawTargetGizmo(vpMatrix);
+        }
       }
       // The overlay is rebuilt only on frames where drawReferenceImage runs;
       // clear it when this frame didn't draw (guides off, or a workplane mode
@@ -50169,7 +49856,6 @@
 
       // --- End of render: release async guard and schedule next frame ---
       renderInProgress = false;
-      renderPending = false;  // Clear any queued re-render (we're about to render anyway)
       requestRender();        // Continuous render loop
     };
 
@@ -54811,7 +54497,7 @@
 
       } else {
         const cameraModes = ['orbit', 'truck', 'zoom', 'fov'];
-        if (dragMode !== 'edit-polygon' && dragMode !== 'edit-star' && dragMode !== 'draw-pen' && dragMode !== 'draw-pixel' && dragMode !== 'draw-doodle' && !cameraModes.includes(dragMode)) {
+        if (dragMode !== 'edit-polygon' && dragMode !== 'draw-pen' && dragMode !== 'draw-pixel' && dragMode !== 'draw-doodle' && !cameraModes.includes(dragMode)) {
           activePath = null;
         }
 
@@ -54899,7 +54585,7 @@
       dragStartPlaneHit = null;
       gizmoScreenRotationAngle = 0;
 
-      if (activePath && dragMode !== 'edit-polygon' && dragMode !== 'edit-star') {
+      if (activePath && dragMode !== 'edit-polygon') {
         if (activePath.algorithm === 'linear') activePath.loop = activePath.loop !== undefined ? activePath.loop : false;
         setSelectedObject(activePath);
       }
@@ -55212,7 +54898,21 @@
 
       // Handle G key shortcuts (Grid/Workplane) using event.code for robustness
       if (event.code === 'KeyG') {
-        if (event.altKey && !event.shiftKey) {
+        if (event.metaKey || event.ctrlKey) {
+          // Cmd/Ctrl + G: Group   ·   Cmd/Ctrl + Shift + G: Ungroup
+          // (tested BEFORE the bare Shift+G workplane-from-camera branch below,
+          // otherwise Shift+G there swallows Cmd+Shift+G and ungroup is
+          // unreachable — fixed 2026-07-24)
+          event.preventDefault();
+          if (event.shiftKey) {
+            pushUndoState();
+            ungroupSelectedObjects();
+          } else {
+            pushUndoState();
+            groupSelectedObjects();
+          }
+          return;
+        } else if (event.altKey && !event.shiftKey) {
           // Option + G: Create Work Plane from Selection
           setWorkplaneFromSelection();
           return;
@@ -55227,17 +54927,6 @@
           updatePropertiesPanel();
           requestRender();
           return; // Stop processing
-        } else if (event.metaKey || event.ctrlKey) {
-          // Cmd/Ctrl + G: Group / Ungroup
-          event.preventDefault();
-          if (event.shiftKey) {
-            pushUndoState();
-            ungroupSelectedObjects();
-          } else {
-            pushUndoState();
-            groupSelectedObjects();
-          }
-          return;
         } else if (!event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
           // G: Cycle Standard Modes (XY -> XZ -> YZ)
           pushUndoState();
@@ -55906,9 +55595,7 @@
         hoveredVertexInfo = null;
 
         if (object.localVertices.length === 0) {
-          const index = sceneObjects.indexOf(object);
-          if (index > -1) sceneObjects.splice(index, 1);
-          selectedObject = null;
+          removeEmptiedObject(object);
         }
 
         updateTreeView();
@@ -56818,6 +56505,24 @@
             setAnimationEnabled(settings.animationEnabled !== false);
             // Text tool experiment toggle (default ON, same rule) — TEXT-TOOL
             setTextToolEnabled(settings.textToolEnabled !== false);
+            // Grid appearance (global prefs). Absent key → keep default.
+            if (typeof settings.gridColor === 'string') {
+              gridColor = settings.gridColor;
+              const ci = document.getElementById('gridColorInput'); if (ci) ci.value = gridColor;
+              const hi = document.getElementById('gridColorHexInput'); if (hi) hi.value = gridColor.slice(1).toUpperCase();
+            }
+            if (typeof settings.gridOpacity === 'number') {
+              gridOpacity = Math.max(0, Math.min(1, settings.gridOpacity));
+              const s = document.getElementById('gridOpacitySlider'); if (s) s.value = gridOpacity;
+              const n = document.getElementById('gridOpacityInput'); if (n) n.value = gridOpacity;
+              const row = document.getElementById('gridOpacityRow'); if (row) row.style.setProperty('--fill', (gridOpacity * 100) + '%');
+            }
+            if (typeof settings.gridWeight === 'number' && settings.gridWeight > 0) {
+              gridWeight = settings.gridWeight;
+              const wi = document.getElementById('gridWeightInput'); if (wi) wi.value = gridWeight;
+            }
+            keepGridOnHide = settings.keepGridOnHide === true;
+            const kg = document.getElementById('keepGridOnHideCheckbox'); if (kg) kg.checked = keepGridOnHide;
           } else {
             // No saved settings — both experiments default ON
             setAnimationEnabled(true);
@@ -56829,6 +56534,9 @@
         // Always sync spatial input steps to the current keyboard increment,
         // even on first launch with no saved settings.
         updateSpatialInputSteps(toDisplay(KEYBOARD_NUDGE_AMOUNT));
+        // loadSettings runs AFTER the init grid build, so re-apply the (possibly
+        // restored) grid appearance now — no-op visually when defaults are in effect.
+        if (typeof updateVisualGrid === 'function' && activeWorkplane) updateVisualGrid(activeWorkplane.gridSize);
       };
 
       const saveSettings = (updates) => {
@@ -56862,6 +56570,73 @@
             if (accentColorInput) accentColorInput.value = color;
             saveSettings({ accentColor: color });
           }
+        });
+      }
+
+      // Grid appearance (global app prefs — color / opacity / weight + keep-on-Tab).
+      // Rebuilding the grid lines is cheap; the continuous render loop repositions
+      // them next frame. Persisted to dim-settings, NOT the scene.
+      const _refreshGrid = () => {
+        if (typeof updateVisualGrid === 'function') updateVisualGrid(activeWorkplane.gridSize);
+        requestRender();
+      };
+      const gridColorInput = document.getElementById('gridColorInput');
+      const gridColorHexInput = document.getElementById('gridColorHexInput');
+      if (gridColorInput) {
+        gridColorInput.addEventListener('input', (e) => {
+          gridColor = e.target.value;
+          if (gridColorHexInput) gridColorHexInput.value = gridColor.slice(1).toUpperCase();
+          _refreshGrid();
+          saveSettings({ gridColor });
+        });
+      }
+      if (gridColorHexInput) {
+        gridColorHexInput.addEventListener('input', (e) => {
+          const hex = e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
+          e.target.value = hex;
+          if (hex.length === 6) {
+            gridColor = '#' + hex;
+            if (gridColorInput) gridColorInput.value = gridColor;
+            _refreshGrid();
+            saveSettings({ gridColor });
+          }
+        });
+      }
+      const gridOpacitySlider = document.getElementById('gridOpacitySlider');
+      const gridOpacityInput = document.getElementById('gridOpacityInput');
+      const gridOpacityRow = document.getElementById('gridOpacityRow');
+      const _applyGridOpacity = (v) => {
+        gridOpacity = Math.max(0, Math.min(1, parseFloat(v)));
+        if (isNaN(gridOpacity)) gridOpacity = 0;
+        if (gridOpacitySlider) gridOpacitySlider.value = gridOpacity;
+        if (gridOpacityInput) gridOpacityInput.value = gridOpacity;
+        if (gridOpacityRow) gridOpacityRow.style.setProperty('--fill', (gridOpacity * 100) + '%');
+        _refreshGrid();
+        saveSettings({ gridOpacity });
+      };
+      if (gridOpacitySlider) gridOpacitySlider.addEventListener('input', (e) => _applyGridOpacity(e.target.value));
+      if (gridOpacityInput) {
+        gridOpacityInput.addEventListener('input', (e) => _applyGridOpacity(e.target.value));
+        gridOpacityInput.addEventListener('keydown', (e) => e.stopPropagation());
+      }
+      const gridWeightInput = document.getElementById('gridWeightInput');
+      if (gridWeightInput) {
+        gridWeightInput.addEventListener('input', (e) => {
+          const w = parseFloat(e.target.value);
+          if (!isNaN(w) && w > 0) {
+            gridWeight = w;
+            _refreshGrid();
+            saveSettings({ gridWeight });
+          }
+        });
+        gridWeightInput.addEventListener('keydown', (e) => e.stopPropagation());
+      }
+      const keepGridOnHideCheckbox = document.getElementById('keepGridOnHideCheckbox');
+      if (keepGridOnHideCheckbox) {
+        keepGridOnHideCheckbox.addEventListener('change', (e) => {
+          keepGridOnHide = e.target.checked;
+          requestRender();
+          saveSettings({ keepGridOnHide });
         });
       }
 
@@ -57022,6 +56797,18 @@
           // Reset text tool to its default (ON) — TEXT-TOOL
           setTextToolEnabled(true);
           saveSettings({ textToolEnabled: true });
+
+          // Reset grid appearance to defaults (black @ 20%, weight 1) + keep-on-Tab off
+          gridColor = '#000000'; gridOpacity = 0.2; gridWeight = 1; keepGridOnHide = false;
+          const _gc = document.getElementById('gridColorInput'); if (_gc) _gc.value = gridColor;
+          const _gch = document.getElementById('gridColorHexInput'); if (_gch) _gch.value = '000000';
+          const _go = document.getElementById('gridOpacitySlider'); if (_go) _go.value = gridOpacity;
+          const _goi = document.getElementById('gridOpacityInput'); if (_goi) _goi.value = gridOpacity;
+          const _gor = document.getElementById('gridOpacityRow'); if (_gor) _gor.style.setProperty('--fill', '20%');
+          const _gw = document.getElementById('gridWeightInput'); if (_gw) _gw.value = gridWeight;
+          const _kg = document.getElementById('keepGridOnHideCheckbox'); if (_kg) _kg.checked = false;
+          if (typeof updateVisualGrid === 'function' && activeWorkplane) updateVisualGrid(activeWorkplane.gridSize);
+          requestRender();
 
           console.log('Settings reset to defaults.');
         });
@@ -57458,6 +57245,19 @@
           },
           animation: (typeof tlSerialize === 'function') ? tlSerialize() : undefined
         };
+        // Reference image (v20260724g): a multi-MB data URL can blow the ~5MB
+        // localStorage quota and make the WHOLE-scene autosave throw (silently,
+        // via the catch below). File export (exportScene) has no such limit, so
+        // only the localStorage copy is capped — assigned after the literal, not
+        // inside it, so a too-large image drops out without losing the scene.
+        const _refImg = serializeReferenceImage();
+        const REF_IMG_LS_LIMIT = 2500000; // ~2.5MB of base64
+        if (_refImg && _refImg.url && _refImg.url.length > REF_IMG_LS_LIMIT) {
+          console.warn('Reference image too large for localStorage autosave; it ' +
+            'will be kept in file exports only. Save the scene to a .json file to persist it.');
+        } else if (_refImg) {
+          sceneData.referenceImage = _refImg;
+        }
         localStorage.setItem(SCENE_KEY, JSON.stringify(sceneData));
         console.log('Scene saved to localStorage.');
       } catch (e) {
@@ -57557,6 +57357,10 @@
         backgroundColor: _currentBackgroundColor,
         frameGuide: _currentFrameGuide,
         scaleStrokeWithZoom: scaleStrokeWithZoom,
+        // Reference image (v20260724g): file export has no size limit (unlike the
+        // localStorage autosave), so the data URL rides along unconditionally.
+        // null when inactive → harmless, treated as absent on import.
+        referenceImage: serializeReferenceImage(),
         camera: {
           position: activeCamera.position,
           target: activeCamera.target,
@@ -57793,6 +57597,9 @@
         const cb = document.getElementById('scaleStrokeZoomCheckbox');
         if (cb) cb.checked = scaleStrokeWithZoom;
       }
+
+      // Restore Reference Image (v20260724g; shared helper since v20260724h).
+      applyReferenceImage(data.referenceImage);
 
       // Update diff tracking state after import
       if (typeof captureSceneState === 'function') _lastSceneState = deepClone(captureSceneState());
@@ -60577,6 +60384,7 @@
           // If this track has a selected keyframe, edit that keyframe
           if (_tlLastClickedKf && _tlLastClickedKf.objectName === objectName && _tlLastClickedKf.prop === prop) {
             _tlLastClickedKf.kf.value = newVal;
+            tlApplyFrame(animationTimeline.currentFrame);   // viewport follows the edit (2026-07-24 fix)
             tlRenderTracks();
             // Re-highlight since render rebuilds DOM
             requestAnimationFrame(() => {

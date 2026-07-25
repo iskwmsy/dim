@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260725s -->
+<!-- dim v20260725zd -->
 
 <!--
   MIT License
@@ -3051,6 +3051,20 @@
       cursor: pointer;
     }
 
+    /* v20260725t: the PEN tool owns its cursor in every mode — the glyph IS
+       the mode indicator (the v20260725q principle). The rule above is a
+       "these are clickable" affordance for the selection tools, but a CHILD
+       element's cursor beats the root <svg>'s inline cursor, so hovering any
+       scene path (or any gizmo circle — bezier CONTROL points are circles,
+       anchors are rects) forced the index finger over the pen-plus /
+       pen-minus. Yield to the tool cursor while the pen is active; `inherit`
+       chains up to svg#svgContainer, whose inline style carries it. */
+    svg.pen-tool-cursor #pathGroup path,
+    svg.pen-tool-cursor #vertexGizmoGroup circle,
+    svg.pen-tool-cursor .gizmo-label {
+      cursor: inherit;
+    }
+
     #vertexGizmoGroup circle.draw-point {
       stroke-width: 1px;
       stroke: rgba(0, 0, 0, 0.5);
@@ -5124,6 +5138,14 @@
           </div>
           <!-- Pen Tool Settings -->
           <div class="hidden" id="penSettingsContainer" style="display:none;">
+            <!-- Convert to Bezier, pen-drawer twin (v20260725w). Sits directly
+                 under Path Type, mirroring its placement under Algorithm in
+                 the Style tab. Calls the SAME convertSelectedPathToBezier()
+                 and is shown by the SAME predicate — one implementation, two
+                 entry points. -->
+            <div class="prop-row prop-row-plain" id="penConvertToBezierRow" style="display:none;">
+              <button id="penConvertToBezierBtn" class="ui-btn" style="width: 100%;">Convert to Bezier</button>
+            </div>
             <!-- Pen MODE (v20260725o, PLAN-path-edit-parity slice 2):
                  explicit modes instead of hover-context gesture overloading,
                  so no gesture is shadowed. setPenMode() is the ONLY writer —
@@ -5137,6 +5159,7 @@
                   <option value="draw" selected>Draw</option>
                   <option value="add">Add Point</option>
                   <option value="remove">Remove Point</option>
+                  <option value="cut">Scissors</option>
                 </select>
               </div>
             </div>
@@ -5205,6 +5228,12 @@
                 <button id="mergeVerticesBtn" class="ui-btn ui-btn-primary">
                   Merge to First Selected
                 </button>
+              </div>
+              <!-- JOIN (v20260725z, PLAN-path-edit-parity P3.2, owner decision 7)
+                   Validity-gated: shown only when the selection resolves to
+                   exactly TWO open-subpath endpoints. -->
+              <div class="prop-row" id="joinEndpointsRow" style="display:none;">
+                <button id="joinEndpointsBtn" class="ui-btn">Join</button>
               </div>
             </div>
           </div>
@@ -6039,6 +6068,15 @@
                         <option value="bezier">Cubic Bezier</option>
                       </select>
                     </div>
+                  </div>
+
+                  <!-- CONVERT TO BEZIER (v20260725u, PLAN-path-edit-parity P2.3)
+                       Bakes the CURRENT interpretation into explicit bezier
+                       vertices — exact by construction, since it rebuilds from
+                       getBezierSegments(), the very segments the renderer
+                       draws. Shown only for non-bezier Paths. -->
+                  <div class="prop-row prop-row-plain" id="convertToBezierRow" style="display:none;">
+                    <button id="convertToBezierBtn" class="ui-btn" style="width: 100%;">Convert to Bezier</button>
                   </div>
 
                   <!-- Z-SORT CHILDREN (Group only) -->
@@ -9392,6 +9430,14 @@
         body: '<polygon fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" points="10 3 16 12 12 17.86 8 17.86 4 12 10 3"/><polygon points="10 3 16 12 12 17.86 8 17.86 4 12 10 3"/><circle fill="#fff" cx="10" cy="12.43" r="1.5"/>',
         size: 20, x: 10, y: 3
       },
+      // Scissors cursor (v20260725za) — owner artwork, used as authored.
+      // Hotspot is the blade CROSSING (10,10): the two lines
+      // (5,2)->(13.12,15) and (15,2)->(6.87,15) meet there by symmetry, and
+      // that point is where the cut visually happens.
+      penCut: {
+        body: '<line stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="5" y1="2" x2="13.12" y2="15"/><line stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="15" y1="2" x2="6.87" y2="15"/><circle fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" cx="6" cy="16.4" r="1.6"/><circle fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" cx="14" cy="16.4" r="1.6"/>',
+        size: 20, x: 10, y: 10
+      },
       // Add / Remove Point cursors (v20260725s) — supplied by the owner as a
       // two-tile 20×48.5 sprite; each tile is lifted into its own 20×20 box
       // (the remove tile via a translate, so its path data stays EXACTLY as
@@ -9470,6 +9516,11 @@
     // Apply the current tool's cursor to the SVG canvas
     function applyToolCursor() {
       svg.style.cursor = currentToolCursor;
+      // v20260725t: while the PEN is active, canvas children yield their own
+      // `cursor: pointer` to the tool cursor (see the .pen-tool-cursor CSS).
+      // Set here because this is the single place the root cursor is applied,
+      // so the class can never drift from it.
+      svg.classList.toggle('pen-tool-cursor', currentTool === 'pen');
     }
 
     // --- PEN MODE (v20260725o, PLAN-path-edit-parity slice 2) -------------
@@ -9487,9 +9538,10 @@
     const PEN_MODE_HINTS = {
       draw: 'Click to place points.\nClick the first point to close the path.',
       add: 'Click anywhere on the selected path to add a point there.',
-      remove: 'Click an anchor of the selected path to remove it.'
+      remove: 'Click an anchor of the selected path to remove it.',
+      cut: 'Click anywhere on the selected path to cut it there.\nA closed path opens; an open path splits in two.'
     };
-    const PEN_MODE_CURSORS = { draw: 'pen', add: 'penAdd', remove: 'penRemove' };
+    const PEN_MODE_CURSORS = { draw: 'pen', add: 'penAdd', remove: 'penRemove', cut: 'penCut' };
     // Toolbar / panel icon body for the current pen mode (v20260725s, owner
     // artwork). The OUTLINE nib (unchanged from the plain pen button) plus the
     // same 1px plus/minus glyph the cursors carry, so the button states read
@@ -9498,6 +9550,14 @@
     // fill/stroke on the parent) and #toolPanelIcon / #toolDrawerIcon (whose
     // toolIconMap entries set them per element) — and it stays theme-aware.
     const penModeIconBody = (mode) => {
+      // Scissors replaces the nib entirely — it is its own tool image, not a
+      // decorated pen (owner artwork, same geometry as the penCut cursor).
+      if (mode === 'cut') {
+        return '<line fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" x1="5" y1="2" x2="13.12" y2="15"/>'
+          + '<line fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" x1="15" y1="2" x2="6.87" y2="15"/>'
+          + '<circle fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" cx="6" cy="16.4" r="1.6"/>'
+          + '<circle fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" cx="14" cy="16.4" r="1.6"/>';
+      }
       const nib = '<polygon fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" points="10 3 16 12 12 17.86 8 17.86 4 12 10 3"/>'
         + '<circle fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" cx="10" cy="12.43" r="1.5"/>';
       const bar = '<line fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="1" stroke-linecap="butt" x1="15" y1="17" x2="19" y2="17"/>';
@@ -9528,8 +9588,9 @@
         _penPreviewLocalHit = null;
         penPreviewPath.style.display = 'none';
       }
-      // Likewise drop the Add-Point hover preview when leaving Add.
-      if (penMode !== 'add') {
+      // Likewise drop the on-path hover preview when leaving the modes that
+      // use it (Add Point and Scissors share it).
+      if (penMode !== 'add' && penMode !== 'cut') {
         _penAddHit = null;
         const ap = document.getElementById('penAddPreviewGroup');
         if (ap) ap.style.display = 'none';
@@ -9560,6 +9621,23 @@
       const sclRow = document.getElementById('scalePivotModeRow');
       if (sclRow) sclRow.style.display = (currentTool === 'scale' && hasSel) ? 'flex' : 'none';
     }
+
+    // v20260725zd: THE rule for "which object does a path tool edit". It used
+    // to live inline in setTool, which is why entering P with a path selected
+    // worked but selecting a path while ALREADY in P did not — there was only
+    // one place that ran it, and it ran on tool change. Now it is a named
+    // helper with two callers (setTool below, and the scene-tree click), so
+    // the two routes into the pen cannot drift apart.
+    //   Excluded: groups (no localVertices to edit) and, for the pen only,
+    //   parametric primitives (the pen offers Bake to Path instead).
+    const adoptSelectionAsActivePath = (tool = currentTool) => {
+      if (tool === 'pen' || tool === 'polygon' || tool === 'star') {
+        activePath = (selectedObject && !selectedObject.isGroup
+          && !(tool === 'pen' && selectedObject.primitiveData)) ? selectedObject : null;
+      } else {
+        activePath = null;
+      }
+    };
 
     const setTool = (tool) => {
       // TEXT-TOOL experimental gate: refuse activation while disabled
@@ -10170,17 +10248,8 @@
         }
       }
 
-      // Tool specific resets
-      if (tool === 'pen' || tool === 'polygon' || tool === 'star') {
-        // Don't set activePath to a parametric primitive or group (groups lack localVertices)
-        if (selectedObject && !selectedObject.isGroup && !(tool === 'pen' && selectedObject.primitiveData)) {
-          activePath = selectedObject;
-        } else {
-          activePath = null;
-        }
-      } else {
-        activePath = null;
-      }
+      // Tool specific resets — the adoption rule lives in one place now.
+      adoptSelectionAsActivePath(tool);
 
       // Clear Vertex Selection if not Direct Select
       if (tool !== 'directSelect') {
@@ -12373,6 +12442,7 @@
           syncPrimitiveNonAnimatable(activePath);
           notifyPathUpdated(activePath); // Fix: Notify dependents
         }
+        updateStylePanel();   // v20260725v — see the algorithmInput twin
         requestRender();
       });
 
@@ -15060,6 +15130,28 @@
 
       if (!loop) {
         // Open (clamped) cubic B-spline
+        // n === 2 is the DEGENERATE clamped case and must not be dropped: with
+        // only two control points the clamped cubic collapses to the straight
+        // segment A->B. (Proof by the same formulas: padding to [A,A,B] or
+        // [A,B,B] — the endpoint-duplication trick used for clamping — yields
+        // control points that are all affine combinations of A and B, i.e.
+        // collinear. So emitting the straight cubic IS that result, without
+        // inventing a phantom vertex.)
+        // v20260725zc: returning [] here made every 2-control-point open
+        // subpath render NOTHING — the vanishing half after a scissors cut,
+        // and equally a freshly drawn 2-point b-spline. All eight callers of
+        // this builder guard only on `< (closed ? 3 : 2)`, so n === 2 always
+        // reached this early-out and fell through their linear fallbacks.
+        if (n === 2) {
+          const A = points[0], B = points[1];
+          bezierSegments.push({
+            p0: [...A],
+            p1: scale(add(scale(A, 2), B), 1 / 3),
+            p2: scale(add(A, scale(B, 2)), 1 / 3),
+            p3: [...B],
+          });
+          return bezierSegments;
+        }
         if (n < 3) return bezierSegments;
 
         // First segment: First control point to first internal point
@@ -43432,6 +43524,35 @@
     let _penDraggingVertexIdx = -1;      // Index of ANY vertex being dragged in pen tool (-1 = none)
     let _penHoveredVertexIdx = -1;       // Index of vertex the cursor is hovering over (-1 = none)
     let _penVertexDragSmooth = false;    // Was the node smooth (collinear) when drag started?
+    let _penVertexDragStartDir = null;   // v20260725x: dragged handle's unit axis at drag start (Shift lock)
+    let _penVertexDragOppDir = null;     // v20260725x: opposite handle's unit axis at drag start (Option make-mirror)
+    // v20260725y: the A tool's equivalent. Non-null only while a bezier
+    // CONTROL POINT is being dragged there, which is what lets the same
+    // modifier scheme (Shift axis-lock / Option) apply outside the pen.
+    let _dsHandleCtx = null;             // { obj, vi, anchorPos, startDir, oppDir, smoothAtStart }
+
+    // Build the A-tool handle-drag context for a grabbed vertex, or null when
+    // it is not a bezier control point. Mirrors the capture the pen does at
+    // its own mousedown, through the SAME shared helpers.
+    const buildDsHandleCtx = (obj, vi) => {
+      const role = bezierRoleOf(obj, vi);
+      if (!role || role.isAnchor) return null;
+      const { anchorIdx, mirrorIdx } = getBezierMirrorInfo(obj, vi, role.relIdx, role.mod, role.sp);
+      const anchorPos = anchorIdx >= 0 ? obj.localVertices[anchorIdx] : null;
+      if (!anchorPos) return null;
+      const self = obj.localVertices[vi];
+      const opp = mirrorIdx >= 0 ? obj.localVertices[mirrorIdx] : null;
+      const dir = (p) => {
+        if (!p) return null;
+        const d = vectorSubtract(p, anchorPos);
+        return vectorLength(d) > 1e-9 ? vectorNormalize(d) : null;
+      };
+      return {
+        obj, vi, anchorPos: [...anchorPos],
+        startDir: dir(self), oppDir: dir(opp),
+        smoothAtStart: (opp && self) ? areCPsSmooth(anchorPos, self, opp) : false
+      };
+    };
 
     // Check if two control points are collinear through their anchor
     // (i.e., the node is "smooth" vs "corner").
@@ -43555,16 +43676,61 @@
       }
     };
 
-    // Control-point drag with state-aware mirroring:
-    //   smooth node + drag      → mirror (stays smooth)
-    //   smooth node + Alt+drag  → break tangent (becomes corner)
-    //   corner node + drag      → no mirror (stays corner)
-    //   corner node + Alt+drag  → revive tangent (becomes smooth)
+    // --- HANDLE-DRAG MODIFIER SCHEME (v20260725x, PLAN decision 3) ---------
+    // The rule-of-three, applied wherever a bezier HANDLE is dragged:
+    //   PLAIN  – the pair behaves per its current state
+    //            (smooth ⇒ the opposite mirrors; corner ⇒ free).
+    //   SHIFT  – constrain MY drag: lock the dragged handle to its
+    //            drag-start axis, length only. NEVER touches the opposite.
+    //   OPTION – flip the RELATIONSHIP, never MOVE the opposite:
+    //            smooth ⇒ break (rotate freely, opposite stays);
+    //            corner ⇒ make-mirror (the DRAGGED handle locks to the
+    //            opposite's REVERSE axis, so the far segment is undisturbed).
+    // Note the corner+Option semantics deliberately CHANGED here: the old
+    // behaviour mirrored the OPPOSITE handle onto the dragged one, which
+    // moved the far side of the curve.
+    //
+    // Shift means 45°-snap only for CREATION gestures (placement, the initial
+    // tangent pull), where no axis exists yet — see constrainDelta45.
+    const resolveHandleDragPos = (anchor, cursorLocal, opts) => {
+      const proj = (axis, allowBehind) => {
+        let t = vectorDot(vectorSubtract(cursorLocal, anchor), axis);
+        if (!allowBehind && t < 0) t = 0;          // stay on the intended side
+        return vectorAdd(anchor, vectorScale(axis, t));
+      };
+      // Shift: length-only along the start axis (either side of the anchor).
+      if (opts.shiftKey && opts.startDir) return proj(opts.startDir, true);
+      // Option on a CORNER: align to the opposite handle's reverse axis.
+      if (opts.altKey && !opts.smoothAtStart && opts.oppDir) {
+        return proj(vectorScale(opts.oppDir, -1), false);
+      }
+      return [...cursorLocal];
+    };
+
+    // 45°-increment constraint in the WORKPLANE basis, for creation gestures.
+    // basisU/basisV must be expressed in the same space as `delta` — the
+    // callers convert the world grid basis into local space where needed, so
+    // a rotated path constrains along its own plane rather than the world's.
+    const constrainDelta45 = (delta, basisU, basisV) => {
+      const du = vectorDot(delta, basisU), dv = vectorDot(delta, basisV);
+      const len = Math.hypot(du, dv);
+      if (len < 1e-9) return [...delta];
+      const step = Math.PI / 4;
+      const ang = Math.round(Math.atan2(dv, du) / step) * step;
+      return vectorAdd(vectorScale(basisU, Math.cos(ang) * len),
+        vectorScale(basisV, Math.sin(ang) * len));
+    };
+
+    // Control-point drag: does the OPPOSITE handle follow?
+    // Only a PLAIN drag on a smooth node mirrors. Shift is defined never to
+    // touch the opposite (on a smooth node the axis-lock keeps the direction
+    // anyway, so this is also a no-op in practice); Option is defined to flip
+    // the relationship without MOVING the opposite.
     // The mirror keeps its OWN length; only its direction follows.
     const applyHandleMirror = (obj, vi, cursorLocal, opts) => {
       const r = bezierRoleOf(obj, vi);
       if (!r || r.isAnchor) return;
-      const shouldMirror = opts.smoothAtStart ? !opts.altKey : opts.altKey;
+      const shouldMirror = !!opts.smoothAtStart && !opts.altKey && !opts.shiftKey;
       if (!shouldMirror) return;
       const { anchorIdx, mirrorIdx } = getBezierMirrorInfo(obj, vi, r.relIdx, r.mod, r.sp);
       if (mirrorIdx >= 0) {
@@ -43864,6 +44030,116 @@
       return at;
     };
 
+    // --- SCISSORS (v20260725za, PLAN-path-edit-parity P3.5 as a pen mode) --
+    // A cut IS "insert the point, then split there": penInsertAtHit already
+    // puts a real vertex exactly under the cursor on EVERY algorithm
+    // (decision 8a), so the scissors reuse it wholesale and only own the
+    // split. Returns true when the path was cut.
+    //   OPEN subpath   -> two open subpaths, the cut vertex duplicated so
+    //                     both new ends sit exactly on the old curve.
+    //   CLOSED subpath -> ONE open subpath, rotated to begin and end at the
+    //                     cut (the classic scissors result).
+    // Shape note, same accepted consequence as decision 8: for b-splines the
+    // vertices are CONTROL points and the halves are newly CLAMPED at the
+    // cut, so the curve changes shape near it. Bezier and linear cuts are
+    // exact — the inserted anchor lies on the curve, so each half keeps its
+    // geometry.
+    const penCutAtHit = (obj, hit) => {
+      if (!obj || !hit || !hit.span) return false;
+      const sp = hit.span.sp;
+      const spIdx = obj.subPathData.indexOf(sp);
+      if (spIdx < 0) return false;
+      const idx = penInsertAtHit(obj, hit);      // sp.count already updated
+      if (idx < 0) return false;
+      const V = obj.localVertices;
+      const cnt = Math.min(sp.count, V.length - sp.start);
+      const rel = idx - sp.start;
+      const bump = (from, by) => {               // shift later subpaths
+        for (let k = from; k < obj.subPathData.length; k++) obj.subPathData[k].start += by;
+      };
+
+      if (!sp.closed) {
+        // Nothing to split if the cut landed on an end vertex.
+        if (rel <= 0 || rel >= cnt - 1) return false;
+        V.splice(idx + 1, 0, [...V[idx]]);       // duplicate the cut vertex
+        const countA = rel + 1;                  // bezier: 3k+1  ✓
+        const countB = (cnt + 1) - countA;       // bezier: 1+3(S-k) ✓
+        const startB = sp.start + countA;
+        // The raw splice above did NOT touch subPathData, so every subpath
+        // after the cut is one vertex stale.
+        const after = obj.subPathData.slice(spIdx + 1);
+        for (const s of after) if (s.start > idx) s.start += 1;
+        const sliceOf = (s) => V.slice(s.start, s.start + Math.min(s.count, V.length - s.start)).map(v => [...v]);
+        // Cutting SEPARATES the path into two OBJECTS (owner request). The
+        // host keeps everything up to the cut; a clone takes everything after
+        // it, so scene order still reads along the path.
+        const hostParts = obj.subPathData.slice(0, spIdx).map(s => ({ verts: sliceOf(s), closed: !!s.closed }))
+          .concat([{ verts: V.slice(sp.start, sp.start + countA).map(v => [...v]), closed: false }]);
+        const newParts = [{ verts: V.slice(startB, startB + countB).map(v => [...v]), closed: false }]
+          .concat(after.map(s => ({ verts: sliceOf(s), closed: !!s.closed })));
+        // duplicateObject is the deep clone that already carries transform,
+        // style, algorithm and every modifier setting — and WITHOUT opts it
+        // copies no animation tracks, which is right: a split piece is a new
+        // object and tracks cannot be split with it.
+        const piece = duplicateObject(obj);
+        if (!piece) return false;
+        const build = (target, parts) => {
+          const verts = [], subs = [];
+          for (const p of parts) {
+            const st = verts.length;
+            p.verts.forEach(v => verts.push(v));
+            subs.push({ start: st, count: p.verts.length, closed: p.closed });
+          }
+          target.localVertices = verts;
+          target.subPathData = subs;
+        };
+        build(piece, newParts);
+        build(obj, hostParts);
+        obj.loop = false; piece.loop = false;
+        // Name both halves "<name> 1" / "<name> 2". Animation tracks are keyed
+        // by NAME, so the host's rename must MIGRATE its tracks or they are
+        // orphaned (the v20260712f rule); the fresh piece has none to migrate.
+        const taken = new Set();
+        (function walk(arr) { for (const o of arr) { if (!o) continue; if (o.name) taken.add(o.name); if (o.children) walk(o.children); } })(sceneObjects);
+        const base = obj.name;
+        taken.delete(base);
+        const n1 = ensureUniqueName(base + ' 1', taken);
+        const n2 = ensureUniqueName(base + ' 2', taken);
+        if (typeof tlRenameAnimTracks === 'function') tlRenameAnimTracks(obj.name, n1);
+        obj.name = n1;
+        piece.name = n2;
+        // Insert the piece directly after the host, in the same parent.
+        if (obj.parent) obj.parent.addAt(piece, obj.parent.children.indexOf(obj) + 1);
+        else sceneObjects.splice(sceneObjects.indexOf(obj) + 1, 0, piece);
+        notifyPathUpdated(piece);
+        return true;
+      }
+
+      // CLOSED -> open at the cut. Rotate the slice to begin at `idx` and
+      // repeat the cut point at the end.
+      const s0 = sp.start, sEnd = s0 + cnt - 1;
+      const slice = V.slice(s0, s0 + cnt).map(v => [...v]);
+      let rotated;
+      if (obj.algorithm === 'bezier') {
+        // The closing segment of a closed bezier subpath is IMPLICIT (no
+        // stored control points), so opening the ring has to MATERIALIZE it
+        // as a real segment — two collapsed handles — or the stride-3 phase
+        // breaks. Count goes cnt -> cnt+3 = 1+3(S+1). ✓
+        rotated = slice.slice(rel)                       // cut .. last
+          .concat([[...slice[cnt - 1]], [...slice[0]]])  // former closure, collapsed
+          .concat(slice.slice(0, rel))                   // first .. cut-1
+          .concat([[...slice[rel]]]);                    // repeat the cut point
+      } else {
+        rotated = slice.slice(rel).concat(slice.slice(0, rel), [[...slice[rel]]]);
+      }
+      V.splice(s0, cnt, ...rotated);
+      const grew = rotated.length - cnt;
+      obj.subPathData.splice(spIdx, 1, { start: s0, count: rotated.length, closed: false });
+      bump(spIdx + 1, grew);
+      if (obj.subPathData.length === 1) obj.loop = false;
+      return true;
+    };
+
     let _penAddHit = null;   // current Add-Point hover result (preview + click)
 
     const penRemoveClusterRange = (obj, vi) => {
@@ -44028,6 +44304,16 @@
           // Auto-activate V tool if no tool is active
           if (!currentTool) {
             setTool('select');
+          }
+          // v20260725zd: hand the pick to the active path tool. Selecting in
+          // the tree is the same intent as selecting on canvas, so P must be
+          // able to edit it immediately instead of only when the TOOL changes.
+          // Deliberately NOT inside setSelectedObject: the canvas pen/polygon
+          // gestures own activePath themselves and null it on purpose (finish,
+          // escape, auto-confirm-then-select), so a blanket adoption there
+          // would resurrect a path they just retired.
+          if (currentTool === 'pen' || currentTool === 'polygon' || currentTool === 'star') {
+            adoptSelectionAsActivePath();
           }
         });
 
@@ -44322,6 +44608,16 @@
 
       // Notify timeline of selection change
       if (_onSelectionChanged) _onSelectionChanged();
+
+      // v20260725zd: repaint. This function refreshed every PANEL (style,
+      // properties, tree) but never the canvas, and the canvas overlay —
+      // selection gizmo, path highlight, and the A tool's vertex nodes — is a
+      // function of the selection. Canvas clicks hid the omission because
+      // their handlers render on their own way out; a scene-tree click has no
+      // such tail, so the A tool's nodes were BUILT for the new selection and
+      // then simply never drawn until the next unrelated frame. rAF-coalesced,
+      // so a marquee that selects N objects still costs one frame.
+      requestRender();
     };
 
 
@@ -45713,6 +46009,16 @@
       if (algorithmRow) algorithmRow.style.display = isGroupSelected ? 'none' : '';
       if (ruleBlendCloseRow) ruleBlendCloseRow.style.display = isGroupSelected ? 'none' : '';
       if (blendModeRow) blendModeRow.style.display = isGroupSelected ? 'none' : '';
+      // Convert to Bezier (v20260725u): only meaningful for a NON-bezier Path
+      // — a bezier path is already in that representation. ONE predicate
+      // drives BOTH entry points (Style tab + Pen drawer twin, v20260725w),
+      // so they can never disagree about when the command is available.
+      const _canConvert = !!(selectedObject && !isGroupSelected
+        && selectedObject instanceof Path && selectedObject.algorithm !== 'bezier');
+      const convertRow = document.getElementById('convertToBezierRow');
+      if (convertRow) convertRow.style.display = _canConvert ? '' : 'none';
+      const penConvertRow = document.getElementById('penConvertToBezierRow');
+      if (penConvertRow) penConvertRow.style.display = _canConvert ? '' : 'none';
       if (document.activeElement !== algorithmInput) {
         if (selectedObject && selectedObject instanceof Path) {
           algorithmInput.value = selectedObject.algorithm || 'linear';
@@ -45720,6 +46026,21 @@
         } else {
           algorithmInput.value = currentAlgorithm;
           algorithmInput.disabled = (currentTool !== 'pen' && currentTool !== 'polygon' && currentTool !== 'star');
+        }
+      }
+      // v20260725zb: the PEN drawer's Path Type is a third view of the same
+      // value and was the only one never synced from the selection — it only
+      // ever cross-synced from the other two dropdowns' change handlers, so
+      // selecting a bezier path and switching to P showed the stale global
+      // `currentAlgorithm` while the Style tab and Quick Style bar showed
+      // 'bezier' (user report). Drawing then continued in the path's real
+      // algorithm, so the drawer was simply lying about it.
+      {
+        const penAlgoSel = document.getElementById('algorithmSelect');
+        if (penAlgoSel && document.activeElement !== penAlgoSel) {
+          penAlgoSel.value = (selectedObject && selectedObject instanceof Path)
+            ? (selectedObject.algorithm || 'linear')
+            : currentAlgorithm;
         }
       }
 
@@ -46362,6 +46683,14 @@
         container.style.display = 'block';
       } else {
         container.style.display = 'none';
+      }
+      // JOIN (v20260725z): shown only when the selection actually resolves to
+      // a legal join — the SAME predicate the command runs, so the button can
+      // never offer something the click would refuse.
+      const joinRow = document.getElementById('joinEndpointsRow');
+      if (joinRow) {
+        joinRow.style.display = (currentTool === 'directSelect'
+          && typeof resolveJoinTargets === 'function' && resolveJoinTargets()) ? '' : 'none';
       }
     };
 
@@ -48033,6 +48362,262 @@
       pushUndoState('Merge as subpaths');
     };
 
+    // --- CONVERT TO BEZIER (v20260725u, PLAN-path-edit-parity P2.3) --------
+    // Bake the path's CURRENT interpretation into explicit bezier vertices.
+    // Exact by construction: the new control points come from the very
+    // generators getBezierSegments/the renderer use, so the rendered `d` is
+    // unchanged — the representation changes, the shape does not.
+    //
+    // Per subpath the layout becomes A0 C1 C2 A3 C4 C5 … (stride 3, count
+    // 1+3S). A CLOSED subpath carries its closing segment through as a real
+    // cubic and therefore ends on an anchor COINCIDENT with its first — the
+    // convention getBezierMirrorInfo already recognises — so a CURVED closure
+    // (a cyclic b-spline) survives; drawCubicBezier's trailing 'Z' then spans
+    // zero length, exactly as the source renderer's did.
+    //
+    // Segments are generated PER SUBPATH rather than by splitting the flat
+    // getBezierSegments() list, so a degenerate subpath (too few vertices to
+    // emit any segment) can never shift the closed-flag mapping of the ones
+    // after it.
+    const convertPathToBezier = (obj) => {
+      if (!obj || obj.isGroup || !(obj instanceof Path)) return false;
+      if (obj.algorithm === 'bezier') return false;
+      if (!obj.localVertices || !obj.subPathData) return false;
+      const V = obj.localVertices;
+      const algo = obj.algorithm;
+      const isBS = (algo === 'bspline' || algo === 'bspline2');
+      const lerp3 = (a, b, f) => [
+        a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f,
+        (a[2] || 0) + ((b[2] || 0) - (a[2] || 0)) * f
+      ];
+      const newVerts = [], newSubs = [];
+      for (const sp of obj.subPathData) {
+        const cnt = Math.min(sp.count, V.length - sp.start);
+        if (cnt < 1) continue;
+        const sub = V.slice(sp.start, sp.start + cnt);
+        let segs = [];
+        if (isBS) {
+          segs = (algo === 'bspline2')
+            ? getQuadraticBezierControlPoints3D(sub, sp.closed)
+            : getCubicBezierControlPoints3D(sub, sp.closed);
+        } else {                                   // linear
+          for (let k = 0; k + 1 < cnt; k++) {
+            segs.push({ p0: sub[k], p1: lerp3(sub[k], sub[k + 1], 1 / 3), p2: lerp3(sub[k], sub[k + 1], 2 / 3), p3: sub[k + 1] });
+          }
+          if (sp.closed && cnt > 2) {
+            segs.push({ p0: sub[cnt - 1], p1: lerp3(sub[cnt - 1], sub[0], 1 / 3), p2: lerp3(sub[cnt - 1], sub[0], 2 / 3), p3: sub[0] });
+          }
+        }
+        const start = newVerts.length;
+        if (!segs.length) {                        // no geometry — carry the point through
+          newVerts.push([...sub[0]]);
+          newSubs.push({ start, count: 1, closed: false });
+          continue;
+        }
+        newVerts.push([...segs[0].p0]);
+        for (const s of segs) {
+          // Degree-elevate any quadratic the generator emitted (defensive —
+          // the same guard getBezierSegments carries).
+          const p1 = s.p3 ? [...s.p1] : lerp3(s.p0, s.p1, 2 / 3);
+          const p2 = s.p3 ? [...s.p2] : lerp3(s.p2, s.p1, 2 / 3);
+          const p3 = s.p3 ? [...s.p3] : [...s.p2];
+          newVerts.push(p1, p2, p3);
+        }
+        newSubs.push({ start, count: newVerts.length - start, closed: !!sp.closed });
+      }
+      if (!newVerts.length) return false;
+      obj.localVertices = newVerts;
+      obj.subPathData = newSubs;
+      obj.algorithm = 'bezier';
+      return true;
+    };
+
+    const convertSelectedPathToBezier = () => {
+      const obj = selectedObject;
+      if (!obj || obj.isGroup || !(obj instanceof Path)) return;
+      if (obj.algorithm === 'bezier') return;
+      if (obj.primitiveData) {                     // same guard the pen edits use
+        showAppConfirm(
+          'Bake to Path?',
+          'This shape is a parametric primitive.\nBake to path before converting?\n\n(This will make the shape non-parametric.)'
+        ).then(doBake => { if (doBake) bakeToPath(obj); });
+        return;
+      }
+      pushUndoState();
+      if (!convertPathToBezier(obj)) return;
+      selectedVertexInfo = null;                   // indices no longer mean the same thing
+      hoveredVertexInfo = null;
+      selectedVertices = [];
+      // The vertex LAYOUT changed, so any in-flight pen drag state (anchor
+      // index, tangent delta, hovered vertex) now points at the wrong slots.
+      // Reachable since v20260725w gave the Pen drawer its own button — a
+      // conversion can now happen mid-draw. Harmless when the pen is idle.
+      resetPenBezierState();
+      notifyPathUpdated(obj);
+      updateSubPathUI();
+      updatePropertiesPanel();
+      updateStylePanel();
+      requestRender();
+      pushUndoState('Convert to Bezier');
+    };
+
+    document.getElementById('convertToBezierBtn').addEventListener('click', convertSelectedPathToBezier);
+    // Pen-drawer twin (v20260725w) — same command, second entry point.
+    document.getElementById('penConvertToBezierBtn').addEventListener('click', convertSelectedPathToBezier);
+
+    // --- JOIN ENDPOINTS (v20260725z, PLAN-path-edit-parity P3.2) -----------
+    // Owner decision 7: a validity-gated button, no shortcut. Enabled only
+    // when the selection resolves to exactly TWO open-subpath ENDPOINTS.
+    //   same subpath's two ends  -> close it
+    //   otherwise                -> concatenate, welding coincident endpoints
+    //                               into one anchor or bridging apart ones
+    //                               with a straight segment.
+
+    // Is `vi` an ENDPOINT of an open subpath? Returns {sp, atStart, cnt}.
+    // For bezier only a first/last ANCHOR qualifies, and only on a clean
+    // stride-3 run — a tail would make "the end anchor" ambiguous.
+    const pathEndpointAt = (obj, vi) => {
+      if (!obj || obj.isGroup || !obj.subPathData || !obj.localVertices) return null;
+      const sp = obj.subPathData.find(s => vi >= s.start && vi < s.start + s.count);
+      if (!sp || sp.closed) return null;
+      const cnt = Math.min(sp.count, obj.localVertices.length - sp.start);
+      if (cnt < 2) return null;
+      if (obj.algorithm === 'bezier' && (cnt - 1) % 3 !== 0) return null;
+      if (vi === sp.start) return { sp, atStart: true, cnt };
+      if (vi === sp.start + cnt - 1) return { sp, atStart: false, cnt };
+      return null;
+    };
+
+    // Resolve the selection to a join operation, or null.
+    // DISTINCT endpoints are extracted rather than requiring exactly two
+    // SELECTED vertices: Move Coincident Points expands a selection to
+    // everything at the same position, and a collapsed bezier handle sits
+    // exactly on its anchor — so an honest endpoint selection often carries
+    // extra entries. Non-endpoint vertices are simply ignored.
+    const resolveJoinTargets = () => {
+      if (!selectedVertices || selectedVertices.length < 2) return null;
+      const eps = [], seen = new Set();
+      for (const v of selectedVertices) {
+        const e = pathEndpointAt(v.object, v.vertexIndex);
+        if (!e) continue;
+        const key = `${v.object.id}|${v.object.subPathData.indexOf(e.sp)}|${e.atStart ? 's' : 'e'}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        eps.push({ obj: v.object, vi: v.vertexIndex, sp: e.sp, atStart: e.atStart, cnt: e.cnt });
+      }
+      if (eps.length !== 2) return null;
+      const [a, b] = eps;
+      if (a.obj.primitiveData || b.obj.primitiveData) return null;   // bake first
+      if (a.obj === b.obj && a.sp === b.sp) {
+        return (a.atStart !== b.atStart) ? { kind: 'close', a, b } : null;
+      }
+      // Cross-path: the flat buffer is reinterpreted per PATH, so joining
+      // two different interpretations is ambiguous — refuse rather than
+      // silently reinterpreting one side.
+      if (a.obj !== b.obj && a.obj.algorithm !== b.obj.algorithm) return null;
+      return { kind: 'merge', a, b };
+    };
+
+    const joinSelectedEndpoints = () => {
+      const t = resolveJoinTargets();
+      if (!t) return;
+      pushUndoState();
+      const A = t.a, B = t.b;
+      let _reselect = null;   // deferred: see the undo-ordering note at the tail
+
+      if (t.kind === 'close') {
+        A.sp.closed = true;
+        if (A.obj.subPathData.length === 1) A.obj.loop = true;
+        notifyPathUpdated(A.obj);
+      } else {
+        const host = A.obj, other = B.obj;
+        const cross = host !== other;
+        const sliceOf = (obj, sp) => obj.localVertices
+          .slice(sp.start, sp.start + Math.min(sp.count, obj.localVertices.length - sp.start))
+          .map(v => [...v]);
+        // Bring the other path's points into the HOST's local space so the
+        // joined geometry keeps its on-screen position.
+        let toHost = (v) => v;
+        if (cross) {
+          const hostInv = matrixInverse(host.getWorldMatrix());
+          const otherWM = other.getWorldMatrix();
+          if (!hostInv) return;
+          toHost = (v) => {
+            const w = transformVertex(v, otherWM);
+            if (!w) return [...v];
+            const l = transformVertex([w[0], w[1], w[2]], hostInv);
+            return l ? [l[0], l[1], l[2]] : [...v];
+          };
+        }
+        // Orient so A ENDS at the joint and B STARTS at it. Reversing a
+        // stride-3 slice is phase-safe (A C C A reads the same backwards) —
+        // proven in v20260725u's invert-winding check.
+        let aV = sliceOf(host, A.sp);
+        let bV = sliceOf(other, B.sp).map(toHost);
+        if (A.atStart) aV.reverse();
+        if (!B.atStart) bV.reverse();
+        // Weld coincident endpoints into one anchor, else bridge them.
+        const WELD_EPS = 1e-4;
+        const tail = aV[aV.length - 1];
+        let merged;
+        if (vectorLength(vectorSubtract(bV[0], tail)) < WELD_EPS) {
+          aV[aV.length - 1] = vectorScale(vectorAdd(tail, bV[0]), 0.5);
+          merged = aV.concat(bV.slice(1));
+        } else if (host.algorithm === 'bezier') {
+          // Collapsed handles = a straight bridging segment, and the count
+          // stays 1+3S so the phase survives.
+          merged = aV.concat([[...tail], [...bV[0]]], bV);
+        } else {
+          merged = aV.concat(bV);
+        }
+        // Rebuild the whole buffer from surviving parts — no index
+        // arithmetic, so no chance of mis-slicing a later contour.
+        const parts = [];
+        for (const sp of host.subPathData) {
+          if (sp === A.sp) { parts.push({ verts: merged, closed: false }); continue; }
+          if (!cross && sp === B.sp) continue;
+          parts.push({ verts: sliceOf(host, sp), closed: !!sp.closed });
+        }
+        if (cross) {
+          for (const sp of other.subPathData) {
+            if (sp === B.sp) continue;                 // already merged in
+            parts.push({ verts: sliceOf(other, sp).map(toHost), closed: !!sp.closed });
+          }
+        }
+        const newVerts = [], newSubs = [];
+        for (const p of parts) {
+          const start = newVerts.length;
+          p.verts.forEach(v => newVerts.push(v));
+          newSubs.push({ start, count: p.verts.length, closed: p.closed });
+        }
+        host.localVertices = newVerts;
+        host.subPathData = newSubs;
+        if (cross) removeEmptiedObject(other);         // absorbed — same cleanup as a delete
+        notifyPathUpdated(host);
+        _reselect = host;
+      }
+
+      selectedVertices = [];
+      selectedVertexInfo = null;
+      hoveredVertexInfo = null;
+      if (typeof updateVertexOperationsUI === 'function') updateVertexOperationsUI();
+      updateSubPathUI();
+      updateTreeView();
+      updatePropertiesPanel();
+      requestRender();
+      // UNDO ORDERING (state report §7, trap H4.16): the labeled push MUST
+      // precede setSelectedObject — selection re-syncs _lastSceneState, so a
+      // trailing push finds no diff and records NOTHING, and the next undo
+      // then pops an older entry and rewinds too far. Caught here by running
+      // deleteSelectedVertex through the same harness as a control: it
+      // restored correctly while this did not, which is what proved the fault
+      // was in this command rather than in the test.
+      pushUndoState(t.kind === 'close' ? 'Close path' : 'Join paths');
+      if (_reselect) setSelectedObject(_reselect);
+    };
+
+    document.getElementById('joinEndpointsBtn').addEventListener('click', joinSelectedEndpoints);
+
     const invertSelectedPathWinding = () => {
       if (selectedObjects.length === 0) return;
       pushUndoState(); // Snapshot before invert
@@ -48179,6 +48764,51 @@
 
 
 
+    // --- PHASE-AWARE ANCHOR REORDER (v20260725u, PLAN-path-edit-parity P2.4)
+    // On a BEZIER path the flat vertex buffer carries a stride-3 phase
+    // (A0 C1 C2 A3 …). Moving ONE vertex to an arbitrary index — what the
+    // reorder input did for every algorithm — scrambles that phase and
+    // silently corrupts the curve. Reordering a bezier therefore permutes
+    // ANCHORS, carrying each anchor's handles with it.
+    //
+    // The subpath is decomposed into an anchor list [{cIn, pos, cOut}] (the
+    // ends have no cIn / cOut), the entry is moved, and the list is
+    // re-serialized. A handle that becomes needed because an endpoint anchor
+    // moved inward is synthesized COINCIDENT with its anchor — the app's own
+    // "sharp" convention (the pen writes exactly that for a click without a
+    // tangent drag). Vertex count is invariant: 1 + 3S either way.
+    // Returns the moved anchor's new vertex index, or -1.
+    const reorderBezierAnchor = (object, sp, fromVi, toVi) => {
+      const V = object.localVertices;
+      const cnt = Math.min(sp.count, V.length - sp.start);
+      if (cnt < 4 || (cnt - 1) % 3 !== 0) return -1;      // not a clean stride-3 run
+      const S = (cnt - 1) / 3;                             // segments
+      const anchors = [];
+      for (let j = 0; j <= S; j++) {
+        const ai = sp.start + 3 * j;
+        anchors.push({
+          pos: [...V[ai]],
+          cIn: j > 0 ? [...V[ai - 1]] : null,
+          cOut: j < S ? [...V[ai + 1]] : null
+        });
+      }
+      const jFrom = (fromVi - sp.start) / 3, jTo = (toVi - sp.start) / 3;
+      if (!Number.isInteger(jFrom) || !Number.isInteger(jTo)) return -1;
+      if (jFrom < 0 || jFrom > S || jTo < 0 || jTo > S || jFrom === jTo) return -1;
+      const [moved] = anchors.splice(jFrom, 1);
+      anchors.splice(jTo, 0, moved);
+      // Re-serialize: A0, then per junction  cOut(prev), cIn(next), next.
+      const out = [[...anchors[0].pos]];
+      for (let j = 1; j <= S; j++) {
+        const prev = anchors[j - 1], cur = anchors[j];
+        out.push(prev.cOut ? [...prev.cOut] : [...prev.pos]);   // synthesized = sharp
+        out.push(cur.cIn ? [...cur.cIn] : [...cur.pos]);
+        out.push([...cur.pos]);
+      }
+      for (let k = 0; k < out.length; k++) V[sp.start + k] = out[k];
+      return sp.start + 3 * jTo;
+    };
+
     document.getElementById('vertexIndexInput').addEventListener('change', (e) => {
       if (!selectedVertexInfo) return;
       let newIndex = parseInt(e.target.value);
@@ -48187,6 +48817,35 @@
 
       if (isNaN(newIndex) || newIndex < 0 || newIndex > maxIndex) {
         e.target.value = vertexIndex; // Revert
+        return;
+      }
+
+      // BEZIER: anchors only, moved as whole clusters (see above). A control
+      // point is not a reorder target — reordering one alone is meaningless
+      // and would break the phase — so the field snaps back rather than
+      // silently doing nothing.
+      const _bezRole = bezierRoleOf(object, vertexIndex);
+      if (_bezRole) {
+        if (!_bezRole.isAnchor) { e.target.value = vertexIndex; return; }
+        const sp = _bezRole.sp;
+        // Snap the requested index to the nearest ANCHOR of the same subpath.
+        const cnt = Math.min(sp.count, object.localVertices.length - sp.start);
+        const S = ((cnt - 1) % 3 === 0) ? (cnt - 1) / 3 : -1;
+        if (S < 1) { e.target.value = vertexIndex; return; }
+        let jTo = Math.round((newIndex - sp.start) / 3);
+        jTo = Math.min(Math.max(jTo, 0), S);
+        const target = sp.start + 3 * jTo;
+        e.target.value = target;                    // the field never lies
+        if (target === vertexIndex) return;
+        pushUndoState();
+        const landed = reorderBezierAnchor(object, sp, vertexIndex, target);
+        if (landed < 0) { e.target.value = vertexIndex; return; }
+        selectedVertexInfo.vertexIndex = landed;
+        e.target.value = landed;
+        notifyPathUpdated(object);
+        updatePropertiesPanel();
+        requestRender();
+        pushUndoState('Reorder anchor');
         return;
       }
 
@@ -49178,6 +49837,7 @@
         syncPrimitiveNonAnimatable(selectedObject);
         notifyPathUpdated(selectedObject);
       }
+      updateStylePanel();   // v20260725v — see the algorithmInput twin
       requestRender();
     });
 
@@ -49379,6 +50039,10 @@
         syncPrimitiveNonAnimatable(selectedObject);
         notifyPathUpdated(selectedObject); // Fix: Notify dependents
       }
+      // v20260725v: the algorithm decides which rows are meaningful (Convert
+      // to Bezier hides once the path IS bezier), so a change must refresh
+      // the panel — the "just call updateStylePanel" rule (§11).
+      updateStylePanel();
       requestRender();
     });
 
@@ -51604,6 +52268,31 @@
         // Checked BEFORE every Draw-mode gesture (handle hit-test, vertex
         // hit-test, placement) so an explicit mode can never be shadowed by
         // one of them.
+        if (penMode === 'cut') {
+          if (activePath && activePath.primitiveData) {
+            showAppConfirm(
+              'Bake to Path?',
+              'This shape is a parametric primitive.\nBake to path to cut it?\n\n(This will make the shape non-parametric.)'
+            ).then(doBake => { if (doBake) bakeToPath(activePath); });
+            return;   // dragMode stays 'draw-pen' (H4.16b)
+          }
+          const hitC = activePath ? penCurveHitTest(activePath, event.clientX, event.clientY) : null;
+          if (hitC) {
+            pushUndoState();
+            const objC = activePath;
+            if (penCutAtHit(objC, hitC)) {
+              notifyPathUpdated(objC);
+              _penAddHit = null;
+              resetPenBezierState();
+              updateSubPathUI();
+              updateTreeView();
+              updatePropertiesPanel();
+              requestRender();
+              pushUndoState('Cut path');
+            }
+          }
+          return;     // dragMode stays 'draw-pen' — keeps activePath (H4.16b)
+        }
         if (penMode === 'add') {
           if (activePath && activePath.primitiveData) {
             showAppConfirm(
@@ -51734,6 +52423,22 @@
             const lastAnchorIdx = lastSub.start + lastSub.count - 1;
             _penDragAnchorLocalPos = [...activePath.localVertices[lastAnchorIdx]];
             _penDragAnchorIdx = lastAnchorIdx;
+            // v20260725x: capture both axes for the modifier scheme. This
+            // gesture is the deliberate BREAK path (fwd and bck move
+            // independently), so its node state is treated as a corner —
+            // Option therefore offers make-mirror, Shift a length-only lock.
+            {
+              const _a = activePath.localVertices[lastAnchorIdx];
+              const _cB = activePath.localVertices[lastAnchorIdx - 1];
+              const _fwd = _penBezierDragDelta ? vectorAdd(_a, _penBezierDragDelta) : null;
+              const _self = hitHandle === 'fwd' ? _fwd : _cB;
+              const _opp = hitHandle === 'fwd' ? _cB : _fwd;
+              _penVertexDragSmooth = false;
+              _penVertexDragStartDir = null;
+              _penVertexDragOppDir = null;
+              if (_self) { const d = vectorSubtract(_self, _a); if (vectorLength(d) > 1e-9) _penVertexDragStartDir = vectorNormalize(d); }
+              if (_opp) { const d = vectorSubtract(_opp, _a); if (vectorLength(d) > 1e-9) _penVertexDragOppDir = vectorNormalize(d); }
+            }
             return; // Don't place a new anchor
           }
         }
@@ -51749,13 +52454,19 @@
 
             // Detect smooth/corner state at drag-start for bezier control points
             _penVertexDragSmooth = false;
+            // v20260725x: the modifier scheme needs the axes AS THEY WERE when
+            // the drag began — Shift locks to the handle's own start axis, and
+            // Option (on a corner) locks to the opposite handle's reverse axis.
+            // Capturing at mousedown keeps both stable for the whole gesture.
+            _penVertexDragStartDir = null;
+            _penVertexDragOppDir = null;
             if (activePath.algorithm === 'bezier' && activePath.subPathData) {
               const vi = vtxHit.vertexIndex;
               const sp = activePath.subPathData.find(s => vi >= s.start && vi < s.start + s.count);
               if (sp) {
                 const relIdx = vi - sp.start;
                 const mod = relIdx % 3;
-                const { mirrorIdx: mIdx } = getBezierMirrorInfo(activePath, vi, relIdx, mod, sp);
+                const { anchorIdx: aIdx, mirrorIdx: mIdx } = getBezierMirrorInfo(activePath, vi, relIdx, mod, sp);
                 if (mod === 1 && mIdx >= 0) {
                   _penVertexDragSmooth = areCPsSmooth(
                     activePath.localVertices[vi - 1],
@@ -51768,6 +52479,15 @@
                     activePath.localVertices[vi],
                     activePath.localVertices[mIdx]
                   );
+                }
+                const _aPos = aIdx >= 0 ? activePath.localVertices[aIdx] : null;
+                if (_aPos) {
+                  const sd = vectorSubtract(activePath.localVertices[vi], _aPos);
+                  if (vectorLength(sd) > 1e-9) _penVertexDragStartDir = vectorNormalize(sd);
+                  if (mIdx >= 0 && activePath.localVertices[mIdx]) {
+                    const od = vectorSubtract(activePath.localVertices[mIdx], _aPos);
+                    if (vectorLength(od) > 1e-9) _penVertexDragOppDir = vectorNormalize(od);
+                  }
                 }
               }
             }
@@ -51795,6 +52515,25 @@
             const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
+
+              // v20260725x: Shift constrains PLACEMENT to 45° from the previous
+              // anchor — the other half of "Shift means the 45° grid for
+              // creation gestures". World space here (hitPoint is world), so
+              // the workplane basis applies directly. Runs BEFORE grid/point
+              // snapping so an explicit snap still wins.
+              if (event.shiftKey && activePath && activePath.localVertices.length > 0) {
+                const _lastSp = (activePath.subPathData && activePath.subPathData.length)
+                  ? activePath.subPathData[activePath.subPathData.length - 1] : null;
+                const _prevIdx = _lastSp ? _lastSp.start + _lastSp.count - 1 : activePath.localVertices.length - 1;
+                const _prevLocal = activePath.localVertices[_prevIdx];
+                if (_prevLocal) {
+                  const _prevWorld = vectorAdd(
+                    vectorApplyMatrix(_prevLocal, activePath.rotationMatrix), activePath.position);
+                  const _b = getGridBasis();
+                  hitPoint = vectorAdd(_prevWorld,
+                    constrainDelta45(vectorSubtract(hitPoint, _prevWorld), _b.u, _b.v));
+                }
+              }
 
               if (activeWorkplane.snapToGrid) {
                 const basis = getGridBasis();
@@ -52339,6 +53078,10 @@
               });
             }
             buildVertexDragCarry(); // Move Handles with Anchor (v20260725k)
+            // v20260725y: capture the handle axes so Shift / Option work on
+            // A-tool handle drags exactly as they do in the pen.
+            _dsHandleCtx = (selectedVertices.length === 1 && selectedVertexInfo)
+              ? buildDsHandleCtx(selectedVertexInfo.object, selectedVertexInfo.vertexIndex) : null;
             if (!moveToolSession || moveToolSession.mode === 'object') resetMoveToolSession();
           } else if (hoveredVertexInfo) {
             handledByGizmo = true; // Handled by vertex click
@@ -52381,6 +53124,10 @@
               });
             }
             buildVertexDragCarry(); // Move Handles with Anchor (v20260725k)
+            // v20260725y: capture the handle axes so Shift / Option work on
+            // A-tool handle drags exactly as they do in the pen.
+            _dsHandleCtx = (selectedVertices.length === 1 && selectedVertexInfo)
+              ? buildDsHandleCtx(selectedVertexInfo.object, selectedVertexInfo.vertexIndex) : null;
             if (!moveToolSession || moveToolSession.mode === 'object') resetMoveToolSession();
             if (typeof updateVertexOperationsUI === 'function') updateVertexOperationsUI();
             updatePropertiesPanel();
@@ -52489,7 +53236,24 @@
       // --- Pen Tool Preview Path ---
       // v20260725o: Draw mode only — a rubber band to the cursor is
       // meaningless (and misleading) while in Remove Point mode.
-      if (currentTool === 'pen' && penMode === 'draw' && activePath && dragMode === 'none' && penPreviewPath) {
+      // v20260725y: also suppressed while hovering a DRAGGABLE node, where the
+      // click drags rather than places — the preview would be predicting a
+      // segment that clicking there will not create. Hit-tested FRESH here
+      // rather than reading _penHoveredVertexIdx / _penHoveredHandle, because
+      // the hover-feedback block that maintains those runs LATER in this same
+      // handler; using its values would lag the preview by one mousemove and
+      // flicker on the node's edge.
+      let _penOverDraggable = false;
+      if (currentTool === 'pen' && penMode === 'draw' && activePath && dragMode === 'none') {
+        if (findPenHoveredVertex(event.clientX, event.clientY)) _penOverDraggable = true;
+        else if (activePath.algorithm === 'bezier' && _penBezierDragDelta) {
+          const _h = getHandleScreenPositions();
+          const _near = (p) => p && ((event.clientX - p.x) ** 2 + (event.clientY - p.y) ** 2) < 196; // 14px
+          if (_near(_h.fwd) || _near(_h.bck)) _penOverDraggable = true;
+        }
+      }
+      if (currentTool === 'pen' && penMode === 'draw' && activePath && dragMode === 'none'
+        && !_penOverDraggable && penPreviewPath) {
         const viewMatrix = activeCamera.createViewMatrix();
         const projectionMatrix = activeCamera.createProjectionMatrix();
         const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
@@ -52579,7 +53343,7 @@
           _penPreviewLocalHit = null;
           penPreviewPath.style.display = 'none';
         }
-      } else if (penPreviewPath && (currentTool !== 'pen' || penMode !== 'draw' || !activePath)) {
+      } else if (penPreviewPath && (currentTool !== 'pen' || penMode !== 'draw' || !activePath || _penOverDraggable)) {
         _penPreviewLocalHit = null;
         penPreviewPath.style.display = 'none';
         // Clear snap indicator when pen tool loses active path
@@ -52596,7 +53360,11 @@
       {
         const addGrp = document.getElementById('penAddPreviewGroup');
         if (addGrp) {
-          if (currentTool === 'pen' && penMode === 'add' && activePath
+          // v20260725za: Scissors shares the Add-Point affordance — same
+          // hit-test, same segment highlight + dot, because the two answer
+          // the same question ("which point on the path is under the
+          // cursor?") and only differ in what the click then does.
+          if (currentTool === 'pen' && (penMode === 'add' || penMode === 'cut') && activePath
             && !activePath.primitiveData && dragMode === 'none') {
             _penAddHit = penCurveHitTest(activePath, event.clientX, event.clientY);
             if (_penAddHit) {
@@ -52631,8 +53399,9 @@
       // Priority: 1) tangent handle dots, 2) any vertex in the path
       // When idling (no drag), show grab cursor on interactive points.
       // v20260725r: Add Point mode has its own affordance above and must not
-      // fall into the vertex-grab feedback below.
-      if (currentTool === 'pen' && penMode !== 'add' && activePath && dragMode === 'none') {
+      // fall into the vertex-grab feedback below — v20260725za: Scissors too.
+      if (currentTool === 'pen' && penMode !== 'add' && penMode !== 'cut'
+        && activePath && dragMode === 'none') {
         let handledHover = false;
 
         // 1) Tangent handle hover (C_fwd / C_bck of last anchor)
@@ -52848,15 +53617,25 @@
         const anchorIdx = _penDragAnchorIdx;
         const lastSub = activePath.subPathData[activePath.subPathData.length - 1];
 
+        // v20260725x: same modifier scheme as the general handle drag —
+        // Shift locks to the start axis, Option aligns to the opposite's
+        // reverse axis. Neither ever moves the opposite handle, which is
+        // exactly this gesture's existing "break symmetry" contract.
+        const _hPos = resolveHandleDragPos(_penDragAnchorLocalPos, cursorLocal, {
+          shiftKey: event.shiftKey, altKey: event.altKey,
+          smoothAtStart: _penVertexDragSmooth,
+          startDir: _penVertexDragStartDir, oppDir: _penVertexDragOppDir
+        });
+
         if (_penDraggingHandle === 'fwd') {
           // Update only the forward delta — do NOT mirror to C_bck
-          const newDelta = vectorSubtract(cursorLocal, _penDragAnchorLocalPos);
+          const newDelta = vectorSubtract(_hPos, _penDragAnchorLocalPos);
           _penBezierDragDelta = newDelta;
         } else if (_penDraggingHandle === 'bck') {
           // Move C_bck control point directly in the vertex array
           const cBckIdx = anchorIdx - 1;
           if (cBckIdx >= lastSub.start) {
-            activePath.localVertices[cBckIdx] = [...cursorLocal];
+            activePath.localVertices[cBckIdx] = [..._hPos];
             notifyPathUpdated(activePath);
           }
         }
@@ -52978,20 +53757,35 @@
         // v20260725k: logic extracted to the shared bezier drag helpers
         // (bezierRoleOf / applyAnchorDragCompanions / applyHandleMirror) so
         // the A tool consumes the SAME code — behavior unchanged here.
+        // v20260725x: a HANDLE drag resolves its own position through the
+        // modifier scheme (Shift axis-lock / Option make-mirror on a corner)
+        // before anything else reads it, so the mirror below and the final
+        // write both see the constrained point.
+        let _dragPos = cursorLocal;
         {
           const role = bezierRoleOf(activePath, vi);
           if (role) {
             if (role.isAnchor && oldPos) {
               applyAnchorDragCompanions(activePath, vi, vectorSubtract(cursorLocal, oldPos), role);
             } else if (role.mod === 1 || role.mod === 2) {
-              applyHandleMirror(activePath, vi, cursorLocal, {
-                smoothAtStart: _penVertexDragSmooth, altKey: event.altKey
+              const { anchorIdx } = getBezierMirrorInfo(activePath, vi, role.relIdx, role.mod, role.sp);
+              const anchorPos = anchorIdx >= 0 ? activePath.localVertices[anchorIdx] : null;
+              if (anchorPos) {
+                _dragPos = resolveHandleDragPos(anchorPos, cursorLocal, {
+                  shiftKey: event.shiftKey, altKey: event.altKey,
+                  smoothAtStart: _penVertexDragSmooth,
+                  startDir: _penVertexDragStartDir, oppDir: _penVertexDragOppDir
+                });
+              }
+              applyHandleMirror(activePath, vi, _dragPos, {
+                smoothAtStart: _penVertexDragSmooth,
+                altKey: event.altKey, shiftKey: event.shiftKey
               });
             }
           }
         }
 
-        activePath.localVertices[vi] = [...cursorLocal];
+        activePath.localVertices[vi] = [..._dragPos];
         notifyPathUpdated(activePath);
         requestRender();
         return;
@@ -53031,7 +53825,18 @@
         _penIsDraggingTangent = true;
 
         // Compute delta: cursor - anchor
-        const delta = vectorSubtract(cursorLocal, _penDragAnchorLocalPos);
+        let delta = vectorSubtract(cursorLocal, _penDragAnchorLocalPos);
+        // v20260725x: this is a CREATION gesture — the handle has no axis yet,
+        // so Shift means the 45° grid, not an axis-lock. The workplane basis is
+        // world-space; rotate it into the path's local space so a rotated path
+        // constrains along ITS plane rather than the world's.
+        if (event.shiftKey) {
+          const _b = getGridBasis();
+          const _invR = matrixTranspose(activePath.rotationMatrix);
+          delta = constrainDelta45(delta,
+            vectorNormalize(vectorApplyMatrix(_b.u, _invR)),
+            vectorNormalize(vectorApplyMatrix(_b.v, _invR)));
+        }
         _penBezierLiveDelta = delta;
 
         // Update backward control point in-place (vertex before anchor)
@@ -53168,7 +53973,11 @@
         lockedAxis = 'none';
       } else if (isZPressed && dragMode === 'translate') {
         lockedAxis = 'z';
-      } else if (isConstrainedDrag && (dragMode === 'truck' || dragMode === 'translate')) {
+      } else if (isConstrainedDrag && (dragMode === 'truck' || dragMode === 'translate') && !_dsHandleCtx) {
+        // v20260725y: a bezier HANDLE drag takes the handle-axis lock instead
+        // of this dominant-screen-axis constraint — the two would fight, and
+        // the handle's own axis is the meaningful one. Every other vertex and
+        // object drag keeps the documented Shift behaviour (§8, v20260718k).
         if (lockedAxis === 'none') {
           const totalDeltaX = Math.abs(event.clientX - dragStartMousePosition.x);
           const totalDeltaY = Math.abs(event.clientY - dragStartMousePosition.y);
@@ -54739,6 +55548,32 @@
           totalWorldDelta = vectorSubtract(newWorldPosition, dragStartWorldPosition);
         }
 
+        // v20260725y: an A-tool bezier HANDLE drag runs the same rule-of-three
+        // the pen uses — Shift locks to the handle's own axis (length only),
+        // Option flips the relationship — through the SAME resolveHandleDragPos
+        // helper. Only the single dragged handle is written, so the A tool's
+        // "handle-alone" rule (decision 1) still holds for a plain drag.
+        const _dsMod = !!(selectedVertexInfo && _dsHandleCtx && (event.shiftKey || event.altKey));
+        if (_dsMod) {
+          const _o = _dsHandleCtx.obj;
+          const _invR = matrixInverse(_o.rotationMatrix);
+          if (_invR) {
+            const _free = vectorAdd(dragStartVertexPosition, vectorApplyMatrix(totalWorldDelta, _invR));
+            const _pos = resolveHandleDragPos(_dsHandleCtx.anchorPos, _free, {
+              shiftKey: event.shiftKey, altKey: event.altKey,
+              smoothAtStart: _dsHandleCtx.smoothAtStart,
+              startDir: _dsHandleCtx.startDir, oppDir: _dsHandleCtx.oppDir
+            });
+            _o.localVertices[_dsHandleCtx.vi] = [..._pos];
+            selectedVertexInfo.worldPosition = pointApplyMatrix(_pos, _o.getWorldMatrix());
+            notifyPathUpdated(_o);
+          }
+          updatePropertiesPanel();
+          updateMoveToolUI();
+          requestRender();
+          return;
+        }
+
         if (selectedVertexInfo) {
           if (selectedVertices.length > 0) {
             selectedVertices.forEach(v => {
@@ -55323,6 +56158,7 @@
       lockedAxis = 'none';
       dragStartPlaneHit = null;
       gizmoScreenRotationAngle = 0;
+      _dsHandleCtx = null;   // v20260725y: A-tool handle-drag context ends with the gesture
 
       if (activePath && dragMode !== 'edit-polygon') {
         if (activePath.algorithm === 'linear') activePath.loop = activePath.loop !== undefined ? activePath.loop : false;

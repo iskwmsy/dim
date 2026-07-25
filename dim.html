@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260725l -->
+<!-- dim v20260725s -->
 
 <!--
   MIT License
@@ -3087,16 +3087,27 @@
     }
 
 
-    /* Legacy ID styling for sub-sections that stack inside panels */
-    #cameraManagementPanel,
+    /* Section separator for container-wrapped tool-drawer sub-sections.
+       These containers each START with a .ui-header-small, which is
+       :first-child of its container and therefore misses the standard
+       .ui-header-small:not(:first-child) separator — this rule gives the
+       CONTAINER the same separator instead.
+       v20260725m audit: the rule's border used to be rgba(255,255,255,0.2)
+       — WHITE, invisible on every light panel — so all five original ids
+       only ever produced a blank 20px gap. Fixed to the standard separator
+       (var(--border-light), mt 10 / pt 8, matching the header rule) for
+       the three genuine section containers; evicted the ids that never
+       needed it: #moveSettingsContainer (mid-checkbox-group, no section
+       boundary), #refImageContainer (has an explicit ui-hr above it —
+       the rule doubled the separation), #cameraManagementPanel (inline
+       styles already define its spacing; only the invisible border ever
+       applied). */
     #vertexOperationsContainer,
     #rotateSettingsContainer,
-    #scaleSettingsContainer,
-    #moveSettingsContainer,
-    #refImageContainer {
+    #scaleSettingsContainer {
       margin-top: 10px;
-      padding-top: 10px;
-      border-top: 1px solid rgba(255, 255, 255, 0.2);
+      padding-top: 8px;
+      border-top: 1px solid var(--border-light);
     }
 
     /* Fix for #propertiesPanel hiding logic */
@@ -3932,6 +3943,15 @@
         <circle id="penTangentDotFwd" r="5" fill="white" stroke="var(--accent-color)" stroke-width="1"
           vector-effect="non-scaling-stroke" />
         <circle id="penTangentDotBck" r="5" fill="white" stroke="var(--accent-color)" stroke-width="1"
+          vector-effect="non-scaling-stroke" />
+      </g>
+      <!-- Add Point hover preview (v20260725r): highlights the hovered SEGMENT
+           and marks the exact point the click will insert — the v20260725q
+           principle (the cursor shows the MODE, the target shows the hit). -->
+      <g id="penAddPreviewGroup" style="pointer-events: none; display: none;">
+        <path id="penAddSegHighlight" fill="none" stroke="var(--accent-color)" stroke-width="3"
+          stroke-opacity="0.45" stroke-linecap="round" vector-effect="non-scaling-stroke" />
+        <circle id="penAddDot" r="5" fill="var(--accent-color)" stroke="white" stroke-width="1.5"
           vector-effect="non-scaling-stroke" />
       </g>
       <g id="vertexGizmoGroup"></g>
@@ -4883,6 +4903,15 @@
               <label for="marqueeMultiObjCb" class="ui-checkbox-label">Select from different Objects</label>
               <input type="checkbox" id="marqueeMultiObjCb" class="ui-checkbox" checked />
             </div>
+            <!-- Move Handles with Anchor (v20260725m, PLAN-path-edit-parity):
+                 ON = dragging a bezier anchor carries its adjacent control
+                 points (drag, gizmo, nudge alike). OFF = legacy anchor-alone
+                 move. Session tool preference (DOM state only, not saved).
+                 A-tool-only row — setTool toggles it like marqueeMultiObjRow. -->
+            <div class="prop-row prop-inline" id="dsMoveHandlesRow">
+              <label for="dsMoveHandlesCb" class="ui-checkbox-label">Move Handles with Anchor</label>
+              <input type="checkbox" id="dsMoveHandlesCb" class="ui-checkbox" checked />
+            </div>
           </div>
 
           <div class="hidden" id="moveSettingsContainer">
@@ -5095,6 +5124,22 @@
           </div>
           <!-- Pen Tool Settings -->
           <div class="hidden" id="penSettingsContainer" style="display:none;">
+            <!-- Pen MODE (v20260725o, PLAN-path-edit-parity slice 2):
+                 explicit modes instead of hover-context gesture overloading,
+                 so no gesture is shadowed. setPenMode() is the ONLY writer —
+                 it owns the dropdown value, the cursor and the hint text, so
+                 a future keyboard shortcut is a one-line call into it.
+                 Add Point joins this list in slice 3 with its insert engine. -->
+            <div class="xyz-row">
+              <label for="penModeSelect">Mode</label>
+              <div class="xyz-inputs">
+                <select id="penModeSelect">
+                  <option value="draw" selected>Draw</option>
+                  <option value="add">Add Point</option>
+                  <option value="remove">Remove Point</option>
+                </select>
+              </div>
+            </div>
             <div class="prop-row prop-inline">
               <label for="penClosePath" class="ui-checkbox-label">Close Path</label>
               <input type="checkbox" id="penClosePath" class="ui-checkbox" />
@@ -9347,6 +9392,20 @@
         body: '<polygon fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" points="10 3 16 12 12 17.86 8 17.86 4 12 10 3"/><polygon points="10 3 16 12 12 17.86 8 17.86 4 12 10 3"/><circle fill="#fff" cx="10" cy="12.43" r="1.5"/>',
         size: 20, x: 10, y: 3
       },
+      // Add / Remove Point cursors (v20260725s) — supplied by the owner as a
+      // two-tile 20×48.5 sprite; each tile is lifted into its own 20×20 box
+      // (the remove tile via a translate, so its path data stays EXACTLY as
+      // authored). Solid nib with the eye as a counter in the same subpath,
+      // plus a 1px plus/minus glyph at the lower right. Hotspot stays (10,3)
+      // — the nib tip — so every pen mode points at the same pixel.
+      penAdd: {
+        body: '<path d="M10,3L4,12l4,5.86h4l4-5.86L10,3ZM10,13.93c-.83,0-1.5-.67-1.5-1.5s.67-1.5,1.5-1.5,1.5.67,1.5,1.5-.67,1.5-1.5,1.5Z"/><line stroke="#000" stroke-miterlimit="10" stroke-width="1" x1="15" y1="17" x2="19" y2="17"/><line stroke="#000" stroke-miterlimit="10" stroke-width="1" x1="17" y1="19" x2="17" y2="15"/>',
+        size: 20, x: 10, y: 3
+      },
+      penRemove: {
+        body: '<g transform="translate(0,-28.5)"><path d="M10,31.5l-6,9,4,5.86h4l4-5.86-6-9ZM10,42.43c-.83,0-1.5-.67-1.5-1.5s.67-1.5,1.5-1.5,1.5.67,1.5,1.5-.67,1.5-1.5,1.5Z"/><line stroke="#000" stroke-miterlimit="10" stroke-width="1" x1="15" y1="45.5" x2="19" y2="45.5"/></g>',
+        size: 20, x: 10, y: 3
+      },
       scale: {
         body: '<line stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="16" y1="4" x2="4.03" y2="15.97"/><polyline fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="11 4 16 4 16 9"/><polyline fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="9.03 15.97 4.03 15.97 4.03 10.97"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="16" y1="4" x2="4.03" y2="15.97"/><polyline fill="none" stroke="#000" stroke-width="1.14" stroke-linecap="round" stroke-linejoin="round" points="11 4 16 4 16 9"/><polyline fill="none" stroke="#000" stroke-width="1.14" stroke-linecap="round" stroke-linejoin="round" points="9.03 15.97 4.03 15.97 4.03 10.97"/>',
         size: 20, x: 10, y: 10
@@ -9412,6 +9471,82 @@
     function applyToolCursor() {
       svg.style.cursor = currentToolCursor;
     }
+
+    // --- PEN MODE (v20260725o, PLAN-path-edit-parity slice 2) -------------
+    // The pen tool carries explicit MODES instead of overloading hover
+    // context onto one gesture, so nothing is shadowed: 'draw' places points
+    // (and closes on the first anchor), 'remove' deletes an anchor of the
+    // SELECTED path. 'add' joins in slice 3 with its insert engine.
+    //
+    // setPenMode() is the ONLY writer of penMode: it owns the dropdown
+    // value, the canvas cursor and the hint text, so a future keyboard
+    // shortcut (P3.10) is a one-line call into it and cannot drift.
+    // Session preference — never serialized; re-entering the pen keeps the
+    // last mode and the drawer shows it (no hidden state).
+    let penMode = 'draw';
+    const PEN_MODE_HINTS = {
+      draw: 'Click to place points.\nClick the first point to close the path.',
+      add: 'Click anywhere on the selected path to add a point there.',
+      remove: 'Click an anchor of the selected path to remove it.'
+    };
+    const PEN_MODE_CURSORS = { draw: 'pen', add: 'penAdd', remove: 'penRemove' };
+    // Toolbar / panel icon body for the current pen mode (v20260725s, owner
+    // artwork). The OUTLINE nib (unchanged from the plain pen button) plus the
+    // same 1px plus/minus glyph the cursors carry, so the button states read
+    // as one family. Every attribute is explicit and uses currentColor, so the
+    // one string works in BOTH hosts: the left toolbar <svg> (which sets
+    // fill/stroke on the parent) and #toolPanelIcon / #toolDrawerIcon (whose
+    // toolIconMap entries set them per element) — and it stays theme-aware.
+    const penModeIconBody = (mode) => {
+      const nib = '<polygon fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" points="10 3 16 12 12 17.86 8 17.86 4 12 10 3"/>'
+        + '<circle fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" cx="10" cy="12.43" r="1.5"/>';
+      const bar = '<line fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="1" stroke-linecap="butt" x1="15" y1="17" x2="19" y2="17"/>';
+      const stem = '<line fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="1" stroke-linecap="butt" x1="17" y1="19" x2="17" y2="15"/>';
+      return nib + (mode === 'add' ? bar + stem : (mode === 'remove' ? bar : ''));
+    };
+    // The left toolbar's Pen button always advertises the mode the next click
+    // will use — even while another tool is active. The drawer/panel header
+    // icons only track it while the pen IS active (setTool owns them
+    // otherwise, from toolIconMap).
+    const applyPenModeIcons = () => {
+      const body = penModeIconBody(penMode);
+      const tbSvg = document.querySelector('button[data-tool="pen"] svg');
+      if (tbSvg) tbSvg.innerHTML = body;
+      if (currentTool !== 'pen') return;
+      const panelIcon = document.getElementById('toolPanelIcon');
+      if (panelIcon) panelIcon.innerHTML = body;
+      const drawerIcon = document.getElementById('toolDrawerIcon');
+      if (drawerIcon) drawerIcon.innerHTML = body;
+    };
+    const setPenMode = (mode) => {
+      penMode = PEN_MODE_CURSORS[mode] ? mode : 'draw';
+      const sel = document.getElementById('penModeSelect');
+      if (sel && sel.value !== penMode) sel.value = penMode;
+      // Drop the rubber-band preview immediately on leaving Draw (the
+      // mousemove handler also guards it, but not until the next move).
+      if (penMode !== 'draw' && penPreviewPath) {
+        _penPreviewLocalHit = null;
+        penPreviewPath.style.display = 'none';
+      }
+      // Likewise drop the Add-Point hover preview when leaving Add.
+      if (penMode !== 'add') {
+        _penAddHit = null;
+        const ap = document.getElementById('penAddPreviewGroup');
+        if (ap) ap.style.display = 'none';
+      }
+      applyPenModeIcons();   // toolbar button always shows the mode
+      // Cursor + hint are pen-tool surfaces: leave them alone for other tools
+      // (setTool re-invokes this when the pen becomes active).
+      if (currentTool !== 'pen') return;
+      currentToolCursor = buildToolCursor(PEN_MODE_CURSORS[penMode]);
+      applyToolCursor();
+      const hintEl = document.getElementById('toolHintText');
+      if (hintEl && !pendingPolygon) {
+        hintEl.textContent = PEN_MODE_HINTS[penMode];
+        hintEl.style.display = 'block';
+        hintEl.style.whiteSpace = 'pre-line';
+      }
+    };
 
     // The Rotate/Scale "about" pivot controls show whenever their tool is
     // active with a selection. For multi-select every mode is meaningful; for a
@@ -9702,17 +9837,20 @@
       const marqueeContainer = document.getElementById('marqueeSettingsContainer');
       const marqueeIntersectRow = document.getElementById('marqueeIntersectRow');
       const marqueeMultiObjRow = document.getElementById('marqueeMultiObjRow');
+      const dsMoveHandlesRow = document.getElementById('dsMoveHandlesRow');
       if (marqueeContainer) {
         if (tool === 'select') {
           marqueeContainer.classList.remove('hidden');
           marqueeContainer.style.display = 'block';
           if (marqueeIntersectRow) marqueeIntersectRow.style.display = 'flex';
           if (marqueeMultiObjRow) marqueeMultiObjRow.style.display = 'none';
+          if (dsMoveHandlesRow) dsMoveHandlesRow.style.display = 'none';
         } else if (tool === 'directSelect') {
           marqueeContainer.classList.remove('hidden');
           marqueeContainer.style.display = 'block';
           if (marqueeIntersectRow) marqueeIntersectRow.style.display = 'none';
           if (marqueeMultiObjRow) marqueeMultiObjRow.style.display = 'flex';
+          if (dsMoveHandlesRow) dsMoveHandlesRow.style.display = 'flex';
         } else {
           marqueeContainer.classList.add('hidden');
           marqueeContainer.style.display = 'none';
@@ -10053,6 +10191,10 @@
       // Apply custom tool cursor
       currentToolCursor = buildToolCursor(tool);
       applyToolCursor();
+      // PEN MODE (v20260725o): the mode persists across tool switches, so
+      // re-applying it here restores its cursor + hint (both were just reset
+      // to the generic pen ones above). Must run AFTER the hint block.
+      if (tool === 'pen') setPenMode(penMode);
 
       updatePropertiesPanel();
       updateStylePanel();
@@ -12574,6 +12716,12 @@
 
     // Wire Pen Confirm button
     document.getElementById('penConfirmBtn').addEventListener('click', confirmPenPath);
+
+    // Wire Pen Mode dropdown (v20260725o) — the ONE UI writer, delegating to
+    // the single setPenMode() setter (which owns cursor + hint + sync).
+    document.getElementById('penModeSelect').addEventListener('change', (e) => {
+      setPenMode(e.target.value);
+    });
 
     // Wire Pen Close Path checkbox — dynamically toggle active path's closed state
     document.getElementById('penClosePath').addEventListener('change', (e) => {
@@ -31634,7 +31782,6 @@
       // off there is exactly one piece per subpath run and concatenating their
       // d strings reproduces the single-path output byte-for-byte.
       _build3dStrokeD(mvpMatrix, baseHalf, prm, styleCap, styleJoin, occlude, trim) {
-        const SEG_SAMPLES = 10;
         const evalC = (g, t) => {
           const u = 1 - t;
           const a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, dd = t * t * t;
@@ -31643,6 +31790,99 @@
             a * g.p0[1] + b * g.p1[1] + c * g.p2[1] + dd * g.p3[1],
             a * (g.p0[2] || 0) + b * (g.p1[2] || 0) + c * (g.p2[2] || 0) + dd * (g.p3[2] || 0)
           ];
+        };
+        // ADAPTIVE FLATTENING (v20260725n). v1 took a FIXED 10 samples per
+        // Bézier segment, uniform in t. That is wrong in screen space and it
+        // showed: on a user's B-spline the step length ranged 3.5 → 73.6 px
+        // (21×) because a B-spline's cubics differ wildly in screen size and
+        // uniform-t bunches samples at a cubic's ends. Where the curve was
+        // tight and the step long, the POLYLINE turned up to 132.6° in one
+        // step — and the stroker's "turn > 28° is a genuine corner" test then
+        // stamped real round JOINS into a smooth curve. 14 such false corners,
+        // 11 of them strictly INSIDE a segment (so provably not corners: the
+        // path is C² there). Those are the "bumpy corners" that were reported.
+        //
+        // Fix: choose the sample count from the PROJECTED curve, by recursive
+        // subdivision on two screen-space criteria — sagitta (so the polyline
+        // tracks the curve) and turn angle (so the corner test cannot be
+        // fooled). Density then follows screen curvature instead of the
+        // accident of how the spline was cut into cubics, and RDP thins the
+        // now-dense flat stretches straight back out, so the emitted anchor
+        // count goes DOWN rather than up.
+        const _scr = (p) => {
+          const s = transformVertex(p, mvpMatrix);
+          return s ? [(s[0] * FRAME_SIZE) / 2, (-s[1] * FRAME_SIZE) / 2] : null;
+        };
+        // Sagitta budget matches the fit tolerance — sampling must not be the
+        // dominant error term (v20260725g measured that the FIT dominated by
+        // 30×; the reverse is just as bad). Angle budget is well under the 28°
+        // corner test with margin for the residual turn at interval joints.
+        const FLAT_TOL = Path.STROKE3D_FIT_TOL;                 // px sagitta
+        const ANGLE_COS = Math.cos(8 * Math.PI / 180);
+        // Depth 10 (≤1024 intervals) is not a sampling density — the criteria
+        // below decide that. It is HEADROOM: the projected curve of a 3D spline
+        // can turn hard inside a 3-px window (measured on the reported scene:
+        // t ∈ [0.90, 0.97] of one cubic is 3.05 px of arc and reverses
+        // direction), and at depth 6 the floor itself was leaving a 60.9° step
+        // there. Turn halves as the step halves at that spot, so it is a tight
+        // FINITE turn, not a cusp — it just needs t resolution. SEG_CAP is the
+        // real runaway guard.
+        const MAX_DEPTH = 10;
+        const SEG_CAP = 512;                                    // samples per segment, hard stop
+        // t values for seg over [t0,t1], ascending, endpoints exact. Depth 0
+        // always splits, so every span carries at least one INTERIOR sample —
+        // v20260725l's straight-span certification needs that evidence, and a
+        // 2-point span would silently lose it.
+        const tsOf = (seg, t0, t1) => {
+          const ts = [t0];
+          const rec = (a, b, pa, pb, depth) => {
+            const m = (a + b) / 2, pm = _scr(evalC(seg, m));
+            let split = (depth === 0);
+            if (!split && pa && pb && pm) {
+              const dx = pb[0] - pa[0], dy = pb[1] - pa[1];
+              const L = Math.hypot(dx, dy);
+              const dev = L > 1e-9
+                ? Math.abs((pm[0] - pa[0]) * (-dy) + (pm[1] - pa[1]) * dx) / L
+                : Math.hypot(pm[0] - pa[0], pm[1] - pa[1]);
+              if (dev > FLAT_TOL) split = true;
+              else {
+                const ax = pm[0] - pa[0], ay = pm[1] - pa[1];
+                const bx = pb[0] - pm[0], by = pb[1] - pm[1];
+                const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+                if (la > 1e-9 && lb > 1e-9 && (ax * bx + ay * by) / (la * lb) < ANGLE_COS) split = true;
+              }
+            }
+            if (split && depth < MAX_DEPTH && ts.length < SEG_CAP) {
+              rec(a, m, pa, pm, depth + 1); rec(m, b, pm, pb, depth + 1);
+            } else ts.push(b);
+          };
+          rec(t0, t1, _scr(evalC(seg, t0)), _scr(evalC(seg, t1)), 0);
+          // Both criteria above are evaluated INSIDE an interval, so a long flat
+          // interval can still butt against a short curved one and leave a big
+          // turn AT THE JOINT — and the joint turn is exactly what the corner
+          // test reads. Bisect either side of an over-budget joint until it is
+          // under budget or the interval hits the depth floor. A genuine
+          // screen-space cusp cannot be smoothed away and keeps its join, which
+          // is what SVG's own stroker would draw there.
+          const minDt = (t1 - t0) / (1 << MAX_DEPTH);
+          for (let pass = 0; pass < 8 && ts.length < SEG_CAP; pass++) {
+            const P = ts.map(t => _scr(evalC(seg, t)));
+            const add = new Set();
+            for (let i = 1; i < ts.length - 1; i++) {
+              const a = P[i - 1], b = P[i], c = P[i + 1];
+              if (!a || !b || !c) continue;
+              const ax = b[0] - a[0], ay = b[1] - a[1], bx = c[0] - b[0], by = c[1] - b[1];
+              const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+              if (la < 1e-9 || lb < 1e-9) continue;
+              if ((ax * bx + ay * by) / (la * lb) >= ANGLE_COS) continue;
+              if (ts[i] - ts[i - 1] > minDt) add.add((ts[i - 1] + ts[i]) / 2);
+              if (ts[i + 1] - ts[i] > minDt) add.add((ts[i] + ts[i + 1]) / 2);
+            }
+            if (!add.size) break;
+            for (const t of add) ts.push(t);
+            ts.sort((x, y) => x - y);
+          }
+          return ts;
         };
         // 1. Sample each SUBPATH into its own run (command:'M' marks subpath
         //    starts — runs must never be joined or a compound path grows a
@@ -31670,16 +31910,13 @@
               const t0 = segStart >= startLen ? 0 : Path._trimArcToT(entry, startLen - segStart);
               const t1 = segEnd <= endLen ? 1 : Path._trimArcToT(entry, endLen - segStart);
               if (!(t1 > t0)) continue;
-              // Density proportional to the COVERED fraction: a 5%-of-a-segment
-              // sliver must not get the same sample count as a full segment, or
-              // the fitter burns anchors on nothing. Floor of TWO intervals, not
-              // one (v20260725l): a span with no INTERIOR sample gives the
-              // fitter no evidence that it is straight, so _fitRunClean's
-              // lineSpans rule cannot certify it and a long trimmed sliver could
-              // still be bowed by a neighbouring join's tangent.
-              const N = Math.max(2, Math.ceil(SEG_SAMPLES * (t1 - t0)));
-              for (let k = (cur.length ? 1 : 0); k <= N; k++) {
-                cur.push(evalC(entry.seg, t0 + (t1 - t0) * k / N));
+              // Density comes from tsOf, which measures the PROJECTED curve, so
+              // a trimmed sliver is sampled by its screen size rather than by
+              // its share of t (v20260725n; before that a 5%-of-a-segment
+              // sliver and a full segment could get the same count).
+              const ts = tsOf(entry.seg, t0, t1);
+              for (let k = (cur.length ? 1 : 0); k < ts.length; k++) {
+                cur.push(evalC(entry.seg, ts[k]));
               }
             }
             if (cur.length >= 2) runs.push(cur);
@@ -31688,7 +31925,8 @@
           let cur = null;
           for (const seg of this.getBezierSegments()) {
             if (seg.command === 'M' || !cur) { cur = []; runs.push(cur); }
-            for (let i = (cur.length ? 1 : 0); i <= SEG_SAMPLES; i++) cur.push(evalC(seg, i / SEG_SAMPLES));
+            const ts = tsOf(seg, 0, 1);
+            for (let i = (cur.length ? 1 : 0); i < ts.length; i++) cur.push(evalC(seg, ts[i]));
           }
         }
         // 2. Project. transformVertex returns [x/w, y/w, z/w, w]; w IS the
@@ -39516,6 +39754,14 @@
             fillColor = accentColor; // Accent fill for selected
           } else if (hoveredVertexInfo && hoveredVertexInfo.object === obj && hoveredVertexInfo.vertexIndex === i) {
             size = 14 / mainScale; // Bigger on hover
+          } else if (currentTool === 'pen' && obj === activePath && i === _penHoveredVertexIdx) {
+            // Pen tool hover (v20260725q): the pen tracks its own hovered
+            // vertex in _penHoveredVertexIdx (hoveredVertexInfo is
+            // directSelect-only), so it needs its own branch to get the SAME
+            // scale-up feedback the A tool gives. In Remove Point mode this
+            // is the only hover affordance — the cursor deliberately does
+            // not change there.
+            size = 14 / mainScale;
           }
 
           if (isControlPoint) {
@@ -43210,7 +43456,9 @@
     // Given a control point vertex index, return anchor and mirror indices.
     // Handles wrap-around for closed bezier paths where first/last anchors coincide.
     // Returns { anchorIdx, mirrorIdx } where mirrorIdx = -1 if no mirror exists.
-    const getBezierMirrorInfo = (vi, relIdx, mod, sp) => {
+    // v20260725k: takes the owning object explicitly (was hardwired to
+    // activePath) so the A tool's shared drag helpers can use it too.
+    const getBezierMirrorInfo = (obj, vi, relIdx, mod, sp) => {
       if (mod === 1) {
         // C_fwd: anchor is at vi - 1
         const anchorIdx = vi - 1;
@@ -43223,9 +43471,9 @@
         if (anchorRelIdx === 0 && sp.closed && sp.count >= 4) {
           const lastAnchorIdx = sp.start + sp.count - 1;
           const lastAnchorRelIdx = lastAnchorIdx - sp.start;
-          if (lastAnchorRelIdx % 3 === 0 && activePath && activePath.localVertices) {
-            const firstPos = activePath.localVertices[sp.start];
-            const lastPos = activePath.localVertices[lastAnchorIdx];
+          if (lastAnchorRelIdx % 3 === 0 && obj && obj.localVertices) {
+            const firstPos = obj.localVertices[sp.start];
+            const lastPos = obj.localVertices[lastAnchorIdx];
             if (firstPos && lastPos) {
               const dist = vectorLength(vectorSubtract(firstPos, lastPos));
               if (dist < 1e-4) {
@@ -43250,9 +43498,9 @@
         // Wrap-around: last anchor's C_bck — check if path is closed and first anchor coincides
         const lastAnchorIdx = sp.start + sp.count - 1;
         if (anchorIdx === lastAnchorIdx && sp.closed && sp.count >= 4) {
-          if (anchorRelIdx % 3 === 0 && activePath && activePath.localVertices) {
-            const firstPos = activePath.localVertices[sp.start];
-            const lastPos = activePath.localVertices[lastAnchorIdx];
+          if (anchorRelIdx % 3 === 0 && obj && obj.localVertices) {
+            const firstPos = obj.localVertices[sp.start];
+            const lastPos = obj.localVertices[lastAnchorIdx];
             if (firstPos && lastPos) {
               const dist = vectorLength(vectorSubtract(firstPos, lastPos));
               if (dist < 1e-4) {
@@ -43268,6 +43516,367 @@
         return { anchorIdx, mirrorIdx: -1 };
       }
       return { anchorIdx: -1, mirrorIdx: -1 };
+    };
+
+    // --- Shared bezier drag semantics (v20260725k, PLAN-path-edit-parity) ---
+    // ONE home for the smooth/corner drag intelligence, consumed by BOTH the
+    // pen tool (ungated — its historical behavior) and the A tool (gated on
+    // the "Move Handles with Anchor" checkbox). Never fork this logic again.
+
+    // Classify a vertex under the bezier interpretation. Returns
+    // { sp, relIdx, mod, isAnchor } or null (non-bezier / no owning subpath).
+    const bezierRoleOf = (obj, vi) => {
+      if (!obj || obj.algorithm !== 'bezier' || !obj.subPathData) return null;
+      const sp = obj.subPathData.find(s => vi >= s.start && vi < s.start + s.count);
+      if (!sp) return null;
+      const relIdx = vi - sp.start;
+      const mod = relIdx % 3;
+      return { sp, relIdx, mod, isAnchor: mod === 0 };
+    };
+
+    // The control-point indices that ride along when anchor `vi` moves:
+    // C_bck at vi-1 (unless first vertex of the subpath) and C_fwd at vi+1
+    // (unless last). Same guards as the pen's historical inline logic —
+    // deliberately NO closed-path wraparound here (the coincident twin
+    // anchor and its CP are the Move Coincident Points feature's job).
+    const bezierAnchorCompanions = (obj, vi, role) => {
+      const r = role || bezierRoleOf(obj, vi);
+      if (!r || !r.isAnchor) return [];
+      const out = [];
+      if (r.relIdx > 0) out.push(vi - 1);
+      if (r.relIdx < r.sp.count - 1) out.push(vi + 1);
+      return out;
+    };
+
+    // Anchor drag: move the adjacent CPs rigidly by the anchor's delta.
+    const applyAnchorDragCompanions = (obj, vi, delta, role) => {
+      for (const ci of bezierAnchorCompanions(obj, vi, role)) {
+        obj.localVertices[ci] = vectorAdd(obj.localVertices[ci], delta);
+      }
+    };
+
+    // Control-point drag with state-aware mirroring:
+    //   smooth node + drag      → mirror (stays smooth)
+    //   smooth node + Alt+drag  → break tangent (becomes corner)
+    //   corner node + drag      → no mirror (stays corner)
+    //   corner node + Alt+drag  → revive tangent (becomes smooth)
+    // The mirror keeps its OWN length; only its direction follows.
+    const applyHandleMirror = (obj, vi, cursorLocal, opts) => {
+      const r = bezierRoleOf(obj, vi);
+      if (!r || r.isAnchor) return;
+      const shouldMirror = opts.smoothAtStart ? !opts.altKey : opts.altKey;
+      if (!shouldMirror) return;
+      const { anchorIdx, mirrorIdx } = getBezierMirrorInfo(obj, vi, r.relIdx, r.mod, r.sp);
+      if (mirrorIdx >= 0) {
+        const anchor = obj.localVertices[anchorIdx];
+        const mirrorOld = obj.localVertices[mirrorIdx];
+        if (anchor && mirrorOld) {
+          const mirrorDist = vectorLength(vectorSubtract(mirrorOld, anchor));
+          const dragDir = vectorSubtract(cursorLocal, anchor);
+          const dragDist = vectorLength(dragDir);
+          if (dragDist > 1e-6 && mirrorDist > 1e-6) {
+            // Place mirror at same distance but 180° opposite
+            const norm = vectorScale(dragDir, 1 / dragDist);
+            obj.localVertices[mirrorIdx] = vectorSubtract(anchor, vectorScale(norm, mirrorDist));
+          }
+        }
+      }
+    };
+
+    // --- A-tool "Move Handles with Anchor" carry (v20260725k) --------------
+    // When the A-tool checkbox is ON, dragging a bezier ANCHOR carries its
+    // adjacent control points. Companions are captured ONCE at drag start
+    // (the selectedVertices dragStartLocalPosition pattern) and moved by the
+    // same world delta in every vertex drag mode. Companions already in the
+    // moved set are SKIPPED — they would double-move otherwise.
+    let _vertexDragCarry = [];
+    const buildVertexDragCarry = () => {
+      _vertexDragCarry = [];
+      const cb = document.getElementById('dsMoveHandlesCb');
+      if (!cb || !cb.checked) return;
+      const moved = new Set(selectedVertices.map(v => `${v.object.id}_${v.vertexIndex}`));
+      selectedVertices.forEach(v => {
+        const role = bezierRoleOf(v.object, v.vertexIndex);
+        if (!role || !role.isAnchor) return;
+        for (const ci of bezierAnchorCompanions(v.object, v.vertexIndex, role)) {
+          const key = `${v.object.id}_${ci}`;
+          if (moved.has(key)) continue;
+          moved.add(key);
+          _vertexDragCarry.push({
+            object: v.object, vertexIndex: ci,
+            dragStartLocalPosition: [...v.object.localVertices[ci]]
+          });
+        }
+      });
+    };
+    // Apply the carry for the current drag frame. Same world→local delta
+    // conversion as the selectedVertices loops (rotation only — companions
+    // must stay rigid relative to their anchor under the SAME transform).
+    const applyVertexDragCarry = (totalWorldDelta) => {
+      for (const c of _vertexDragCarry) {
+        const invRot = matrixInverse(c.object.rotationMatrix);
+        if (!invRot) continue;
+        const localDelta = vectorApplyMatrix(totalWorldDelta, invRot);
+        c.object.localVertices[c.vertexIndex] = vectorAdd(c.dragStartLocalPosition, localDelta);
+        notifyPathUpdated(c.object);
+      }
+    };
+    // Incremental variant for arrow-key nudges (no drag session — the nudge
+    // adds a delta to the CURRENT position, so companions do the same).
+    const nudgeVertexCompanions = (worldSpaceDelta) => {
+      const cb = document.getElementById('dsMoveHandlesCb');
+      if (!cb || !cb.checked) return;
+      const list = selectedVertices && selectedVertices.length
+        ? selectedVertices
+        : (selectedVertexInfo ? [selectedVertexInfo] : []);
+      const moved = new Set(list.map(v => `${v.object.id}_${v.vertexIndex}`));
+      list.forEach(v => {
+        const role = bezierRoleOf(v.object, v.vertexIndex);
+        if (!role || !role.isAnchor) return;
+        const invRot = matrixInverse(v.object.rotationMatrix);
+        if (!invRot) return;
+        const localDelta = vectorApplyMatrix(worldSpaceDelta, invRot);
+        for (const ci of bezierAnchorCompanions(v.object, v.vertexIndex, role)) {
+          const key = `${v.object.id}_${ci}`;
+          if (moved.has(key)) continue;
+          moved.add(key);
+          v.object.localVertices[ci] = vectorAdd(v.object.localVertices[ci], localDelta);
+        }
+      });
+    };
+
+    // --- PEN MODE helpers (v20260725o) -------------------------------------
+    // Draw mode: is the cursor over the FIRST anchor of the active OPEN
+    // subpath? That click closes the path (the Illustrator gesture). Today
+    // the same click merely drags the first anchor — near-useless mid-draw,
+    // so there is no collision to resolve.
+    const penCloseTargetAt = (mouseX, mouseY) => {
+      if (!activePath || !activePath.subPathData || !activePath.subPathData.length) return false;
+      const sp = activePath.subPathData[activePath.subPathData.length - 1];
+      if (!sp || sp.closed) return false;
+      // Need at least TWO anchors — closing a single-anchor path is
+      // meaningless (bezier stores 3 vertices per added anchor ⇒ 2 anchors
+      // = 4 vertices; every other algorithm stores 1 ⇒ 2 vertices).
+      const minCount = activePath.algorithm === 'bezier' ? 4 : 2;
+      if (sp.count < minCount) return false;
+      const hit = findPenHoveredVertex(mouseX, mouseY);
+      return !!(hit && hit.vertexIndex === sp.start);
+    };
+
+    // Remove mode: the vertex RANGE that disappears when anchor `vi` goes.
+    // A bezier anchor OWNS its neighbouring control points, so the whole
+    // CLUSTER is removed and the stride-3 phase stays valid:
+    //   first anchor   A0 C1 C2 | …    → drop 3 at vi    (leaves A3 …)
+    //   last anchor    … | C4 C5 A6    → drop 3 at vi-2  (leaves … A3)
+    //   interior       … C2 A3 C4 …    → drop 3 at vi-1  (leaves A0 C1 C5 A6,
+    //                                     one valid cubic — the AI result)
+    // Control points are NEVER remove targets (collapsing a handle is a drag,
+    // not a deletion) — returns null for them. Non-bezier: one vertex. The
+    // range is clamped to the owning subpath so a non-standard count (the
+    // quadratic/linear tails getBezierSegments tolerates) can never eat into
+    // a neighbouring contour.
+    // --- ADD POINT engine (v20260725r, PLAN-path-edit-parity slice 3) ------
+    // The ONE bookkeeping primitive for growing/reshaping a subpath's vertex
+    // range — the symmetric twin of removeVertexFromSubPaths, generalized to
+    // a splice so the bezier case (replace 2 control points with 5) and the
+    // linear/b-spline case (insert 1) share it. Carries the same
+    // legacy-inconsistency fallback as its twin.
+    const spliceSubPathVertices = (object, sp, atIndex, deleteCount, insertVerts) => {
+      const spd = object.subPathData;
+      const n = object.localVertices.length;            // BEFORE the splice
+      let consistent = Array.isArray(spd) && spd.length > 0 && spd.indexOf(sp) >= 0;
+      if (consistent) {
+        let sum = 0;
+        for (const s of spd) sum += s.count;
+        consistent = (sum === n);
+      }
+      object.localVertices.splice(atIndex, deleteCount, ...insertVerts);
+      if (!consistent) {                                 // legacy fallback
+        object.subPathData = [{ start: 0, count: object.localVertices.length, closed: object.loop }];
+        return;
+      }
+      const delta = insertVerts.length - deleteCount;
+      sp.count += delta;
+      for (const other of spd) if (other !== sp && other.start >= atIndex) other.start += delta;
+    };
+
+    // Enumerate the path's INSERTABLE spans, each as a local-space cubic
+    // [p0,p1,p2,p3] plus the metadata its insert needs. One entry per curve
+    // piece the user can click.
+    //   bezier   — full stride-3 cubic spans only. The quadratic/linear TAILS
+    //              getBezierSegments tolerates, and the implicit closing
+    //              segment of a closed subpath, are deliberately NOT
+    //              insertable in v1 (they have no stored control points to
+    //              split); they simply offer no affordance.
+    //   linear   — every segment, plus the closing segment when closed.
+    //   b-spline — the emitted bezier segments, straight from the SAME
+    //              generators getBezierSegments uses (not a fork).
+    const penInsertSpans = (obj) => {
+      const out = [];
+      if (!obj || !obj.localVertices || !obj.subPathData) return out;
+      const V = obj.localVertices;
+      const isBez = obj.algorithm === 'bezier';
+      const isBS = obj.algorithm === 'bspline' || obj.algorithm === 'bspline2';
+      const lerp3 = (a, b, f) => [
+        a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f,
+        (a[2] || 0) + ((b[2] || 0) - (a[2] || 0)) * f
+      ];
+      for (const sp of obj.subPathData) {
+        const cnt = Math.min(sp.count, V.length - sp.start);
+        if (cnt < 2) continue;
+        if (isBez) {
+          for (let k = 0; k + 3 <= cnt - 1; k += 3) {
+            const i = sp.start + k;
+            if (!V[i] || !V[i + 1] || !V[i + 2] || !V[i + 3]) continue;
+            out.push({ kind: 'bezier', sp, baseIdx: i, cps: [V[i], V[i + 1], V[i + 2], V[i + 3]] });
+          }
+        } else if (isBS) {
+          const sub = V.slice(sp.start, sp.start + cnt);
+          if (sub.length < 2) continue;
+          const segs = (obj.algorithm === 'bspline2')
+            ? getQuadraticBezierControlPoints3D(sub, sp.closed)
+            : getCubicBezierControlPoints3D(sub, sp.closed);
+          for (const s of segs) {
+            if (!s || !s.p0) continue;
+            const cps = s.p3
+              ? [s.p0, s.p1, s.p2, s.p3]
+              : [s.p0, lerp3(s.p0, s.p1, 2 / 3), lerp3(s.p2, s.p1, 2 / 3), s.p2]; // quad ⇒ cubic
+            out.push({ kind: 'bspline', sp, cps });
+          }
+        } else {
+          for (let k = 0; k < cnt - 1; k++) {
+            const i = sp.start + k;
+            if (!V[i] || !V[i + 1]) continue;
+            out.push({ kind: 'linear', sp, aIdx: i, cps: [V[i], lerp3(V[i], V[i + 1], 1 / 3), lerp3(V[i], V[i + 1], 2 / 3), V[i + 1]] });
+          }
+          if (sp.closed && cnt > 2) {
+            const a = sp.start + cnt - 1, b = sp.start;
+            if (V[a] && V[b]) out.push({ kind: 'linear', sp, aIdx: a, closure: true, cps: [V[a], lerp3(V[a], V[b], 1 / 3), lerp3(V[a], V[b], 2 / 3), V[b]] });
+          }
+        }
+      }
+      return out;
+    };
+
+    const PEN_ADD_PICK_RADIUS = 12;   // px
+    // Closest point on the RENDERED curve to the cursor. Hit-testing runs on
+    // the PROJECTED-control-point screen cubic — the exact curve the app
+    // draws — so the affordance is honest; the returned point is then
+    // evaluated on the LOCAL curve at that same t, which is what decision 8a
+    // asks for ("the point where the path is hovered ON the curve", not the
+    // raw workplane ray hit).
+    const penCurveHitTest = (obj, mouseX, mouseY) => {
+      const spans = penInsertSpans(obj);
+      if (!spans.length) return null;
+      const vpM = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
+      const mvp = matrixMultiply(vpM, obj.getWorldMatrix());
+      const viewScale = Math.min(width, height) / FRAME_SIZE;
+      const tX = width / 2 + CANVAS_OFFSET_X, tY = height / 2;
+      const toScreen = (p) => {
+        const tv = transformVertex(p, mvp);
+        if (!tv) return null;
+        return { x: (tv[0] * FRAME_SIZE / 2) * viewScale + tX, y: (-tv[1] * FRAME_SIZE / 2) * viewScale + tY };
+      };
+      const N = 24;
+      let best = null;
+      for (const span of spans) {
+        const S = span.cps.map(toScreen);
+        if (S.some(p => !p)) continue;
+        let prev = null;
+        for (let i = 0; i <= N; i++) {
+          const t = i / N, u = 1 - t;
+          const a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
+          const cur = { x: a * S[0].x + b * S[1].x + c * S[2].x + d * S[3].x, y: a * S[0].y + b * S[1].y + c * S[2].y + d * S[3].y, t };
+          if (prev) {
+            const dx = cur.x - prev.x, dy = cur.y - prev.y;
+            const L2 = dx * dx + dy * dy;
+            let f = L2 > 1e-12 ? ((mouseX - prev.x) * dx + (mouseY - prev.y) * dy) / L2 : 0;
+            f = Math.max(0, Math.min(1, f));
+            const dist = Math.hypot(mouseX - (prev.x + dx * f), mouseY - (prev.y + dy * f));
+            if (!best || dist < best.dist) best = { dist, span, t: prev.t + (cur.t - prev.t) * f };
+          }
+          prev = cur;
+        }
+      }
+      if (!best || best.dist > PEN_ADD_PICK_RADIUS) return null;
+      const c = best.span.cps, t = best.t, u = 1 - t;
+      const b0 = u * u * u, b1 = 3 * u * u * t, b2 = 3 * u * t * t, b3 = t * t * t;
+      const P = [0, 1, 2].map(k =>
+        b0 * (c[0][k] || 0) + b1 * (c[1][k] || 0) + b2 * (c[2][k] || 0) + b3 * (c[3][k] || 0));
+      return { span: best.span, t, pointLocal: P, dist: best.dist };
+    };
+
+    // Perform the insert. Returns the new vertex's index, or -1.
+    // ONE RULE across all three algorithms (decision 8a): the new vertex goes
+    // at the point under the cursor ON the curve. Only the shape consequence
+    // differs — bezier and linear preserve the shape exactly, b-spline does
+    // not (its vertices are CONTROL points, which the curve does not pass
+    // through), and that is accepted by design.
+    const penInsertAtHit = (obj, hit) => {
+      if (!obj || !hit || !hit.span) return -1;
+      const sp = hit.span.sp;
+      if (hit.span.kind === 'bezier') {
+        // Exact de Casteljau split: [C1,C2] → [L1,L2,M,R1,R2] (net +3), so the
+        // stride-3 phase survives and the rendered shape is unchanged.
+        const c = hit.span.cps;
+        const halves = splitCubicBezier(c[0], c[1], c[2], c[3], hit.t);
+        if (!halves || halves.length !== 2) return -1;
+        const L = halves[0], R = halves[1];
+        const at = hit.span.baseIdx + 1;
+        spliceSubPathVertices(obj, sp, at, 2, [L[1], L[2], L[3], R[1], R[2]]);
+        return at + 2;                     // the new anchor M
+      }
+      if (hit.span.kind === 'linear') {
+        const at = hit.span.closure ? (sp.start + sp.count) : (hit.span.aIdx + 1);
+        spliceSubPathVertices(obj, sp, at, 0, [hit.pointLocal]);
+        return at;
+      }
+      // b-spline: the on-curve point becomes a CONTROL point. Which edge of
+      // the control polygon it joins is decided GEOMETRICALLY — nearest edge
+      // to that point — deliberately instead of four hand-derived
+      // segment→index formulas (open/cyclic × cubic/quadratic), which would
+      // each need separate proof. The geometric rule agrees with the one
+      // mapping that IS proven (open cubic: segment i ⇒ index i+1, since
+      // segment i runs between the junctions near p[i] and p[i+1], whose
+      // nearest polygon edge is (p[i], p[i+1])), and it degrades gracefully
+      // on the variants rather than silently mis-indexing.
+      const V = obj.localVertices;
+      const cnt = Math.min(sp.count, V.length - sp.start);
+      if (cnt < 2) return -1;
+      const Q = hit.pointLocal;
+      const edges = [];
+      for (let k = 0; k < cnt - 1; k++) edges.push([sp.start + k, sp.start + k + 1]);
+      if (sp.closed && cnt > 2) edges.push([sp.start + cnt - 1, sp.start]);
+      let bestIa = -1, bestD = Infinity;
+      for (const [ia, ib] of edges) {
+        const A = V[ia], B = V[ib];
+        if (!A || !B) continue;
+        const dx = B[0] - A[0], dy = B[1] - A[1], dz = (B[2] || 0) - (A[2] || 0);
+        const L2 = dx * dx + dy * dy + dz * dz;
+        let f = L2 > 1e-12 ? ((Q[0] - A[0]) * dx + (Q[1] - A[1]) * dy + ((Q[2] || 0) - (A[2] || 0)) * dz) / L2 : 0;
+        f = Math.max(0, Math.min(1, f));
+        const d = Math.hypot(Q[0] - (A[0] + dx * f), Q[1] - (A[1] + dy * f), (Q[2] || 0) - ((A[2] || 0) + dz * f));
+        if (d < bestD) { bestD = d; bestIa = ia; }
+      }
+      if (bestIa < 0) return -1;
+      const at = (bestIa === sp.start + cnt - 1) ? (sp.start + cnt) : (bestIa + 1);
+      spliceSubPathVertices(obj, sp, at, 0, [Q]);
+      return at;
+    };
+
+    let _penAddHit = null;   // current Add-Point hover result (preview + click)
+
+    const penRemoveClusterRange = (obj, vi) => {
+      const role = bezierRoleOf(obj, vi);
+      if (!role) return { start: vi, count: 1 };
+      if (!role.isAnchor) return null;
+      const sp = role.sp, r = role.relIdx;
+      let start;
+      if (r === 0) start = vi;
+      else if (r === sp.count - 1) start = vi - 2;
+      else start = vi - 1;
+      start = Math.max(sp.start, start);
+      return { start, count: Math.min(3, sp.start + sp.count - start) };
     };
 
     const resetPenBezierState = () => {
@@ -50991,6 +51600,101 @@
       if (currentTool === 'pen') {
         dragMode = 'draw-pen';
 
+        // --- PEN MODE dispatch (v20260725o) ---
+        // Checked BEFORE every Draw-mode gesture (handle hit-test, vertex
+        // hit-test, placement) so an explicit mode can never be shadowed by
+        // one of them.
+        if (penMode === 'add') {
+          if (activePath && activePath.primitiveData) {
+            showAppConfirm(
+              'Bake to Path?',
+              'This shape is a parametric primitive.\nBake to path to add points?\n\n(This will make the shape non-parametric.)'
+            ).then(doBake => { if (doBake) bakeToPath(activePath); });
+            return;   // dragMode stays 'draw-pen' (see the note in the remove branch)
+          }
+          const hit = activePath ? penCurveHitTest(activePath, event.clientX, event.clientY) : null;
+          if (hit) {
+            pushUndoState();
+            const obj = activePath;
+            const newIdx = penInsertAtHit(obj, hit);
+            if (newIdx >= 0) {
+              notifyPathUpdated(obj);
+              _penAddHit = null;
+              resetPenBezierState();
+              updateTreeView();
+              updatePropertiesPanel();
+              requestRender();
+              pushUndoState('Add point');
+            }
+          }
+          return;     // dragMode stays 'draw-pen' (H4.16b — keeps activePath)
+        }
+        if (penMode === 'remove') {
+          const hit = activePath ? findPenHoveredVertex(event.clientX, event.clientY) : null;
+          if (hit) {
+            if (activePath.primitiveData) {
+              // Same guard the placement path uses — a parametric shape must
+              // be baked before its vertices can be edited.
+              showAppConfirm(
+                'Bake to Path?',
+                'This shape is a parametric primitive.\nBake to path to remove points?\n\n(This will make the shape non-parametric.)'
+              ).then(doBake => { if (doBake) bakeToPath(activePath); });
+              return;   // dragMode stays 'draw-pen' — see the note below
+            }
+            const range = penRemoveClusterRange(activePath, hit.vertexIndex);
+            if (range) {
+              pushUndoState();
+              const obj = activePath;
+              // Splice from the TOP of the range down so the lower indices
+              // stay valid; removeVertexFromSubPaths keeps subPathData
+              // coherent on every step (and bails once the path is empty).
+              for (let k = range.start + range.count - 1; k >= range.start; k--) {
+                removeVertexFromSubPaths(obj, k);
+                if (obj.localVertices.length === 0) break;
+              }
+              if (obj.localVertices.length === 0) {
+                removeEmptiedObject(obj);   // ghost-object fix (v20260724a)
+                activePath = null;
+              } else {
+                notifyPathUpdated(obj);
+              }
+              resetPenBezierState();
+              updateTreeView();
+              updatePropertiesPanel();
+              requestRender();
+              pushUndoState('Remove point');
+            }
+          }
+          // dragMode DELIBERATELY stays 'draw-pen' (set at the top of this
+          // branch) — do NOT reset it to 'none' here (user report, fixed in
+          // v20260725p). onMouseUp clears activePath for every dragMode
+          // outside its exempt list ('edit-polygon' / 'draw-pen' /
+          // 'draw-pixel' / 'draw-doodle' / camera), so 'none' silently
+          // dropped the pen's edit target after ONE removal and the next
+          // click had nothing to hit. Staying 'draw-pen' also lets the
+          // mouseup tail re-run setSelectedObject(activePath), which is what
+          // keeps the path selected for consecutive removals — the same
+          // continuity the A tool's Delete Vertex has. The mouseup
+          // 'draw-pen' branch itself only clears bezier TANGENT drag state,
+          // which resetPenBezierState() above has already cleared.
+          return;
+        }
+        // Draw mode: clicking the FIRST anchor closes the path and confirms
+        // it. Delegates to confirmPenPath via its own Close Path checkbox, so
+        // the closing + undo + reset logic has exactly one implementation.
+        if (penCloseTargetAt(event.clientX, event.clientY)) {
+          activePath.loop = true;
+          const _pcCb = document.getElementById('penClosePath');
+          if (_pcCb) _pcCb.checked = true;
+          const _lpIn = document.getElementById('loopPathInput');
+          if (_lpIn) _lpIn.checked = true;
+          const _qsCb = document.getElementById('qsClosePath');
+          if (_qsCb) _qsCb.checked = true;
+          confirmPenPath();
+          dragMode = 'none';
+          return;
+        }
+
         // --- Handle hit-test: intercept clicks near tangent control points ---
         // If the user clicks on a visible handle dot, enter independent drag mode
         // instead of placing a new anchor. This allows editing tangent directions.
@@ -51051,7 +51755,7 @@
               if (sp) {
                 const relIdx = vi - sp.start;
                 const mod = relIdx % 3;
-                const { mirrorIdx: mIdx } = getBezierMirrorInfo(vi, relIdx, mod, sp);
+                const { mirrorIdx: mIdx } = getBezierMirrorInfo(activePath, vi, relIdx, mod, sp);
                 if (mod === 1 && mIdx >= 0) {
                   _penVertexDragSmooth = areCPsSmooth(
                     activePath.localVertices[vi - 1],
@@ -51634,6 +52338,7 @@
                 v.dragStartWorldPosition = [...v.worldPosition];
               });
             }
+            buildVertexDragCarry(); // Move Handles with Anchor (v20260725k)
             if (!moveToolSession || moveToolSession.mode === 'object') resetMoveToolSession();
           } else if (hoveredVertexInfo) {
             handledByGizmo = true; // Handled by vertex click
@@ -51675,6 +52380,7 @@
                 v.dragStartWorldPosition = [...v.worldPosition];
               });
             }
+            buildVertexDragCarry(); // Move Handles with Anchor (v20260725k)
             if (!moveToolSession || moveToolSession.mode === 'object') resetMoveToolSession();
             if (typeof updateVertexOperationsUI === 'function') updateVertexOperationsUI();
             updatePropertiesPanel();
@@ -51781,7 +52487,9 @@
       }
 
       // --- Pen Tool Preview Path ---
-      if (currentTool === 'pen' && activePath && dragMode === 'none' && penPreviewPath) {
+      // v20260725o: Draw mode only — a rubber band to the cursor is
+      // meaningless (and misleading) while in Remove Point mode.
+      if (currentTool === 'pen' && penMode === 'draw' && activePath && dragMode === 'none' && penPreviewPath) {
         const viewMatrix = activeCamera.createViewMatrix();
         const projectionMatrix = activeCamera.createProjectionMatrix();
         const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
@@ -51871,7 +52579,7 @@
           _penPreviewLocalHit = null;
           penPreviewPath.style.display = 'none';
         }
-      } else if (penPreviewPath && (currentTool !== 'pen' || !activePath)) {
+      } else if (penPreviewPath && (currentTool !== 'pen' || penMode !== 'draw' || !activePath)) {
         _penPreviewLocalHit = null;
         penPreviewPath.style.display = 'none';
         // Clear snap indicator when pen tool loses active path
@@ -51879,10 +52587,52 @@
           _snapIndicatorTarget = null;
         }
       }
+      // --- Pen ADD POINT hover preview (v20260725r) ---
+      // Highlights the hovered SEGMENT and marks the exact point the click
+      // would insert. Follows the v20260725q principle: the cursor stays the
+      // pen-plus (it shows the MODE), the TARGET shows what the click hits —
+      // and the preview is produced by the SAME penCurveHitTest the click
+      // uses, so what you see is exactly where the point lands.
+      {
+        const addGrp = document.getElementById('penAddPreviewGroup');
+        if (addGrp) {
+          if (currentTool === 'pen' && penMode === 'add' && activePath
+            && !activePath.primitiveData && dragMode === 'none') {
+            _penAddHit = penCurveHitTest(activePath, event.clientX, event.clientY);
+            if (_penAddHit) {
+              const vpM = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
+              const mvp = matrixMultiply(vpM, activePath.getWorldMatrix());
+              const fr = (p) => {
+                const tv = transformVertex(p, mvp);
+                return tv ? [(tv[0] * FRAME_SIZE) / 2, (-tv[1] * FRAME_SIZE) / 2] : null;
+              };
+              const C = _penAddHit.span.cps.map(fr);
+              const D = fr(_penAddHit.pointLocal);
+              if (D && !C.some(p => !p)) {
+                const seg = document.getElementById('penAddSegHighlight');
+                if (seg) seg.setAttribute('d', `M ${C[0][0]} ${C[0][1]} C ${C[1][0]} ${C[1][1]}, ${C[2][0]} ${C[2][1]}, ${C[3][0]} ${C[3][1]}`);
+                const dot = document.getElementById('penAddDot');
+                if (dot) { dot.setAttribute('cx', D[0]); dot.setAttribute('cy', D[1]); }
+                addGrp.style.display = '';
+              } else {
+                addGrp.style.display = 'none';
+              }
+            } else {
+              addGrp.style.display = 'none';
+            }
+          } else if (addGrp.style.display !== 'none') {
+            _penAddHit = null;
+            addGrp.style.display = 'none';
+          }
+        }
+      }
+
       // --- Pen Tool: Handle + Vertex Hover Feedback ---
       // Priority: 1) tangent handle dots, 2) any vertex in the path
       // When idling (no drag), show grab cursor on interactive points.
-      if (currentTool === 'pen' && activePath && dragMode === 'none') {
+      // v20260725r: Add Point mode has its own affordance above and must not
+      // fall into the vertex-grab feedback below.
+      if (currentTool === 'pen' && penMode !== 'add' && activePath && dragMode === 'none') {
         let handledHover = false;
 
         // 1) Tangent handle hover (C_fwd / C_bck of last anchor)
@@ -51946,10 +52696,26 @@
           }
 
           const vtxHit = findPenHoveredVertex(event.clientX, event.clientY);
-          const newHoveredIdx = vtxHit ? vtxHit.vertexIndex : -1;
+          let newHoveredIdx = vtxHit ? vtxHit.vertexIndex : -1;
+          // Remove Point mode: only ANCHORS are removable, so only they get
+          // hover feedback — highlighting a control point would promise an
+          // action that does not exist (penRemoveClusterRange returns null
+          // for CPs, which is the same rule the click itself uses).
+          if (newHoveredIdx >= 0 && penMode === 'remove'
+            && !penRemoveClusterRange(activePath, newHoveredIdx)) newHoveredIdx = -1;
           if (newHoveredIdx !== _penHoveredVertexIdx) {
             _penHoveredVertexIdx = newHoveredIdx;
-            svg.style.cursor = newHoveredIdx >= 0 ? 'grab' : currentToolCursor;
+            // Draw mode keeps the grab cursor — there, hovering a vertex
+            // really does start a drag. Remove mode must NOT change the
+            // cursor (v20260725q, user report): the pen-minus glyph IS the
+            // mode indicator, and swapping it for a hand promises a drag
+            // that cannot happen. The hovered anchor scales up instead
+            // (drawVertexGizmos) — the A tool's established hover idiom.
+            if (penMode === 'draw') {
+              svg.style.cursor = newHoveredIdx >= 0 ? 'grab' : currentToolCursor;
+            } else {
+              applyToolCursor();
+            }
           }
         }
       } else {
@@ -52209,49 +52975,18 @@
         // - Anchor drag: move adjacent control points rigidly
         // - Control point drag: mirror the opposite handle (Illustrator-style smooth node)
         //   Hold Alt/Option to break tangent continuity (corner node)
-        if (activePath.algorithm === 'bezier' && activePath.subPathData) {
-          const sp = activePath.subPathData.find(s => vi >= s.start && vi < s.start + s.count);
-          if (sp) {
-            const relIdx = vi - sp.start;
-            const mod = relIdx % 3;
-
-            if (mod === 0 && oldPos) {
-              // --- Anchor drag: move adjacent CPs rigidly ---
-              const delta = vectorSubtract(cursorLocal, oldPos);
-              if (relIdx > 0) {
-                const cBckIdx = vi - 1;
-                activePath.localVertices[cBckIdx] = vectorAdd(activePath.localVertices[cBckIdx], delta);
-              }
-              if (relIdx < sp.count - 1) {
-                const cFwdIdx = vi + 1;
-                activePath.localVertices[cFwdIdx] = vectorAdd(activePath.localVertices[cFwdIdx], delta);
-              }
-            } else if (mod === 1 || mod === 2) {
-              // --- Control point drag with state-aware mirroring ---
-              // Smooth node + drag      → mirror (stays smooth)
-              // Smooth node + Alt+drag  → break tangent (becomes corner)
-              // Corner node + drag      → no mirror (stays corner)
-              // Corner node + Alt+drag  → revive tangent (becomes smooth)
-              const shouldMirror = _penVertexDragSmooth ? !event.altKey : event.altKey;
-
-              if (shouldMirror) {
-                const { anchorIdx, mirrorIdx } = getBezierMirrorInfo(vi, relIdx, mod, sp);
-
-                if (mirrorIdx >= 0) {
-                  const anchor = activePath.localVertices[anchorIdx];
-                  const mirrorOld = activePath.localVertices[mirrorIdx];
-                  if (anchor && mirrorOld) {
-                    const mirrorDist = vectorLength(vectorSubtract(mirrorOld, anchor));
-                    const dragDir = vectorSubtract(cursorLocal, anchor);
-                    const dragDist = vectorLength(dragDir);
-                    if (dragDist > 1e-6 && mirrorDist > 1e-6) {
-                      // Place mirror at same distance but 180° opposite
-                      const norm = vectorScale(dragDir, 1 / dragDist);
-                      activePath.localVertices[mirrorIdx] = vectorSubtract(anchor, vectorScale(norm, mirrorDist));
-                    }
-                  }
-                }
-              }
+        // v20260725k: logic extracted to the shared bezier drag helpers
+        // (bezierRoleOf / applyAnchorDragCompanions / applyHandleMirror) so
+        // the A tool consumes the SAME code — behavior unchanged here.
+        {
+          const role = bezierRoleOf(activePath, vi);
+          if (role) {
+            if (role.isAnchor && oldPos) {
+              applyAnchorDragCompanions(activePath, vi, vectorSubtract(cursorLocal, oldPos), role);
+            } else if (role.mod === 1 || role.mod === 2) {
+              applyHandleMirror(activePath, vi, cursorLocal, {
+                smoothAtStart: _penVertexDragSmooth, altKey: event.altKey
+              });
             }
           }
         }
@@ -52840,6 +53575,7 @@
               notifyPathUpdated(selectedVertexInfo.object);
             }
           }
+          applyVertexDragCarry(totalWorldDelta); // Move Handles with Anchor (v20260725k)
         } else {
           // Multi-object translation
           if (selectedObjects.length > 0) {
@@ -52956,6 +53692,7 @@
                     notifyPathUpdated(selectedVertexInfo.object);
                   }
                 }
+                applyVertexDragCarry(totalWorldDelta); // Move Handles with Anchor (v20260725k)
               } else {
                 // Multi-object translation
                 if (selectedObjects.length > 0) {
@@ -54021,6 +54758,7 @@
             selectedVertexInfo.object.localVertices[selectedVertexInfo.vertexIndex] = vectorAdd(dragStartVertexPosition, localDelta);
             selectedVertexInfo.worldPosition = newWorldPosition;
           }
+          applyVertexDragCarry(totalWorldDelta); // Move Handles with Anchor (v20260725k)
         } else {
           if (selectedObjects.length > 0) {
             selectedObjects.forEach(obj => {
@@ -54075,6 +54813,7 @@
             selectedVertexInfo.object.localVertices[selectedVertexInfo.vertexIndex] = vectorAdd(dragStartVertexPosition, localDelta);
             selectedVertexInfo.worldPosition = newWorldPosition;
           }
+          applyVertexDragCarry(totalWorldDelta); // Move Handles with Anchor (v20260725k)
         } else {
           if (selectedObjects.length > 0) {
             selectedObjects.forEach(obj => {
@@ -55086,6 +55825,7 @@
                 vi.worldPosition = vectorAdd(vi.worldPosition, worldSpaceDelta);
               }
             });
+            nudgeVertexCompanions(worldSpaceDelta); // Move Handles with Anchor (v20260725k)
             updatePropertiesPanel();
             updateMoveToolUI();
             requestRender();
@@ -55097,6 +55837,7 @@
               selectedVertexInfo.object.localVertices[selectedVertexInfo.vertexIndex] = vectorAdd(selectedVertexInfo.object.localVertices[selectedVertexInfo.vertexIndex], localDelta);
               selectedVertexInfo.worldPosition = vectorAdd(selectedVertexInfo.worldPosition, worldSpaceDelta);
             }
+            nudgeVertexCompanions(worldSpaceDelta); // Move Handles with Anchor (v20260725k)
             updatePropertiesPanel();
             updateMoveToolUI();
             requestRender();

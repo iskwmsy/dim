@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260725zd -->
+<!-- dim v20260726k -->
 
 <!--
   MIT License
@@ -6574,6 +6574,14 @@
                       <div class="style-row">
                         <label class="ui-checkbox-label">Simple Sides</label>
                         <input type="checkbox" id="revolveSimpleSidesInput" class="ui-checkbox" />
+                      </div>
+                      <div class="style-row">
+                        <label class="ui-checkbox-label">Silhouette</label>
+                        <input type="checkbox" id="revolveSilhouetteMergeInput" class="ui-checkbox" />
+                      </div>
+                      <div class="style-row" id="revolveCreaseLinesRow" style="padding-left: 12px;">
+                        <label class="ui-checkbox-label">Crease Lines</label>
+                        <input type="checkbox" id="revolveCreaseLinesInput" class="ui-checkbox" checked />
                       </div>
                     </div>
                     <!-- Mesh settings -->
@@ -29380,6 +29388,8 @@
           scaleEnd: 1.0,    // Taper scale at sweep end (u=1)
           axis: 'y', // 'x' or 'y' (Local)
           simpleSides: false, // Legacy: kept for backward compat
+          silhouetteMerge: false, // Clean render: merge all patches into ONE silhouette fill + classified outline strokes
+          creaseLines: true,      // Silhouette sub-option: stroke visible crease circles (profile corners), e.g. a bottle's rim ellipses
           cleanRender: true,  // Legacy (backward compat) — use renderMode instead
           renderMode: 'clean', // 'clean' | 'mesh' | 'layer'
           layerCount: 16,      // layer mode: number of profile copies
@@ -35025,6 +35035,13 @@
           curvedSurface: rs.curvedSurface || false,
           silhouetteSplit: true,  // always on for revolve
           simpleSides: (rs.cleanRender !== undefined) ? (rs.simpleSides || false) : false,  // only use when not legacy
+          silhouetteMerge: rs.silhouetteMerge || false,  // merge patches into ONE fill + classified outline strokes
+          creaseLines: rs.creaseLines !== false,         // silhouette sub-option: stroke visible crease circles
+          railClosed: (rs.angle || 360) >= 360,          // 360° revolve: station 0 wraps to the last interval (seam is interior)
+          axisOffset: rs.offset || 0,                    // profile-X + this = distance from the revolve axis (pole detection)
+          revolveAxis: rs.axis || 'y',                   // analytic horizon tracer (v20260726i)
+          revolveAngleDeg: Math.min(360, Math.max(0, rs.angle || 360)),
+          revolveUntapered: (rs.scaleStart ?? 1) === 1 && (rs.scaleEnd ?? 1) === 1,
           respectSubpaths: true,  // always on — compound paths always processed correctly
           renderMode: renderMode,
           cleanRender: cleanRender,
@@ -35342,6 +35359,41 @@
         }
         // ========== END LAYER RENDER MODE ==========
 
+        // --- SILHOUETTE MERGE (revolve clean render, v20260726a) ---
+        // When on, the clean pipeline runs unchanged through patch generation, but
+        // instead of emitting one element per ribbon patch, patches are COLLECTED:
+        // - ONE fill path: every patch d concatenated, back-facing patches reversed
+        //   (screen shoelace sign), fill-rule nonzero => exact union of today's fill
+        //   (consistent winding means overlaps cannot cancel - the v20260720g
+        //   strip-fold argument at object scale). Composites ONCE under fill-opacity.
+        // - ONE stroke path: only classified edges - silhouette folds (facing flips
+        //   across a shared edge), visible crease circles (profile corners between
+        //   two front-facing bands, behind ss.creaseLines), and boundary edges
+        //   (open-profile rims, angle<360 end stations). Interior patch borders -
+        //   the "longitude lines" - disappear.
+        // The classification is LOCAL (documented limit: a self-overlapping view can
+        // stroke a covered edge; the fill stays exact regardless).
+        const silhouetteMerge = cleanRender && (ss.silhouetteMerge || false);
+        const silh = silhouetteMerge ? { fillD: '', strokes: [], occl: [], zSum: 0, zCount: 0, perSubpath: [] } : null;
+        // Reverse a single-ring d of the exact shape this renderer emits (M + C/L runs + Z).
+        const _silhRevD = (dStr) => {
+          const toks = dStr.match(/[MCLZ][^MCLZ]*/g) || [];
+          const seq = [];
+          for (const t of toks) {
+            const nums = (t.slice(1).match(/-?\d*\.?\d+(?:e[+-]?\d+)?/gi) || []).map(Number);
+            if ((t[0] === 'M' || t[0] === 'L') && nums.length >= 2) seq.push({ c: t[0], p: [nums[0], nums[1]] });
+            else if (t[0] === 'C' && nums.length >= 6) seq.push({ c: 'C', c1: [nums[0], nums[1]], c2: [nums[2], nums[3]], p: [nums[4], nums[5]] });
+          }
+          if (seq.length < 2) return dStr;
+          let out = `M ${seq[seq.length - 1].p[0]} ${seq[seq.length - 1].p[1]}`;
+          for (let k = seq.length - 1; k >= 1; k--) {
+            const s = seq[k], prevP = seq[k - 1].p;
+            if (s.c === 'C') out += ` C ${s.c2[0]} ${s.c2[1]}, ${s.c1[0]} ${s.c1[1]}, ${prevP[0]} ${prevP[1]}`;
+            else out += ` L ${prevP[0]} ${prevP[1]}`;
+          }
+          return out + ' Z';
+        };
+
         // --- Process each subpath group independently ---
         for (const profileSegs of subpathGroups) {
           if (profileSegs.length === 0) continue;
@@ -35356,6 +35408,23 @@
             for (let i = 0; i <= divsU; i++) uStations.push(i / divsU);
 
             const simpleSides = ss.simpleSides || false;
+            // Silhouette merge needs per-chain facing and merged chains regardless of
+            // Simple Sides; horizon-station insertion and split quantization keep
+            // reading the true simpleSides flag (pipeline behavior unchanged).
+            const chainMerge = simpleSides || silhouetteMerge;
+            // Profile-parameter bookkeeping for the silhouette classifier: every
+            // segment (and every split piece) knows which ORIGINAL segment span it
+            // covers (p = _pIdx + t in [0, profileSegs.length]). Split t values
+            // differ per U-interval, so geometric keys cannot line up - parameter
+            // space is the only shared frame between adjacent intervals.
+            if (silh) profileSegs.forEach((s, i) => { s._pIdx = i; });
+            const silhSub = silh ? {
+              profileSegs,
+              closed: !!subpathClosed[subpathGroups.indexOf(profileSegs)],
+              uStations,      // reference — horizon insertion below mutates in place
+              intervals: []
+            } : null;
+            if (silhSub) silh.perSubpath.push(silhSub);
 
             // Horizon detection: insert extra U-stations at silhouette crossings.
             // Skip for simpleSides: face-orientation chain merging already handles
@@ -35602,6 +35671,10 @@
               const frameA = SurfaceMapper.getFrameAtU(railPath._frameData, uA);
               const frameB = SurfaceMapper.getFrameAtU(railPath._frameData, uB);
 
+              // Silhouette merge: chain records for this interval (aligned with station indices)
+              const silhChains = silhSub ? [] : null;
+              if (silhSub) silhSub.intervals.push({ chains: silhChains });
+
               // Intermediate frames for Bezier U-edge fitting
               const uMid1 = uA + (uB - uA) / 3;
               const uMid2 = uA + 2 * (uB - uA) / 3;
@@ -35648,7 +35721,9 @@
               let segsA = profileSegs;
               let segsB = profileSegs;
 
-              // splitSeg helper: split a cubic segment at a sorted list of t-values
+              // splitSeg helper: split a cubic segment at a sorted list of t-values.
+              // Pieces are stamped with their ORIGINAL segment span (_pIdx/_t0/_t1,
+              // read only by the silhouette-merge classifier; inert otherwise).
               const splitSeg = (s, roots) => {
                 const res = [];
                 let curr = { type: 'C', p0: s.p0, p1: s.p1, p2: s.p2, p3: s.p3, command: s.command };
@@ -35660,8 +35735,8 @@
                   let tRel = (t - lastT) / den;
                   tRel = Math.max(0, Math.min(1, tRel));
                   const split = this.splitCubicBezierObj(curr.p0, curr.p1, curr.p2, curr.p3, tRel);
-                  res.push({ type: 'C', ...split.left, command: curr.command });
-                  curr = { type: 'C', ...split.right, command: 'L' };
+                  res.push({ type: 'C', ...split.left, command: curr.command, _pIdx: s._pIdx, _t0: lastT, _t1: t });
+                  curr = { type: 'C', ...split.right, command: 'L', _pIdx: s._pIdx, _t0: t, _t1: 1 };
                   lastT = t;
                 });
                 res.push(curr);
@@ -35810,7 +35885,7 @@
               // merge front-facing with back-facing segments — doing so creates a single
               // self-intersecting SVG fill path that renders incorrectly.
               let segFrontFacing = null;
-              if (simpleSides) {
+              if (chainMerge) {
                 segFrontFacing = [];
                 const uMidC = (uA + uB) / 2;
                 const frameMidC = SurfaceMapper.getFrameAtU(railPath._frameData, uMidC);
@@ -35831,7 +35906,7 @@
                 }
               }
 
-              if (simpleSides) {
+              if (chainMerge) {
                 segChains = [];
                 let currentChain = [];
                 const getEnd = (seg) => seg.type === 'C' ? seg.p3 : (seg.type === 'Q' ? seg.p2 : seg.pEnd);
@@ -35943,6 +36018,10 @@
                 let zSum = sp0A.z + sp3A_last.z + sp0B.z + sp3B_last.z;
                 let zCount = 4;
 
+                // Silhouette merge: perimeter points in d order (control points
+                // included) — the shoelace sign decides ring orientation.
+                const perim = silh ? [sp0A] : null;
+
                 // Edge 1: V-edge at frameA forward (all segments in chain)
                 let d = `M ${sp0A.x} ${sp0A.y}`;
                 for (const sIdx of chain) {
@@ -35956,17 +36035,21 @@
                   if (sp1A && sp2A && sp3A) {
                     d += ` C ${sp1A.x} ${sp1A.y}, ${sp2A.x} ${sp2A.y}, ${sp3A.x} ${sp3A.y}`;
                     zSum += sp1A.z + sp2A.z + sp3A.z; zCount += 3;
+                    if (perim) perim.push(sp1A, sp2A, sp3A);
                   } else if (sp3A) {
                     d += ` L ${sp3A.x} ${sp3A.y}`;
                     zSum += sp3A.z; zCount++;
+                    if (perim) perim.push(sp3A);
                   }
                 }
 
                 // Edge 2: U-edge at end (p3A_last → p3B_last along rail)
                 if (suCP1_e && suCP2_e) {
                   d += ` C ${suCP1_e.x} ${suCP1_e.y}, ${suCP2_e.x} ${suCP2_e.y}, ${sp3B_last.x} ${sp3B_last.y}`;
+                  if (perim) perim.push(suCP1_e, suCP2_e, sp3B_last);
                 } else {
                   d += ` L ${sp3B_last.x} ${sp3B_last.y}`;
+                  if (perim) perim.push(sp3B_last);
                 }
 
                 // Edge 3: V-edge at frameB reversed (all segments in chain, reversed)
@@ -35982,15 +36065,18 @@
                   if (sp2B && sp1B && sp0B_seg) {
                     d += ` C ${sp2B.x} ${sp2B.y}, ${sp1B.x} ${sp1B.y}, ${sp0B_seg.x} ${sp0B_seg.y}`;
                     zSum += sp2B.z + sp1B.z + sp0B_seg.z; zCount += 3;
+                    if (perim) perim.push(sp2B, sp1B, sp0B_seg);
                   } else if (sp0B_seg) {
                     d += ` L ${sp0B_seg.x} ${sp0B_seg.y}`;
                     zSum += sp0B_seg.z; zCount++;
+                    if (perim) perim.push(sp0B_seg);
                   }
                 }
 
                 // Edge 4: U-edge at start reversed (p0B → p0A along rail)
                 if (suCP2_s && suCP1_s) {
                   d += ` C ${suCP2_s.x} ${suCP2_s.y}, ${suCP1_s.x} ${suCP1_s.y}, ${sp0A.x} ${sp0A.y}`;
+                  if (perim) perim.push(suCP2_s, suCP1_s);
                 } else {
                   d += ` L ${sp0A.x} ${sp0A.y}`;
                 }
@@ -35998,6 +36084,33 @@
                 d += ' Z';
 
                 const avgZ = zCount > 0 ? zSum / zCount : 0;
+
+                if (silh) {
+                  // Collect instead of emit: orientation-normalized ring into the
+                  // union fill + a chain record for the edge classifier.
+                  let area = 0;
+                  for (let k = 0; k < perim.length; k++) {
+                    const p = perim[k], q = perim[(k + 1) % perim.length];
+                    area += p.x * q.y - q.x * p.y;
+                  }
+                  silh.fillD += ' ' + (area < 0 ? _silhRevD(d) : d);
+                  silh.zSum += zSum; silh.zCount += zCount;
+                  const firstSeg = segsA[firstIdx], lastSeg = segsA[lastIdx];
+                  // facing is assigned in the post-pass from the SCREEN shoelace
+                  // sign (camera-exact), calibrated per subpath - the du-cross-dv
+                  // sampling used for chain MERGING is only relatively consistent,
+                  // and the crease rule needs absolute front/back truth.
+                  silhChains.push({
+                    pStart: (firstSeg._pIdx ?? 0) + (firstSeg._t0 !== undefined ? firstSeg._t0 : 0),
+                    pEnd: (lastSeg._pIdx ?? (profileSegs.length - 1)) + (lastSeg._t1 !== undefined ? lastSeg._t1 : 1),
+                    areaSign: area >= 0,
+                    absArea: Math.abs(area),
+                    z: avgZ,
+                    uEdgeStart: { pA: p0A, cp1: uCP1_s, cp2: uCP2_s, pB: p0B },
+                    uEdgeEnd: { pA: p3A_last, cp1: uCP1_e, cp2: uCP2_e, pB: p3B_last }
+                  });
+                  continue;
+                }
 
                 const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 pathEl.setAttribute('d', d);
@@ -36067,8 +36180,90 @@
                 }
                 faceList.push(cleanEntry);
               }
-            }
 
+              // Silhouette merge: per-SEGMENT occluder quads for stroke pruning.
+              // Merged Simple-Sides chains are useless as occluders (one chain
+              // can wrap wall+shoulder+bulb; a single fitted plane over that
+              // span reads "nearer" almost everywhere and over-prunes). Per-
+              // segment quads are small and near-planar after the V-split +
+              // mandatory 0.5 split, so corner planes model local depth
+              // honestly; straight-edge footprints are slightly conservative
+              // (inside the true curved patch), which errs toward KEEPING
+              // strokes.
+              if (silhChains) {
+                // The V-edges are sampled ALONG the curve, not chorded corner to
+                // corner. A chord is only conservative where the patch is convex
+                // in screen space; on a CONCAVE stretch it bulges OUTSIDE the
+                // real patch and the occluder swallows screen area the surface
+                // never covers. That is what erased the bottle's shoulder
+                // silhouette: the traced horizon run was cut by a shoulder quad
+                // three azimuth intervals away whose chord footprint reached
+                // over it, on a depth margin of 3.7e-4 - the same order as that
+                // patch's own corner-depth spread. Sampling the edges also gives
+                // the plane fit real points to be judged against, so `resid`
+                // finally reports the curvature it was always meant to report.
+                // 5 samples per edge: 3 still left a 7 px residual at the
+                // grazing shoulder, 5 closes it to zero across the sweep.
+                const VSUB = [0, 0.25, 0.5, 0.75, 1];
+                const bez = (s, t) => {
+                  const mt = 1 - t, a = mt * mt * mt, b = 3 * mt * mt * t, c = 3 * mt * t * t, d = t * t * t;
+                  return [
+                    a * s.p0[0] + b * s.p1[0] + c * s.p2[0] + d * s.p3[0],
+                    a * s.p0[1] + b * s.p1[1] + c * s.p2[1] + d * s.p3[1],
+                    a * (s.p0[2] || 0) + b * (s.p1[2] || 0) + c * (s.p2[2] || 0) + d * (s.p3[2] || 0)
+                  ];
+                };
+                for (let sIdx = 0; sIdx < segsA.length; sIdx++) {
+                  const sa = segsA[sIdx], sb = segsB[sIdx] || sa;
+                  const c00 = toScreen(sweepPoint(frameA, sa.p0));
+                  const c01 = toScreen(sweepPoint(frameA, sa.p3));
+                  const c11 = toScreen(sweepPoint(frameB, sb.p3));
+                  const c10 = toScreen(sweepPoint(frameB, sb.p0));
+                  if (!c00 || !c01 || !c11 || !c10) continue;
+                  let pts;
+                  if (sa.type === 'C' && sb.type === 'C') {
+                    const edgeA = [], edgeB = [];
+                    let bad = false;
+                    for (const t of VSUB) {
+                      const pa = toScreen(sweepPoint(frameA, bez(sa, t)));
+                      const pb = toScreen(sweepPoint(frameB, bez(sb, t)));
+                      if (!pa || !pb) { bad = true; break; }
+                      edgeA.push(pa); edgeB.push(pb);
+                    }
+                    // frameA forward, then frameB back: one simple ring.
+                    pts = bad ? [c00, c01, c11, c10] : edgeA.concat(edgeB.reverse());
+                  } else {
+                    pts = [c00, c01, c11, c10];
+                  }
+                  const plane = RenderIntersections.planeFromPoints(pts);
+                  let resid = 0;
+                  if (plane) {
+                    for (const p of pts) {
+                      const dz = Math.abs(RenderIntersections.planeZ(plane, p.x, p.y) - p.z);
+                      if (dz > resid) resid = dz;
+                    }
+                  }
+                  const pMid = (sa._pIdx ?? sIdx) + (((sa._t0 !== undefined ? sa._t0 : 0) + (sa._t1 !== undefined ? sa._t1 : 1)) / 2);
+                  let owner = null;
+                  for (const rec of silhChains) {
+                    if (pMid >= rec.pStart - 1e-9 && pMid <= rec.pEnd + 1e-9) { owner = rec; break; }
+                  }
+                  let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+                  for (const p of pts) {
+                    if (p.x < bx0) bx0 = p.x;
+                    if (p.x > bx1) bx1 = p.x;
+                    if (p.y < by0) by0 = p.y;
+                    if (p.y > by1) by1 = p.y;
+                  }
+                  silh.occl.push({
+                    pts, plane, resid, owner, pMid,
+                    sp: silh.perSubpath.length - 1, iv: i,
+                    z: (c00.z + c01.z + c11.z + c10.z) / 4,
+                    pxMin: bx0, pxMax: bx1, pyMin: by0, pyMax: by1
+                  });
+                }
+              }
+            }
 
             // --- Draw Points at segment endpoints per U-station ---
             if (ss.drawPoints) {
@@ -36703,9 +36898,1029 @@
 
         } // end subpathGroups loop
 
+        // --- SILHOUETTE MERGE: emit (one fill + one classified stroke path) ---
+        if (silh && silh.fillD.trim()) {
+          const railClosed = ss.railClosed || false;
+          const creaseLines = ss.creaseLines !== false;
+
+          // Materialize a profile-parameter span [a, b] at a station frame as a
+          // screen path run (exact de Casteljau sub-cubics of the ORIGINAL segs,
+          // swept and projected the same way the patch edges are). Returns
+          // { d, samples } - samples are ON-CURVE points with depth, consumed by
+          // the occlusion pruning below.
+          const spanD = (profileSegs, a, b, frame) => {
+            let d = '', started = false;
+            const samples = [];
+            const lerp3 = (p, q, t) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, (p[2] || 0) + ((q[2] || 0) - (p[2] || 0)) * t];
+            const i0 = Math.max(0, Math.floor(a + 1e-9));
+            const i1 = Math.min(profileSegs.length - 1, Math.ceil(b - 1e-9) - 1);
+            for (let idx = i0; idx <= i1; idx++) {
+              const seg = profileSegs[idx];
+              const t0 = Math.max(0, Math.min(1, a - idx));
+              const t1 = Math.max(0, Math.min(1, b - idx));
+              if (t1 - t0 < 1e-9) continue;
+              if (seg.type === 'C') {
+                let cur = { p0: seg.p0, p1: seg.p1, p2: seg.p2, p3: seg.p3 };
+                if (t0 > 1e-9) cur = this.splitCubicBezierObj(cur.p0, cur.p1, cur.p2, cur.p3, t0).right;
+                const tRel = t0 > 1e-9 ? (t1 - t0) / (1 - t0) : t1;
+                if (tRel < 1 - 1e-9) cur = this.splitCubicBezierObj(cur.p0, cur.p1, cur.p2, cur.p3, Math.max(0, Math.min(1, tRel))).left;
+                const s0 = toScreen(sweepPoint(frame, cur.p0));
+                const s1 = toScreen(sweepPoint(frame, cur.p1));
+                const s2 = toScreen(sweepPoint(frame, cur.p2));
+                const s3 = toScreen(sweepPoint(frame, cur.p3));
+                if (!s0 || !s1 || !s2 || !s3) { started = false; continue; }
+                if (!started) { d += `M ${s0.x} ${s0.y}`; samples.push(s0); started = true; }
+                d += ` C ${s1.x} ${s1.y}, ${s2.x} ${s2.y}, ${s3.x} ${s3.y}`;
+                // on-curve midpoint of this piece (de Casteljau at t=0.5)
+                samples.push({
+                  x: (s0.x + 3 * s1.x + 3 * s2.x + s3.x) / 8,
+                  y: (s0.y + 3 * s1.y + 3 * s2.y + s3.y) / 8,
+                  z: (s0.z + 3 * s1.z + 3 * s2.z + s3.z) / 8
+                }, s3);
+              } else {
+                const pa = lerp3(seg.p0, seg.p3, t0), pb = lerp3(seg.p0, seg.p3, t1);
+                const s0 = toScreen(sweepPoint(frame, pa)), s3 = toScreen(sweepPoint(frame, pb));
+                if (!s0 || !s3) { started = false; continue; }
+                if (!started) { d += `M ${s0.x} ${s0.y}`; samples.push(s0); started = true; }
+                d += ` L ${s3.x} ${s3.y}`;
+                samples.push({ x: (s0.x + s3.x) / 2, y: (s0.y + s3.y) / 2, z: (s0.z + s3.z) / 2 }, s3);
+              }
+            }
+            return { d, samples };
+          };
+
+          // --- TRUE SILHOUETTE TRACE (v20260726d) ---
+          // A fold edge used to be the chain-boundary U-edge: the swept curve at
+          // ONE profile param (the horizon computed at the interval's mid-U),
+          // held constant across the interval. The real silhouette MOVES along
+          // the profile as azimuth turns, so consecutive intervals drew arcs at
+          // different profile params and the outline stepped at every station -
+          // visible as a ragged edge plus a rash of sub-pixel fragments where
+          // the steps overlapped. These helpers evaluate the horizon param at
+          // ANY u, so a fold can interpolate the true silhouette and consecutive
+          // intervals SHARE their station endpoints exactly.
+          const _hzView = new Map();
+          const _transformDirE = (dir) => {
+            const m = railWorldMatrix;
+            return vectorNormalize([
+              m[0][0] * dir[0] + m[0][1] * dir[1] + m[0][2] * dir[2],
+              m[1][0] * dir[0] + m[1][1] * dir[1] + m[1][2] * dir[2],
+              m[2][0] * dir[0] + m[2][1] * dir[1] + m[2][2] * dir[2]
+            ]);
+          };
+          // The view vector in profile-local terms at rail param u (memoized -
+          // every fold in an interval asks for the same few u values).
+          const hzViewAtU = (u) => {
+            const key = u.toFixed(6);
+            let hit = _hzView.get(key);
+            if (hit) return hit;
+            const frame = SurfaceMapper.getFrameAtU(railPath._frameData, u);
+            const camVec = vectorSubtract(activeCamera.position, sweepPoint(frame, [0, 0, 0]));
+            const sideD = _transformDirE(frame.side), normalD = _transformDirE(frame.normal);
+            const vxRaw = camVec[0] * sideD[0] + camVec[1] * sideD[1] + camVec[2] * sideD[2];
+            const vy = camVec[0] * normalD[0] + camVec[1] * normalD[1] + camVec[2] * normalD[2];
+            hit = { vx: isRevolveSurface ? vxRaw : -vxRaw, vy, frame };
+            _hzView.set(key, hit);
+            return hit;
+          };
+          // The horizon param at u on the SAME silhouette branch as pRef. Only
+          // the segments AROUND pRef are searched - a branch cannot jump segments
+          // within one interval, and the windowed search is ~6x cheaper than
+          // scanning the whole profile. Continuity across a shared station is
+          // exact regardless of window: both neighbours solve the identical
+          // segment with the identical view vector, so they land on the same
+          // root. Falls back to pRef where the branch momentarily has no root
+          // (a tangential station), degrading to the old constant-param edge for
+          // that one point rather than failing.
+          const nearestHorizon = (profileSegs, u, pRef, win) => {
+            const { vx, vy } = hzViewAtU(u);
+            const n = profileSegs.length;
+            const base = Math.floor(pRef);
+            let best = null, bestD = Infinity;
+            for (let d = -1; d <= 1; d++) {
+              const i = base + d;
+              if (i < 0 || i > n - 1) continue;
+              const seg = profileSegs[i];
+              if (!seg || seg.type !== 'C') continue;
+              const ts = this.findBezierHorizonT(seg.p0, seg.p1, seg.p2, seg.p3, vx, vy, false) || [];
+              for (const t of ts) {
+                if (!(t > -1e-6 && t < 1 + 1e-6)) continue;
+                const p = i + Math.max(0, Math.min(1, t));
+                const dd = Math.abs(p - pRef);
+                if (dd < bestD) { bestD = dd; best = p; }
+              }
+            }
+            // NULL, never a silent fallback: the caller must decide, because
+            // mixing a real root at one sample with pRef at another is what
+            // drew 300 px diagonal chords across the bottle (v20260726e).
+            return bestD <= (win === undefined ? 0.5 : win) ? best : null;
+          };
+          const profilePointAt = (profileSegs, p) => {
+            let i = Math.floor(p);
+            if (i < 0) i = 0; else if (i > profileSegs.length - 1) i = profileSegs.length - 1;
+            const t = Math.max(0, Math.min(1, p - i));
+            const s = profileSegs[i];
+            if (s.type === 'C') {
+              const mt = 1 - t, a = mt * mt * mt, b = 3 * mt * mt * t, c = 3 * mt * t * t, d = t * t * t;
+              return [
+                a * s.p0[0] + b * s.p1[0] + c * s.p2[0] + d * s.p3[0],
+                a * s.p0[1] + b * s.p1[1] + c * s.p2[1] + d * s.p3[1],
+                a * (s.p0[2] || 0) + b * (s.p1[2] || 0) + c * (s.p2[2] || 0) + d * (s.p3[2] || 0)
+              ];
+            }
+            return [
+              s.p0[0] + (s.p3[0] - s.p0[0]) * t,
+              s.p0[1] + (s.p3[1] - s.p0[1]) * t,
+              (s.p0[2] || 0) + ((s.p3[2] || 0) - (s.p0[2] || 0)) * t
+            ];
+          };
+
+          // --- ANALYTIC HORIZON TRACER (v20260726i) ---------------------------
+          // For a surface of revolution the horizon condition N.(C-S)=0 has a
+          // CLOSED FORM once solved for the AZIMUTH rather than for the profile
+          // position:
+          //     cos(theta - alpha) = ( r*a' + r'*(Ca - a) ) / ( rho * a' )
+          // r(p) is the profile radius, a(p) its axial coordinate, and the camera
+          // sits at local radial distance rho, azimuth alpha, axial height Ca.
+          // Exact under perspective, because C is the real camera point in
+          // rail-local coordinates (verified against the cylinder case, where it
+          // reduces to the classic tangent result cos(theta) = R/D).
+          //
+          // WHY: the facing-sign classifier solves the same condition the other
+          // way - for p at each fixed station - which is ill-conditioned exactly
+          // at grazing views, where the horizon degenerates toward whole
+          // MERIDIANS and every patch is edge-on at every azimuth (measured: 19%
+          // of the outline missing at elevation 3, and raising `segments` made it
+          // WORSE, 32 -> 256 giving 19% -> 36%, because thinner patches are more
+          // degenerate). Solved for theta that same case is the best-behaved one.
+          //
+          // COMPOSITION, not replacement: an outline is horizon arcs PLUS the
+          // surface's own sharp EDGES (a flat rim has no horizon at all, yet its
+          // edge circle bounds the shape). A first build that replaced the
+          // classifier lost those edges and was reverted unshipped. These
+          // branches are therefore ADDED to what the classifier produces, and
+          // the dedupe below drops whichever classifier runs they supersede - so
+          // coverage can only improve.
+          const _revAxis = ss.revolveAxis || 'y';
+          const _revTotalDeg = ss.revolveAngleDeg || 360;
+          const useAnalytic = !!(isRevolveSurface && ss.revolveUntapered && _revTotalDeg > 0);
+          // Analytic within the segment, so a corner never smears across two.
+          const profileDerivAt = (profileSegs, p) => {
+            let i = Math.floor(p);
+            if (i < 0) i = 0; else if (i > profileSegs.length - 1) i = profileSegs.length - 1;
+            const t = Math.max(0, Math.min(1, p - i));
+            const s = profileSegs[i];
+            if (s.type === 'C') {
+              const mt = 1 - t, c0 = 3 * mt * mt, c1 = 6 * mt * t, c2 = 3 * t * t;
+              return [
+                c0 * (s.p1[0] - s.p0[0]) + c1 * (s.p2[0] - s.p1[0]) + c2 * (s.p3[0] - s.p2[0]),
+                c0 * (s.p1[1] - s.p0[1]) + c1 * (s.p2[1] - s.p1[1]) + c2 * (s.p3[1] - s.p2[1])
+              ];
+            }
+            return [s.p3[0] - s.p0[0], s.p3[1] - s.p0[1]];
+          };
+          let _hz = null;
+          if (useAnalytic) {
+            const inv = matrixInverse(railWorldMatrix);
+            if (inv) {
+              const cw = activeCamera.position;
+              const cl = transformVertex([cw[0], cw[1], cw[2]], inv);
+              // Frame layout per generateCircularRail: axis y puts the profile's
+              // X on the radial axis and Y on the spin axis; x and z swap them.
+              if (cl) {
+                if (_revAxis === 'z') _hz = { rho: Math.hypot(cl[0], cl[1]), alpha: Math.atan2(cl[1], cl[0]), Ca: cl[2], radialFromY: true };
+                else if (_revAxis === 'x') _hz = { rho: Math.hypot(cl[1], cl[2]), alpha: Math.atan2(cl[1], cl[2]), Ca: cl[0], radialFromY: true };
+                else _hz = { rho: Math.hypot(cl[0], cl[2]), alpha: Math.atan2(cl[0], cl[2]), Ca: cl[1], radialFromY: false };
+              }
+            }
+          }
+          const horizonCos = (profileSegs, p) => {
+            if (!_hz || !(_hz.rho > 1e-9)) return null;
+            const pp = profilePointAt(profileSegs, p);
+            const dp = profileDerivAt(profileSegs, p);
+            const off2 = ss.axisOffset || 0;
+            const r = off2 + (_hz.radialFromY ? pp[1] : pp[0]);
+            const a = _hz.radialFromY ? pp[0] : pp[1];
+            const rP = _hz.radialFromY ? dp[1] : dp[0];
+            const aP = _hz.radialFromY ? dp[0] : dp[1];
+            const den = _hz.rho * aP;
+            if (!(Math.abs(den) > 1e-12)) return null;   // locally flat: no horizon here
+            return (r * aP + rP * (_hz.Ca - a)) / den;
+          };
+          const horizonAzimuths = (profileSegs, p) => {
+            const c = horizonCos(profileSegs, p);
+            if (c === null || !(c >= -1 && c <= 1)) return null;  // branch does not reach this p
+            const d = Math.acos(c);
+            return [_hz.alpha - d, _hz.alpha + d];
+          };
+          // The exact p where a branch TURNS (|cos| = 1). dtheta/dp blows up
+          // there, so stopping at the last sampled p can leave a 20-30 px hole in
+          // the contour; bisecting to the turn closes it, and both branches
+          // converge to the same point so they meet instead of merely stopping.
+          const horizonTurnP = (profileSegs, pIn, pOut) => {
+            let lo = pIn, hi = pOut;                     // lo valid, hi invalid
+            for (let i = 0; i < 24; i++) {
+              const mid = (lo + hi) / 2;
+              const c = horizonCos(profileSegs, mid);
+              if (c !== null && c >= -1 && c <= 1) lo = mid; else hi = mid;
+            }
+            return lo;
+          };
+
+          // Corner test at a shared chain boundary (profile parameter p): interior
+          // splits are C1 by construction (never corners); integer boundaries use
+          // the SAME normalized-tangent 0.7 threshold as the chain merger, so the
+          // classifier and the merger can never disagree.
+          const isCorner = (profileSegs, p, closed) => {
+            const nSegs = profileSegs.length;
+            if (Math.abs(p - Math.round(p)) > 1e-6) return false;
+            const k = Math.round(p);
+            if (!closed && (k === 0 || k === nSegs)) return true;
+            const iBefore = (k - 1 + nSegs) % nSegs;
+            const iAfter = k % nSegs;
+            const tan = (s, atEnd) => {
+              const cands = atEnd
+                ? [[s.p3, s.p2], [s.p3, s.p1], [s.p3, s.p0]]
+                : [[s.p1, s.p0], [s.p2, s.p0], [s.p3, s.p0]];
+              for (const [q, r] of cands) {
+                if (!q || !r) continue;
+                const dx = q[0] - r[0], dy = q[1] - r[1], dz = (q[2] || 0) - (r[2] || 0);
+                const len = Math.hypot(dx, dy, dz);
+                if (len > 1e-9) return [dx / len, dy / len, dz / len];
+              }
+              return null;
+            };
+            const a = tan(profileSegs[iBefore], true), b = tan(profileSegs[iAfter], false);
+            if (!a || !b) return true;
+            return (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) <= 0.7;
+          };
+
+          for (const sub of silh.perSubpath) {
+            const { profileSegs, uStations, intervals } = sub;
+            const nSegs = profileSegs.length;
+            const nInt = intervals.length;
+            const spIdx = silh.perSubpath.indexOf(sub);
+
+            // POLE SUPPRESSION (v20260726e). A profile point whose distance from
+            // the revolve axis is a rounding error against the object's own size
+            // sweeps a degenerate circle: the reported "center dot" was the
+            // bottle's 0.0062-radius pinhole bore (0.3% of the 1.99 body) drawing
+            // a 1.4 px-wide silhouette sliver at the axis. That is honest
+            // geometry but it is not a feature the artwork can express - it reads
+            // as a dot at every zoom. Judged by RADIUS RATIO, not pixels, so it
+            // stays suppressed when scaled and never touches a real thin neck.
+            const axisOff = isRevolveSurface ? (ss.axisOffset || 0) : 0;
+            const radiusAt = (p) => Math.abs(axisOff + profilePointAt(profileSegs, p)[0]);
+            let maxProfR = 0;
+            if (isRevolveSurface) {
+              for (const sg of profileSegs) {
+                for (const q of [sg.p0, sg.p3]) {
+                  const r = Math.abs(axisOff + q[0]);
+                  if (r > maxProfR) maxProfR = r;
+                }
+              }
+            }
+            const poleR = maxProfR * 0.01;
+            // true when the span carries real radius somewhere (never filters
+            // non-revolve surfaces, where the axis concept does not apply)
+            const radiusOK = (...ps) => {
+              if (!isRevolveSurface || !(maxProfR > 0)) return true;
+              for (const p of ps) if (radiusAt(p) > poleR) return true;
+              return false;
+            };
+
+            // Resolve absolute facing per chain record from the screen shoelace
+            // sign: within one subpath the sign is consistent per physical side,
+            // and the NEAREST (min z) non-degenerate patch of a swept surface
+            // always faces the camera - that record calibrates which sign means
+            // FRONT (per subpath, because profile winding flips the sign).
+            const allRecs = [];
+            for (const iv of intervals) for (const c of iv.chains) allRecs.push(c);
+            if (allRecs.length === 0) continue;
+            let calib = null;
+            for (const r of allRecs) {
+              if (r.absArea > 1e-6 && (!calib || r.z < calib.z)) calib = r;
+            }
+            const frontSign = calib ? calib.areaSign : true;
+            for (const r of allRecs) r.facing = (r.areaSign === frontSign);
+
+            // ANALYTIC SILHOUETTE: trace both horizon branches over the profile.
+            // Emitted ALONGSIDE the classifier's edges; the dedupe drops whatever
+            // they supersede.
+            if (useAnalytic && _hz) {
+              const totalRad = _revTotalDeg * Math.PI / 180;
+              const closedRail = _revTotalDeg >= 360;
+              const TWO_PI = Math.PI * 2;
+              const SUB = 12;                       // samples per profile segment
+              for (let side = 0; side < 2; side++) {
+                let runSamples = [];
+                const flushRun = () => {
+                  // Visibility is decided by the pruner (pendA), which cuts the
+                  // run where the body covers it - the same probe every other
+                  // outline run gets.
+                  if (runSamples.length >= 2) {
+                    silh.strokes.push({
+                      d: '', samples: runSamples.slice(), owners: null,
+                      sp: spIdx, ivs: null, nInt, kind: 'horizon', pendA: runSamples.slice()
+                    });
+                  }
+                  runSamples = [];
+                };
+                const nP = nSegs * SUB;
+                // Returns the projected branch point at p, or null.
+                const branchPt = (p) => {
+                  if (!radiusOK(p)) return null;
+                  const th = horizonAzimuths(profileSegs, p);
+                  if (!th) return null;
+                  let ang = ((th[side] % TWO_PI) + TWO_PI) % TWO_PI;
+                  let uu = ang / totalRad;
+                  if (!closedRail && uu > 1) return null;
+                  if (closedRail) uu = uu - Math.floor(uu);
+                  const fr = SurfaceMapper.getFrameAtU(railPath._frameData, Math.max(0, Math.min(1, uu)));
+                  const s = toScreen(sweepPoint(fr, profilePointAt(profileSegs, p)));
+                  if (!s) return null;
+                  s.iv = Math.max(0, Math.min(nInt - 1, Math.floor(uu * nInt)));
+                  s.pp = p;                 // own profile param, for the occlusion exclusion
+                  return s;
+                };
+                // ADAPTIVE in p. Where the profile's axial derivative passes
+                // through zero the horizon AZIMUTH sweeps enormously for a tiny
+                // step in p - measured on the bottle's shoulder, from 99 deg to
+                // 180 deg (round to the BACK, still visible over the top) inside
+                // ONE fixed step. Fixed sampling chords straight across that and
+                // leaves exactly the dashes reported at the shoulder. Refine
+                // until consecutive samples are close in SCREEN space, which is
+                // the space the result is judged in.
+                const STEP_PX = 5, MAXD = 7;
+                const refine = (pa, sa, pb, sb, depth) => {
+                  if (depth >= MAXD) return;
+                  if (Math.hypot(sb.x - sa.x, sb.y - sa.y) <= STEP_PX) return;
+                  const pm = (pa + pb) / 2;
+                  const sm = branchPt(pm);
+                  if (!sm) return;
+                  refine(pa, sa, pm, sm, depth + 1);
+                  runSamples.push(sm);
+                  refine(pm, sm, pb, sb, depth + 1);
+                };
+                let prevP = null, prevOK = false, prevS = null;
+                for (let k = 0; k <= nP; k++) {
+                  const p = Math.min((k / nP) * nSegs, nSegs - 1e-9);
+                  const s = branchPt(p);
+                  if (!s) {
+                    // Leaving the branch: walk to the exact turning point first,
+                    // refining on the way in (that stretch is the fast one).
+                    if (prevOK && prevP !== null) {
+                      const pt = horizonTurnP(profileSegs, prevP, p);
+                      const se2 = branchPt(pt);
+                      if (se2) { refine(prevP, prevS, pt, se2, 0); runSamples.push(se2); }
+                    }
+                    flushRun(); prevP = p; prevOK = false; prevS = null; continue;
+                  }
+                  // Entering the branch: start at the exact turning point.
+                  if (!prevOK && prevP !== null) {
+                    const pt = horizonTurnP(profileSegs, p, prevP);
+                    const se2 = branchPt(pt);
+                    if (se2) { runSamples.push(se2); refine(pt, se2, p, s, 0); }
+                  } else if (prevOK && prevS) {
+                    refine(prevP, prevS, p, s, 0);
+                  }
+                  runSamples.push(s);
+                  prevP = p; prevOK = true; prevS = s;
+                }
+                flushRun();
+              }
+
+              // EDGE ARCS - the other half of a silhouette. A profile CORNER is a
+              // sharp edge of the surface, and it bounds the visible shape over
+              // the azimuth range where the view passes BETWEEN its two adjacent
+              // faces (one front, one back). A flat rim has no horizon anywhere,
+              // yet its edge circle is the top boundary of the shape - which is
+              // why horizon arcs alone left the rims and bases unstroked.
+              // Facing of a face with profile derivative (rP, aP) at azimuth
+              // theta is the sign of g = K - aP*rho*cos(theta-alpha), with
+              // K = aP*r + rP*(Ca-a); the edge is on the boundary wherever the
+              // two adjacent g's disagree. Sampling theta directly keeps every
+              // degenerate case (aP = 0, tangency) honest.
+              const off3 = ss.axisOffset || 0;
+              const cornerPs = [];
+              for (let k = 0; k < nSegs; k++) if (isCorner(profileSegs, k, sub.closed)) cornerPs.push(k);
+              if (!sub.closed) cornerPs.push(nSegs);
+              const NTH = Math.max(64, nInt * 4);
+              for (const pc of cornerPs) {
+                const pcl = Math.min(Math.max(pc, 0), nSegs - 1e-9);
+                if (!radiusOK(pcl)) continue;
+                const pp = profilePointAt(profileSegs, pcl);
+                const r = off3 + (_hz.radialFromY ? pp[1] : pp[0]);
+                const a = _hz.radialFromY ? pp[0] : pp[1];
+                const dM = profileDerivAt(profileSegs, Math.max(0, pc - 1e-4));
+                const dP = profileDerivAt(profileSegs, Math.min(nSegs - 1e-9, pc + 1e-4));
+                const rPm = _hz.radialFromY ? dM[1] : dM[0], aPm = _hz.radialFromY ? dM[0] : dM[1];
+                const rPp = _hz.radialFromY ? dP[1] : dP[0], aPp = _hz.radialFromY ? dP[0] : dP[1];
+                const Km = aPm * r + rPm * (_hz.Ca - a);
+                const Kp = aPp * r + rPp * (_hz.Ca - a);
+                let runS = [];
+                const flushEdge = () => {
+                  if (runS.length >= 2) {
+                    silh.strokes.push({
+                      d: '', samples: runS.slice(), owners: null,
+                      sp: spIdx, ivs: null, nInt, kind: 'horizon', pendA: runS.slice()
+                    });
+                  }
+                  runS = [];
+                };
+                for (let k = 0; k <= NTH; k++) {
+                  const uu = k / NTH;
+                  const ang = uu * totalRad;
+                  const x = Math.cos(ang - _hz.alpha);
+                  const gm = Km - aPm * _hz.rho * x;
+                  const gp = Kp - aPp * _hz.rho * x;
+                  if (!((gm > 0) !== (gp > 0))) { flushEdge(); continue; }
+                  const fr = SurfaceMapper.getFrameAtU(railPath._frameData, Math.max(0, Math.min(1, uu)));
+                  const sp3 = toScreen(sweepPoint(fr, pp));
+                  if (!sp3) { flushEdge(); continue; }
+                  sp3.iv = Math.max(0, Math.min(nInt - 1, Math.floor(uu * nInt)));
+                  sp3.pp = pcl;             // own profile param, or the exclusion spares it blindly
+                  runS.push(sp3);
+                }
+                flushEdge();
+              }
+            }
+
+            // (a) Station V-edges (meridians): stroke where facing flips across the
+            // station, or where geometry ends (angle < 360 end stations). For a full
+            // 360 revolve station 0 wraps to the last interval and station N is the
+            // same azimuth (skipped) - otherwise the seam meridian would be stroked.
+            const stationCount = railClosed ? nInt : nInt + 1;
+            for (let s = 0; s < stationCount; s++) {
+              const leftIdx = s > 0 ? s - 1 : (railClosed ? nInt - 1 : -1);
+              const rightIdx = s < nInt ? s : -1;
+              const left = leftIdx >= 0 ? intervals[leftIdx].chains : null;
+              const right = rightIdx >= 0 ? intervals[rightIdx].chains : null;
+              if (!left && !right) continue;
+              const cuts = new Set([0, nSegs]);
+              (left || []).forEach(c => { cuts.add(c.pStart); cuts.add(c.pEnd); });
+              (right || []).forEach(c => { cuts.add(c.pStart); cuts.add(c.pEnd); });
+              const bounds = [...cuts].sort((x, y) => x - y);
+              const frame = SurfaceMapper.getFrameAtU(railPath._frameData, uStations[s]);
+              const chainAt = (chains, p) => {
+                if (!chains) return null;
+                for (const c of chains) if (p >= c.pStart - 1e-9 && p <= c.pEnd + 1e-9) return c;
+                return null;
+              };
+              let runStart = null, runOwners = null;
+              const unitIvs = [leftIdx, rightIdx].filter(v => v >= 0);
+              const flush = (endP) => {
+                if (runStart !== null && endP - runStart > 1e-6
+                    && radiusOK(runStart, (runStart + endP) / 2, endP)) {
+                  const sd = spanD(profileSegs, runStart, endP, frame);
+                  // pend: a station run can be visible over PART of its length
+                  // (the neck wall above the shoulder, hidden below it), so the
+                  // pruner re-cuts it in profile-parameter space instead of
+                  // keeping or dropping the whole run.
+                  if (sd.d) silh.strokes.push({
+                    d: sd.d, samples: sd.samples, owners: runOwners, sp: spIdx, ivs: unitIvs, nInt,
+                    kind: 'station', st: s, pRefU: (runStart + endP) / 2,
+                    pend: { a: runStart, b: endP, frame, profileSegs }
+                  });
+                }
+                runStart = null; runOwners = null;
+              };
+              for (let k = 0; k < bounds.length - 1; k++) {
+                const a = bounds[k], b = bounds[k + 1];
+                if (b - a < 1e-9) continue;
+                const mid = (a + b) / 2;
+                const cL = chainAt(left, mid), cR = chainAt(right, mid);
+                const drawn = (cL === null || cR === null) ? (cL !== null || cR !== null) : (cL.facing !== cR.facing);
+                if (drawn) {
+                  if (runStart === null) { runStart = a; runOwners = new Set(); }
+                  if (cL) runOwners.add(cL);
+                  if (cR) runOwners.add(cR);
+                } else flush(a);
+              }
+              flush(bounds[bounds.length - 1]);
+            }
+
+            // (b) In-interval U-edges at shared chain vertices: facing flip =>
+            // silhouette fold; same facing + both FRONT + genuine profile corner =>
+            // visible crease circle (the bottle-rim ellipses), behind creaseLines.
+            // Open profiles also stroke their end-vertex rim edges (boundary).
+            const pushEdge = (edge, ivIdx, kindTag, pRefEdge, ...ownerRecs) => {
+              const s0 = toScreen(edge.pA), s1 = toScreen(edge.cp1), s2 = toScreen(edge.cp2), s3 = toScreen(edge.pB);
+              if (!s0 || !s1 || !s2 || !s3) return;
+              const mid = {
+                x: (s0.x + 3 * s1.x + 3 * s2.x + s3.x) / 8,
+                y: (s0.y + 3 * s1.y + 3 * s2.y + s3.y) / 8,
+                z: (s0.z + 3 * s1.z + 3 * s2.z + s3.z) / 8
+              };
+              silh.strokes.push({
+                d: `M ${s0.x} ${s0.y} C ${s1.x} ${s1.y}, ${s2.x} ${s2.y}, ${s3.x} ${s3.y}`,
+                samples: [s0, mid, s3],
+                owners: new Set(ownerRecs),
+                sp: spIdx, ivs: [ivIdx], nInt, kind: kindTag, pRefU: pRefEdge
+              });
+            };
+            // A FOLD follows the moving horizon: 4 points at u = 0, 1/3, 2/3, 1
+            // of the interval, each at ITS OWN horizon param, fitted with the
+            // same 4-point cubic formula the U-edge builder uses. Station
+            // endpoints come from the memoized horizon set, so interval i and
+            // i+1 land on the identical point and the outline is continuous.
+            const pushFold = (ivIdx, pRef, A, B) => {
+              const uA = uStations[ivIdx], uB = uStations[ivIdx + 1];
+              if (uA === undefined || uB === undefined) return;
+              const us = [uA, uA + (uB - uA) / 3, uA + 2 * (uB - uA) / 3, uB];
+              // CONTINUATION, outward from the interval midpoint: each step
+              // tracks the branch from the PREVIOUS param, never from pRef.
+              // Nearest-to-pRef at every sample independently could hop to a
+              // different silhouette branch (or find nothing) at one sample
+              // while the others stayed put - the long diagonal artifact.
+              const STEP = 0.34;   // max branch motion per 1/3 interval
+              const ps = new Array(4);
+              ps[1] = nearestHorizon(profileSegs, us[1], pRef, STEP);
+              ps[2] = nearestHorizon(profileSegs, us[2], pRef, STEP);
+              if (ps[1] !== null) ps[0] = nearestHorizon(profileSegs, us[0], ps[1], STEP);
+              if (ps[2] !== null) ps[3] = nearestHorizon(profileSegs, us[3], ps[2], STEP);
+              const traced = ps.every(p => p !== null && p !== undefined);
+              if (traced) {
+                const P = us.map((u, j) => sweepPoint(hzViewAtU(u).frame, profilePointAt(profileSegs, ps[j])));
+                const [pa, q1, q2, pb] = P;
+                const cp1 = [], cp2 = [];
+                for (let k = 0; k < 3; k++) {
+                  cp1.push((18 * q1[k] - 9 * q2[k] - 5 * pa[k] + 2 * pb[k]) / 6);
+                  cp2.push((-9 * q1[k] + 18 * q2[k] + 2 * pa[k] - 5 * pb[k]) / 6);
+                }
+                const s0 = toScreen(pa), sc1 = toScreen(cp1), sc2 = toScreen(cp2), s3 = toScreen(pb);
+                const sq1 = toScreen(q1), sq2 = toScreen(q2);
+                // Screen sanity: a fold spans ONE azimuth interval, so a trace
+                // far longer than the plain constant-param edge over the same
+                // interval is a branch hop that slipped both guards.
+                const e = A.uEdgeEnd;
+                const eA = toScreen(e.pA), eB = toScreen(e.pB);
+                const refLen = (eA && eB) ? Math.hypot(eB.x - eA.x, eB.y - eA.y) : 0;
+                const traceLen = (s0 && s3) ? Math.hypot(s3.x - s0.x, s3.y - s0.y) : Infinity;
+                if (s0 && sc1 && sc2 && s3 && traceLen <= 3 * refLen + 4) {
+                  silh.strokes.push({
+                    d: `M ${s0.x} ${s0.y} C ${sc1.x} ${sc1.y}, ${sc2.x} ${sc2.y}, ${s3.x} ${s3.y}`,
+                    samples: [s0, sq1, sq2, s3].filter(Boolean),   // ON-curve, not control points
+                    owners: new Set([A, B]),
+                    sp: spIdx, ivs: [ivIdx], nInt, kind: 'fold', pRefU: pRef
+                  });
+                  return;
+                }
+              }
+              // Fall back to the plain constant-param U-edge: short and local by
+              // construction, so a failed trace degrades to the v20260726c edge
+              // instead of inventing a chord.
+              pushEdge(A.uEdgeEnd, ivIdx, 'fold', A.pEnd, A, B);
+            };
+            for (let ivIdx = 0; ivIdx < intervals.length; ivIdx++) {
+              const chains = intervals[ivIdx].chains;
+              const n = chains.length;
+              if (n === 0) continue;
+              const pairCount = sub.closed ? n : n - 1;
+              for (let c = 0; c < pairCount; c++) {
+                const A = chains[c], B = chains[(c + 1) % n];
+                if (!radiusOK(A.pEnd)) continue;   // degenerate pole circle
+                if (A.facing !== B.facing) pushFold(ivIdx, A.pEnd, A, B);
+                else if (A.facing && B.facing && creaseLines && isCorner(profileSegs, A.pEnd, sub.closed)) pushEdge(A.uEdgeEnd, ivIdx, 'crease', A.pEnd, A, B);
+              }
+              if (!sub.closed) {
+                if (radiusOK(chains[0].pStart)) pushEdge(chains[0].uEdgeStart, ivIdx, 'rim', chains[0].pStart, chains[0]);
+                if (radiusOK(chains[n - 1].pEnd)) pushEdge(chains[n - 1].uEdgeEnd, ivIdx, 'rim', chains[n - 1].pEnd, chains[n - 1]);
+              }
+            }
+          }
+
+          // --- OCCLUSION PRUNING of candidate strokes (v20260726b) ---
+          // The classification above is LOCAL, so a locally-correct edge can be
+          // globally COVERED by a nearer part of the same solid - the near-axis
+          // bore of a profile that hugs the revolve axis drew a fake "axis line"
+          // through the bottle, and a partial revolve drew its far end face
+          // through the front wall. A run is dropped when most of its ON-CURVE
+          // samples lie inside a CLEARLY NEARER patch (depth gap > 3% of the
+          // object's own z-span - adjacent same-depth patches never qualify).
+          // A run's own bordering patches are excluded: a stroke always touches
+          // those, and point-in-polygon on an exact shared boundary is noise.
+          {
+            // Occluders are the per-SEGMENT quads collected alongside the patches
+            // (NOT the merged chain patches: a Simple-Sides chain can wrap
+            // wall+shoulder+bulb, and one fitted plane over that span reads
+            // "nearer" almost everywhere - the first build over-pruned the neck
+            // outline and shoulder crease that way). Quads are small and
+            // near-planar, so their corner plane models depth AT the sample
+            // point honestly; the residual widens the required gap on twisted
+            // quads so a poor fit disqualifies itself.
+            const quads = silh.occl;
+            let zMinAll = Infinity, zMaxAll = -Infinity;
+            let gx0 = Infinity, gy0 = Infinity, gx1 = -Infinity, gy1 = -Infinity;
+            for (const q of quads) {
+              if (q.z < zMinAll) zMinAll = q.z;
+              if (q.z > zMaxAll) zMaxAll = q.z;
+              if (q.pxMin < gx0) gx0 = q.pxMin;
+              if (q.pyMin < gy0) gy0 = q.pyMin;
+              if (q.pxMax > gx1) gx1 = q.pxMax;
+              if (q.pyMax > gy1) gy1 = q.pyMax;
+            }
+            const eps = 0.03 * (zMaxAll - zMinAll) + 1e-9;
+            const degenMin = Math.max(0.5, 0.004 * Math.hypot(gx1 - gx0, gy1 - gy0));
+            // Uniform screen grid over the occluders: probing is now per
+            // sub-span (station runs re-cut in parameter space), so the naive
+            // all-quads scan became the frame's dominant cost - 82 ms on the
+            // bottle. Bucketing by screen cell makes each probe touch only the
+            // handful of wedges that can contain it.
+            const CELL = 24;
+            const gCols = Math.max(1, Math.min(512, Math.ceil((gx1 - gx0) / CELL) + 1));
+            const gRows = Math.max(1, Math.min(512, Math.ceil((gy1 - gy0) / CELL) + 1));
+            const gBuckets = new Array(gCols * gRows);
+            const cellIdx = (x, y) => {
+              const c = Math.floor((x - gx0) / CELL), r = Math.floor((y - gy0) / CELL);
+              if (c < 0 || r < 0 || c >= gCols || r >= gRows) return -1;
+              return r * gCols + c;
+            };
+            for (const q of quads) {
+              const c0 = Math.max(0, Math.floor((q.pxMin - gx0) / CELL));
+              const c1 = Math.min(gCols - 1, Math.floor((q.pxMax - gx0) / CELL));
+              const r0 = Math.max(0, Math.floor((q.pyMin - gy0) / CELL));
+              const r1 = Math.min(gRows - 1, Math.floor((q.pyMax - gy0) / CELL));
+              for (let r = r0; r <= r1; r++) {
+                for (let c = c0; c <= c1; c++) {
+                  const k = r * gCols + c;
+                  (gBuckets[k] || (gBuckets[k] = [])).push(q);
+                }
+              }
+            }
+            const inPoly = (x, y, pts) => {
+              let inside = false;
+              for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+                const yi = pts[i].y, yj = pts[j].y;
+                if ((yi > y) !== (yj > y)) {
+                  if (x < (pts[j].x - pts[i].x) * (y - yi) / (yj - yi) + pts[i].x) inside = !inside;
+                }
+              }
+              return inside;
+            };
+            const coveredBy = (s, u) => {
+              const owners = u.owners;
+              const ci = cellIdx(s.x, s.y);
+              if (ci < 0) return false;
+              const bucket = gBuckets[ci];
+              if (!bucket) return false;
+              for (const q of bucket) {
+                if (owners && q.owner && owners.has(q.owner)) continue;
+                // OWN-NEIGHBOURHOOD EXCLUSION (the tangency trap). At a
+                // silhouette tangent the azimuth-to-screen-x mapping is flat, so
+                // quads from the NEIGHBOURING intervals overlap the run in x
+                // while their secant planes extrapolate NEARER than the surface;
+                // both effects peak exactly at tangents and they pruned the neck
+                // meridians (v20260726c). But the exclusion must be the run's OWN
+                // patch, not the whole azimuth column: a quad one interval away
+                // at a DIFFERENT part of the profile is a genuine occluder - the
+                // bulb hiding the neck when the bottle is seen from below, which
+                // is exactly what leaked through (v20260726j). So the quad has to
+                // be adjacent in BOTH azimuth and profile parameter to be spared.
+                if (u.ivs && q.sp === u.sp) {
+                  let near = false;
+                  for (const uiv of u.ivs) {
+                    let dIv = Math.abs(q.iv - uiv);
+                    if (railClosed && u.nInt) dIv = Math.min(dIv, u.nInt - dIv);
+                    if (dIv <= 1) { near = true; break; }
+                  }
+                  // No param on either side => fall back to the old azimuth-only
+                  // rule, but only for CLASSIFIER runs. A traced run always
+                  // carries its param, and treating a missing one as "spare it"
+                  // is what let a rim arc show through the body (v20260726j).
+                  if (near) {
+                    const pu = u.pRefU, pq = q.pMid;
+                    if (pu === undefined || pq === undefined) {
+                      if (u.kind !== 'horizon') continue;
+                    } else if (Math.abs(pq - pu) <= 0.75) continue;
+                  }
+                }
+                if (s.x < q.pxMin || s.x > q.pxMax || s.y < q.pyMin || s.y > q.pyMax) continue;
+                // larger z = farther; the quad must be CLEARLY nearer AT THIS
+                // SCREEN POINT, by more than eps + its own fit residual.
+                const pz = q.plane ? RenderIntersections.planeZ(q.plane, s.x, s.y) : q.z;
+                if (s.z - pz <= eps + q.resid) continue;
+                if (inPoly(s.x, s.y, q.pts)) {
+                  if (window._SILH_DEBUG) return q;
+                  return true;
+                }
+              }
+              return false;
+            };
+            if (window._SILH_DEBUG) { window._silhDropLog = []; window._silhState = silh; }
+            // A STATION run spans a whole profile stretch and is often visible
+            // over only part of it (the neck wall shows above the shoulder and
+            // is hidden below it). Re-cut it in profile-parameter space: probe
+            // sub-spans, keep the visible ones, and rebuild the d from those.
+            const refineStation = (u) => {
+              const { a, b, frame, profileSegs } = u.pend;
+              let len = 0;
+              const ss2 = u.samples || [];
+              for (let i = 1; i < ss2.length; i++) len += Math.hypot(ss2[i].x - ss2[i - 1].x, ss2[i].y - ss2[i - 1].y);
+              const K = Math.max(4, Math.min(20, Math.round(len / 12)));
+              const vis = [];
+              for (let i = 0; i < K; i++) {
+                const pm = a + (b - a) * ((i + 0.5) / K);
+                const sPt = toScreen(sweepPoint(frame, profilePointAt(profileSegs, pm)));
+                vis.push(sPt ? !coveredBy(sPt, u) : true);
+              }
+              let d = '', start = null;
+              const emit = (i0, i1) => {
+                const pa = a + (b - a) * (i0 / K), pb = a + (b - a) * (i1 / K);
+                const sd = spanD(profileSegs, pa, pb, frame);
+                if (sd.d) d += (d ? ' ' : '') + sd.d;
+              };
+              for (let i = 0; i < K; i++) {
+                if (vis[i]) { if (start === null) start = i; }
+                else if (start !== null) { emit(start, i); start = null; }
+              }
+              if (start !== null) emit(start, K);
+              return d;
+            };
+
+            silh.strokes = silh.strokes.filter(u => {
+              const raw = u.samples || [];
+              // DEDUPE first (v20260726d): a profile with coincident control
+              // points (the bottle's closing edge) makes several samples land on
+              // the SAME screen point, and those duplicates voted as independent
+              // probes - 3 identical points at the neck top outvoted the two
+              // genuinely covered ones and kept the bore's silhouette (the
+              // reported "axis line") alive. Distinct positions only.
+              const samples = [];
+              for (const s of raw) {
+                let dup = false;
+                for (const t of samples) {
+                  if (Math.abs(t.x - s.x) < 0.25 && Math.abs(t.y - s.y) < 0.25) { dup = true; break; }
+                }
+                if (!dup) samples.push(s);
+              }
+              // DEGENERATE runs carry no shape but paint a blob under round
+              // caps: the bore's rim circle (radius 0.0062 against a 1.95 body)
+              // emitted ~50 arcs stacked on one point - the reported "center
+              // dot". The threshold is RELATIVE to the object's own screen size
+              // (0.4% of its diagonal), not a fixed pixel count: a near-axis
+              // pole stays suppressed at every zoom instead of reappearing as
+              // soon as the object is scaled up, while a genuinely small feature
+              // on a small object is still drawn.
+              if (samples.length) {
+                let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+                for (const s of samples) {
+                  if (s.x < x0) x0 = s.x; if (s.x > x1) x1 = s.x;
+                  if (s.y < y0) y0 = s.y; if (s.y > y1) y1 = s.y;
+                }
+                if (Math.hypot(x1 - x0, y1 - y0) < degenMin) return false;
+              }
+              if (!samples.length) return true;
+              if (u.pendA) {
+                // Analytic branch: cut where the body covers it, refit each
+                // visible stretch to clean cubics.
+                const groups = []; let cur = [];
+                for (const s of u.pendA) {
+                  if (coveredBy(s, { sp: u.sp, ivs: [s.iv], nInt: u.nInt, owners: null, kind: 'horizon', pRefU: s.pp })) {
+                    if (cur.length >= 2) groups.push(cur);
+                    cur = [];
+                  } else cur.push(s);
+                }
+                if (cur.length >= 2) groups.push(cur);
+                let d = '';
+                for (const g of groups) {
+                  const xy = g.map(s => [s.x, s.y]);
+                  let fit = [];
+                  try { fit = RenderIntersections._fitRunClean(xy, false, 0.05, 0.15) || []; } catch (e) { fit = []; }
+                  if (fit.length) {
+                    d += (d ? ' ' : '') + `M ${fit[0][0][0]} ${fit[0][0][1]}`;
+                    for (const q of fit) d += ` C ${q[1][0]} ${q[1][1]}, ${q[2][0]} ${q[2][1]}, ${q[3][0]} ${q[3][1]}`;
+                  } else {
+                    d += (d ? ' ' : '') + `M ${xy[0][0]} ${xy[0][1]}`;
+                    for (let k = 1; k < xy.length; k++) d += ` L ${xy[k][0]} ${xy[k][1]}`;
+                  }
+                }
+                if (!d) return false;
+                u.d = d;
+                return true;
+              }
+              if (u.pend) {
+                // Partial visibility, resolved in parameter space.
+                const d = refineStation(u);
+                if (!d) return false;
+                u.d = d;
+                return true;
+              }
+              const step = Math.max(1, Math.floor(samples.length / 9));
+              let tested = 0, covered = 0;
+              let dbgCover = null;
+              for (let i = 0; i < samples.length; i += step) {
+                tested++;
+                const c = coveredBy(samples[i], u);
+                if (c) { covered++; if (!dbgCover) dbgCover = { s: samples[i], r: c }; }
+              }
+              const keep = covered / tested < 0.6;
+              if (!keep && window._SILH_DEBUG && window._silhDropLog) {
+                window._silhDropLog.push({
+                  d: u.d.slice(0, 60), sample: dbgCover && { x: dbgCover.s.x, y: dbgCover.s.y, z: dbgCover.s.z },
+                  unit: { kind: u.kind, sp: u.sp, ivs: u.ivs, nInt: u.nInt },
+                  quad: dbgCover && dbgCover.r && {
+                    sp: dbgCover.r.sp, iv: dbgCover.r.iv,
+                    z: dbgCover.r.z, resid: dbgCover.r.resid, pMid: dbgCover.r.pMid,
+                    pts: dbgCover.r.pts && dbgCover.r.pts.map(p => [Math.round(p.x), Math.round(p.y), +p.z.toFixed(5)]),
+                    ownerSpan: dbgCover.r.owner ? [dbgCover.r.owner.pStart, dbgCover.r.owner.pEnd] : null,
+                    bbox: [dbgCover.r.pxMin, dbgCover.r.pyMin, dbgCover.r.pxMax, dbgCover.r.pyMax],
+                    pz: dbgCover.r.plane ? RenderIntersections.planeZ(dbgCover.r.plane, dbgCover.s.x, dbgCover.s.y) : dbgCover.r.z
+                  }
+                });
+              }
+              return keep;
+            });
+          }
+
+          // --- DOUBLE-DRAW DEDUPE (v20260726f) ---
+          // The same silhouette can be reported twice: once as a FOLD (the
+          // horizon crossing the interval in azimuth, traced) and once as a
+          // STATION meridian (a whole profile span flipping facing across that
+          // station). Near a tangent both fire, and two 2 px strokes a fraction
+          // of a pixel apart - each with its own round caps - is exactly the
+          // "bumpiness on a smooth revolve" that was reported. Measured on the
+          // repro: 13 of 24 station runs lay on a fold curve. The traced fold is
+          // the more accurate of the two, so the station copy stands down.
+          {
+            const onCurve = (d) => {
+              const out = [];
+              const toks = d.match(/[MCL][^MCL]*/g) || [];
+              let cur = null;
+              for (const t of toks) {
+                const n = (t.slice(1).match(/-?\d*\.?\d+(?:e[+-]?\d+)?/gi) || []).map(Number);
+                if (t[0] === 'M' && n.length >= 2) { cur = [n[0], n[1]]; out.push(cur); }
+                else if (t[0] === 'L' && n.length >= 2) { cur = [n[0], n[1]]; out.push(cur); }
+                else if (t[0] === 'C' && n.length >= 6 && cur) {
+                  const p0 = cur, c1 = [n[0], n[1]], c2 = [n[2], n[3]], p3 = [n[4], n[5]];
+                  for (let i = 1; i <= 6; i++) {
+                    const tt = i / 6, mt = 1 - tt;
+                    const a = mt * mt * mt, b = 3 * mt * mt * tt, c = 3 * mt * tt * tt, e = tt * tt * tt;
+                    out.push([a * p0[0] + b * c1[0] + c * c2[0] + e * p3[0], a * p0[1] + b * c1[1] + c * c2[1] + e * p3[1]]);
+                  }
+                  cur = p3;
+                }
+              }
+              return out;
+            };
+            const mostlyOn = (u, cloud) => {
+              const pts = onCurve(u.d);
+              if (pts.length < 2 || !cloud.length) return false;
+              let near = 0;
+              for (const p of pts) {
+                for (const q of cloud) {
+                  const dx = p[0] - q[0], dy = p[1] - q[1];
+                  if (dx * dx + dy * dy < 4) { near++; break; }   // within 2 px
+                }
+              }
+              return near / pts.length >= 0.7;
+            };
+            // The analytic branches SUPERSEDE any classifier run they already
+            // cover: they are the exact horizon, while a fold or a station
+            // meridian is that same curve inferred from per-patch facing signs.
+            // Classifier runs the branches do NOT cover are the surface's sharp
+            // EDGES (flat rims, corners) - those stay, which is the whole point
+            // of composing the two instead of swapping one for the other.
+            if (!window._SILH_NO_DEDUPE) {
+              const horizonPts = [];
+              for (const u of silh.strokes) if (u.kind === 'horizon') horizonPts.push(...onCurve(u.d));
+              if (horizonPts.length) {
+                silh.strokes = silh.strokes.filter(u =>
+                  (u.kind !== 'fold' && u.kind !== 'station') || !mostlyOn(u, horizonPts));
+              }
+              const foldPts = [];
+              for (const u of silh.strokes) if (u.kind === 'fold') foldPts.push(...onCurve(u.d));
+              if (foldPts.length) {
+                silh.strokes = silh.strokes.filter(u => u.kind !== 'station' || !mostlyOn(u, foldPts));
+              }
+            }
+          }
+
+          const avgZ = silh.zCount > 0 ? silh.zSum / silh.zCount : 0;
+          const fillEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          fillEl.setAttribute('d', silh.fillD.trim());
+          fillEl.setAttribute('fill', fillColor);
+          // nonzero is load-bearing: all rings are orientation-normalized, so
+          // overlaps cannot cancel and the fill is exactly the union - and it
+          // composites ONCE under fill-opacity (no front/back double-darkening).
+          fillEl.setAttribute('fill-rule', 'nonzero');
+          fillEl.setAttribute('fill-opacity', _effSurface['fill-opacity']);
+          fillEl.setAttribute('stroke', 'none');
+          faceList.push({ element: fillEl, z: avgZ });
+          if (strokeColor && silh.strokes.length) {
+            // CHAIN the surviving runs into continuous subpaths (v20260726f).
+            // The outline is emitted one run per azimuth interval, and every run
+            // carries its own round CAPS - ~78 of them around a bottle. Adjacent
+            // caps overlap at each station and bead the line, which is the
+            // "bumpiness" seen on a smooth revolve at stroke-width 2 (measured:
+            // the outline's own radial ripple along the smooth body is 0.154 px
+            // max, so the geometry was never the problem). Runs meet EXACTLY
+            // since v20260726d, so chaining is a lossless string join: caps
+            // survive only at genuine ends, and joins become linejoins.
+            const parts = silh.strokes.map(u => {
+              const m = /^M\s*(-?[\d.eE+-]+)[\s,]+(-?[\d.eE+-]+)\s*([\s\S]*)$/.exec(u.d.trim());
+              if (!m) return null;
+              const nums = (u.d.match(/-?\d*\.?\d+(?:e[+-]?\d+)?/gi) || []).map(Number);
+              return {
+                kind: u.kind, body: m[3],
+                sx: +m[1], sy: +m[2],
+                ex: nums[nums.length - 2], ey: nums[nums.length - 1],
+                used: false
+              };
+            }).filter(Boolean);
+            // Buckets on a 4 px screen grid. Chaining is ACROSS kinds and uses a
+            // small snap tolerance: at the neck/shoulder the outline hands over
+            // from a station meridian to a traced fold, and those two are
+            // computed differently, so their shared point agrees to ~1-3 px
+            // rather than exactly. Left unjoined they are two capped ends, which
+            // at stroke-width 7.5 reads as a notch in the contour. Joining lets
+            // the next cubic start from the current point - a sub-3 px bridge
+            // that is invisible at any sane stroke width - and turns the seam
+            // into a linejoin.
+            const CELL_J = 4, JOIN_TOL = 3;
+            const cellKey = (x, y) => Math.floor(x / CELL_J) + ':' + Math.floor(y / CELL_J);
+            const startMap = new Map();
+            for (const p of parts) {
+              const k = cellKey(p.sx, p.sy);
+              if (!startMap.has(k)) startMap.set(k, []);
+              startMap.get(k).push(p);
+            }
+            const findNext = (x, y) => {
+              let best = null, bestD = JOIN_TOL;
+              const c = Math.floor(x / CELL_J), r = Math.floor(y / CELL_J);
+              for (let dc = -1; dc <= 1; dc++) {
+                for (let dr = -1; dr <= 1; dr++) {
+                  const bucket = startMap.get((c + dc) + ':' + (r + dr));
+                  if (!bucket) continue;
+                  for (const p of bucket) {
+                    if (p.used) continue;
+                    const d = Math.hypot(p.sx - x, p.sy - y);
+                    if (d <= bestD) { bestD = d; best = p; }
+                  }
+                }
+              }
+              return best;
+            };
+            // Object screen size, for the isolated-sliver rule below.
+            let ox0 = Infinity, oy0 = Infinity, ox1 = -Infinity, oy1 = -Infinity;
+            for (const q of silh.occl) {
+              if (q.pxMin < ox0) ox0 = q.pxMin;
+              if (q.pyMin < oy0) oy0 = q.pyMin;
+              if (q.pxMax > ox1) ox1 = q.pxMax;
+              if (q.pyMax > oy1) oy1 = q.pyMax;
+            }
+            const objDiag = (isFinite(ox0) && isFinite(ox1)) ? Math.hypot(ox1 - ox0, oy1 - oy0) : 0;
+            const dParts = [];
+            for (const seed of parts) {
+              if (seed.used) continue;
+              seed.used = true;
+              let d = `M ${seed.sx} ${seed.sy} ${seed.body}`;
+              let cur = seed;
+              let members = 1, chord = Math.hypot(seed.ex - seed.sx, seed.ey - seed.sy);
+              for (;;) {
+                const nxt = findNext(cur.ex, cur.ey);
+                if (!nxt) break;
+                nxt.used = true;
+                d += ' ' + nxt.body;
+                chord += Math.hypot(nxt.ex - nxt.sx, nxt.ey - nxt.sy);
+                members++;
+                cur = nxt;
+              }
+              // ISOLATED SLIVER RULE (v20260726g): real silhouette structure is
+              // either long or CONNECTED - it is one continuous curve on the
+              // surface. A chain of ONE run, only a few px long and joined to
+              // nothing, is chain-boundary jitter: adjacent intervals disagree
+              // about a span end by a hair and the station classifier emits a
+              // stub. Two of them (4.9 px and 4.3 px, mirrored across the axis)
+              // were the tick marks reported at the shoulder. Judged against the
+              // OBJECT's screen size, so it holds at any zoom, and only
+              // single-member chains qualify - a short arc that belongs to a
+              // real feature has neighbours and is never touched.
+              if (members === 1 && objDiag > 0 && chord < 0.015 * objDiag) continue;
+              dParts.push(d);
+            }
+            const strokeEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            strokeEl.setAttribute('d', dParts.join(' '));
+            strokeEl.setAttribute('fill', 'none');
+            strokeEl.setAttribute('stroke', strokeColor);
+            strokeEl.setAttribute('stroke-width', strokeWidth);
+            strokeEl.setAttribute('stroke-linecap', 'round');
+            strokeEl.setAttribute('stroke-linejoin', 'round');
+            if (_effSurface['stroke-opacity'] !== undefined) {
+              strokeEl.setAttribute('stroke-opacity', _effSurface['stroke-opacity']);
+            }
+            // Same z, pushed after the fill: the z-sort is stable, so the outline
+            // always paints on top of its own fill.
+            faceList.push({ element: strokeEl, z: avgZ });
+          }
+        }
+
         // --- Cap faces (combined across all subpaths for hole support) ---
         // Caps render in both clean and non-clean render modes.
-        if (ss.showCapStart || ss.showCapEnd) {
+        // Silhouette merge + full 360 revolve: caps are flat discs strictly INSIDE
+        // the solid - painter order hid them before, but they would show through
+        // the single semi-transparent union fill, so they are skipped.
+        if ((ss.showCapStart || ss.showCapEnd) && !(silh && ss.railClosed)) {
           const drawSurfaceCap = (u) => {
             const frame = SurfaceMapper.getFrameAtU(railPath._frameData, u);
             // Per-subpath chunks (aligned with subpathGroups/subPathData) so
@@ -45480,6 +46695,20 @@
         revolveSimpleSidesInput.checked = isPath ? (selectedObject.revolveSettings?.simpleSides || false) : false;
         revolveSimpleSidesInput.disabled = !isPath || !revolveEnabled;
       }
+      // Silhouette (merge) + Crease Lines sub-option (crease row only meaningful when merge is on)
+      const revolveSilhouetteMergeInput = document.getElementById('revolveSilhouetteMergeInput');
+      const silhouetteMergeOn = isPath ? (selectedObject.revolveSettings?.silhouetteMerge || false) : false;
+      if (revolveSilhouetteMergeInput && document.activeElement !== revolveSilhouetteMergeInput) {
+        revolveSilhouetteMergeInput.checked = silhouetteMergeOn;
+        revolveSilhouetteMergeInput.disabled = !isPath || !revolveEnabled;
+      }
+      const revolveCreaseLinesInput = document.getElementById('revolveCreaseLinesInput');
+      if (revolveCreaseLinesInput && document.activeElement !== revolveCreaseLinesInput) {
+        revolveCreaseLinesInput.checked = isPath ? (selectedObject.revolveSettings?.creaseLines !== false) : true;
+        revolveCreaseLinesInput.disabled = !isPath || !revolveEnabled || !silhouetteMergeOn;
+      }
+      const revolveCreaseLinesRow = document.getElementById('revolveCreaseLinesRow');
+      if (revolveCreaseLinesRow) revolveCreaseLinesRow.style.display = silhouetteMergeOn ? '' : 'none';
       const revolveDivsVInput = document.getElementById('revolveDivsVInput');
       if (document.activeElement !== revolveDivsVInput && revolveDivsVInput) {
         revolveDivsVInput.value = isPath && selectedObject.revolveSettings?.divsV !== undefined ? selectedObject.revolveSettings.divsV : 16;
@@ -49027,6 +50256,10 @@
       const revolveScaleEnd = revolveScaleEndIn ? (parseFloat(revolveScaleEndIn.value) || 1.0) : 1.0;
       const revolveSimpleSidesInput2 = document.getElementById('revolveSimpleSidesInput');
       const revolveSimpleSides = revolveSimpleSidesInput2 ? revolveSimpleSidesInput2.checked : false;
+      const revolveSilhouetteMergeInput2 = document.getElementById('revolveSilhouetteMergeInput');
+      const revolveSilhouetteMerge = revolveSilhouetteMergeInput2 ? revolveSilhouetteMergeInput2.checked : false;
+      const revolveCreaseLinesInput2 = document.getElementById('revolveCreaseLinesInput');
+      const revolveCreaseLines = revolveCreaseLinesInput2 ? revolveCreaseLinesInput2.checked : true;
 
 
       // Surface Settings
@@ -49321,6 +50554,8 @@
           obj.revolveSettings.silhouetteSplit = true;  // always on
           obj.revolveSettings.curvedSurface = revolveCurvedSurface;
           obj.revolveSettings.simpleSides = revolveSimpleSides;
+          obj.revolveSettings.silhouetteMerge = revolveSilhouetteMerge;
+          obj.revolveSettings.creaseLines = revolveCreaseLines;
           obj.revolveSettings.scaleStart = revolveScaleStart;
           obj.revolveSettings.scaleEnd = revolveScaleEnd;
           // Draw Points
@@ -49671,6 +50906,13 @@
     });
     document.getElementById('revolveLayerCountInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('revolveSimpleSidesInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('revolveSilhouetteMergeInput').addEventListener('change', function (e) {
+      // Crease Lines row is only meaningful while Silhouette is on
+      const row = document.getElementById('revolveCreaseLinesRow');
+      if (row) row.style.display = this.checked ? '' : 'none';
+      updateStyleFromInput(e);
+    });
+    document.getElementById('revolveCreaseLinesInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('revolveDivsUInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('revolveDivsVInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('revolveSilhouetteSplitInput').addEventListener('change', updateStyleFromInput);

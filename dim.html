@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260726k -->
+<!-- dim v20260726q -->
 
 <!--
   MIT License
@@ -10510,7 +10510,7 @@
         ];
         // AUTO-KEY (v20260721q): Move-tool numeric edits record like drags.
         // Vertex modes stay unkeyed — vertices are not animatable.
-        if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['posX', 'posY', 'posZ']);
+        if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(selectedObject), ['posX', 'posY', 'posZ']);
       } else if (moveToolSession.mode === 'vertex') {
         const s = moveToolSession;
         if (!s.target || !s.target.object) return;
@@ -10647,7 +10647,7 @@
         selectedObject.position = [...newPos];
         notifyPathUpdated(selectedObject);
         // AUTO-KEY (v20260721q): absolute position edit records like a drag
-        if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['posX', 'posY', 'posZ']);
+        if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(selectedObject), ['posX', 'posY', 'posZ']);
       } else if (moveToolSession.mode === 'vertex') {
         const s = moveToolSession;
         if (!s.target || !s.target.object) return;
@@ -10829,7 +10829,7 @@
       const grouped = isMulti || rotatePivotMode === 'origin';
       const props = ['rotX', 'rotY', 'rotZ'];
       if (grouped && rotatePivotMode !== 'inPlace') props.push('posX', 'posY', 'posZ');
-      (isMulti ? selectedObjects : [selectedObject]).forEach(o => tlAutoKeyProps(o.name, props));
+      (isMulti ? selectedObjects : [selectedObject]).forEach(o => tlAutoKeyProps(tlKeyOf(o), props));
     };
 
     const processRotateToolInput = () => {
@@ -11015,7 +11015,7 @@
       const grouped = isMulti || scalePivotMode === 'origin';
       const props = ['sclX', 'sclY', 'sclZ'];
       if (grouped && scalePivotMode !== 'inPlace') props.push('posX', 'posY', 'posZ');
-      (isMulti ? selectedObjects : [selectedObject]).forEach(o => tlAutoKeyProps(o.name, props));
+      (isMulti ? selectedObjects : [selectedObject]).forEach(o => tlAutoKeyProps(tlKeyOf(o), props));
     };
 
     const processScaleToolInput = () => {
@@ -11201,7 +11201,7 @@
       if (isNaN(nx) || isNaN(ny) || isNaN(nz)) return;
       setObjectPivot(selectedObject, [nx, ny, nz]);
       // AUTO-KEY (v20260721q): typed pivot edit records like a pivot drag
-      if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['pivX', 'pivY', 'pivZ']);
+      if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(selectedObject), ['pivX', 'pivY', 'pivZ']);
       updatePivotToolUI();
     };
 
@@ -11244,7 +11244,7 @@
         const center = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
         setObjectPivot(selectedObject, center);
         // AUTO-KEY (v20260721q): a deliberate pivot edit like any other
-        if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['pivX', 'pivY', 'pivZ']);
+        if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(selectedObject), ['pivX', 'pivY', 'pivZ']);
         updatePivotToolUI();
         updatePropertiesPanel();
       });
@@ -11256,7 +11256,7 @@
         if (!selectedObject) return;
         setObjectPivot(selectedObject, [0, 0, 0]);
         // AUTO-KEY (v20260721q): a deliberate pivot edit like any other
-        if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['pivX', 'pivY', 'pivZ']);
+        if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(selectedObject), ['pivX', 'pivY', 'pivZ']);
         updatePivotToolUI();
         updatePropertiesPanel();
         requestRender();
@@ -11839,7 +11839,11 @@
 
     // --- Animation State Capture & Restore ---
     const captureAnimationState = () => {
-      // Serialize tracks to a plain object for diff comparison
+      // Serialize tracks to a plain object for diff comparison. Keys are copied
+      // VERBATIM, so this snapshot is ID-keyed like the runtime (v20260726o) —
+      // deliberately unlike the scene FILE, which is name-keyed. That is what
+      // makes a rename produce no animation diff at all, which in turn is what
+      // retires the "scene-undo of a rename orphans the tracks" asymmetry.
       const tracks = {};
       for (const [objectName, objTracks] of animationTimeline.tracks) {
         tracks[objectName] = {};
@@ -12711,7 +12715,7 @@
           const changed = fam.filter(p =>
             Math.abs((parseFloat(newPd[p.pdKey]) || 0) - (parseFloat(_akOldPd[p.pdKey]) || 0)) > 1e-9
           ).map(p => p.prop);
-          if (changed.length) tlAutoKeyProps(pendingPolygon.name, changed);
+          if (changed.length) tlAutoKeyProps(tlKeyOf(pendingPolygon), changed);
         }
       }
       const p = pendingPolygon;
@@ -32591,7 +32595,29 @@
         const mappingAnchorWorldMatrix = mappingAnchorWM;
 
         // Spline Flow active flag (used in 3D mode gate)
-        const splineFlowActive = activeMapping && activeMapping.active && activeMapping.targetId;
+        // RESOLVE-BEFORE-GATE (v20260726n) — the v20260720i pattern, extended from
+        // surface mapping (which got it then) to sweep, loft and spline flow, which
+        // did not. Each of these render branches already re-resolves its reference
+        // and returns early when it does not resolve; but the 3D-MODE GATE below
+        // tested only the `enabled` flag, so a deleted target put the object into 3D
+        // mode where nothing could fill the face list — measured: deleting a sweep's
+        // rail took the swept object from 130 faces to ZERO. It vanished from the
+        // canvas while still sitting in the scene tree, still flagged enabled.
+        // Resolving here instead makes a dangling reference render the plain 2D path,
+        // which is honest: the object is still there, its modifier is simply inert.
+        // Resolved ONCE per draw and threaded into the branches (railOverride /
+        // targetOverride) so this costs no extra lookups.
+        // NOTE these flags also feed the exact-prism-ordering gate at the tail of 3D
+        // mode — deliberately, and for the same reason v20260720i did it: an object
+        // whose sweep is inert IS a pure clean extrude and should order as one.
+        const _sweepRailObj = this.sweepSettings.enabled
+          ? findObjectById(this.sweepSettings.railId) : null;
+        const sweepActive = !!(this.sweepSettings.enabled && _sweepRailObj);
+        const _loftTargetObj = this.loftSettings.enabled
+          ? findObjectById(this.loftSettings.targetId) : null;
+        const loftActive = !!(this.loftSettings.enabled && _loftTargetObj instanceof Path);
+        const splineFlowActive = !!(activeMapping && activeMapping.active && activeMapping.targetId
+          && findObjectById(activeMapping.targetId));
 
         // Surface Mapping active flag (Phase 2)
         // v20260720i: the flag must also require a RESOLVABLE surface target.
@@ -32652,8 +32678,17 @@
           const _ownEx = this.extrudeSettings.enabled;
           // FOLD (v20260720m): a folded child is "modified" — group extrude
           // never touches it (same rule as revolve/sweep/loft/mapping).
+          // Deliberately the RAW `enabled` flags, NOT the resolvability-checked
+          // sweepActive / loftActive / splineFlowActive (v20260726n). This decides
+          // whether GROUP EXTRUDE may take over the child, and it must follow the
+          // user's DECLARED intent: a child whose sweep rail was just deleted (or
+          // deleted-and-about-to-be-undone) is still "a sweep, don't extrude it".
+          // Letting group extrude claim it would change the object's shape
+          // dramatically the moment a reference broke. Same reasoning for the fold
+          // exclusivity test below.
+          const _rawSplineFlow = !!(activeMapping && activeMapping.active && activeMapping.targetId);
           const _otherModifier = this.revolveSettings.enabled || this.sweepSettings.enabled
-            || this.loftSettings.enabled || splineFlowActive || surfaceMappingActive
+            || this.loftSettings.enabled || _rawSplineFlow || surfaceMappingActive
             || !!(this.foldSettings && this.foldSettings.enabled);
           this._effExtrude =
             (inheritedExtrude && !_otherModifier && (inheritedExtrude.override || !_ownEx))
@@ -32715,7 +32750,7 @@
           return '';
         };
 
-        if (this._effExtrude.enabled || this.revolveSettings.enabled || this.sweepSettings.enabled || this.loftSettings.enabled || splineFlowActive || surfaceMappingActive || !!foldPieces) {
+        if (this._effExtrude.enabled || this.revolveSettings.enabled || sweepActive || loftActive || splineFlowActive || surfaceMappingActive || !!foldPieces) {
           // --- 3D Mode ---
           const faceList = externalFaceList || [];
           const _faceListStartIdx = faceList.length; // Track start for z-sort style stamping
@@ -33581,12 +33616,14 @@
             await this.drawRevolveAsSurface(faceList, vpMatrix, modelMatrix);
           }
 
-          if (this.sweepSettings.enabled) {
-            await this.drawSurface(faceList, vpMatrix, modelMatrix);
+          if (sweepActive) {
+            // Pass the already-resolved rail (identical to what drawSurface would
+            // look up itself) so the reference is resolved once per draw.
+            await this.drawSurface(faceList, vpMatrix, modelMatrix, null, _sweepRailObj);
           }
 
-          if (this.loftSettings.enabled) {
-            this.drawLoft(faceList, vpMatrix, modelMatrix);
+          if (loftActive) {
+            this.drawLoft(faceList, vpMatrix, modelMatrix, _loftTargetObj);
           }
 
           // Guard: object may have been destroyed during async drawSurface
@@ -33607,8 +33644,8 @@
             // plain painter sort below.
             let _prismOrdered = false;
             if (_exs.enabled && extrudeRenderMode === 'clean'
-              && !this.revolveSettings.enabled && !this.sweepSettings.enabled
-              && !this.loftSettings.enabled && !splineFlowActive && !surfaceMappingActive) {
+              && !this.revolveSettings.enabled && !sweepActive
+              && !loftActive && !splineFlowActive && !surfaceMappingActive) {
               try { _prismOrdered = this._orderPrismFaces(faceList); } catch (e) { _prismOrdered = false; }
             }
             if (!_prismOrdered) faceList.sort((a, b) => b.z - a.z);
@@ -37763,6 +37800,37 @@
               }
               return out;
             };
+            // Supersede tolerance, RELATIVE to the object's screen size (a fixed
+            // pixel figure would stop working the moment the object is zoomed -
+            // the same lesson the pole suppression learned). 2 px was too tight:
+            // a fold near a tangency is the same curve as the horizon but
+            // inferred from facing signs, so it lands SEVERAL px off and escaped
+            // the test - then flickered in and out between adjacent camera
+            // angles as those signs flipped. Measured on the report scene at
+            // el 20.9 deg, mean frame-to-frame outline change over a 1 deg sweep:
+            // 2 px -> 82 px of ink, 1.5% of the diagonal -> 1 px. The response is
+            // NOT monotonic - 7 px scored WORSE (25) than 6 px (7), because a
+            // threshold that lands ON a fold's disagreement distance makes the
+            // dedupe itself flip frame to frame. Clearing it needs margin, not
+            // just a bigger number. Above ~1.7% it starts eating the grazing-band
+            // folds that legitimately fill in where a horizon branch is
+            // visibility-cut (measured: 0.4% of the boundary uncovered at 1.72%),
+            // so this is a floor with headroom, not a knob to keep raising.
+            // 1.5% is the same object-relative constant the isolated-sliver rule
+            // below uses.
+            let _bx0 = Infinity, _by0 = Infinity, _bx1 = -Infinity, _by1 = -Infinity;
+            for (const q of silh.occl) {
+              if (q.pxMin < _bx0) _bx0 = q.pxMin;
+              if (q.pyMin < _by0) _by0 = q.pyMin;
+              if (q.pxMax > _bx1) _bx1 = q.pxMax;
+              if (q.pyMax > _by1) _by1 = q.pyMax;
+            }
+            const _objDiagD = (isFinite(_bx0) && isFinite(_bx1)) ? Math.hypot(_bx1 - _bx0, _by1 - _by0) : 0;
+            const _dedupePx = window._SILH_DEDUPE_PX !== undefined
+              ? window._SILH_DEDUPE_PX
+              : Math.max(2, 0.015 * _objDiagD);
+            const _dedupeR2 = _dedupePx * _dedupePx;
+            if (window._SILH_DEBUG) window._silhDedupePx = { px: _dedupePx, diag: _objDiagD, nOccl: silh.occl.length };
             const mostlyOn = (u, cloud) => {
               const pts = onCurve(u.d);
               if (pts.length < 2 || !cloud.length) return false;
@@ -37770,7 +37838,7 @@
               for (const p of pts) {
                 for (const q of cloud) {
                   const dx = p[0] - q[0], dy = p[1] - q[1];
-                  if (dx * dx + dy * dy < 4) { near++; break; }   // within 2 px
+                  if (dx * dx + dy * dy < _dedupeR2) { near++; break; }
                 }
               }
               return near / pts.length >= 0.7;
@@ -38025,11 +38093,13 @@
       }
 
       // Loft: morph between source profile (this) and target profile, optionally through a middle profile
-      drawLoft(faceList, vpMatrix, modelMatrix) {
+      drawLoft(faceList, vpMatrix, modelMatrix, targetOverride = null) {
         const ls = this.loftSettings;
         if (!ls.enabled) return;
 
-        const targetPath = findObjectById(ls.targetId);
+        // targetOverride (v20260726n): Path.draw already resolved this to gate 3D
+        // mode; reuse it instead of walking the tree a second time per frame.
+        const targetPath = targetOverride || findObjectById(ls.targetId);
         if (!targetPath || !(targetPath instanceof Path)) return;
 
         // Closed/open type check (use first subpath for compatibility)
@@ -44096,9 +44166,20 @@
         const svgRoot = hiddenContainer.querySelector('svg');
         let processed = false;
 
+        // v20260726m: ONE `taken` set for the whole paste. Names key the
+        // animation tracks, and this handler used to mint fixed literals
+        // ("Imported_SVG", "CompoundPath"), the raw SVG id (gId / clipId) and
+        // `${tagName}_${random(100)}` — 100 buckets, so a ~12-path paste had a
+        // >50% chance of colliding with ITSELF, and a second paste collided with
+        // the first every time. A fresh _collectSceneNames() per object cannot
+        // work here: objects created earlier in this paste are not in
+        // sceneObjects yet (they are added to rootGroup, which is pushed at the
+        // end), so only an accumulating set sees them.
+        const pasteTaken = _collectSceneNames();
+
         if (svgRoot) {
           processed = true;
-          const rootGroup = new Group("Imported_SVG");
+          const rootGroup = new Group(mintObjectName("Imported_SVG", pasteTaken));
 
           // --- Parse <clipPath> definitions from <defs> ---
           const clipPathMap = new Map(); // id → [[x,y], ...] polygon in SVG coords
@@ -44215,7 +44296,7 @@
               // For <svg> passed as root, we use the rootGroup (passed as parentGroup initially)
               if (tagName === 'g') {
                 const gId = node.getAttribute('id') || `Group_${Math.floor(Math.random() * 1000)}`;
-                const newGroup = new Group(gId);
+                const newGroup = new Group(mintObjectName(gId, pasteTaken));
                 // newGroup.style = style; // Optional: Groups can hold style for reference
                 parentGroup.add(newGroup);
                 currentContainer = newGroup;
@@ -44397,7 +44478,7 @@
                       }
                     }
 
-                    const pathName = `${tagName}_${Math.floor(Math.random() * 100)}`;
+                    const pathName = mintObjectName(`${tagName}_${Math.floor(Math.random() * 100)}`, pasteTaken);
                     const compoundPath = new Path(
                       pathName,
                       [0, 0, 0],
@@ -44438,7 +44519,7 @@
                   'stroke-dasharray': '6 3'
                 };
                 const clipPath = new Path(
-                  clipId,
+                  mintObjectName(clipId, pasteTaken),
                   [0, 0, 0],
                   [0, 0, 0],
                   clipVertices,
@@ -44619,13 +44700,13 @@
               }
             });
 
-            const rootGroup = new Group("Pasted_PathData");
+            const rootGroup = new Group(mintObjectName("Pasted_PathData", pasteTaken));
             let allNewPaths = [];
 
             if (allVertices.length > 0) {
               // Create ONE path for the compound shape
               const compoundPath = new Path(
-                "CompoundPath",
+                mintObjectName("CompoundPath", pasteTaken),
                 [0, 0, 0],
                 [0, 0, 0],
                 allVertices,
@@ -45311,16 +45392,17 @@
         build(piece, newParts);
         build(obj, hostParts);
         obj.loop = false; piece.loop = false;
-        // Name both halves "<name> 1" / "<name> 2". Animation tracks are keyed
-        // by NAME, so the host's rename must MIGRATE its tracks or they are
-        // orphaned (the v20260712f rule); the fresh piece has none to migrate.
+        // Name both halves "<name> 1" / "<name> 2". Since v20260726o the host's
+        // rename needs no track migration — it keeps its ID, so its animation
+        // follows automatically; the fresh piece is a new object with a new id and
+        // deliberately carries no tracks (a split piece is not the original, and
+        // animation cannot be split with it — the v20260725zb rule, now free).
         const taken = new Set();
         (function walk(arr) { for (const o of arr) { if (!o) continue; if (o.name) taken.add(o.name); if (o.children) walk(o.children); } })(sceneObjects);
         const base = obj.name;
         taken.delete(base);
         const n1 = ensureUniqueName(base + ' 1', taken);
         const n2 = ensureUniqueName(base + ' 2', taken);
-        if (typeof tlRenameAnimTracks === 'function') tlRenameAnimTracks(obj.name, n1);
         obj.name = n1;
         piece.name = n2;
         // Insert the piece directly after the host, in the same parent.
@@ -46022,6 +46104,104 @@
         }
       });
     }
+
+    // --- CROSS-OBJECT REFERENCE PICKERS (v20260726m) -------------------------
+    // ONE populator for every reference dropdown — sweep rail, loft target, loft
+    // middles, spline-flow target, surface-mapping target, motion-path target.
+    // There were EIGHT near-duplicate copies of this loop (the spline-flow and
+    // surface-mapping enable-checkbox listeners carry their own, already drifting
+    // from their updateStylePanel twins), which is exactly how the scope bug below
+    // survived so long.
+    //
+    // Candidate SCOPE is the whole tree, not just siblings. findObjectById already
+    // resolves tree-wide, so a reference to a path in another group renders
+    // perfectly — the sibling-only pickers simply could not REPRESENT it, and the
+    // write side then clobbered it (see adoptRef). populateCycPathTargets has
+    // walked the whole tree since it was written; this brings the other six in
+    // line. Out-of-scope entries carry their group path so the list stays readable.
+    const _refCandidates = (owner) => {
+      const out = [];
+      const walk = (arr, prefix) => {
+        for (const o of arr) {
+          if (!o) continue;
+          const own = o.name || o.id;
+          out.push({ obj: o, label: prefix ? prefix + ' / ' + own : own });
+          if (o.isGroup && o.children) walk(o.children, prefix ? prefix + ' / ' + own : own);
+        }
+      };
+      walk(sceneObjects, '');
+      return out;
+    };
+    // opts.owner   — the object whose panel this is (its own entries are the
+    //                caller's business; pass it for scope/exclusion helpers)
+    // opts.current — the stored reference value ('' when unset; the composite
+    //                "id:type" string for surface mapping)
+    // opts.entries — (obj, label) => [{value, label}] ; [] skips the object
+    // RETURNS true when `current` was representable (an option matched it, or the
+    // reference is unset). The caller needs this answer: a select that could not
+    // represent its stored value is displaying its index-0 fallback, and writing
+    // that back destroys a live reference.
+    const populateRefSelect = (sel, opts) => {
+      if (!sel) return false;
+      const cur = opts.current || '';
+      sel.innerHTML = '<option value="">-- None --' + '<' + '/option>';
+      let found = false;
+      for (const cand of _refCandidates(opts.owner)) {
+        for (const e of opts.entries(cand.obj, cand.label)) {
+          const o = document.createElement('option');
+          o.value = e.value;
+          o.textContent = e.label;
+          if (e.value === cur) { o.selected = true; found = true; }
+          sel.appendChild(o);
+        }
+      }
+      // A stored reference the list cannot offer means its target was DELETED (the
+      // pickers are tree-wide since v20260726m, so out-of-scope is no longer a
+      // reason). Show it explicitly (v20260726n): displaying "-- None --" made the
+      // panel disagree with what the object actually holds, which is how the
+      // v20260726m clobbering bug stayed invisible. Disabled, so it cannot be
+      // re-picked, and adoptRef still protects the id from being overwritten.
+      if (cur && !found) {
+        const o = document.createElement('option');
+        o.value = cur;
+        o.textContent = '(missing)';
+        o.selected = true;
+        o.disabled = true;
+        sel.appendChild(o);
+      }
+      return found || cur === '';
+    };
+    // Adopt a dropdown's value ONLY when the dropdown could represent the stored
+    // one. Otherwise keep what the object already holds. Without this, moving a
+    // referenced object into a group (which the sibling-scoped pickers could not
+    // show) meant the next unrelated edit in that panel section — a Depth nudge —
+    // silently nulled a live, correctly-rendering reference. Measured before the
+    // fix: targetId "B" -> null on a loftDepthInput event.
+    const adoptRef = (sel, current) => {
+      if (!sel) return current;
+      const cur = current || '';
+      // DISABLED options don't count as "representable": the only disabled entry is
+      // the "(missing)" placeholder for a deleted target (v20260726n), and whether a
+      // browser lets a disabled option stay selected — i.e. whether sel.value reads
+      // back as the id or falls back to '' — is not something to rely on. Skipping
+      // them makes a dangling reference keep its id by construction, on any engine.
+      for (const o of sel.options) if (o.value === cur && !o.disabled) return sel.value || null;
+      return current;
+    };
+
+    // Surface mapping stores a COMPOSITE "pathId:type" value — a path with two
+    // modifiers enabled offers one entry per modifier, so the user can pick which
+    // surface to map onto. Shared by both populators (the panel sync and the
+    // enable-checkbox listener), which used to carry separate copies.
+    const _smSurfaceEntries = (obj, label) => {
+      if (!(obj instanceof Path)) return [];
+      const out = [];
+      if (obj.revolveSettings?.enabled) out.push({ value: obj.id + ':revolve', label: label + ' [Revolve]' });
+      if (obj.sweepSettings?.enabled) out.push({ value: obj.id + ':sweep', label: label + ' [Sweep]' });
+      if (obj.extrudeSettings?.enabled) out.push({ value: obj.id + ':extrude', label: label + ' [Extrude]' });
+      if (obj.loftSettings?.enabled) out.push({ value: obj.id + ':loft', label: label + ' [Loft]' });
+      return out;
+    };
 
     const updatePropertiesPanel = () => {
       updateRotatePivotRowVisibility(); // Multi Rotate Pivot depends on selection count
@@ -46776,19 +46956,11 @@
         // Populate rail dropdown with available paths (excluding self)
         const currentRailId = isPath ? (selectedObject.sweepSettings?.railId || '') : '';
         if (document.activeElement !== sweepRailSelect) {
-          sweepRailSelect.innerHTML = '<option value="">-- None --' + '<' + '/option>';
-          // Show sibling paths: same group, or both at root level
-          const siblings = (selectedObject && selectedObject.parent)
-            ? selectedObject.parent.children   // same group
-            : sceneObjects;                     // root level
-          siblings.forEach(obj => {
-            if (obj instanceof Path && (!selectedObject || obj.id !== selectedObject.id)) {
-              const opt = document.createElement('option');
-              opt.value = obj.id;
-              opt.textContent = obj.name || obj.id;
-              if (obj.id === currentRailId) opt.selected = true;
-              sweepRailSelect.appendChild(opt);
-            }
+          populateRefSelect(sweepRailSelect, {
+            owner: selectedObject, current: currentRailId,
+            entries: (obj, label) =>
+              (obj instanceof Path && (!selectedObject || obj.id !== selectedObject.id))
+                ? [{ value: obj.id, label }] : []
           });
         }
 
@@ -46936,18 +47108,11 @@
         // Populate target dropdown with sibling paths (same pattern as sweep)
         const currentTargetId = isPath ? (selectedObject.loftSettings?.targetId || '') : '';
         if (document.activeElement !== loftTargetSelect) {
-          loftTargetSelect.innerHTML = '<option value="">-- None --' + '<' + '/option>';
-          const siblings = (selectedObject && selectedObject.parent)
-            ? selectedObject.parent.children
-            : sceneObjects;
-          siblings.forEach(obj => {
-            if (obj instanceof Path && (!selectedObject || obj.id !== selectedObject.id)) {
-              const opt = document.createElement('option');
-              opt.value = obj.id;
-              opt.textContent = obj.name || obj.id;
-              if (obj.id === currentTargetId) opt.selected = true;
-              loftTargetSelect.appendChild(opt);
-            }
+          populateRefSelect(loftTargetSelect, {
+            owner: selectedObject, current: currentTargetId,
+            entries: (obj, label) =>
+              (obj instanceof Path && (!selectedObject || obj.id !== selectedObject.id))
+                ? [{ value: obj.id, label }] : []
           });
         }
 
@@ -46980,9 +47145,6 @@
           const middleIds = isPath ? (selectedObject.loftSettings?.middleIds || []) : [];
           const MAX_MIDDLES = 8;
           loftMiddleContainer.innerHTML = '';
-          const siblings = (selectedObject && selectedObject.parent)
-            ? selectedObject.parent.children
-            : sceneObjects;
 
           // Build rows: one per existing middle + one empty "add" row (if under cap)
           const rowCount = Math.min(middleIds.length + 1, MAX_MIDDLES + 1);
@@ -47003,23 +47165,13 @@
             sel.className = 'loft-middle-select';
             sel.dataset.middleIndex = mi;
 
-            // "None" option
-            const noneOpt = document.createElement('option');
-            noneOpt.value = '';
-            noneOpt.textContent = '-- None --';
-            sel.appendChild(noneOpt);
-
-            // Sibling paths, excluding source, target, and other assigned middles
+            // Excluding source, target, and the other assigned middles.
             const excludeIds = new Set([selectedObject.id, currentTargetId]);
             middleIds.forEach((id, idx) => { if (idx !== mi && id) excludeIds.add(id); });
-            siblings.forEach(obj => {
-              if (obj instanceof Path && !excludeIds.has(obj.id)) {
-                const opt = document.createElement('option');
-                opt.value = obj.id;
-                opt.textContent = obj.name || obj.id;
-                if (obj.id === currentMidId) opt.selected = true;
-                sel.appendChild(opt);
-              }
+            populateRefSelect(sel, {
+              owner: selectedObject, current: currentMidId,
+              entries: (obj, label) =>
+                (obj instanceof Path && !excludeIds.has(obj.id)) ? [{ value: obj.id, label }] : []
             });
 
             sel.disabled = !isPath || !loftEnabled;
@@ -47421,21 +47573,12 @@
         // Populate target dropdown with sibling paths (same hierarchy)
         const currentTargetId = sc ? (sc.targetId || '') : '';
         if (document.activeElement !== splineFlowTarget) {
-          splineFlowTarget.innerHTML = '<option value="">-- None --' + '<' + '/option>';
-          if (isMappable) {
-            const siblings = selectedObject.parent
-              ? selectedObject.parent.children
-              : sceneObjects;
-            siblings.forEach(obj => {
-              if (obj instanceof Path && obj.id !== selectedObject.id) {
-                const opt = document.createElement('option');
-                opt.value = obj.id;
-                opt.textContent = obj.name || obj.id;
-                if (obj.id === currentTargetId) opt.selected = true;
-                splineFlowTarget.appendChild(opt);
-              }
-            });
-          }
+          populateRefSelect(splineFlowTarget, {
+            owner: selectedObject, current: currentTargetId,
+            entries: (obj, label) =>
+              (isMappable && obj instanceof Path && obj.id !== selectedObject.id)
+                ? [{ value: obj.id, label }] : []
+          });
         }
         splineFlowTarget.disabled = !isMappable || !sfEnabled;
 
@@ -47538,44 +47681,11 @@
         // A path with both active gets two entries so the user can pick independently.
         const currentSurfaceId = sm.surfacePathId || '';
         if (document.activeElement !== smTargetSelect) {
-          smTargetSelect.innerHTML = '<option value="">-- None --' + '<' + '/option>';
-          if (isMappable) {
-            const siblings = selectedObject.parent
-              ? selectedObject.parent.children
-              : sceneObjects;
-            siblings.forEach(obj => {
-              if (!(obj instanceof Path) || obj.id === selectedObject.id) return;
-              const label = obj.name || obj.id;
-              if (obj.revolveSettings?.enabled) {
-                const opt = document.createElement('option');
-                opt.value = obj.id + ':revolve';
-                opt.textContent = label + ' [Revolve]';
-                if (opt.value === currentSurfaceId) opt.selected = true;
-                smTargetSelect.appendChild(opt);
-              }
-              if (obj.sweepSettings?.enabled) {
-                const opt = document.createElement('option');
-                opt.value = obj.id + ':sweep';
-                opt.textContent = label + ' [Sweep]';
-                if (opt.value === currentSurfaceId) opt.selected = true;
-                smTargetSelect.appendChild(opt);
-              }
-              if (obj.extrudeSettings?.enabled) {
-                const opt = document.createElement('option');
-                opt.value = obj.id + ':extrude';
-                opt.textContent = label + ' [Extrude]';
-                if (opt.value === currentSurfaceId) opt.selected = true;
-                smTargetSelect.appendChild(opt);
-              }
-              if (obj.loftSettings?.enabled) {
-                const opt = document.createElement('option');
-                opt.value = obj.id + ':loft';
-                opt.textContent = label + ' [Loft]';
-                if (opt.value === currentSurfaceId) opt.selected = true;
-                smTargetSelect.appendChild(opt);
-              }
-            });
-          }
+          populateRefSelect(smTargetSelect, {
+            owner: selectedObject, current: currentSurfaceId,
+            entries: (obj, label) =>
+              (isMappable && obj.id !== selectedObject.id) ? _smSurfaceEntries(obj, label) : []
+          });
         }
         smTargetSelect.disabled = !isMappable || !smEnabled;
 
@@ -47649,22 +47759,16 @@
           const mpParamsEl = document.getElementById('motionPathParams');
           if (mpParamsEl) mpParamsEl.classList.toggle('collapsed', !mpEnabled);
           if (document.activeElement !== mpTargetSelect) {
-            mpTargetSelect.innerHTML = '<option value="">-- None --' + '<' + '/option>';
-            if (mpOk) {
-              const isSelfOrDesc = (o) => {
-                for (let p = o; p; p = p.parent) if (p === selectedObject) return true;
-                return false;
-              };
-              const siblings = selectedObject.parent ? selectedObject.parent.children : sceneObjects;
-              siblings.forEach(obj => {
-                if (!(obj instanceof Path) || isSelfOrDesc(obj)) return;
-                const opt = document.createElement('option');
-                opt.value = obj.id;
-                opt.textContent = obj.name || obj.id;
-                if (mp && obj.id === mp.targetId) opt.selected = true;
-                mpTargetSelect.appendChild(opt);
-              });
-            }
+            const isSelfOrDesc = (o) => {
+              for (let p = o; p; p = p.parent) if (p === selectedObject) return true;
+              return false;
+            };
+            populateRefSelect(mpTargetSelect, {
+              owner: selectedObject, current: (mp && mp.targetId) || '',
+              entries: (obj, label) =>
+                (mpOk && obj instanceof Path && !isSelfOrDesc(obj))
+                  ? [{ value: obj.id, label }] : []
+            });
           }
           const mpDisabled = !mpOk || !mpEnabled;
           mpTargetSelect.disabled = mpDisabled;
@@ -47979,19 +48083,13 @@
     document.getElementById('objectNameInput').addEventListener('input', (e) => {
       if (selectedObject) {
         pushUndoStateCoalesced();
-        // Rename-safe animation: tracks are keyed by name, so the track key
-        // must follow every keystroke. If migration is blocked (the typed
-        // value momentarily equals ANOTHER object's name — e.g. typing
-        // "Moonlight" through an existing "Moon"), stash where the tracks
-        // still live in _tlTrackAlias and retry from there next keystroke;
-        // the commit handler below resolves any final collision.
-        const from = selectedObject._tlTrackAlias || selectedObject.name;
+        // Since v20260726o a rename does NOT touch animation: tracks are keyed by
+        // the object's ID. This handler used to migrate the track key on every
+        // keystroke and stash a _tlTrackAlias when the typed value momentarily
+        // collided with another object's name (typing "Moonlight" through an
+        // existing "Moon"), with the commit handler finishing the job. All of that
+        // machinery is gone — the name is now a display label.
         selectedObject.name = e.target.value;
-        if (tlRenameAnimTracks(from, selectedObject.name)) {
-          delete selectedObject._tlTrackAlias;
-        } else {
-          selectedObject._tlTrackAlias = from;
-        }
         updateTreeView();
         if (typeof tlUpdateUI === 'function') tlUpdateUI();
         // Keep collapsed preview in sync
@@ -47999,10 +48097,11 @@
         if (dp) dp.textContent = e.target.value || 'Unnamed';
       }
     });
-    // Commit (Enter/blur): enforce the unique-name contract (name-keyed
-    // animation tracks make duplicate names collide two objects' animations —
-    // the same contract duplicate/purge/merge enforce, v20260709a) and finish
-    // any migration a mid-typing collision deferred.
+    // Commit (Enter/blur): keep names unique. Since v20260726o this is a
+    // USABILITY contract, not a correctness one — duplicate names no longer
+    // collide two objects' animation (tracks are id-keyed), but two objects
+    // called "Leg" are still confusing in the tree, the timeline and the
+    // reference pickers, so the rule stays.
     document.getElementById('objectNameInput').addEventListener('change', (e) => {
       if (!selectedObject) return;
       // Names of every OTHER object (self excluded during the walk — deleting
@@ -48016,9 +48115,7 @@
         finalName = ensureUniqueName(finalName, taken);
         e.target.value = finalName;
       }
-      const from = selectedObject._tlTrackAlias || selectedObject.name;
       selectedObject.name = finalName;
-      if (tlRenameAnimTracks(from, finalName)) delete selectedObject._tlTrackAlias;
       updateTreeView();
       if (typeof tlUpdateUI === 'function') tlUpdateUI();
       const dp = document.getElementById('selectedObjectDrawerPreview');
@@ -48064,9 +48161,9 @@
         const sclProps = ['sclX', 'sclY', 'sclZ'].filter((p, i) => Math.abs(newScale[i] - prevScale[i]) > 1e-9);
         if (posProps.length) {
           const targets = (selectedObjects && selectedObjects.length > 1) ? selectedObjects : [selectedObject];
-          targets.forEach(o => tlAutoKeyProps(o.name, posProps)); // delta moved every one
+          targets.forEach(o => tlAutoKeyProps(tlKeyOf(o), posProps)); // delta moved every one
         }
-        if (sclProps.length) tlAutoKeyProps(selectedObject.name, sclProps); // scale writes primary only
+        if (sclProps.length) tlAutoKeyProps(tlKeyOf(selectedObject), sclProps); // scale writes primary only
       }
 
       if (typeof updateMoveToolUI === 'function') updateMoveToolUI(); // Update Delta Panel
@@ -48099,13 +48196,13 @@
           if (typeof tlAutoKeyProps === 'function') {
             const props = ['rotX', 'rotY', 'rotZ'];
             if (rotatePivotMode !== 'inPlace') props.push('posX', 'posY', 'posZ');
-            selectedObjects.forEach(o => tlAutoKeyProps(o.name, props));
+            selectedObjects.forEach(o => tlAutoKeyProps(tlKeyOf(o), props));
           }
         } else {
           selectedObject.rotationEuler = [x, y, z];
           selectedObject.rotationMatrix = matrixFromEuler(selectedObject.rotationEuler);
           // AUTO-KEY (v20260721q): typed rotation edit records like a drag
-          if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['rotX', 'rotY', 'rotZ']);
+          if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(selectedObject), ['rotX', 'rotY', 'rotZ']);
         }
 
         if (typeof updateRotateToolUI === 'function') updateRotateToolUI();
@@ -48195,7 +48292,7 @@
       setObjectPivot(selectedObject, newPivot);
       // AUTO-KEY (v20260721q): typed pivot edit records like a pivot drag
       // (pivotShift stays derived — tlAddKeyframe snapshots its baselines)
-      if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['pivX', 'pivY', 'pivZ']);
+      if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(selectedObject), ['pivX', 'pivY', 'pivZ']);
     };
 
     document.getElementById('pivotXInput').addEventListener('input', updatePivotFromInput);
@@ -48334,17 +48431,15 @@
             sfTarget.disabled = ctrlDisabled;
             // Populate dropdown immediately when enabling
             if (e.target.checked) {
-              sfTarget.innerHTML = '<option value="">-- None --' + '<' + '/option>';
-              const siblings = selectedObject.parent
-                ? selectedObject.parent.children
-                : sceneObjects;
-              siblings.forEach(obj => {
-                if (obj instanceof Path && obj.id !== selectedObject.id) {
-                  const opt = document.createElement('option');
-                  opt.value = obj.id;
-                  opt.textContent = obj.name || obj.id;
-                  sfTarget.appendChild(opt);
-                }
+              // Same populator as the panel sync (v20260726m) — this used to be a
+              // hand-copied duplicate and had already drifted (it never marked the
+              // stored target as selected).
+              populateRefSelect(sfTarget, {
+                owner: selectedObject,
+                current: selectedObject.surfaceConstraint.targetId || '',
+                entries: (obj, label) =>
+                  (obj instanceof Path && obj.id !== selectedObject.id)
+                    ? [{ value: obj.id, label }] : []
               });
             }
           }
@@ -48532,37 +48627,14 @@
             smTarget.disabled = ctrlDisabled;
             // Populate dropdown immediately when enabling
             if (e.target.checked) {
-              smTarget.innerHTML = '<option value="">-- None --' + '<' + '/option>';
-              const siblings = selectedObject.parent
-                ? selectedObject.parent.children
-                : sceneObjects;
-              siblings.forEach(obj => {
-                if (!(obj instanceof Path) || obj.id === selectedObject.id) return;
-                const label = obj.name || obj.id;
-                if (obj.revolveSettings?.enabled) {
-                  const opt = document.createElement('option');
-                  opt.value = obj.id + ':revolve';
-                  opt.textContent = label + ' [Revolve]';
-                  smTarget.appendChild(opt);
-                }
-                if (obj.sweepSettings?.enabled) {
-                  const opt = document.createElement('option');
-                  opt.value = obj.id + ':sweep';
-                  opt.textContent = label + ' [Sweep]';
-                  smTarget.appendChild(opt);
-                }
-                if (obj.extrudeSettings?.enabled) {
-                  const opt = document.createElement('option');
-                  opt.value = obj.id + ':extrude';
-                  opt.textContent = label + ' [Extrude]';
-                  smTarget.appendChild(opt);
-                }
-                if (obj.loftSettings?.enabled) {
-                  const opt = document.createElement('option');
-                  opt.value = obj.id + ':loft';
-                  opt.textContent = label + ' [Loft]';
-                  smTarget.appendChild(opt);
-                }
+              // Same populator as the panel sync (v20260726m) — was a hand-copied
+              // duplicate that had drifted (it never marked the stored target).
+              populateRefSelect(smTarget, {
+                owner: selectedObject,
+                current: (selectedObject.surfaceConstraint.surfaceMapping
+                  && selectedObject.surfaceConstraint.surfaceMapping.surfacePathId) || '',
+                entries: (obj, label) =>
+                  (obj.id !== selectedObject.id) ? _smSurfaceEntries(obj, label) : []
               });
             }
           }
@@ -48798,7 +48870,7 @@
     const _akSel = (props) => {
       if (typeof tlAutoKeyProps !== 'function') return;
       const ts = (selectedObjects && selectedObjects.length) ? selectedObjects : (selectedObject ? [selectedObject] : []);
-      ts.forEach(o => tlAutoKeyProps(o.name, props));
+      ts.forEach(o => tlAutoKeyProps(tlKeyOf(o), props));
     };
 
     // --- MOTION PATH listeners (v20260719f) --------------------------------
@@ -49041,7 +49113,7 @@
         if (Math.abs(sh[0]) < 1e-9 && Math.abs(sh[1]) < 1e-9 && Math.abs(sh[2]) < 1e-9) return;
         // Refuse when position/pivot are keyframed: baking rewrites position,
         // which would change the meaning of the authored keys
-        const objTracks = animationTimeline.tracks.get(selectedObject.name);
+        const objTracks = animationTimeline.tracks.get(tlKeyOf(selectedObject));
         if (objTracks && ['posX', 'posY', 'posZ', 'pivX', 'pivY', 'pivZ'].some(p => objTracks.has(p) && objTracks.get(p).length > 0)) {
           alert('Cannot bake pivot into position: this object has position or pivot keyframes.');
           return;
@@ -49077,9 +49149,36 @@
       taken.add(name);
       return name;
     };
-    // Deep-copy tracks + _tlOriginalValues baseline old→new (pairs =
-    // [[oldName,newName],…]) so a duplicated animated object plays the same
-    // motion INDEPENDENTLY.
+    // Mint a scene-unique name for a NEW object (v20260726m). EVERY creation path
+    // goes through this. Names key the animation tracks, so two objects sharing a
+    // name share ONE track — the second silently never animates, and deleting
+    // EITHER wipes the other's animation (measured). The old creation names were
+    // counter-based (`Path_${sceneObjects.length + 1}`) over TOP-LEVEL objects
+    // only, so the ordinary draw / delete / draw sequence minted a duplicate on
+    // the third step. The base strings are unchanged, so a scene with no collision
+    // is named exactly as before — this changes collision HANDLING, not the
+    // naming scheme.
+    // Pass an explicit `taken` when minting several names in one batch (SVG paste):
+    // objects created earlier in the batch are not in sceneObjects yet, so a fresh
+    // _collectSceneNames() per object cannot see them — and it is O(n²) besides.
+    const mintObjectName = (base, taken) => ensureUniqueName(base, taken || _collectSceneNames());
+    // Counter-based tool names (`Path_3`, `Ellipse_7`, …) get their own minter:
+    // it scans forward to the first FREE index instead of appending ensureUniqueName's
+    // ' 2' suffix, so the third path after a deletion is `Path_4`, never `Path_3 2`.
+    // Counts the WHOLE tree (the old `sceneObjects.length + 1` counted top-level
+    // objects only, which is half of why it collided). Prefix ends with '_'.
+    const mintNumberedName = (prefix) => {
+      const taken = _collectSceneNames();
+      let n = 1;
+      while (taken.has(prefix + n)) n++;
+      return prefix + n;
+    };
+    // Deep-copy tracks + _tlOriginalValues baseline old→new so a duplicated
+    // animated object plays the same motion INDEPENDENTLY. Since v20260726o the
+    // pairs are [oldTrackKey, newTrackKey] — i.e. object IDS, taken from the same
+    // idMap that remapRefs uses (v20260726n) — not names. Duplicate is the one
+    // operation that must still copy tracks: the copy is a NEW object with a new
+    // id, so nothing else would give it any.
     const _copyAnimTracks = (pairs) => {
       if (typeof animationTimeline === 'undefined') return;
       for (const [oldName, newName] of pairs) {
@@ -49098,60 +49197,64 @@
         }
       }
     };
-    // Rename-safety: move a name's tracks + baselines + timeline UI state to
-    // its new name (tracks are keyed by object NAME — a plain rename used to
-    // orphan the animation). Never clobbers entries already living under
-    // newName (a foreign object's animation); returns true when the track key
-    // actually followed, so the caller can stash an alias and retry — see the
-    // objectNameInput handler, which migrates per keystroke and resolves
-    // collisions at commit via ensureUniqueName.
-    const tlRenameAnimTracks = (oldName, newName) => {
-      if (typeof animationTimeline === 'undefined') return true;
-      if (!oldName || !newName || oldName === newName) return true;
-      let moved = true;
-      if (animationTimeline.tracks.has(oldName)) {
-        if (animationTimeline.tracks.has(newName)) {
-          moved = false; // foreign tracks under newName — do not merge/overwrite
-        } else {
-          animationTimeline.tracks.set(newName, animationTimeline.tracks.get(oldName));
-          animationTimeline.tracks.delete(oldName);
-        }
-      }
-      if (moved && typeof _tlOriginalValues !== 'undefined') {
-        const prefix = oldName + '::';
-        for (const [key, val] of [..._tlOriginalValues]) {
-          if (key.startsWith(prefix)) {
-            const nk = newName + '::' + key.slice(prefix.length);
-            if (!_tlOriginalValues.has(nk)) _tlOriginalValues.set(nk, val);
-            _tlOriginalValues.delete(key);
+    // --- CROSS-OBJECT REFERENCE REMAP (v20260726n) --------------------------
+    // Rewrite every id-based reference in `root`'s subtree that points at an
+    // object INSIDE the same subtree, using an old→new id map. This is what makes
+    // a duplicated RIG self-contained: before this, duplicateObject deep-cloned
+    // settings with JSON.parse(JSON.stringify(...)), so a duplicated group holding
+    // a profile + its rail came out with the copy's railId still aimed at the
+    // ORIGINAL rail — measured — leaving a redundant rail and two sweeps sharing
+    // one. New ids were always minted correctly; they were just never substituted.
+    //
+    // References pointing OUTSIDE the subtree are deliberately LEFT ALONE. That is
+    // the whole rule: duplicating a profile that sweeps along a rail you did not
+    // select should keep using that rail.
+    //
+    // Kept as a top-level helper on purpose — an "import/merge scene into the
+    // current one" feature, or an id-collision repair pass, needs exactly this.
+    // The seven reference fields are the complete set (see
+    // _plans/PLAN-object-reference-integrity.md); add here if an eighth appears.
+    const remapRefs = (root, idMap) => {
+      if (!root || !idMap || idMap.size === 0) return;
+      const m = (id) => (id && idMap.has(id)) ? idMap.get(id) : id;
+      // surfaceMapping stores the COMPOSITE "pathId:type" — remap only the id
+      // half and rejoin. Never regex the whole string: a type suffix is not an id.
+      const mComposite = (v) => {
+        if (!v) return v;
+        const i = v.indexOf(':');
+        if (i < 0) return m(v);
+        return m(v.slice(0, i)) + v.slice(i);
+      };
+      const visit = (o) => {
+        if (!o) return;
+        if (o.sweepSettings) o.sweepSettings.railId = m(o.sweepSettings.railId);
+        if (o.loftSettings) {
+          o.loftSettings.targetId = m(o.loftSettings.targetId);
+          if (Array.isArray(o.loftSettings.middleIds)) {
+            o.loftSettings.middleIds = o.loftSettings.middleIds.map(m);
           }
         }
-      }
-      if (moved && typeof _tlGroupCollapsed !== 'undefined' &&
-        _tlGroupCollapsed.has(oldName) && !_tlGroupCollapsed.has(newName)) {
-        _tlGroupCollapsed.set(newName, _tlGroupCollapsed.get(oldName));
-        _tlGroupCollapsed.delete(oldName);
-      }
-      return moved;
-    };
-    // Remove an object's (and its descendants') tracks + baselines — mirrors
-    // the Delete handler's cleanup; used by purge/merge which delete objects,
-    // so no orphan tracks leak into saved scenes.
-    const removeAnimTracksFor = (obj) => {
-      if (typeof animationTimeline === 'undefined' || !obj) return;
-      const name = obj.name;
-      if (name && animationTimeline.tracks.has(name)) animationTimeline.tracks.delete(name);
-      if (typeof _tlOriginalValues !== 'undefined' && name) {
-        const prefix = name + '::';
-        for (const key of [..._tlOriginalValues.keys()]) if (key.startsWith(prefix)) _tlOriginalValues.delete(key);
-      }
-      if (obj.children) obj.children.forEach(removeAnimTracksFor);
+        if (o.surfaceConstraint) {
+          o.surfaceConstraint.targetId = m(o.surfaceConstraint.targetId);
+          const sm = o.surfaceConstraint.surfaceMapping;
+          if (sm) sm.surfacePathId = mComposite(sm.surfacePathId);
+        }
+        if (o.motionPathSettings) o.motionPathSettings.targetId = m(o.motionPathSettings.targetId);
+        // Cycloid path rail lives in primitiveData (shallow-copied by duplicate,
+        // so this mutates the COPY's own record).
+        if (o.primitiveData && o.primitiveData.pathTarget) {
+          o.primitiveData.pathTarget = m(o.primitiveData.pathTarget);
+        }
+        if (o.children) o.children.forEach(visit);
+      };
+      visit(root);
     };
 
     // duplicateObject(obj) — pure geometry copy (names "X Copy", used by the
     // flatten backup). duplicateObject(obj, {uniqueNames, taken, pairs}) also
     // mints unique names via ensureUniqueName and records old→new name pairs
-    // (for _copyAnimTracks) — used by the real Duplicate action.
+    // (for _copyAnimTracks) — used by the real Duplicate action. Pass
+    // opts.idMap (a Map) to collect old→new IDS for remapRefs (v20260726n).
     const duplicateObject = (obj, opts) => {
       if (!obj) return null;
       const nameFor = (o) => {
@@ -49167,6 +49270,7 @@
 
       if (obj instanceof Group) {
         const newGroup = new Group(nameFor(obj));
+        if (opts && opts.idMap) opts.idMap.set(obj.id, newGroup.id); // v20260726n
         // Deep copy transform properties
         newGroup.position = [...obj.position];
         newGroup.scale = [...obj.scale];
@@ -49225,6 +49329,7 @@
           [...obj.scale],
           newSubPathData
         );
+        if (opts && opts.idMap) opts.idMap.set(obj.id, newPath.id); // v20260726n
         // Override rotation matrix for exact match
         newPath.rotationMatrix = obj.rotationMatrix.map(row => [...row]);
 
@@ -49281,10 +49386,18 @@
       const newObjs = [];
       for (const obj of topMost) {
         const pairs = [];
-        const dup = duplicateObject(obj, { uniqueNames: true, taken, pairs });
+        const idMap = new Map();
+        const dup = duplicateObject(obj, { uniqueNames: true, taken, pairs, idMap });
         if (dup) {
           if (obj.parent) obj.parent.add(dup); else sceneObjects.push(dup);
-          _copyAnimTracks(pairs); // copy this object's + descendants' tracks under the new names
+          // v20260726n: rewrite references that point INSIDE this copy so the
+          // duplicate is self-contained. Must run AFTER the whole subtree exists —
+          // a child duplicated early can reference a sibling duplicated later.
+          remapRefs(dup, idMap);
+          // v20260726o: tracks are keyed by ID, so the copy's tracks come from the
+          // SAME old→new id map remapRefs just used. The name `pairs` array is now
+          // only kept for callers that still care about names (none today).
+          _copyAnimTracks([...idMap.entries()]);
           newObjs.push(dup);
         }
       }
@@ -49467,7 +49580,9 @@
             obj.svgElement.parentNode.removeChild(obj.svgElement);
           }
         }
-        removeAnimTracksFor(obj); // the source name no longer exists — drop its tracks
+        // Tracks left in place (v20260726p): the source object is gone but this is
+        // an UNDOABLE scene edit, so its tracks stay as inert orphans and ⌘Z
+        // re-attaches them with the object. See tlIsOrphanKey.
       });
 
       // Update Selection to ALL newly created pieces
@@ -49571,7 +49686,7 @@
             other.svgElement.parentNode.removeChild(other.svgElement);
           }
         }
-        removeAnimTracksFor(other); // merged-away name no longer exists — drop its tracks
+        // Tracks left in place (v20260726p) — undoable edit, see tlIsOrphanKey.
       });
 
       // 5. Update Selection
@@ -49961,7 +50076,8 @@
         const index = sceneObjects.indexOf(object);
         if (index > -1) sceneObjects.splice(index, 1);
       }
-      removeAnimTracksFor(object);
+      // Tracks left in place (v20260726p) — deleting a path's last vertex is an
+      // undoable scene edit, so ⌘Z restores the object AND its animation.
       if (typeof tlRenderTracks === 'function' && typeof tlExpanded !== 'undefined' && tlExpanded) {
         tlRenderTracks();
       }
@@ -50585,7 +50701,12 @@
         if (!obj.isGroup && (forceAll || targetId.startsWith('sweep'))) {
           if (!obj.sweepSettings) obj.sweepSettings = {};
           obj.sweepSettings.enabled = sweepEnabled;
-          obj.sweepSettings.railId = sweepRailId || null;
+          // adoptRef (v20260726m): this is a BULK write — every input in the Sweep
+          // section runs it, not just the rail dropdown. If the dropdown could not
+          // represent the stored rail it is showing its index-0 fallback, and
+          // writing that would destroy a live reference. Only adopt a value the
+          // dropdown actually offered.
+          obj.sweepSettings.railId = adoptRef(sweepRailSelect, obj.sweepSettings.railId);
           obj.sweepSettings.divisionsU = sweepDivsU;
           obj.sweepSettings.divisionsV = sweepDivsV;
           obj.sweepSettings.cleanSegsU = sweepCleanSegsU;
@@ -50670,7 +50791,7 @@
           const loftSimpleSides = document.getElementById('loftSimpleSidesInput');
 
           if (loftEnabled) obj.loftSettings.enabled = loftEnabled.checked;
-          if (loftTarget) obj.loftSettings.targetId = loftTarget.value || null;
+          if (loftTarget) obj.loftSettings.targetId = adoptRef(loftTarget, obj.loftSettings.targetId); // bulk write — see adoptRef
           if (loftDepth) obj.loftSettings.depth = parseFloat(loftDepth.value) || 1.0;
           if (loftSegments) obj.loftSettings.segments = parseInt(loftSegments.value) || 16;
           if (loftInterp) obj.loftSettings.interpolation = loftInterp.value;
@@ -50765,7 +50886,7 @@
         const akProps = AK[targetId];
         if (akProps) {
           const trimEdit = targetId.startsWith('strokeTrim');
-          targets.forEach(o => { if (!(trimEdit && o.isGroup)) tlAutoKeyProps(o.name, akProps); });
+          targets.forEach(o => { if (!(trimEdit && o.isGroup)) tlAutoKeyProps(tlKeyOf(o), akProps); });
         }
       }
 
@@ -51748,19 +51869,48 @@
     // Default corpus: the PathRender/RI stress + regression scenes plus revolve /
     // surface-mapping coverage. Override by passing your own array of scene paths.
     const DIM_CORPUS = [
-      'scenes/dim_stress_ix_01_planar_trio.json',
-      'scenes/dim_stress_ix_02_curved_blobs.json',
-      'scenes/dim_stress_ix_03_vase_blades.json',
-      'scenes/dim_stress_ix_04_sweep_pierce.json',
-      'scenes/dim_stress_ix_05_mixed_modes.json',
-      'scenes/dim_stress_ix_06_touch_apart.json',
-      'scenes/dim_test_render_intersections_cross.json',
-      'scenes/dim_test_render_intersections_revolve.json',
-      'scenes/intersection_simple.json',
-      'scenes/dim_test_sr_x_xr.json',
-      'scenes/dim_scene_sample_surfacemapping_01_RtoExtrudedSquare.json',
-      'scenes/dim_scene_sample_surfacemapping_02_Earth.json',
+      '_tests/dim_stress_ix_01_planar_trio.json',
+      '_tests/dim_stress_ix_02_curved_blobs.json',
+      '_tests/dim_stress_ix_03_vase_blades.json',
+      '_tests/dim_stress_ix_04_sweep_pierce.json',
+      '_tests/dim_stress_ix_05_mixed_modes.json',
+      '_tests/dim_stress_ix_06_touch_apart.json',
+      '_tests/dim_test_render_intersections_cross.json',
+      '_tests/dim_test_render_intersections_revolve.json',
+      '_tests/intersection_simple.json',
+      '_tests/dim_test_sr_x_xr.json',
+      // These two also ship as user downloads from scenes/ (linked on index.html).
+      // The copy under _tests/ is the CORPUS authority; _tlCorpusTwinCheck below
+      // warns if the two ever diverge — two copies of a fixture that must stay
+      // identical is how a corpus quietly stops testing what it claims to.
+      '_tests/dim_scene_sample_surfacemapping_01_RtoExtrudedSquare.json',
+      '_tests/dim_scene_sample_surfacemapping_02_Earth.json',
     ];
+
+    // DRIFT GUARD (v20260726q). Two corpus fixtures are ALSO shipped to users from
+    // scenes/ (linked on index.html), so they exist twice. Two copies that must stay
+    // identical is exactly how a corpus quietly stops testing what it claims to —
+    // and one of them is 2.2 MB, so nobody will spot a divergence by eye. For every
+    // corpus scene that has a same-named twin under scenes/, compare the bytes and
+    // warn. Silent on the normal case (no twin, or identical); never throws, and
+    // never fails the run — this is a smoke alarm, not a gate.
+    const _tlCorpusTwinCheck = async (scenePaths) => {
+      for (const path of scenePaths) {
+        const base = path.replace(/^.*\//, '');
+        if (path === 'scenes/' + base) continue;          // it IS the demo copy
+        try {
+          const [a, b] = await Promise.all([
+            fetch(path).then(r => r.ok ? r.text() : null),
+            fetch('scenes/' + base).then(r => r.ok ? r.text() : null),
+          ]);
+          if (a && b && a !== b) {
+            console.warn('%c[dimCorpusHash] TWIN DRIFT: ' + path + ' and scenes/' + base
+              + ' are no longer identical. The corpus is testing something the user does not download.',
+              'font-weight:bold;color:#b45309');
+          }
+        } catch (e) { /* a missing twin is the normal case */ }
+      }
+    };
 
     // Hash the whole corpus and print a table. SERIAL (one import per await) —
     // concurrent imports race the shared sceneObjects / pathGroup. Uses the
@@ -51775,6 +51925,7 @@
     //                   determinism; omit for the static corpus.
     // Returns { path: {hash,count}, ... }.
     const dimCorpusHash = async (scenePaths = DIM_CORPUS, opts = {}) => {
+      await _tlCorpusTwinCheck(scenePaths);
       const results = {};
       for (const path of scenePaths) {
         try {
@@ -51798,7 +51949,7 @@
         const b = base && base[p];
         const status = !base ? '' : (r.hash === 'ERROR' ? 'ERROR'
           : (b && b.hash === r.hash) ? 'PASS' : 'CHANGED');
-        return { scene: p.replace('scenes/', ''), hash: r.hash, faces: r.count, status };
+        return { scene: p.replace(/^(_tests|scenes)\//, ''), hash: r.hash, faces: r.count, status };
       });
       console.table(rows);
       if (base) {
@@ -53394,7 +53545,7 @@
       if (!activePixelGroup) {
         pushUndoState('Pixel Art');
         const id = Math.floor(Math.random() * 10000);
-        activePixelGroup = new Group(`Pixel_Art_${id}`);
+        activePixelGroup = new Group(mintObjectName(`Pixel_Art_${id}`));
         sceneObjects.push(activePixelGroup);
         setSelectedObject(activePixelGroup);
       } else if (_lastPixelCell === null) {
@@ -53403,7 +53554,7 @@
       }
 
       const pixelPath = new Path(
-        `px_${activePixelGroup.children.length}`,
+        mintObjectName(`px_${activePixelGroup.children.length}`),
         [0, 0, 0],
         [0, 0, 0],
         vertices,
@@ -53812,7 +53963,7 @@
                 // Create new path — save pre-creation baseline for undo
                 pushUndoState();
                 const _penPreCreationState = _lastSceneState ? deepClone(_lastSceneState) : null;
-                const newPathName = `Path_${sceneObjects.length + 1}`;
+                const newPathName = mintNumberedName('Path_');
                 const pathStyle = JSON.parse(JSON.stringify(currentStyle)); // Deep copy current style
                 activePath = new Path(newPathName, [0, 0, 0], [0, 0, 0], [hitPoint], currentAlgorithm, false, pathStyle);
                 activePath._preCreationSceneState = _penPreCreationState;
@@ -54091,7 +54242,7 @@
                   const pathStyle = getCurrentPathStyle();
                   if (!pathStyle.fill || pathStyle.fill === 'none') pathStyle.fill = '#000000';
                   pathStyle['fill-rule'] = 'evenodd';
-                  const newPathName = 'Text_' + (sceneObjects.length + 1);
+                  const newPathName = mintNumberedName('Text_');
                   activePath = new Path(newPathName, [...hitPoint], [0, 0, 0], [], 'bezier', false, pathStyle);
                   sceneObjects.push(activePath);
                   pendingPolygon = activePath;
@@ -54153,7 +54304,7 @@
               // Create a new path with the first point — save pre-creation baseline for undo
               pushUndoState();
               const _penPreCreationState2 = _lastSceneState ? deepClone(_lastSceneState) : null;
-              const newPathName = `Path_${sceneObjects.length + 1}`;
+              const newPathName = mintNumberedName('Path_');
               const pathStyle = JSON.parse(JSON.stringify(currentStyle));
               activePath = new Path(newPathName, [0, 0, 0], [0, 0, 0], [hitPoint], currentAlgorithm, false, pathStyle);
               activePath._preCreationSceneState = _penPreCreationState2;
@@ -56083,7 +56234,7 @@
         if (dx > 5 || dy > 5) {
           dragMode = currentTool === 'star' ? 'draw-star' : currentTool === 'ellipse' ? 'draw-ellipse' : 'draw-polygon';
 
-          const newPathName = currentTool === 'ellipse' ? 'Ellipse_' + (sceneObjects.length + 1) : (currentTool === 'star' ? 'Star_' : 'Rect_') + (sceneObjects.length + 1);
+          const newPathName = mintNumberedName(currentTool === 'ellipse' ? 'Ellipse_' : (currentTool === 'star' ? 'Star_' : 'Rect_'));
           const pathStyle = getCurrentPathStyle();
 
           let initVertices = [];
@@ -56164,7 +56315,7 @@
           const workingPlane = getWorkingPlane();
           const localOffsets = generateSpiralVertices(dragStartPoint, snfAngle, snfRadius, snfCount, basis, snfStartRadius, snfHeight, workingPlane.normal);
 
-          const newPathName = 'Spl_' + (sceneObjects.length + 1);
+          const newPathName = mintNumberedName('Spl_');
           const pathStyle = getCurrentPathStyle();
 
           // Override stroke from spiral tool's inline inputs
@@ -56317,7 +56468,7 @@
 
           const isLine = cycRail.startsWith('line');
           const isPathRail = cycRail === 'path';
-          const newPathName = (isPathRail ? 'PCyc_' : isLine ? 'LCyc_' : 'Cyc_') + (sceneObjects.length + 1);
+          const newPathName = mintNumberedName(isPathRail ? 'PCyc_' : isLine ? 'LCyc_' : 'Cyc_');
           const pathStyle = getCurrentPathStyle();
 
           // Override stroke from cycloid tool's inline inputs
@@ -56489,7 +56640,7 @@
           const workingPlane = getWorkingPlane();
           const localOffsets = generateLissajousVertices(dragStartPoint, lisFreqA, lisFreqB, lisDelta, lisAmpA, lisAmpB, lisCount, basis, lisLoop, lisHeightVal, workingPlane.normal, lisLinearHeight, lisFreqC, lisPhaseC);
 
-          const newPathName = 'Lis_' + (sceneObjects.length + 1);
+          const newPathName = mintNumberedName('Lis_');
           const pathStyle = getCurrentPathStyle();
 
           // Override stroke from lissajous tool's inline inputs
@@ -57441,9 +57592,9 @@
             if (scalePivotMode === 'origin' || (isMulti && scalePivotMode !== 'inPlace')) props.push('posX', 'posY', 'posZ');
           }
           const akTargets = isMulti ? selectedObjects : [selectedObject];
-          akTargets.forEach(o => { tlAutoKeyProps(o.name, props); tlAutoKeyObject(o); });
+          akTargets.forEach(o => { tlAutoKeyProps(tlKeyOf(o), props); tlAutoKeyObject(o); });
         } else if (pivotModes.includes(_prevDragMode) && selectedObject) {
-          tlAutoKeyProps(selectedObject.name, ['pivX', 'pivY', 'pivZ']); // create
+          tlAutoKeyProps(tlKeyOf(selectedObject), ['pivX', 'pivY', 'pivZ']); // create
           tlAutoKeyObject(selectedObject);   // pivot editing is single-object
         }
       }
@@ -57925,7 +58076,7 @@
               obj.position = vectorAdd(obj.position, worldSpaceDelta);
             });
             // AUTO-KEY (v20260721q): a nudge is a position edit like a drag
-            if (typeof tlAutoKeyProps === 'function') selectedObjects.forEach(o => tlAutoKeyProps(o.name, ['posX', 'posY', 'posZ']));
+            if (typeof tlAutoKeyProps === 'function') selectedObjects.forEach(o => tlAutoKeyProps(tlKeyOf(o), ['posX', 'posY', 'posZ']));
             updatePropertiesPanel();
             updateMoveToolUI();
             requestRender();
@@ -57933,7 +58084,7 @@
             // Move single object
             selectedObject.position = vectorAdd(selectedObject.position, worldSpaceDelta);
             // AUTO-KEY (v20260721q): a nudge is a position edit like a drag
-            if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(selectedObject.name, ['posX', 'posY', 'posZ']);
+            if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(selectedObject), ['posX', 'posY', 'posZ']);
             updatePropertiesPanel();
             updateMoveToolUI();
             requestRender();
@@ -58469,30 +58620,17 @@
           }
         }
 
-        // Clean up animation tracks for the deleted object (and its children if it's a group)
-        if (typeof animationTimeline !== 'undefined') {
-          const _removeAnimTracks = (obj) => {
-            const name = obj.name;
-            if (name && animationTimeline.tracks.has(name)) {
-              animationTimeline.tracks.delete(name);
-            }
-            // Clean up _tlOriginalValues for this object
-            if (typeof _tlOriginalValues !== 'undefined') {
-              const prefix = name + '::';
-              for (const key of [..._tlOriginalValues.keys()]) {
-                if (key.startsWith(prefix)) _tlOriginalValues.delete(key);
-              }
-            }
-            // Recurse into children (groups)
-            if (obj.children) {
-              obj.children.forEach(child => _removeAnimTracks(child));
-            }
-          };
-          _removeAnimTracks(selectedObject);
-          // Refresh timeline UI if visible
-          if (typeof tlRenderTracks === 'function' && typeof tlExpanded !== 'undefined' && tlExpanded) {
-            tlRenderTracks();
-          }
+        // ANIMATION TRACKS ARE DELIBERATELY *NOT* REMOVED HERE (v20260726p).
+        // They were, and it was irrecoverable: ⌘Z restored the object but the
+        // tracks were gone, and ⌥X could not help because nothing was ever pushed
+        // onto the animation stack. Now that tracks are keyed by object ID
+        // (v20260726o) and deserializeObject preserves ids, leaving them in place
+        // means scene-undo re-attaches the animation for free — no coupling
+        // between the two independent undo stacks required. Until then the tracks
+        // are ORPHANS: inert (tlApplyFrame skips unresolvable keys), hidden from
+        // the timeline, and dropped by tlSerialize so no file carries them.
+        if (typeof tlRenderTracks === 'function' && typeof tlExpanded !== 'undefined' && tlExpanded) {
+          tlRenderTracks();
         }
 
         // Auto-select next sibling: prefer same index (layer below), else previous
@@ -58503,6 +58641,18 @@
 
         selectedObject = null;
         selectedObjects = []; // Clear array to prevent highlight artifacts
+        // UNDO ORDERING (v20260726n, found while verifying the dangling-reference
+        // work): this push MUST come before setSelectedObject. The project's own
+        // documented rule — "push the labeled undo entry BEFORE setSelectedObject;
+        // selection re-syncs _lastSceneState and silently swallows a trailing
+        // push" — was violated right here, and the consequence was not cosmetic:
+        // deleting an object was NOT UNDOABLE whenever a sibling remained to be
+        // auto-selected (i.e. almost always). Measured on the default scene via the
+        // real keyboard path: Delete removed Path_A and no number of Cmd+Z brought
+        // it back. It only worked for the very last object in the scene, where
+        // nextObj is null and setSelectedObject never runs — which is exactly why
+        // a casual test would pass.
+        pushUndoState('Delete object');
         if (nextObj) {
           setSelectedObject(nextObj);
         }
@@ -58510,7 +58660,6 @@
         updatePropertiesPanel(); // Clear properties panel
         updateStylePanel(); // Reset style panel
         requestRender();
-        pushUndoState('Delete object');
       }
     };
 
@@ -58590,7 +58739,7 @@
         else { const idx = sceneObjects.indexOf(obj); if (idx > -1) sceneObjects.splice(idx, 1); }
         if (W) setLocalFromWorld(obj, newGroupWorld, W);
         newGroup.add(obj);
-        if (!warnedAnim && typeof animationTimeline !== 'undefined' && obj.name && animationTimeline.tracks.has(obj.name)) {
+        if (!warnedAnim && typeof animationTimeline !== 'undefined' && tlKeyOf(obj) && animationTimeline.tracks.has(tlKeyOf(obj))) {
           console.warn('[group] a grouped object is animated — its keyframes keep their old LOCAL values (not re-based).');
           warnedAnim = true;
         }
@@ -60057,7 +60206,7 @@
           },
           // Full multi-camera list (v20260712a); legacy 'camera' kept above.
           cameras: captureCameraState(),
-          objects: sceneObjects.map(obj => serializeObject(obj)),
+          objects: sceneObjects.map(obj => serializeObject(obj, { prune: true })),
           workplane: {
             active: workplanes.indexOf(activeWorkplane),
             list: workplanes.map(wp => wp.serialize())
@@ -60098,7 +60247,9 @@
       }
     };
 
-    const serializeObject = (obj) => {
+    // opts.prune (v20260726n): drop dangling loft middleIds. Opt-IN, because this
+    // serializer is shared with captureSceneState (the undo stack) — see below.
+    const serializeObject = (obj, opts = {}) => {
       const data = {
         type: obj.isGroup ? 'Group' : 'Path',
         id: obj.id,
@@ -60128,7 +60279,7 @@
       }
 
       if (obj.isGroup) {
-        data.children = obj.children.map(child => serializeObject(child));
+        data.children = obj.children.map(child => serializeObject(child, opts));
         if (obj.zSortChildren) data.zSortChildren = true;
         if (obj.zSortMode && obj.zSortMode !== 'children') data.zSortMode = obj.zSortMode;
         if (obj.renderIntersections) data.renderIntersections = true;
@@ -60155,7 +60306,23 @@
         data.extrudeSettings = obj.extrudeSettings;
         data.revolveSettings = obj.revolveSettings;
         data.sweepSettings = obj.sweepSettings;
-        data.loftSettings = obj.loftSettings;
+        // loftSettings.middleIds: drop entries whose target no longer exists
+        // (v20260726n). Never mutates the live object, and gated on `opts.prune` so
+        // it applies to FILE export / localStorage only — NOT to the undo snapshots
+        // that share this serializer. Pruning an undo snapshot would make a REDO of
+        // "delete a middle" quietly also clear the id, so the two stacks would
+        // disagree about what the scene was. The single-value references (railId /
+        // targetId / surfacePathId) are left alone even on export: they carry the
+        // user's intent, and a null is indistinguishable from "never set".
+        if (opts.prune && obj.loftSettings && Array.isArray(obj.loftSettings.middleIds)
+          && obj.loftSettings.middleIds.some(id => id && !findObjectById(id))) {
+          data.loftSettings = {
+            ...obj.loftSettings,
+            middleIds: obj.loftSettings.middleIds.filter(id => id && findObjectById(id))
+          };
+        } else {
+          data.loftSettings = obj.loftSettings;
+        }
         data.vertexPointSettings = obj.vertexPointSettings;
         // FOLD / WRAP (v20260720m): written only when enabled so pre-feature
         // files stay byte-identical.
@@ -60190,7 +60357,7 @@
         // Full multi-camera list (v20260712a). The legacy single 'camera'
         // block above is kept so older builds can still open new files.
         cameras: captureCameraState(),
-        objects: sceneObjects.map(obj => serializeObject(obj)),
+        objects: sceneObjects.map(obj => serializeObject(obj, { prune: true })),
         workplane: {
           active: workplanes.indexOf(activeWorkplane),
           list: workplanes.map(wp => wp.serialize())
@@ -60353,6 +60520,40 @@
         sceneObjects.push(obj);
       });
 
+      // NAME UNIQUENESS on import (v20260726m). deserializeObject restores names
+      // verbatim, so a file written before the creation-site fix keeps its
+      // duplicates forever — and duplicate names share ONE animation track (the
+      // second object never animates; deleting either wipes the other's).
+      //
+      // NO track migration here, deliberately. The plan called for one and
+      // measurement rejected it: the track key is the ORIGINAL name, the FIRST
+      // colliding object keeps that name (the walk renames the later ones), and
+      // _tlFindObjectByName already resolved to that first object — so the track
+      // still binds to exactly the object it animated before this pass existed.
+      // Migrating instead MOVED the animation onto the renamed object (measured:
+      // posX at frame 10 jumped from object 1 to object 2), silently changing
+      // what an existing scene does. Leaving the key alone is the behaviour-
+      // preserving choice; the renamed object had no animation before and still
+      // has none.
+      const _importRenames = [];
+      {
+        const taken = new Set();
+        const walk = (arr) => {
+          for (const o of arr) {
+            if (!o) continue;
+            const base = o.name || 'Unnamed';
+            const unique = ensureUniqueName(base, taken);
+            if (unique !== base) { _importRenames.push([base, unique]); o.name = unique; }
+            if (o.children) walk(o.children);
+          }
+        };
+        walk(sceneObjects);
+        if (_importRenames.length) {
+          console.warn('[import] Duplicate object names found and made unique: '
+            + _importRenames.map(([a, b]) => `"${a}" → "${b}"`).join(', '));
+        }
+      }
+
       // Restore Camera(s)
       if (data.cameras && Array.isArray(data.cameras.list)) {
         // Full multi-camera format (v20260712a): whole cameras[] list with
@@ -60485,12 +60686,16 @@
       loop: true,
       pingPong: false,
       _playDirection: 1,
-      // Tracks: Map<objectName, Map<property, Array<{frame, value}>>>
+      // Tracks: Map<trackKey, Map<property, Array<{frame, value}>>>, where the
+      // trackKey is an object ID (see tlKeyOf) or the reserved '__camera__'.
       tracks: new Map(),
       _playInterval: null,
     };
 
-    // --- Recursive object lookup for timeline (searches inside groups) ---
+    // --- Recursive object lookup BY NAME ---
+    // Since v20260726o this is used ONLY by tlDeserialize's name→id wire mapping;
+    // the timeline itself resolves track keys through tlObjOf → findObjectById.
+    // Do not reintroduce it as a track resolver.
     const _tlFindInGroup = (group, name) => {
       for (const child of group.children) {
         if (child.name === name) return child;
@@ -60510,6 +60715,54 @@
         }
       }
       return null;
+    };
+
+    // --- ANIMATION TRACK KEY (v20260726o) ------------------------------------
+    // THE seam between a scene object and its animation tracks. Every
+    // animationTimeline.tracks key, every _tlOriginalValues prefix and every
+    // keyframe-selection key goes through this pair — nothing else may derive a
+    // track key from an object, or an object from a track key.
+    //
+    // The key is the object ID. Ids are minted in the constructors, preserved by
+    // serializeObject/deserializeObject, and therefore survive save/load, undo/redo
+    // AND reparenting — so renaming an object no longer touches its animation at
+    // all. That single fact deletes tlRenameAnimTracks, the _tlTrackAlias retry in
+    // the rename handler, and the "scene-undo of a rename orphans the tracks"
+    // asymmetry (see _plans/PLAN-animation-tracks-by-id.md).
+    //
+    // The SCENE FILE format is unchanged and still keyed by NAME — tlSerialize maps
+    // id→name on the way out and tlDeserialize maps name→id on the way in. That
+    // keeps every existing scene readable, keeps scene JSON legible, and keeps
+    // archived builds in _bkup/ able to open files written by this one (an older
+    // build looks tracks up by name; ids would resolve to nothing and it would lose
+    // every animation silently). Undo SNAPSHOTS are internal and stay id-keyed —
+    // that is what makes a rename produce no animation diff at all.
+    //
+    // '__camera__' is a RESERVED key, not an object id: it never resolves to a
+    // scene object, and the guard lives here so the ~37 key sites do not each
+    // need their own.
+    const TL_CAMERA_KEY = '__camera__';
+    const tlKeyOf = (obj) => obj ? obj.id : null;
+    const tlObjOf = (key) => (!key || key === TL_CAMERA_KEY) ? null : findObjectById(key);
+    // ORPHAN TRACKS (v20260726p). A track whose key resolves to no object. Since
+    // tracks are id-keyed and ids survive undo, DELETING an object no longer
+    // removes its tracks — they are simply orphaned, and scene-undo (⌘Z) restores
+    // the object with its id, which re-attaches them automatically. That is the
+    // whole delete/undo fix: no coupling between the independent scene and
+    // animation undo stacks was needed.
+    //
+    // Orphans are inert by construction (tlApplyFrame's object branch skips a key
+    // that resolves to nothing — the property v20260726o measured and relied on),
+    // but they must not be VISIBLE and must not accumulate in files, so they are
+    // hidden in tlRenderTracks and dropped by tlSerialize. They therefore live
+    // exactly as long as the undo history that can bring them back: the session.
+    const tlIsOrphanKey = (key) => key !== TL_CAMERA_KEY && !tlObjOf(key);
+    // Display name for a track key ('(deleted)' when the object is gone — an
+    // orphan track is inert, exactly as an unresolvable name key was before).
+    const tlNameOfKey = (key) => {
+      if (key === TL_CAMERA_KEY) return 'Camera';
+      const o = tlObjOf(key);
+      return o ? o.name : '(deleted)';
     };
 
     // --- DOM refs ---
@@ -61430,7 +61683,7 @@
         const camState = getCameraOrbitalState(activeCamera);
         return camState[prop] !== undefined ? camState[prop] : null;
       }
-      const obj = _tlFindObjectByName(objectName);
+      const obj = tlObjOf(objectName);
       if (!obj) return null;
       // Transform param
       const paramDef = _objParams.find(p => p.prop === prop);
@@ -61533,7 +61786,7 @@
         if (_tlOriginalValues.has(ozKey)) activeCamera.orthoZoom = _tlOriginalValues.get(ozKey);
         return;
       }
-      const obj = _tlFindObjectByName(objectName);
+      const obj = tlObjOf(objectName);
       if (!obj) return;
       const paramDef = _objParams.find(p => p.prop === prop);
       if (paramDef) {
@@ -61600,7 +61853,7 @@
         // Pivot tracks also need the rest pivotShift baseline: the derived shift
         // (tlDeriveAnimatedPivotShift) accumulates on top of it.
         if (property === 'pivX' || property === 'pivY' || property === 'pivZ') {
-          const shObj = _tlFindObjectByName(objectName);
+          const shObj = tlObjOf(objectName);
           if (shObj) {
             const sh = shObj.pivotShift || [0, 0, 0];
             ['pshX', 'pshY', 'pshZ'].forEach((k, i) => {
@@ -61643,7 +61896,7 @@
         // When the last pivot track goes away, restore the rest pivotShift too
         if ((property === 'pivX' || property === 'pivY' || property === 'pivZ') &&
           !['pivX', 'pivY', 'pivZ'].some(p => objTracks.has(p))) {
-          const shObj = _tlFindObjectByName(objectName);
+          const shObj = tlObjOf(objectName);
           const bx = _tlOriginalValues.get(objectName + '::pshX');
           const by = _tlOriginalValues.get(objectName + '::pshY');
           const bz = _tlOriginalValues.get(objectName + '::pshZ');
@@ -62081,7 +62334,7 @@
           continue;
         }
         // Find scene object by name
-        const obj = _tlFindObjectByName(objectName);
+        const obj = tlObjOf(objectName);
         if (!obj) continue;
         // Ensure arrays exist
         if (!obj.scale) obj.scale = [1, 1, 1];
@@ -62712,7 +62965,7 @@
             else {
               paramDef = _objParams.find(p => p.prop === prop);
               if (!paramDef) {
-                const obj = _tlFindObjectByName(objectName);
+                const obj = tlObjOf(objectName);
                 const primParams = obj ? _getPrimitiveParamsForObj(obj) : null;
                 if (primParams) paramDef = primParams.find(p => p.prop === prop);
               }
@@ -62723,7 +62976,7 @@
                 paramDef = _surfaceMappingParams.find(p => p.prop === prop);
               }
               if (!paramDef) {
-                const obj2 = _tlFindObjectByName(objectName);
+                const obj2 = tlObjOf(objectName);
                 const tdInfo = obj2 ? _get3dSettingsParamsForObj(obj2) : null;
                 if (tdInfo) paramDef = tdInfo.params.find(p => p.prop === prop);
               }
@@ -62760,7 +63013,7 @@
           let val = kfs ? tlInterpolate(kfs, frame) : null;
           if (val === null && paramDef) {
             // Show live object value
-            const obj = _tlFindObjectByName(objectName);
+            const obj = tlObjOf(objectName);
             if (obj) {
               const { vecProp, vecIdx } = paramDef;
               if (vecProp === 'position') val = obj.position[vecIdx];
@@ -62771,7 +63024,7 @@
           }
           // Primitive param fallback
           if (!paramDef) {
-            const obj = _tlFindObjectByName(objectName);
+            const obj = tlObjOf(objectName);
             const primParams = obj ? _getPrimitiveParamsForObj(obj) : null;
             if (primParams) {
               paramDef = primParams.find(p => p.prop === prop);
@@ -62782,7 +63035,7 @@
           }
           // Spline Flow param fallback
           if (!paramDef) {
-            const obj = _tlFindObjectByName(objectName);
+            const obj = tlObjOf(objectName);
             const sfParamDef = _splineFlowParams.find(p => p.prop === prop);
             if (sfParamDef && obj && obj.surfaceConstraint) {
               paramDef = sfParamDef;
@@ -62793,7 +63046,7 @@
           }
           // Surface Mapping param fallback
           if (!paramDef) {
-            const obj = _tlFindObjectByName(objectName);
+            const obj = tlObjOf(objectName);
             const smParamDef = _surfaceMappingParams.find(p => p.prop === prop);
             if (smParamDef && obj?.surfaceConstraint?.surfaceMapping) {
               paramDef = smParamDef;
@@ -62804,7 +63057,7 @@
           }
           // 3D Settings param fallback
           if (!paramDef) {
-            const obj = _tlFindObjectByName(objectName);
+            const obj = tlObjOf(objectName);
             const tdInfo = obj ? _get3dSettingsParamsForObj(obj) : null;
             if (tdInfo) {
               const tdParamDef = tdInfo.params.find(p => p.prop === prop);
@@ -62822,7 +63075,7 @@
             if (trParamDef) {
               paramDef = trParamDef;
               if (val === null) {
-                const obj = _tlFindObjectByName(objectName);
+                const obj = tlObjOf(objectName);
                 val = (obj?.style && obj.style[trParamDef.styleKey] !== undefined)
                   ? obj.style[trParamDef.styleKey] : trParamDef.default;
               }
@@ -62834,7 +63087,7 @@
             if (mpParamDef) {
               paramDef = mpParamDef;
               if (val === null) {
-                const obj = _tlFindObjectByName(objectName);
+                const obj = tlObjOf(objectName);
                 val = obj?.motionPathSettings ? (obj.motionPathSettings[mpParamDef.mpKey] ?? 0) : 0;
               }
             }
@@ -62845,7 +63098,7 @@
             if (fdParamDef) {
               paramDef = fdParamDef;
               if (val === null) {
-                const obj = _tlFindObjectByName(objectName);
+                const obj = tlObjOf(objectName);
                 val = _foldRead(obj, fdParamDef) ?? 0;
               }
             }
@@ -63003,7 +63256,7 @@
       if (!animCb || !animCb.checked) return;
       if (animationTimeline.isPlaying) return;
       if (!_tlAutoKeyframing) return;
-      const objTracks = animationTimeline.tracks.get(obj.name);
+      const objTracks = animationTimeline.tracks.get(tlKeyOf(obj));
       if (!objTracks || objTracks.size === 0) return;
       // Object has tracks — auto-record properties that have keyframes
       const frame = animationTimeline.currentFrame;
@@ -63020,7 +63273,7 @@
         else if (paramDef.vecProp === 'scale') val = scale[paramDef.vecIdx];
         else if (paramDef.vecProp === 'pivot') val = pivot[paramDef.vecIdx];
         if (val !== undefined) {
-          tlAddKeyframe(obj.name, paramDef.prop, frame, val);
+          tlAddKeyframe(tlKeyOf(obj), paramDef.prop, frame, val);
           changed = true;
         }
       }
@@ -63097,7 +63350,7 @@
           else if (paramDef.vecProp === 'rotation') val = euler[paramDef.vecIdx];
           else if (paramDef.vecProp === 'scale') val = scale[paramDef.vecIdx];
           else if (paramDef.vecProp === 'pivot') val = pivot[paramDef.vecIdx];
-          if (val !== undefined) { tlAddKeyframe(obj.name, paramDef.prop, frame, val); changed = true; }
+          if (val !== undefined) { tlAddKeyframe(tlKeyOf(obj), paramDef.prop, frame, val); changed = true; }
         }
       }
       return changed;
@@ -63139,7 +63392,7 @@
       // gets cleaned up, while a move never sees the entry actually leave the
       // Map, so its position never changes.
       for (const [objName, objTracks] of animationTimeline.tracks) {
-        const isAlwaysVisible = objName === '__camera__' || (selectedObject && selectedObject.name === objName);
+        const isAlwaysVisible = objName === TL_CAMERA_KEY || (selectedObject && tlKeyOf(selectedObject) === objName);
         if (objTracks.size === 0 && !isAlwaysVisible) animationTimeline.tracks.delete(objName);
       }
 
@@ -63422,7 +63675,7 @@
               }
             } else {
               // Object property — check transform params first, then primitive
-              const obj = _tlFindObjectByName(objectName);
+              const obj = tlObjOf(objectName);
               const paramDef = _objParams.find(p => p.prop === prop);
               if (paramDef && obj) {
                 let val;
@@ -64121,10 +64374,12 @@
         // Filter: skip object group entirely when filter is on and it has no keyframes
         if (_tlShowKeyframedOnly && (!objTracks || objTracks.size === 0)) return;
         renderedNames.add(objectName);
-        const isSelected = selectedObject && selectedObject.name === objectName;
-        const obj = _tlFindObjectByName(objectName);
+        const isSelected = selectedObject && tlKeyOf(selectedObject) === objectName;
+        const obj = tlObjOf(objectName);
 
-        addGroupHeader(objectName, objectName, isSelected, () => {
+        // Key = id, label = the object's CURRENT name (v20260726o) — resolved at
+        // render time, so a rename shows up here without touching any track.
+        addGroupHeader(objectName, tlNameOfKey(objectName), isSelected, () => {
           if (!obj) return;
           pushAnimUndoState('Add keyframe');
           const frame = animationTimeline.currentFrame;
@@ -64330,12 +64585,15 @@
 
       // 2. Always show selected object (if any)
       if (selectedObject) {
-        renderObjectGroup(selectedObject.name, animationTimeline.tracks.get(selectedObject.name) || null);
+        renderObjectGroup(tlKeyOf(selectedObject), animationTimeline.tracks.get(tlKeyOf(selectedObject)) || null);
       }
 
       // 3. Show all other objects that have keyframes
       for (const [objectName, objTracks] of animationTimeline.tracks) {
-        if (objectName === '__camera__') continue;
+        if (objectName === TL_CAMERA_KEY) continue;
+        // Orphan (the object was deleted): keep the tracks so ⌘Z can restore them
+        // with the object, but do not draw a "(deleted)" ghost row (v20260726p).
+        if (tlIsOrphanKey(objectName)) continue;
         renderObjectGroup(objectName, objTracks);
       }
 
@@ -64510,7 +64768,7 @@
           // Clean up empty object entry
           if (objTracks.size === 0) {
             const isAlwaysVisible = objectName === '__camera__'
-              || (selectedObject && selectedObject.name === objectName);
+              || (selectedObject && tlKeyOf(selectedObject) === objectName);
             if (!isAlwaysVisible) animationTimeline.tracks.delete(objectName);
           }
           _tlFocusedTrack = null;
@@ -64852,7 +65110,38 @@
         pingPong: animationTimeline.pingPong,
         tracks: {},
       };
-      for (const [objectName, objTracks] of animationTimeline.tracks) {
+      // WIRE FORMAT = NAMES (v20260726o). Runtime keys are object IDS; the file
+      // keeps names so existing scenes load unchanged, scene JSON stays legible,
+      // and archived builds can still open files written here. Names are unique
+      // (enforced at creation and on import since v20260726m), and _tlWireName
+      // defends the bijection anyway — two ids must never collapse onto one key.
+      // An UNRESOLVABLE key (an orphan track whose object is gone, or a legacy
+      // name key that never resolved) round-trips VERBATIM: it was inert before
+      // and stays inert, but opening and re-saving a file never silently drops it.
+      // MEMOIZED per trackKey — ensureUniqueName mutates `taken`, so calling it
+      // twice for the same key (once for tracks, once for originalValues) would
+      // hand back "Alpha" then "Alpha 2" and split one object's data across two
+      // wire names.
+      const _wireTaken = new Set();
+      const _wireOf = new Map();
+      const _tlWireName = (key) => {
+        if (key === TL_CAMERA_KEY) return key;
+        if (_wireOf.has(key)) return _wireOf.get(key);
+        const o = tlObjOf(key);
+        const name = ensureUniqueName(o ? o.name : key, _wireTaken);
+        _wireOf.set(key, name);
+        return name;
+      };
+      for (const [trackKey, objTracks] of animationTimeline.tracks) {
+        // Drop orphans (v20260726p): a saved scene must not carry animation for
+        // objects it does not contain. This is the counterpart to keeping them in
+        // memory for undo — the tracks survive exactly as long as the session's
+        // undo history, which is the only thing that could bring them back.
+        // Supersedes the v20260726o note about round-tripping unresolvable keys
+        // verbatim: with delete now leaving orphans behind, "keep everything"
+        // would grow every file that has ever had an animated object deleted.
+        if (tlIsOrphanKey(trackKey)) continue;
+        const objectName = _tlWireName(trackKey);
         data.tracks[objectName] = {};
         for (const [prop, keyframes] of objTracks) {
           data.tracks[objectName][prop] = keyframes.map(k => {
@@ -64871,9 +65160,14 @@
       // mid-animation, so the serialized objects are NOT at rest — without these,
       // an importer cannot reconstruct the pre-animation state (the pivotShift
       // derivation and restore-on-track-delete both depend on them).
+      // originalValues are keyed "<trackKey>::<prop>" — map the key half to the
+      // same wire name so the file stays self-consistent and legible.
       data.originalValues = {};
       for (const [key, val] of _tlOriginalValues) {
-        data.originalValues[key] = Array.isArray(val) ? [...val] : val;
+        const sep = key.indexOf('::');
+        if (sep >= 0 && tlIsOrphanKey(key.slice(0, sep))) continue;   // v20260726p
+        const wire = sep < 0 ? key : (_tlWireName(key.slice(0, sep)) + key.slice(sep));
+        data.originalValues[wire] = Array.isArray(val) ? [...val] : val;
       }
       return data;
     };
@@ -64908,6 +65202,18 @@
       animationTimeline.pingPong = data.pingPong || false;
       animationTimeline.currentFrame = 0;
       animationTimeline.tracks.clear();
+      // NAME -> ID on the way in (v20260726o). The wire format is name-keyed (see
+      // tlSerialize); the runtime is id-keyed. Objects are always restored before
+      // this runs — importScene does data.objects first — so the lookup has a
+      // populated scene. A name that resolves to nothing keeps its key VERBATIM:
+      // that is an orphan track, which was inert under name keys and stays inert
+      // under id keys, and round-tripping it means opening + re-saving a file
+      // never silently drops data. '__camera__' passes through untouched.
+      const _tlKeyFromWire = (name) => {
+        if (name === TL_CAMERA_KEY) return name;
+        const o = _tlFindObjectByName(name);
+        return o ? o.id : name;
+      };
       if (data.tracks) {
         for (const [objectName, props] of Object.entries(data.tracks)) {
           const objMap = new Map();
@@ -64939,7 +65245,7 @@
               return kf;
             }));
           }
-          animationTimeline.tracks.set(objectName, objMap);
+          animationTimeline.tracks.set(_tlKeyFromWire(objectName), objMap);
         }
       }
       // Restore rest-value baselines. A fresh import must not inherit baselines
@@ -64947,7 +65253,10 @@
       _tlOriginalValues.clear();
       if (data.originalValues) {
         for (const [key, val] of Object.entries(data.originalValues)) {
-          _tlOriginalValues.set(key, Array.isArray(val) ? [...val] : val);
+          // "<wireName>::<prop>" -> "<trackKey>::<prop>" (v20260726o).
+          const sep = key.indexOf('::');
+          const k2 = sep < 0 ? key : (_tlKeyFromWire(key.slice(0, sep)) + key.slice(sep));
+          _tlOriginalValues.set(k2, Array.isArray(val) ? [...val] : val);
         }
       }
       // Fallback for files saved before originalValues existed: use each track's

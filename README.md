@@ -23,6 +23,7 @@ Concept of "Workplane" from Modo by Foundry
 "Plastacity" by plasticity.xyz (https://www.plasticity.xyz)
 "Interface Craft" by Josh Puckett (https://www.interfacecraft.dev).
 "Easing Functions Cheat Sheet" by easings.net (https://easings.net).
+"Paper.js" by Jürg Lehni & Jonathan Puckey (http://paperjs.org/).  
 
 Background : I have been working on my own 3D graphic design app "dim", a non destructive path based companion to Adobe Illustrator (or other 2D vector apps) inspired from Adobe dimensions, a software I used when I started my career as a student, and continued using since then.
 Past 5 years, I studied 3D projection, spline interpolation algorithm, svg, and wrote a renderer, parser from scratch.

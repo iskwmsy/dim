@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260727a -->
+<!-- dim v20260727d -->
 
 <!--
   MIT License
@@ -6321,6 +6321,13 @@
                 <div class="tool-panel-label">3D Settings</div>
                 <div id="3dSettingsPanel">
 
+                  <!-- 2D MODE (v20260727b): object lives in the 1000x1000 frame,
+                       camera ignored; X/Y read as frame coordinates -->
+                  <div class="style-row">
+                    <label>2D Mode</label>
+                    <input type="checkbox" id="mode2DInput" class="ui-checkbox" />
+                  </div>
+
                   <!-- FACE CAMERA SECTION -->
                   <div class="style-row">
                     <label>Face Camera</label>
@@ -9284,6 +9291,10 @@
       const collect = (obj) => {
         if (!obj.visible) return;
         if (excludeObjects.has(obj)) return;
+        // 2D MODE (v20260727c): frame-space objects don't participate in
+        // world-space snapping — their world position is not where they
+        // appear on screen, so a snap "hit" would be visually wrong.
+        if (obj.mode2D) return;
 
         if (!obj.isGroup && obj.localVertices && obj.getWorldMatrix) {
           const worldMatrix = obj.getWorldMatrix();
@@ -12210,6 +12221,7 @@
             else if (prop === 'pivot' || prop === 'pivotRotation') propTypes.add('pivot');
             else if (prop === 'loop') propTypes.add('path');
             else if (prop === 'faceCamera') propTypes.add('faceCamera');
+            else if (prop === 'mode2D') propTypes.add('mode2D');
             else if (prop === 'vertexPointSettings') propTypes.add('vertexPoints');
             else if (prop === 'subPathData') propTypes.add('subpath');
             else propTypes.add('property');
@@ -12249,7 +12261,7 @@
           lock: 'Lock', algorithm: 'Algorithm', primitive: 'Edit primitive',
           extrude: 'Extrude', revolve: 'Revolve', sweep: 'Sweep', loft: 'Loft',
           mapping: 'Mapping', pivot: 'Pivot', path: 'Path',
-          faceCamera: 'Face Camera', vertexPoints: 'Vertex Points',
+          faceCamera: 'Face Camera', mode2D: '2D Mode', vertexPoints: 'Vertex Points',
           subpath: 'Subpath', property: 'Edit'
         };
         return `${labels[type] || 'Edit'} ${name}`;
@@ -14556,6 +14568,11 @@
       grp.visible = obj.visible !== false;
       grp.lock = !!obj.lock;
       grp.surfaceConstraint = deepClone(obj.surfaceConstraint);
+      // 2D MODE (v20260727b): the flag moves to the GROUP, not the letters —
+      // letters are children whose positions are group-space offsets; each
+      // letter carrying mode2D would re-anchor them all to absolute frame
+      // coordinates and pile them up. (letter.mode2D stays ctor-default false.)
+      grp.mode2D = !!obj.mode2D;
       grp.zSortChildren = true; // letters overlap at oblique angles — sort together
       // Add in REVERSE text order: the scene tree renders newest-on-top
       // (reverse array order), so this makes the tree read first-letter-
@@ -14870,6 +14887,171 @@
 
     // --- Constants ---
     const FRAME_SIZE = 1000;
+
+    // 2D MODE view-projection (v20260727b): no camera. Maps world units
+    // straight to NDC so that 1 internal unit = BASE_DISPLAY_SCALE (100)
+    // frame units — panel X/Y therefore read as frame coordinates (X=250
+    // ⇒ 250 right of center, frame edges at ±500; +Y up via the global
+    // −ndc.y flip). z scaled negatively so local +z = nearer, keeping
+    // downstream avgZ sorts consistent. w ≡ 1 ⇒ never null-clipped by
+    // transformVertex.
+    const VP_2D = (() => {
+      const k = BASE_DISPLAY_SCALE / (FRAME_SIZE / 2); // 0.2
+      return [
+        [k, 0, 0, 0],
+        [0, k, 0, 0],
+        [0, 0, -k, 0],
+        [0, 0, 0, 1],
+      ];
+    })();
+    // True if obj or any ancestor is in 2D Mode. The flag replaces the whole
+    // inherited chain at that node, so camera-reactive features anywhere
+    // below it (Face Camera) must stand down too — a billboarding child
+    // inside a 2D group would leak camera motion into the fixed frame.
+    const isIn2DMode = (obj) => { for (let o = obj; o; o = o.parent) if (o.mode2D) return true; return false; };
+    // Effective MVP for an object — mirrors the draw-time 2D Mode
+    // substitution so pickers/gizmos/snapping see the same matrix the
+    // renderer used. Normal objects: vp × worldMatrix. Under 2D Mode the
+    // chain truncates at the NEAREST flagged node (its own flag wins over
+    // an ancestor's, exactly like nested draw substitution) and the camera
+    // VP is replaced by the fixed frame matrix.
+    const resolveObjectMVP = (obj, vpMatrix) => {
+      let node = null;
+      for (let o = obj; o; o = o.parent) { if (o.mode2D) { node = o; break; } }
+      if (!node) return matrixMultiply(vpMatrix, obj.getWorldMatrix());
+      let m = obj.getLocalMatrix();
+      if (node !== obj) {
+        for (let o = obj.parent; o; o = o.parent) {
+          m = matrixMultiply(o.getLocalMatrix(), m);
+          if (o === node) break;
+        }
+      }
+      return matrixMultiply(VP_2D, m);
+    };
+    // Mouse (client px) → 2D-Mode world point (internal units) at a given z.
+    // Inverse of VP_2D + the mainGroup viewport transform. Drag handlers use
+    // this to fabricate a straight-down "ray" ({origin: mouseToFrame2D(x, y,
+    // z+1), direction: [0,0,-1]} against plane normal [0,0,1]) so the
+    // existing ray-plane apply code lands exactly without a camera.
+    const mouseToFrame2D = (mx, my, z = 0) => {
+      const vs = Math.min(width, height) / FRAME_SIZE;
+      return [((mx - (width / 2 + CANVAS_OFFSET_X)) / vs) / BASE_DISPLAY_SCALE,
+      -((my - height / 2) / vs) / BASE_DISPLAY_SCALE, z];
+    };
+
+    // --- 2D MODE self-test (v20260727d, PLAN-2d-mode.md P4) ---------------
+    // Console: Mode2D.selfTest() — asserts the frame-matrix contract, the
+    // resolve/draw substitution symmetry, the Face Camera gate, persistence,
+    // the mouse inverse, and the z-sorted-group -Infinity push.
+    const Mode2D = {
+      selfTest() {
+        const results = [];
+        const t = (name, ok, info = '') => results.push({ name, ok: ok ? 'PASS' : 'FAIL', info });
+        const eq = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
+        const mEq = (A, B, eps = 1e-9) => {
+          for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) if (!eq(A[i][j], B[i][j], eps)) return false;
+          return true;
+        };
+        const made = [];
+        const mk = (name, opts = {}) => {
+          const p = new Path(name, opts.position || [0, 0, 0], opts.rotation || [0, 0, 0],
+            opts.vertices || [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]], 'linear', true, {}, [1, 1, 1]);
+          Object.assign(p, opts.assign || {});
+          made.push(p);
+          return p;
+        };
+        const camSave = { pos: [...activeCamera.position], tgt: [...activeCamera.target] };
+        try {
+          // 1. The frame-matrix contract: internal (1,1,z) → frame (100,−100)
+          // for ANY z (depth inert) — and the scale is tied to the display
+          // unit so panel X/Y read as frame coordinates.
+          let ok1 = VP_2D[0][0] === BASE_DISPLAY_SCALE / (FRAME_SIZE / 2);
+          for (const z of [0, 5, -3, 1000]) {
+            const tv = transformVertex([1, 1, z], VP_2D);
+            ok1 = ok1 && tv && eq((tv[0] * FRAME_SIZE) / 2, 100) && eq((-tv[1] * FRAME_SIZE) / 2, -100);
+          }
+          t('VP_2D: (1,1,z) → frame (100,−100) ∀z; scale = display unit', ok1);
+
+          // 2. resolveObjectMVP mirrors the draw substitution.
+          const vpA = createIdentityMatrix();
+          const vpB = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
+          const p3 = mk('m2d_t3d', { position: [1, 2, 3] });
+          t('resolve: 3D object = vp × worldMatrix',
+            mEq(resolveObjectMVP(p3, vpB), matrixMultiply(vpB, p3.getWorldMatrix())));
+          const p2 = mk('m2d_t2d', { position: [2.5, 1, 5], assign: { mode2D: true } });
+          t('resolve: 2D object = VP_2D × local, camera-independent',
+            mEq(resolveObjectMVP(p2, vpA), matrixMultiply(VP_2D, p2.getLocalMatrix())) &&
+            mEq(resolveObjectMVP(p2, vpA), resolveObjectMVP(p2, vpB)));
+
+          // 3. Chain truncates at the NEAREST flagged node.
+          const g = new Group('m2d_grp');
+          made.push(g);
+          g.position = [1, 0, 0];
+          g.mode2D = true;
+          const child = mk('m2d_child', { position: [0.5, 0, 0] });
+          child.parent = g; // parent link only — no DOM adoption needed here
+          t('resolve: child of 2D group = VP_2D × groupLocal × childLocal',
+            mEq(resolveObjectMVP(child, vpB),
+              matrixMultiply(VP_2D, matrixMultiply(g.getLocalMatrix(), child.getLocalMatrix()))));
+          child.mode2D = true; // own flag wins (like nested draw substitution)
+          t('resolve: own flag beats ancestor (chain truncates at child)',
+            mEq(resolveObjectMVP(child, vpB), matrixMultiply(VP_2D, child.getLocalMatrix())));
+          child.parent = null;
+
+          // 4. Face Camera stands down under 2D Mode — incl. via ancestor.
+          activeCamera.position = [10, 7, 13]; // ensure billboard ≠ identity
+          const pf = mk('m2d_fc', { assign: { faceCamera: { x: true, y: true, plane: false } } });
+          const billboarded = pf.getLocalMatrix();
+          pf.mode2D = true;
+          const gated = pf.getLocalMatrix();
+          const plain = mk('m2d_plain').getLocalMatrix();
+          const gGate = new Group('m2d_gGate'); made.push(gGate); gGate.mode2D = true;
+          pf.mode2D = false; pf.parent = gGate;
+          const gatedViaParent = pf.getLocalMatrix();
+          pf.parent = null;
+          t('faceCamera: billboards in 3D, stands down under mode2D (own + ancestor)',
+            !mEq(billboarded, plain) && mEq(gated, plain) && mEq(gatedViaParent, plain));
+
+          // 5. Persistence: truthy-only serialize, round-trip.
+          const sOff = serializeObject(p3, { prune: true });
+          const sOn = serializeObject(p2, { prune: true });
+          const back = deserializeObject(JSON.parse(JSON.stringify(sOn)));
+          made.push(back);
+          t('serialize: absent when off, true when on, round-trips',
+            !('mode2D' in sOff) && sOn.mode2D === true && back.mode2D === true);
+
+          // 6. mouseToFrame2D inverts the screen mapping.
+          const vs = Math.min(width, height) / FRAME_SIZE;
+          const mx = (width / 2 + CANVAS_OFFSET_X) + 2.5 * BASE_DISPLAY_SCALE * vs;
+          const my = (height / 2) - 1 * BASE_DISPLAY_SCALE * vs;
+          const inv = mouseToFrame2D(mx, my, 7);
+          t('mouseToFrame2D: inverse of the frame mapping (incl. y flip, z pass-through)',
+            eq(inv[0], 2.5) && eq(inv[1], 1) && inv[2] === 7);
+
+          // 7. z-sorted parent: whole-element push at z = -Infinity, no faces.
+          // (The push is in draw's synchronous prologue — no await needed.)
+          const fl = [];
+          p2.draw(vpB, { externalFaceList: fl, cameraVP: vpB });
+          t('z-sorted group: one whole-element entry at z=-Infinity',
+            fl.length === 1 && fl[0].z === -Infinity && fl[0].element === p2.svgElement);
+        } catch (e) {
+          t('selfTest completed without exception', false,
+            e.message + (e.stack ? ' @ ' + String(e.stack).split('\n')[1] : ''));
+        } finally {
+          activeCamera.position = camSave.pos;
+          activeCamera.target = camSave.tgt;
+          made.forEach(p => {
+            if (p.svgElement && p.svgElement.parentNode) p.svgElement.parentNode.removeChild(p.svgElement);
+            if (p.destroy) p.destroy();
+          });
+        }
+        const passed = results.filter(r => r.ok === 'PASS').length;
+        console.table(results);
+        if (passed === results.length) console.log(`Mode2D.selfTest: ${passed}/${results.length} ALL PASS`);
+        else console.error(`Mode2D.selfTest: ${passed}/${results.length} — FAILURES ABOVE`);
+        return passed === results.length;
+      }
+    };
 
     // --- Region-Clip Silhouette (v20260704h: the one and only silhouette
     // split pipeline — SilhouetteField + PolyClip; the legacy trace-based
@@ -15793,7 +15975,10 @@
             )
           )
         );
-      const mvpMatrix = matrixMultiply(vpMatrix, modelMatrix);
+      // 2D MODE (v20260727c): same matrix the renderer used
+      const mvpMatrix = activePath.getWorldMatrix
+        ? resolveObjectMVP(activePath, vpMatrix)
+        : matrixMultiply(vpMatrix, modelMatrix);
       const FS = FRAME_SIZE;
 
       const tA = transformVertex(anchorPt, mvpMatrix);
@@ -15853,7 +16038,10 @@
             )
           )
         );
-      const mvpMatrix = matrixMultiply(vpMatrix, modelMatrix);
+      // 2D MODE (v20260727c): same matrix the renderer used
+      const mvpMatrix = activePath.getWorldMatrix
+        ? resolveObjectMVP(activePath, vpMatrix)
+        : matrixMultiply(vpMatrix, modelMatrix);
       const FS = FRAME_SIZE;
 
       // Use the same transform math as findHoveredVertex / getRayFromClick
@@ -15909,7 +16097,10 @@
             )
           )
         );
-      const mvpMatrix = matrixMultiply(vpMatrix, modelMatrix);
+      // 2D MODE (v20260727c): same matrix the renderer used
+      const mvpMatrix = activePath.getWorldMatrix
+        ? resolveObjectMVP(activePath, vpMatrix)
+        : matrixMultiply(vpMatrix, modelMatrix);
       const FS = FRAME_SIZE;
       const viewScale = Math.min(width, height) / FS;
       const translateX = width / 2 + CANVAS_OFFSET_X;
@@ -29120,6 +29311,7 @@
         this.pivotRotation = [0, 0, 0]; // Pivot Rotation (Euler degrees)
         this.pivotShift = [0, 0, 0]; // Hidden pivot-edit compensation; anchor = position + pivotShift
         this.faceCamera = { x: false, y: false, plane: false };
+        this.mode2D = false; // 2D Mode: live in the 1000x1000 frame, camera ignored
 
         // Phase 1: Surface Mapping Constraint
         this.surfaceConstraint = {
@@ -29280,7 +29472,11 @@
         // MOTION PATH (v20260719f): tangent frame composes LEFT of own rotation
         // (own rotation = twist/offset on the rail); faceCamera below still wins.
         if (_mpFrameR) R = matrixMultiply(_mpFrameR, R);
-        if (this.faceCamera && (this.faceCamera.x || this.faceCamera.y)) {
+        if (!isIn2DMode(this) && this.faceCamera && (this.faceCamera.x || this.faceCamera.y)) {
+          // (2D Mode supersedes Face Camera — it reads activeCamera, which
+          // 2D Mode ignores by design; the UI greys these checkboxes.
+          // Ancestor check: a billboarding child inside a 2D group would
+          // leak camera motion into the fixed frame.)
           const viewDir = this.faceCamera.plane
             ? vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target))
             : null;
@@ -29299,6 +29495,28 @@
       }
 
       draw(parentMVP, drawOptions = {}) {
+        // 2D MODE (v20260727b): the group lives in the 1000x1000 frame —
+        // replace the whole inherited chain (camera + ancestor transforms)
+        // with the fixed frame matrix. Transform-based inheritance
+        // (mapping/fold) is parent-space and cannot apply; settings
+        // broadcasts (inheritedExtrude) still can. Children compose
+        // normally below, so a 2D group lays its subtree out in 2D.
+        if (this.mode2D) {
+          parentMVP = VP_2D;
+          // Inside a z-sorted ancestor: don't contribute per-face entries
+          // (VP_2D z is meaningless against camera NDC z). Register the
+          // whole element once at z = -Infinity — sort is descending, so
+          // the 2D layer paints last, "on the glass". Bare {element, z}
+          // entries are an established shape (opaque child-group push).
+          const _extFL2D = drawOptions.externalFaceList;
+          drawOptions = {
+            ...drawOptions, cameraVP: VP_2D, inheritedMapping: null,
+            inheritedRelativeMatrix: null, inheritedBounds: null,
+            inheritedFold: null, mappingAnchorWM: null,
+            externalFaceList: null, deepZSort: false,
+          };
+          if (_extFL2D && this.svgElement) _extFL2D.push({ element: this.svgElement, z: -Infinity });
+        }
         const {
           inheritedMapping = null,
           inheritedRelativeMatrix = null,
@@ -29697,6 +29915,7 @@
         };
 
         this.faceCamera = { x: false, y: false, plane: false };
+        this.mode2D = false; // 2D Mode: live in the 1000x1000 frame, camera ignored
 
         this.revolveSettings = {
           enabled: false,
@@ -29908,7 +30127,11 @@
         // MOTION PATH (v20260719f): tangent frame composes LEFT of own rotation
         // (own rotation = twist/offset on the rail); faceCamera below still wins.
         if (_mpFrameR) R = matrixMultiply(_mpFrameR, R);
-        if (this.faceCamera && (this.faceCamera.x || this.faceCamera.y)) {
+        if (!isIn2DMode(this) && this.faceCamera && (this.faceCamera.x || this.faceCamera.y)) {
+          // (2D Mode supersedes Face Camera — it reads activeCamera, which
+          // 2D Mode ignores by design; the UI greys these checkboxes.
+          // Ancestor check: a billboarding child inside a 2D group would
+          // leak camera motion into the fixed frame.)
           const viewDir = this.faceCamera.plane
             ? vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target))
             : null;
@@ -32872,6 +33095,29 @@
       }
 
       async draw(vpMatrix, drawOptions = {}) {
+        // 2D MODE (v20260727b): the path lives in the 1000x1000 frame —
+        // replace the whole inherited chain (camera + ancestor transforms)
+        // with the fixed frame matrix. Transform-based inheritance
+        // (mapping/fold) is parent-space and cannot apply; settings
+        // broadcasts (inheritedExtrude) still can. No-op when the flag was
+        // already applied by a 2D-mode ancestor group (children of a 2D
+        // group carry mode2D=false and compose inside its frame).
+        if (this.mode2D) {
+          vpMatrix = VP_2D;
+          // Inside a z-sorted ancestor: don't contribute per-face entries
+          // (VP_2D z is meaningless against camera NDC z). Register the
+          // whole element once at z = -Infinity — sort is descending, so
+          // the 2D layer paints last, "on the glass". Bare {element, z}
+          // entries are an established shape (opaque child-group push).
+          const _extFL2D = drawOptions.externalFaceList;
+          drawOptions = {
+            ...drawOptions, cameraVP: VP_2D, inheritedMapping: null,
+            inheritedRelativeMatrix: null, inheritedBounds: null,
+            inheritedFold: null, mappingAnchorWM: null,
+            externalFaceList: null, deepZSort: false,
+          };
+          if (_extFL2D && this.svgElement) _extFL2D.push({ element: this.svgElement, z: -Infinity });
+        }
         const {
           inheritedMapping = null,
           inheritedRelativeMatrix = null,
@@ -34066,7 +34312,7 @@
               const tEl = this.trimStrokeEl;
               tEl.setAttribute('d', this._buildTrimStrokeD(mvpMatrix, _trimRange.s, _trimRange.e, this.style && this.style['stroke-trim-mode']));
               setSvgColor(tEl, 'stroke', _effTrim.stroke);
-              tEl.setAttribute('stroke-width', getEffectiveStrokeWidth(_effTrim['stroke-width'] || (2 / FRAME_SIZE).toString()));
+              tEl.setAttribute('stroke-width', this.mode2D ? (_effTrim['stroke-width'] || (2 / FRAME_SIZE).toString()) : getEffectiveStrokeWidth(_effTrim['stroke-width'] || (2 / FRAME_SIZE).toString()));
               if (_effTrim['stroke-opacity'] !== undefined) tEl.setAttribute('stroke-opacity', _effTrim['stroke-opacity']); else tEl.removeAttribute('stroke-opacity');
               if (_effTrim['stroke-linecap']) tEl.setAttribute('stroke-linecap', _effTrim['stroke-linecap']); else tEl.removeAttribute('stroke-linecap');
               if (_effTrim['stroke-linejoin']) tEl.setAttribute('stroke-linejoin', _effTrim['stroke-linejoin']); else tEl.removeAttribute('stroke-linejoin');
@@ -34101,7 +34347,7 @@
               // other stroke uses, so the Camera tab's "Scale Stroke with Zoom"
               // still governs overall thickness scene-wide; the depth law only
               // redistributes thickness ALONG this one stroke.
-              const _bw = parseFloat(getEffectiveStrokeWidth(_eff3['stroke-width'] || (2 / FRAME_SIZE).toString()));
+              const _bw = parseFloat(this.mode2D ? (_eff3['stroke-width'] || (2 / FRAME_SIZE).toString()) : getEffectiveStrokeWidth(_eff3['stroke-width'] || (2 / FRAME_SIZE).toString()));
               // Caps/joins come from the object's own stroke style, so a 3D
               // stroke honours Ends / Joins exactly like the flat stroke does.
               // An active trim bounds the sampler; null = outline the whole path.
@@ -34220,10 +34466,12 @@
           if (typeof _deferZSortPush === 'function') _deferZSortPush();
 
           // Scale Stroke with Zoom: update stroke-width on each 2D render frame
+          // (mode2D objects are camera-independent — always the raw width,
+          // and the write must still happen to undo a previously zoomed one)
           if (scaleStrokeWithZoom) {
             const effectiveStyle = getEffectiveStyle(this);
             const baseStrokeWidth = effectiveStyle['stroke-width'] || (2 / FRAME_SIZE).toString();
-            this.svgElement.setAttribute('stroke-width', getEffectiveStrokeWidth(baseStrokeWidth));
+            this.svgElement.setAttribute('stroke-width', this.mode2D ? baseStrokeWidth : getEffectiveStrokeWidth(baseStrokeWidth));
           }
         }
       }
@@ -40852,8 +41100,14 @@
       }
       const T = createTranslationMatrix(gizmoPosition[0], gizmoPosition[1], gizmoPosition[2]);
 
+      // 2D MODE (v20260727c): the gizmo lives in the frame like the object —
+      // fixed VP, camera ignored (anchor is parent-space, same convention as
+      // the 3D branch's vpMatrix × T(anchor)).
+      const _gzRefObj = (currentTool === 'directSelect' && selectedVertexInfo) ? selectedVertexInfo.object : obj;
+      const gizmo2D = _gzRefObj ? isIn2DMode(_gzRefObj) : false;
+
       const modelMatrix = matrixMultiply(T, R);
-      const gizmoMVPMatrix = matrixMultiply(vpMatrix, modelMatrix);
+      const gizmoMVPMatrix = matrixMultiply(gizmo2D ? VP_2D : vpMatrix, modelMatrix);
 
       // --- Constant Screen-Size Gizmo ---
       // Compute a scale factor so the gizmo always occupies ~DESIRED_PIXEL_SIZE pixels on screen
@@ -40861,7 +41115,10 @@
       const LABEL_CIRCLE_R = selectionGizmoElements.colors.labelCircleSize;
       const camToGizmo = vectorSubtract(gizmoPosition, activeCamera.position);
       const gizmoDepth = vectorLength(camToGizmo);
-      const worldPerPixel = getPixelToWorldFactor(gizmoDepth);
+      // 2D: 1 world unit = BASE_DISPLAY_SCALE frame units = ×mainScale px
+      const worldPerPixel = gizmo2D
+        ? 1 / (BASE_DISPLAY_SCALE * mainScale)
+        : getPixelToWorldFactor(gizmoDepth);
       const GIZMO_SCALE = Math.max(0.01, worldPerPixel * DESIRED_PIXEL_SIZE);
 
       const axes = [{ v: [1 * GIZMO_SCALE, 0, 0] }, { v: [0, 1 * GIZMO_SCALE, 0] }, { v: [0, 0, 1 * GIZMO_SCALE, 0] }];
@@ -40995,7 +41252,11 @@
         const axisColor = isAxisHighlighted ? activeColors[i] : normalColors[i];
 
         // Axis Lines (Move, Scale, and Rotate)
-        if ((showMoveGizmo || showScaleGizmo || showRotateGizmo || showPivotGizmo) && !(activeRotateAxis && activeRotateAxis !== axisKey)) {
+        // 2D MODE: Z arrow hidden for move/scale/pivot (the axis is inert —
+        // a handle that does nothing is a lie); rotate keeps all three
+        // (X/Y rotation = flat foreshortening, deliberate).
+        const _gz2DHideZ = gizmo2D && i === 2 && !showRotateGizmo;
+        if (!_gz2DHideZ && (showMoveGizmo || showScaleGizmo || showRotateGizmo || showPivotGizmo) && !(activeRotateAxis && activeRotateAxis !== axisKey)) {
           const tEnd = transformVertex(axes[i].v, gizmoMVPMatrix);
           if (tEnd) {
             line.setAttribute('x1', originX);
@@ -41021,7 +41282,7 @@
         }
 
         // Labels: Filled circle with white letter inside
-        if ((showMoveGizmo || showRotateGizmo || showScaleGizmo || showPivotGizmo) && !(activeRotateAxis && activeRotateAxis !== axisKey)) {
+        if (!_gz2DHideZ && (showMoveGizmo || showRotateGizmo || showScaleGizmo || showPivotGizmo) && !(activeRotateAxis && activeRotateAxis !== axisKey)) {
           const tText = transformVertex(textPositions[i].v, gizmoMVPMatrix);
           if (tText) {
             const screenX = (tText[0] * FRAME_SIZE) / 2;
@@ -41179,6 +41440,8 @@
 
         scalePlanarDefs.forEach(h => {
           const bar = selectionGizmoElements.planarBars[h.idx];
+          // 2D MODE: only the XY plane exists
+          if (gizmo2D && h.axis !== 'xy') { bar.style.display = 'none'; return; }
           const t1 = transformVertex(h.v1, gizmoMVPMatrix);
           const t2 = transformVertex(h.v2, gizmoMVPMatrix);
           const isPlanarHighlighted = highlightedAxis === h.axis;
@@ -41215,6 +41478,8 @@
 
         movePlanarDefs.forEach(h => {
           const polyline = selectionGizmoElements.movePlanarHandles[h.idx];
+          // 2D MODE: only the XY plane exists
+          if (gizmo2D && h.axis !== 'xy') { polyline.style.display = 'none'; return; }
           const tA = transformVertex(h.pA, gizmoMVPMatrix);
           const tCorner = transformVertex(h.corner, gizmoMVPMatrix);
           const tB = transformVertex(h.pB, gizmoMVPMatrix);
@@ -41402,7 +41667,10 @@
 
 
 
-        const mvpMatrix = matrixMultiply(vpMatrix, finalModelMatrix);
+        // 2D MODE (v20260727c): pick against the same matrix the renderer used
+        const mvpMatrix = obj.getWorldMatrix
+          ? resolveObjectMVP(obj, vpMatrix)
+          : matrixMultiply(vpMatrix, finalModelMatrix);
 
         for (let i = 0; i < obj.localVertices.length; i++) {
           const localVert = obj.localVertices[i];
@@ -41477,7 +41745,10 @@
           finalModelMatrix = modelMatrix;
         }
 
-        const mvpMatrix = matrixMultiply(vpMatrix, finalModelMatrix);
+        // 2D MODE (v20260727c): gizmos must land where the renderer drew
+        const mvpMatrix = obj.getWorldMatrix
+          ? resolveObjectMVP(obj, vpMatrix)
+          : matrixMultiply(vpMatrix, finalModelMatrix);
 
         const isBezier = obj.algorithm === 'bezier';
 
@@ -45656,7 +45927,8 @@
       const spans = penInsertSpans(obj);
       if (!spans.length) return null;
       const vpM = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
-      const mvp = matrixMultiply(vpM, obj.getWorldMatrix());
+      // 2D MODE (v20260727c): test the exact curve the app draws
+      const mvp = resolveObjectMVP(obj, vpM);
       const viewScale = Math.min(width, height) / FRAME_SIZE;
       const tX = width / 2 + CANVAS_OFFSET_X, tY = height / 2;
       const toScreen = (p) => {
@@ -46742,8 +47014,9 @@
         posYInput.disabled = _mpPosInert;
         posYInput.title = _mpPosTitle;
         if (document.activeElement !== posZInput) posZInput.value = fmtDisplay(selectedObject.position[2]);
-        posZInput.disabled = _mpPosInert;
-        posZInput.title = _mpPosTitle;
+        // 2D Mode (v20260727b): Z is inert — the object lives in the frame
+        posZInput.disabled = _mpPosInert || !!selectedObject.mode2D;
+        posZInput.title = selectedObject.mode2D && !_mpPosInert ? '2D Mode: Z is inert' : _mpPosTitle;
 
         const euler = selectedObject.rotationEuler || matrixToEuler(selectedObject.rotationMatrix);
         // matrixToEuler returns DEGREES.
@@ -47001,7 +47274,13 @@
         _qsClosePathSync.checked = selectedObject ? selectedObject.loop : false;
       }
 
-      // Face Camera
+      // 2D Mode (v20260727b)
+      const mode2DSync = document.getElementById('mode2DInput');
+      const is2D = !!(selectedObject && selectedObject.mode2D);
+      if (mode2DSync && document.activeElement !== mode2DSync) mode2DSync.checked = is2D;
+      if (mode2DSync) mode2DSync.disabled = !selectedObject;
+
+      // Face Camera (greyed while 2D Mode — mode2D ignores the camera)
       const faceCamXInput = document.getElementById('faceCamXInput');
       const faceCamYInput = document.getElementById('faceCamYInput');
       const faceCamPlaneInput = document.getElementById('faceCamPlaneInput');
@@ -47012,7 +47291,7 @@
       if (faceCamYInput && document.activeElement !== faceCamYInput) faceCamYInput.checked = fc.y;
       if (faceCamPlaneInput && document.activeElement !== faceCamPlaneInput) faceCamPlaneInput.checked = fc.plane;
 
-      if (!selectedObject) {
+      if (!selectedObject || is2D) {
         if (faceCamXInput) faceCamXInput.disabled = true;
         if (faceCamYInput) faceCamYInput.disabled = true;
         if (faceCamPlaneInput) faceCamPlaneInput.disabled = true;
@@ -49752,6 +50031,7 @@
         newGroup.pivotRotation = [...obj.pivotRotation];
         newGroup.pivotShift = [...(obj.pivotShift || [0, 0, 0])];
         newGroup.faceCamera = { ...obj.faceCamera };
+        newGroup.mode2D = !!obj.mode2D; // 2D MODE (v20260727b)
         newGroup.zSortChildren = obj.zSortChildren;
         newGroup.zSortMode = obj.zSortMode;
         newGroup.renderIntersections = obj.renderIntersections;
@@ -49823,6 +50103,7 @@
         newPath.pivotRotation = [...obj.pivotRotation];
         newPath.pivotShift = [...(obj.pivotShift || [0, 0, 0])];
         newPath.faceCamera = { ...obj.faceCamera };
+        newPath.mode2D = !!obj.mode2D; // 2D MODE (v20260727b)
         newPath.visible = obj.visible;
         newPath.lock = obj.lock;
 
@@ -51841,6 +52122,21 @@
     });
     document.getElementById('loftPointShapeInput').addEventListener('change', updateStyleFromInput);
 
+    // 2D Mode Event Listener (v20260727b) — unlike the bare faceCam
+    // listeners below, this one is undoable and multi-select aware.
+    const mode2DInput = document.getElementById('mode2DInput');
+    if (mode2DInput) {
+      mode2DInput.addEventListener('change', (e) => {
+        if (!selectedObject) return;
+        pushUndoStateCoalesced();
+        const targets = selectedObjects.length > 0 ? selectedObjects : [selectedObject];
+        targets.forEach(o => { o.mode2D = e.target.checked; });
+        updateStylePanel();
+        updatePropertiesPanel();
+        requestRender();
+      });
+    }
+
     // Face Camera Event Listeners
     const faceCamXInput = document.getElementById('faceCamXInput');
     const faceCamYInput = document.getElementById('faceCamYInput');
@@ -52900,7 +53196,7 @@
             ? Path._foldGroupFrame(selectedObject)
             : selectedObject._foldFrame();
           if (fr) {
-            const guideMVP = matrixMultiply(vpMatrix, selectedObject.getWorldMatrix());
+            const guideMVP = resolveObjectMVP(selectedObject, vpMatrix); // 2D MODE aware
             // Draw one guide line through UV anchor a2 along direction d2,
             // clipped to the bbox (+6% overhang). v20260721b: anchor and
             // direction are explicit — each crease has its own line.
@@ -55257,7 +55553,7 @@
             _penAddHit = penCurveHitTest(activePath, event.clientX, event.clientY);
             if (_penAddHit) {
               const vpM = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
-              const mvp = matrixMultiply(vpM, activePath.getWorldMatrix());
+              const mvp = resolveObjectMVP(activePath, vpM); // 2D MODE aware
               const fr = (p) => {
                 const tv = transformVertex(p, mvp);
                 return tv ? [(tv[0] * FRAME_SIZE) / 2, (-tv[1] * FRAME_SIZE) / 2] : null;
@@ -55991,7 +56287,16 @@
 
         let moveVec = [0, 0, 0];
 
-        if (lockedAxis === 'z') {
+        // 2D MODE (v20260727c): exact frame-space mapping — mouse px →
+        // internal units, no camera, Z locked (inert axis).
+        const subj2D = isIn2DMode(selectedVertexInfo ? selectedVertexInfo.object : selectedObject);
+        if (subj2D) {
+          const s2d = 1 / (BASE_DISPLAY_SCALE * (Math.min(width, height) / FRAME_SIZE));
+          if (lockedAxis === 'x') moveVec = [deltaX * s2d, 0, 0];
+          else if (lockedAxis === 'y') moveVec = [0, -deltaY * s2d, 0];
+          else if (lockedAxis === 'z') moveVec = [0, 0, 0];
+          else moveVec = [deltaX * s2d, -deltaY * s2d, 0];
+        } else if (lockedAxis === 'z') {
           moveVec = [0, 0, -deltaY * sensitivity];
         } else if (lockedAxis === 'x') {
           moveVec = [deltaX * sensitivity, 0, 0];
@@ -56010,13 +56315,15 @@
           moveVec = vectorAdd(rightMove, upMove);
         }
 
-        // Apply workplane restriction (only for free drag, not gizmo-axis drags)
-        if (lockedAxis === 'none') {
+        // Apply workplane restriction (only for free drag, not gizmo-axis drags;
+        // 2D subjects are already exact in their plane)
+        if (lockedAxis === 'none' && !subj2D) {
           moveVec = applyWorkplaneRestriction(moveVec);
         }
 
-        // Snap to point (post-process on incremental translate)
-        if (snapToPoint && _snapTargetCache) {
+        // Snap to point (post-process on incremental translate; 2D skips —
+        // frame space can't be compared through the camera projection)
+        if (!subj2D && snapToPoint && _snapTargetCache) {
           const _vpM = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
           if (selectedVertexInfo) {
             // Vertex snap: compute candidate vertex world position
@@ -56204,11 +56511,21 @@
         if (lockedAxis === 'z') localAxis = [0, 0, 1];
         const worldAxis = gizmoMode === 'local' ? vectorApplyMatrix(localAxis, R_obj) : localAxis;
 
-        const camZAxis = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-        const camXAxis = vectorNormalize(vectorCross(activeCamera.up, camZAxis));
-        const camYAxis = vectorNormalize(vectorCross(camZAxis, camXAxis));
-        const screenAxisX = worldAxis[0] * camXAxis[0] + worldAxis[1] * camXAxis[1] + worldAxis[2] * camXAxis[2];
-        const screenAxisY = worldAxis[0] * camYAxis[0] + worldAxis[1] * camYAxis[1] + worldAxis[2] * camYAxis[2];
+        // 2D MODE (v20260727c): no camera — the axis's screen direction is
+        // the axis itself (VP_2D maps +x right, +y up) and pixel→world is
+        // the fixed frame scale, not a camera-distance factor.
+        const subj2D = isIn2DMode(selectedVertexInfo ? selectedVertexInfo.object : selectedObject);
+        let screenAxisX, screenAxisY;
+        if (subj2D) {
+          screenAxisX = worldAxis[0];
+          screenAxisY = worldAxis[1];
+        } else {
+          const camZAxis = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
+          const camXAxis = vectorNormalize(vectorCross(activeCamera.up, camZAxis));
+          const camYAxis = vectorNormalize(vectorCross(camZAxis, camXAxis));
+          screenAxisX = worldAxis[0] * camXAxis[0] + worldAxis[1] * camXAxis[1] + worldAxis[2] * camXAxis[2];
+          screenAxisY = worldAxis[0] * camYAxis[0] + worldAxis[1] * camYAxis[1] + worldAxis[2] * camYAxis[2];
+        }
         const projectedAxisLength = Math.sqrt(screenAxisX * screenAxisX + screenAxisY * screenAxisY);
         if (projectedAxisLength < 0.001) return;
 
@@ -56219,7 +56536,9 @@
 
         const subjectPosition = selectedVertexInfo ? dragStartWorldPosition : (selectedObject.dragStartPos || dragStartWorldPosition || selectedObject.position);
         const distance = vectorLength(vectorSubtract(subjectPosition, activeCamera.position));
-        const pixelToWorld = getPixelToWorldFactor(distance);
+        const pixelToWorld = subj2D
+          ? 1 / (BASE_DISPLAY_SCALE * (Math.min(width, height) / FRAME_SIZE))
+          : getPixelToWorldFactor(distance);
         let totalMoveAmount = totalDotProduct * pixelToWorld / projectedAxisLength;
 
         if (activeWorkplane.snapToGrid) {
@@ -56228,8 +56547,9 @@
 
         let totalWorldDelta = vectorScale(worldAxis, totalMoveAmount);
 
-        // Snap to point (post-process)
-        if (snapToPoint && _snapTargetCache) {
+        // Snap to point (post-process) — 2D subjects skip it: their frame
+        // coordinates can't be compared through the camera projection.
+        if (!subj2D && snapToPoint && _snapTargetCache) {
           const _vpM = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
           const _candidatePos = vectorAdd(dragStartWorldPosition, totalWorldDelta);
           const _snappedPos = trySnapToPoint(_candidatePos, _vpM);
@@ -56311,13 +56631,22 @@
         const worldAxis2 = gizmoMode === 'local' ? vectorApplyMatrix(localAxis2, R_obj) : localAxis2;
 
         // Plane normal = cross(axis1, axis2), plane passes through dragStartWorldPosition
-        const planeNormal = vectorNormalize(vectorCross(worldAxis1, worldAxis2));
+        let planeNormal = vectorNormalize(vectorCross(worldAxis1, worldAxis2));
 
         // Cast ray from current mouse position
         const viewMatrix = activeCamera.createViewMatrix();
         const projectionMatrix = activeCamera.createProjectionMatrix();
         const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
-        const ray = getRayFromClick(event, vpMatrix);
+        let ray = getRayFromClick(event, vpMatrix);
+
+        // 2D MODE (v20260727c): no camera — fabricate a straight-down ray in
+        // frame space; the plane math below then yields the exact frame-space
+        // mouse mapping (z stays put).
+        const subj2D = isIn2DMode(selectedVertexInfo ? selectedVertexInfo.object : selectedObject);
+        if (subj2D) {
+          ray = { origin: mouseToFrame2D(event.clientX, event.clientY, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] };
+          planeNormal = [0, 0, 1];
+        }
 
         if (ray) {
           const denom = vectorDot(ray.direction, planeNormal);
@@ -56333,7 +56662,9 @@
               // This ensures the object doesn't "jump" to the cursor on first move
               if (!dragStartPlaneHit) {
                 const startEvent = { clientX: dragStartMousePosition.x, clientY: dragStartMousePosition.y };
-                const startRay = getRayFromClick(startEvent, vpMatrix);
+                const startRay = subj2D
+                  ? { origin: mouseToFrame2D(dragStartMousePosition.x, dragStartMousePosition.y, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] }
+                  : getRayFromClick(startEvent, vpMatrix);
                 if (startRay) {
                   const startDenom = vectorDot(startRay.direction, planeNormal);
                   if (Math.abs(startDenom) > 1e-6) {
@@ -56356,8 +56687,8 @@
                 totalWorldDelta = vectorAdd(vectorScale(worldAxis1, amount1), vectorScale(worldAxis2, amount2));
               }
 
-              // Snap to point (post-process)
-              if (snapToPoint && _snapTargetCache) {
+              // Snap to point (post-process) — 2D subjects skip (frame space)
+              if (!subj2D && snapToPoint && _snapTargetCache) {
                 const _candidatePos = vectorAdd(dragStartWorldPosition, totalWorldDelta);
                 const _snappedPos = trySnapToPoint(_candidatePos, vpMatrix);
                 totalWorldDelta = vectorSubtract(_snappedPos, dragStartWorldPosition);
@@ -56415,13 +56746,17 @@
         // --- Camera-plane free translate (V tool center circle) ---
         if (!selectedObject) return;
 
+        // 2D MODE (v20260727c): fabricated straight-down ray in frame space
+        const subj2D = isIn2DMode(selectedObject);
         const camZAxis = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-        const planeNormal = camZAxis;
+        const planeNormal = subj2D ? [0, 0, 1] : camZAxis;
 
         const viewMatrix = activeCamera.createViewMatrix();
         const projectionMatrix = activeCamera.createProjectionMatrix();
         const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
-        const ray = getRayFromClick(event, vpMatrix);
+        const ray = subj2D
+          ? { origin: mouseToFrame2D(event.clientX, event.clientY, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] }
+          : getRayFromClick(event, vpMatrix);
 
         if (ray) {
           const denom = vectorDot(ray.direction, planeNormal);
@@ -56432,7 +56767,9 @@
 
               if (!dragStartPlaneHit) {
                 const startEvent = { clientX: dragStartMousePosition.x, clientY: dragStartMousePosition.y };
-                const startRay = getRayFromClick(startEvent, vpMatrix);
+                const startRay = subj2D
+                  ? { origin: mouseToFrame2D(dragStartMousePosition.x, dragStartMousePosition.y, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] }
+                  : getRayFromClick(startEvent, vpMatrix);
                 if (startRay) {
                   const startDenom = vectorDot(startRay.direction, planeNormal);
                   if (Math.abs(startDenom) > 1e-6) {
@@ -56453,7 +56790,7 @@
                 ];
               }
 
-              if (snapToPoint && _snapTargetCache) {
+              if (!subj2D && snapToPoint && _snapTargetCache) {
                 const _candidatePos = vectorAdd(dragStartWorldPosition, totalWorldDelta);
                 const _snappedPos = trySnapToPoint(_candidatePos, vpMatrix);
                 totalWorldDelta = vectorSubtract(_snappedPos, dragStartWorldPosition);
@@ -56495,11 +56832,20 @@
         if (lockedAxis === 'z') localAxis = [0, 0, 1];
         const worldAxis = gizmoMode === 'local' ? vectorApplyMatrix(localAxis, R_obj) : localAxis;
 
-        const camZAxis = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-        const camXAxis = vectorNormalize(vectorCross(activeCamera.up, camZAxis));
-        const camYAxis = vectorNormalize(vectorCross(camZAxis, camXAxis));
-        const screenAxisX = worldAxis[0] * camXAxis[0] + worldAxis[1] * camXAxis[1] + worldAxis[2] * camXAxis[2];
-        const screenAxisY = worldAxis[0] * camYAxis[0] + worldAxis[1] * camYAxis[1] + worldAxis[2] * camYAxis[2];
+        // 2D MODE (v20260727c): axis screen direction = the axis itself,
+        // pixel→world = fixed frame scale (same treatment as translate-local)
+        const subj2D = isIn2DMode(selectedObject);
+        let screenAxisX, screenAxisY;
+        if (subj2D) {
+          screenAxisX = worldAxis[0];
+          screenAxisY = worldAxis[1];
+        } else {
+          const camZAxis = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
+          const camXAxis = vectorNormalize(vectorCross(activeCamera.up, camZAxis));
+          const camYAxis = vectorNormalize(vectorCross(camZAxis, camXAxis));
+          screenAxisX = worldAxis[0] * camXAxis[0] + worldAxis[1] * camXAxis[1] + worldAxis[2] * camXAxis[2];
+          screenAxisY = worldAxis[0] * camYAxis[0] + worldAxis[1] * camYAxis[1] + worldAxis[2] * camYAxis[2];
+        }
         const projectedAxisLength = Math.sqrt(screenAxisX * screenAxisX + screenAxisY * screenAxisY);
         if (projectedAxisLength < 0.001) return;
 
@@ -56508,7 +56854,9 @@
         const totalDotProduct = (totalMouseDeltaX * screenAxisX + totalMouseDeltaY * (-screenAxisY)) / projectedAxisLength;
 
         const distance = vectorLength(vectorSubtract(dragStartWorldPosition, activeCamera.position));
-        const pixelToWorld = getPixelToWorldFactor(distance);
+        const pixelToWorld = subj2D
+          ? 1 / (BASE_DISPLAY_SCALE * (Math.min(width, height) / FRAME_SIZE))
+          : getPixelToWorldFactor(distance);
         let totalMoveAmount = totalDotProduct * pixelToWorld / projectedAxisLength;
 
         if (activeWorkplane.snapToGrid) {
@@ -56517,8 +56865,8 @@
 
         let totalWorldDelta = vectorScale(worldAxis, totalMoveAmount);
 
-        // Snap to point (post-process)
-        if (pivotSnapToPoint && _snapTargetCache) {
+        // Snap to point (post-process; 2D skips — frame space)
+        if (!subj2D && pivotSnapToPoint && _snapTargetCache) {
           const _vpM = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
           const _candidatePos = vectorAdd(dragStartWorldPosition, totalWorldDelta);
           const _snappedPos = trySnapToPoint(_candidatePos, _vpM);
@@ -56569,12 +56917,19 @@
         const [localAxis1, localAxis2] = axisMap[lockedAxis] || [[1, 0, 0], [0, 1, 0]];
         const worldAxis1 = gizmoMode === 'local' ? vectorApplyMatrix(localAxis1, R_obj) : localAxis1;
         const worldAxis2 = gizmoMode === 'local' ? vectorApplyMatrix(localAxis2, R_obj) : localAxis2;
-        const planeNormal = vectorNormalize(vectorCross(worldAxis1, worldAxis2));
+        let planeNormal = vectorNormalize(vectorCross(worldAxis1, worldAxis2));
 
         const viewMatrix = activeCamera.createViewMatrix();
         const projectionMatrix = activeCamera.createProjectionMatrix();
         const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
-        const ray = getRayFromClick(event, vpMatrix);
+        let ray = getRayFromClick(event, vpMatrix);
+
+        // 2D MODE (v20260727c): fabricated straight-down ray in frame space
+        const subj2D = isIn2DMode(selectedObject);
+        if (subj2D) {
+          ray = { origin: mouseToFrame2D(event.clientX, event.clientY, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] };
+          planeNormal = [0, 0, 1];
+        }
 
         if (ray) {
           const denom = vectorDot(ray.direction, planeNormal);
@@ -56585,7 +56940,9 @@
 
               if (!dragStartPlaneHit) {
                 const startEvent = { clientX: dragStartMousePosition.x, clientY: dragStartMousePosition.y };
-                const startRay = getRayFromClick(startEvent, vpMatrix);
+                const startRay = subj2D
+                  ? { origin: mouseToFrame2D(dragStartMousePosition.x, dragStartMousePosition.y, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] }
+                  : getRayFromClick(startEvent, vpMatrix);
                 if (startRay) {
                   const startDenom = vectorDot(startRay.direction, planeNormal);
                   if (Math.abs(startDenom) > 1e-6) {
@@ -56606,7 +56963,7 @@
                 totalWorldDelta = vectorAdd(vectorScale(worldAxis1, amount1), vectorScale(worldAxis2, amount2));
               }
 
-              if (pivotSnapToPoint && _snapTargetCache) {
+              if (!subj2D && pivotSnapToPoint && _snapTargetCache) {
                 const _candidatePos = vectorAdd(dragStartWorldPosition, totalWorldDelta);
                 const _snappedPos = trySnapToPoint(_candidatePos, vpMatrix);
                 totalWorldDelta = vectorSubtract(_snappedPos, dragStartWorldPosition);
@@ -56648,13 +57005,17 @@
         if (!selectedObject) return;
 
         // Use camera-facing plane through the pivot's start world position
+        // 2D MODE (v20260727c): fabricated straight-down ray in frame space
+        const subj2D = isIn2DMode(selectedObject);
         const camZAxis = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-        const planeNormal = camZAxis;
+        const planeNormal = subj2D ? [0, 0, 1] : camZAxis;
 
         const viewMatrix = activeCamera.createViewMatrix();
         const projectionMatrix = activeCamera.createProjectionMatrix();
         const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
-        const ray = getRayFromClick(event, vpMatrix);
+        const ray = subj2D
+          ? { origin: mouseToFrame2D(event.clientX, event.clientY, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] }
+          : getRayFromClick(event, vpMatrix);
 
         if (ray) {
           const denom = vectorDot(ray.direction, planeNormal);
@@ -56665,7 +57026,9 @@
 
               if (!dragStartPlaneHit) {
                 const startEvent = { clientX: dragStartMousePosition.x, clientY: dragStartMousePosition.y };
-                const startRay = getRayFromClick(startEvent, vpMatrix);
+                const startRay = subj2D
+                  ? { origin: mouseToFrame2D(dragStartMousePosition.x, dragStartMousePosition.y, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] }
+                  : getRayFromClick(startEvent, vpMatrix);
                 if (startRay) {
                   const startDenom = vectorDot(startRay.direction, planeNormal);
                   if (Math.abs(startDenom) > 1e-6) {
@@ -56687,7 +57050,7 @@
                 ];
               }
 
-              if (pivotSnapToPoint && _snapTargetCache) {
+              if (!subj2D && pivotSnapToPoint && _snapTargetCache) {
                 const _candidatePos = vectorAdd(dragStartWorldPosition, totalWorldDelta);
                 const _snappedPos = trySnapToPoint(_candidatePos, vpMatrix);
                 totalWorldDelta = vectorSubtract(_snappedPos, dragStartWorldPosition);
@@ -57400,7 +57763,16 @@
         let totalMouseDeltaY = event.clientY - dragStartMousePosition.y;
         let totalWorldDelta;
 
-        if (lockedAxis === 'z') {
+        // 2D MODE (v20260727c): exact frame-space mapping — mouse px →
+        // internal units, no camera, Z locked (inert axis).
+        const subj2D = isIn2DMode(selectedVertexInfo ? selectedVertexInfo.object : selectedObject);
+        if (subj2D) {
+          const s2d = 1 / (BASE_DISPLAY_SCALE * (Math.min(width, height) / FRAME_SIZE));
+          if (lockedAxis === 'x') totalWorldDelta = [totalMouseDeltaX * s2d, 0, 0];
+          else if (lockedAxis === 'y') totalWorldDelta = [0, -totalMouseDeltaY * s2d, 0];
+          else if (lockedAxis === 'z') totalWorldDelta = [0, 0, 0];
+          else totalWorldDelta = [totalMouseDeltaX * s2d, -totalMouseDeltaY * s2d, 0];
+        } else if (lockedAxis === 'z') {
           totalWorldDelta = vectorScale(zAxis, -totalMouseDeltaY * DOLLY_SPEED);
         } else {
           if (lockedAxis === 'x') {
@@ -57413,14 +57785,15 @@
           totalWorldDelta = vectorAdd(moveX, moveY);
         }
 
-        // Apply workplane restriction (only for free drag, not gizmo-axis drags)
-        if (lockedAxis === 'none') {
+        // Apply workplane restriction (only for free drag, not gizmo-axis
+        // drags; 2D subjects are already exact in their plane)
+        if (lockedAxis === 'none' && !subj2D) {
           totalWorldDelta = applyWorkplaneRestriction(totalWorldDelta);
         }
 
         let newWorldPosition = vectorAdd(dragStartWorldPosition, totalWorldDelta);
 
-        if (activeWorkplane.snapToGrid) {
+        if (!subj2D && activeWorkplane.snapToGrid) {
           const workingPlane = getWorkingPlane();
           const basis = getGridBasis();
           newWorldPosition = snapPointToPlaneLocal(newWorldPosition, workingPlane.point, basis.u, basis.v, activeWorkplane.gridSize);
@@ -57429,8 +57802,9 @@
           totalWorldDelta = vectorSubtract(newWorldPosition, dragStartWorldPosition);
         }
 
-        // Snap to point (post-process)
-        if (snapToPoint && _snapTargetCache) {
+        // Snap to point (post-process; 2D skips — frame space can't be
+        // compared through the camera projection)
+        if (!subj2D && snapToPoint && _snapTargetCache) {
           const _vpM = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
           newWorldPosition = trySnapToPoint(newWorldPosition, _vpM);
           totalWorldDelta = vectorSubtract(newWorldPosition, dragStartWorldPosition);
@@ -57498,6 +57872,8 @@
       } else if (dragMode === 'translate-radial') {
         const subject = selectedVertexInfo || selectedObject;
         if (!subject) return;
+        // 2D MODE (v20260727c): radial = camera-depth motion — inert.
+        if (isIn2DMode(selectedVertexInfo ? selectedVertexInfo.object : selectedObject)) return;
 
         const startPosition = dragStartWorldPosition;
         if (!startPosition) return;
@@ -57904,7 +58280,10 @@
               if (!obj.localVertices) return;
 
               let matrix = obj.getWorldMatrix ? obj.getWorldMatrix() : matrixMultiply(createTranslationMatrix(obj.position[0], obj.position[1], obj.position[2]), matrixMultiply(obj.rotationMatrix, createScaleMatrix(obj.scale[0], obj.scale[1], obj.scale[2])));
-              const mvpMatrix = matrixMultiply(vpMatrix, matrix);
+              // 2D MODE (v20260727c): marquee must see vertices where they render
+              const mvpMatrix = obj.getWorldMatrix
+                ? resolveObjectMVP(obj, vpMatrix)
+                : matrixMultiply(vpMatrix, matrix);
 
               for (let i = 0; i < obj.localVertices.length; i++) {
                 const tv = transformVertex(obj.localVertices[i], mvpMatrix);
@@ -60762,6 +61141,10 @@
         faceCamera: obj.faceCamera
       };
 
+      // 2D MODE (v20260727b): written only when on so pre-feature files
+      // stay byte-identical.
+      if (obj.mode2D) data.mode2D = true;
+
       // Surface Constraint applies to both Paths and Groups (v20260401a)
       if (obj.surfaceConstraint) {
         data.surfaceConstraint = obj.surfaceConstraint;
@@ -60977,6 +61360,7 @@
       if (data.pivotRotation) obj.pivotRotation = [...data.pivotRotation];
       if (data.pivotShift) obj.pivotShift = [...data.pivotShift];
       if (data.faceCamera) obj.faceCamera = { ...data.faceCamera };
+      if (data.mode2D) obj.mode2D = true; // 2D MODE (v20260727b); absent ⇒ ctor default false
 
       if (data.style) {
         obj.style = { ...data.style };

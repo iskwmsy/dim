@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260726q -->
+<!-- dim v20260727a -->
 
 <!--
   MIT License
@@ -6413,6 +6413,21 @@
                         placeholder="888888" spellcheck="false" />
                       <input type="color" id="extrudeSideColorInput" value="#888888" class="color-fill" />
                     </div>
+                    <!-- v20260726r: SIDE COLOR PALETTE — colors 2..N (color 1 is
+                         the row above). Rows are built dynamically, the
+                         #foldCreaseList pattern. -->
+                    <div id="extrudeSideColorList"></div>
+                    <div class="prop-row prop-row-plain" id="extrudeAddSideColorRow" style="display: flex; gap: 4px;">
+                      <button type="button" id="extrudeAddSideColorBtn" class="ui-btn ui-btn-small" style="flex: 1;"
+                        title="Colors cycle across the generated faces — sides in Clean mode, layers in Layer and Mesh. With Simple Sides on, merged sides take the first side's color.">Add Color</button>
+                    </div>
+                    <div class="style-row" id="extrudePaletteModeRow">
+                      <label>Palette</label>
+                      <select id="extrudePaletteModeInput" class="ui-select">
+                        <option value="cycle">Cycle</option>
+                        <option value="interpolate">Interpolate</option>
+                      </select>
+                    </div>
 
                     <div class="xyz-row">
                       <label>Render</label>
@@ -6556,6 +6571,18 @@
                         placeholder="888888" spellcheck="false" />
                       <input type="color" id="revolveRibbonColorInput" value="#888888" class="color-fill" />
                     </div>
+                    <!-- v20260726s: SIDE COLOR PALETTE — colors 2..N (color 1 is the row above) -->
+                    <div id="revolveSideColorList"></div>
+                    <div class="prop-row prop-row-plain" id="revolveAddSideColorRow" style="display: flex; gap: 4px;">
+                      <button type="button" id="revolveAddSideColorBtn" class="ui-btn ui-btn-small" style="flex: 1;" title="Colors cycle across the generated faces — profile sides in Clean mode, rail stations in Layer and Mesh. Not available while Silhouette is on (that mode merges everything into one fill).">Add Color</button>
+                    </div>
+                    <div class="style-row" id="revolvePaletteModeRow">
+                      <label>Palette</label>
+                      <select id="revolvePaletteModeInput" class="ui-select">
+                        <option value="cycle">Cycle</option>
+                        <option value="interpolate">Interpolate</option>
+                      </select>
+                    </div>
                     <!-- Silhouette Split: always on for revolve (improves Z-sorting at silhouette boundary) -->
                     <input type="checkbox" id="revolveSilhouetteSplitInput" class="ui-checkbox" style="display:none"
                       checked />
@@ -6680,6 +6707,18 @@
                       <input type="text" id="sweepColorHexInput" class="color-hex-input" maxlength="6"
                         placeholder="888888" spellcheck="false" />
                       <input type="color" id="sweepColorInput" value="#888888" class="color-fill" />
+                    </div>
+                    <!-- v20260726s: SIDE COLOR PALETTE — colors 2..N (color 1 is the row above) -->
+                    <div id="sweepSideColorList"></div>
+                    <div class="prop-row prop-row-plain" id="sweepAddSideColorRow" style="display: flex; gap: 4px;">
+                      <button type="button" id="sweepAddSideColorBtn" class="ui-btn ui-btn-small" style="flex: 1;" title="Colors cycle across the generated faces — profile sides in Clean mode, rail stations in Layer and Mesh.">Add Color</button>
+                    </div>
+                    <div class="style-row" id="sweepPaletteModeRow">
+                      <label>Palette</label>
+                      <select id="sweepPaletteModeInput" class="ui-select">
+                        <option value="cycle">Cycle</option>
+                        <option value="interpolate">Interpolate</option>
+                      </select>
                     </div>
 
                     <!-- Silhouette Split: always on for sweep (improves Z-sorting at silhouette boundary) -->
@@ -6819,6 +6858,18 @@
                     <input type="text" id="loftColorHexInput" class="color-hex-input" maxlength="6" placeholder="888888"
                       spellcheck="false" />
                     <input type="color" id="loftColorInput" value="#888888" class="color-fill" />
+                  </div>
+                  <!-- v20260726s: SIDE COLOR PALETTE — colors 2..N (color 1 is the row above) -->
+                  <div id="loftSideColorList"></div>
+                  <div class="prop-row prop-row-plain" id="loftAddSideColorRow" style="display: flex; gap: 4px;">
+                    <button type="button" id="loftAddSideColorBtn" class="ui-btn ui-btn-small" style="flex: 1;" title="Colors cycle across the loft’s cross-sections.">Add Color</button>
+                  </div>
+                  <div class="style-row" id="loftPaletteModeRow">
+                    <label>Palette</label>
+                    <select id="loftPaletteModeInput" class="ui-select">
+                      <option value="cycle">Cycle</option>
+                      <option value="interpolate">Interpolate</option>
+                    </select>
                   </div>
                   <div class="xyz-row">
                     <label>Render</label>
@@ -14869,6 +14920,270 @@
     const getEffectiveStrokeWidth = (baseWidth) => {
       if (!scaleStrokeWithZoom) return baseWidth;
       return (parseFloat(baseWidth) * getZoomFactor()).toString();
+    };
+
+    // --- SIDE COLOR PALETTE (v20260726r, PLAN-side-color-palette.md) ---------
+    // A 3D modifier's generated faces can carry a LIST of colors applied
+    // cyclically instead of one flat color. The list holds colors 2..N and sits
+    // beside the existing scalar, so the palette is [base, ...extra]:
+    // an absent/empty list means "single color" and every read site falls
+    // through to the pre-feature expression, byte-identical.
+    //
+    // facePalette returns null below two usable colors — that null IS the gate.
+    const facePalette = (base, extra) => {
+      if (!Array.isArray(extra) || extra.length === 0) return null;
+      const clean = [base, ...extra]
+        .map(c => (typeof c === 'string' ? c.trim() : ''))
+        .filter(c => c.length > 0);
+      return clean.length > 1 ? clean : null;
+    };
+    // Cyclic lookup. `idx` MUST be a SOURCE index — the original profile segment
+    // or the original rail station — never a face's position in the face list.
+    // Every render mode splits and merges faces as a function of the CAMERA
+    // (horizon splits, ribbon pinch subdivision, chain merging, spliced mesh
+    // rows), so an emission-order index makes the palette crawl as the camera
+    // orbits: a defect in the derivative, invisible in any single frame.
+    // --- PALETTE INTERPOLATE (v20260727a, PLAN-side-color-interpolate.md) ----
+    // OKLab blending. sRGB linear interpolation sends red->blue through a dark
+    // desaturated purple and washes complementary pairs out to grey; OKLab is
+    // perceptually uniform, so the ramp stays vivid AND its steps read as evenly
+    // spaced. Bjorn Ottosson's matrices, exact inverse.
+    // NOT reusing brightenColor to parse: it appends a <div> and reads
+    // getComputedStyle, which forces layout — fine once for a highlight, unusable
+    // per face inside the render loop. Palette entries are always '#rrggbb'
+    // written by our own UI, so a direct parse is both safe and fast.
+    const _hexToRgb = (hex) => {
+      const h = String(hex || '').trim().replace('#', '');
+      const s = h.length === 3 ? h[0] + h[0] + h[1] + h[1] + h[2] + h[2] : h;
+      const v = parseInt(s, 16);
+      if (!isFinite(v) || s.length !== 6) return null;
+      return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255];
+    };
+    const _rgbToHexArr = (c) => '#' + c.map(x => {
+      const b = Math.round(Math.max(0, Math.min(1, x)) * 255);
+      return b.toString(16).padStart(2, '0');
+    }).join('');
+    const _srgbToOklab = (c) => {
+      const lin = (u) => u <= 0.04045 ? u / 12.92 : Math.pow((u + 0.055) / 1.055, 2.4);
+      const r = lin(c[0]), g = lin(c[1]), b = lin(c[2]);
+      const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+      const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+      const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+      return [
+        0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+        1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+        0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+      ];
+    };
+    // GAMUT NOTE: blending two in-gamut sRGB colors in OKLab can leave sRGB
+    // slightly at the extremes of a saturated pair. Per-channel clamping is the
+    // pragmatic answer here (a real gamut map — reduce chroma until in gamut —
+    // is out of scope). A clamped channel makes the ramp locally NON-MONOTONE,
+    // which is why the monotonicity check tolerates ties; that is this clamp,
+    // not a bug.
+    const _oklabToSrgb = (L) => {
+      const l_ = L[0] + 0.3963377774 * L[1] + 0.2158037573 * L[2];
+      const m_ = L[0] - 0.1055613458 * L[1] - 0.0638541728 * L[2];
+      const s_ = L[0] - 0.0894841775 * L[1] - 1.2914855480 * L[2];
+      const l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+      const gam = (u) => {
+        const v = u <= 0.0031308 ? 12.92 * u : 1.055 * Math.pow(Math.max(0, u), 1 / 2.4) - 0.055;
+        return Math.max(0, Math.min(1, v));
+      };
+      return [
+        gam(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+        gam(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+        gam(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)
+      ];
+    };
+    const _mixOklab = (hexA, hexB, t) => {
+      const a = _hexToRgb(hexA), b = _hexToRgb(hexB);
+      if (!a || !b) return hexA;
+      const A = _srgbToOklab(a), B = _srgbToOklab(b);
+      return _rgbToHexArr(_oklabToSrgb([
+        A[0] + (B[0] - A[0]) * t,
+        A[1] + (B[1] - A[1]) * t,
+        A[2] + (B[2] - A[2]) * t
+      ]));
+    };
+
+    // n colors for a run of n faces, memoised: without this a 440-face revolve
+    // would run 440 OKLab round trips per frame for values that repeat. The key
+    // is complete, so entries never go stale; the cache is cleared wholesale
+    // past a cap because a palette only changes on a user edit.
+    const _paletteRampCache = new Map();
+    const paletteRamp = (pal, n, mode) => {
+      const key = mode + '|' + n + '|' + pal.join(',');
+      let hit = _paletteRampCache.get(key);
+      if (hit) return hit;
+      const K = pal.length;
+      const out = [];
+      if (n <= 1) {
+        out.push(pal[0]);                       // degenerate: no division by zero
+      } else {
+        for (let i = 0; i < n; i++) {
+          // D6: endpoints EXACT — t = i/(n-1), and both ends are special-cased
+          // rather than trusted to the float path, so a user who sets red and
+          // blue sees those hexes byte-for-byte on the first and last face.
+          if (i === 0) { out.push(pal[0]); continue; }
+          if (i === n - 1) { out.push(pal[K - 1]); continue; }
+          const f = (i / (n - 1)) * (K - 1);
+          const k = Math.min(Math.floor(f), K - 2);
+          out.push(_mixOklab(pal[k], pal[k + 1], f - k));
+        }
+      }
+      if (_paletteRampCache.size > 64) _paletteRampCache.clear();
+      _paletteRampCache.set(key, out);
+      return out;
+    };
+
+    // Cyclic lookup, or a gradient step when mode === 'interpolate' and the run
+    // length n is known. `idx` MUST be a SOURCE index — the original profile
+    // segment or the original rail station — never a face's position in the face
+    // list. Every render mode splits and merges faces as a function of the
+    // CAMERA (horizon splits, ribbon pinch subdivision, chain merging, spliced
+    // mesh rows), so an emission-order index makes the palette crawl as the
+    // camera orbits: a defect in the derivative, invisible in any single frame.
+    // Since v20260727a the same is true of `n`: with cycling a wrong n merely
+    // repeats differently, but under interpolation it changes EVERY color, and
+    // an n that moves with the camera makes the gradient breathe. Both index and
+    // n are read from the AUTHORED geometry, stamped before any splitter runs.
+    const paletteColorAt = (pal, idx, n, mode) => {
+      if (mode === 'interpolate' && n > 0) {
+        const ramp = paletteRamp(pal, n, mode);
+        const i = Math.max(0, Math.min(ramp.length - 1, idx | 0));
+        return ramp[i];
+      }
+      const k = pal.length;
+      return pal[(((idx | 0) % k) + k) % k];
+    };
+
+    // --- Palette UI (v20260726s): ONE builder + ONE wiring pair, shared by all
+    // four modifiers. Extracted from the extrude-only v20260726r code and proven
+    // inert before revolve / sweep / loft were added (the populateRefSelect
+    // discipline, v20260726m). Every instance therefore behaves identically and
+    // cannot drift.
+    //
+    // syncPaletteList: rebuild rows ONLY when the count changes — rebuilding on
+    // every sync steals focus mid-edit (the #foldCreaseList rule). Values sync
+    // behind activeElement guards.
+    const syncPaletteList = (o) => {
+      const list = document.getElementById(o.listId);
+      const addRow = document.getElementById(o.addRowId);
+      const extras = Array.isArray(o.settings?.[o.listKey]) ? o.settings[o.listKey] : [];
+      if (addRow) {
+        addRow.style.display = o.available ? 'flex' : 'none';
+        const btn = document.getElementById(o.addBtnId);
+        if (btn) btn.disabled = o.disabled;
+      }
+      if (!list) return;
+      const wantCount = o.available ? extras.length : 0;
+      if (parseInt(list.dataset.count || '0', 10) !== wantCount) {
+        list.dataset.count = String(wantCount);
+        list.innerHTML = '';
+        for (let ci = 0; ci < wantCount; ci++) {
+          const row = document.createElement('div');
+          row.className = 'style-row';
+          row.innerHTML =
+            `<label class="ui-checkbox-label">Color ${ci + 2}</label>` +
+            `<button type="button" class="ui-btn ui-btn-small" data-sc-up="${ci}" title="Move up">&#9650;</button>` +
+            `<button type="button" class="ui-btn ui-btn-small" data-sc-remove="${ci}" title="Remove color">&#10005;</button>` +
+            `<input type="text" class="color-hex-input" maxlength="6" spellcheck="false" data-sc-idx="${ci}" data-sc-key="hex" />` +
+            `<input type="color" class="color-fill" data-sc-idx="${ci}" data-sc-key="color" />`;
+          list.appendChild(row);
+        }
+      }
+      list.style.display = (o.available && wantCount > 0) ? '' : 'none';
+      // PALETTE MODE (v20260727a): Cycle | Interpolate. Shown only when the list
+      // is non-empty — with a single color the mode means nothing. Hidden with
+      // the rest of the palette when revolve Silhouette is on.
+      const modeRow = document.getElementById(o.modeRowId);
+      const modeSel = document.getElementById(o.modeSelId);
+      if (modeRow) modeRow.style.display = (o.available && wantCount > 0) ? '' : 'none';
+      if (modeSel && document.activeElement !== modeSel) {
+        modeSel.value = (o.settings?.paletteMode === 'interpolate') ? 'interpolate' : 'cycle';
+        modeSel.disabled = o.disabled;
+      }
+      list.querySelectorAll('input[data-sc-idx]').forEach(inp => {
+        const ci = parseInt(inp.dataset.scIdx, 10);
+        const val = (extras[ci] || '#888888');
+        if (document.activeElement !== inp) {
+          inp.value = inp.dataset.scKey === 'hex' ? val.replace('#', '').toUpperCase() : val;
+        }
+        inp.disabled = o.disabled;
+      });
+      list.querySelectorAll('button[data-sc-up], button[data-sc-remove]')
+        .forEach(b => { b.disabled = o.disabled; });
+    };
+
+    // wirePaletteList: Add / edit / Move Up / Remove. Deliberately NOT routed
+    // through updateStyleFromInput — that function reads every control of its
+    // section on every call, and a variable-length list does not belong in it.
+    // This is the fdApply convention: coalesced undo, multi-select broadcast,
+    // lazy key install, panel refresh, re-render.
+    const wirePaletteList = (o) => {
+      const targets = () => selectedObjects.length > 0 ? selectedObjects : (selectedObject ? [selectedObject] : []);
+      const apply = (fn) => {
+        pushUndoStateCoalesced();
+        targets().forEach(obj => {
+          const s = o.settingsOf(obj);
+          if (!s) return;
+          // LAZY (the Group.foldSettings rule): the key does not exist until the
+          // user adds a second color, so untouched objects — and every
+          // pre-feature scene file — serialize byte-identically.
+          if (!Array.isArray(s[o.listKey])) s[o.listKey] = [];
+          fn(s[o.listKey], s, obj);
+        });
+        updateStylePanel();
+        requestRender();
+      };
+      document.getElementById(o.addBtnId)?.addEventListener('click', () => {
+        // Seed from the last entry (the fold "inherit from the previous one"
+        // convention) so a new row is visible and obviously editable.
+        apply((list, s) => {
+          list.push(list.length ? list[list.length - 1] : (s[o.baseKey] || '#888888'));
+        });
+      });
+      const listEl = document.getElementById(o.listId);
+      listEl?.addEventListener('input', (e) => {
+        const inp = e.target;
+        if (!inp || !inp.dataset || inp.dataset.scIdx === undefined) return;
+        const ci = parseInt(inp.dataset.scIdx, 10);
+        let hex;
+        if (inp.dataset.scKey === 'hex') {
+          hex = inp.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
+          inp.value = hex;
+          if (hex.length !== 6) return;             // wait for a complete value
+        } else {
+          hex = (inp.value || '').replace('#', '');
+        }
+        apply((list) => { if (ci < list.length) list[ci] = '#' + hex.toLowerCase(); });
+      });
+      listEl?.addEventListener('click', (e) => {
+        const up = e.target?.closest?.('button[data-sc-up]');
+        if (up) {
+          // Move up: swap with the entry above. Index 0 swaps with the FIXED
+          // color row (color 1), so the whole palette is reorderable and the
+          // first row is not a dead end.
+          const ci = parseInt(up.dataset.scUp, 10);
+          apply((list, s) => {
+            if (ci === 0) { const t = s[o.baseKey]; s[o.baseKey] = list[0]; list[0] = t; }
+            else if (ci < list.length) { const t = list[ci - 1]; list[ci - 1] = list[ci]; list[ci] = t; }
+          });
+          return;
+        }
+        const rm = e.target?.closest?.('button[data-sc-remove]');
+        if (!rm) return;
+        const ci = parseInt(rm.dataset.scRemove, 10);
+        apply((list) => { if (ci < list.length) list.splice(ci, 1); });
+      });
+      // Mode. Lazy like the list itself: 'cycle' DELETES the key rather than
+      // storing it, so an object that never used Interpolate serializes with no
+      // trace of the mode either.
+      document.getElementById(o.modeSelId)?.addEventListener('change', (e) => {
+        const v = e.target.value === 'interpolate' ? 'interpolate' : null;
+        apply((list, s) => { if (v) s.paletteMode = v; else delete s.paletteMode; });
+      });
     };
 
     const DOLLY_SPEED = 0.03;
@@ -34441,11 +34756,11 @@
               let prevPt = lp0, first = true;
               lroots.forEach(t => {
                 const pt = lerpL(t);
-                processedSegments.push({ type: 'L', command: first ? seg.command : undefined, pStart: prevPt, pEnd: pt, subPathClosed: false });
+                processedSegments.push({ type: 'L', command: first ? seg.command : undefined, pStart: prevPt, pEnd: pt, subPathClosed: false, _ciIdx: seg._ciIdx, _ciN: seg._ciN });
                 first = false;
                 prevPt = pt;
               });
-              processedSegments.push({ type: 'L', command: first ? seg.command : undefined, pStart: prevPt, pEnd: lp3, subPathClosed: seg.subPathClosed || false });
+              processedSegments.push({ type: 'L', command: first ? seg.command : undefined, pStart: prevPt, pEnd: lp3, subPathClosed: seg.subPathClosed || false, _ciIdx: seg._ciIdx, _ciN: seg._ciN });
             }
           } else {
             // Convert to Cubic P0..P3
@@ -34504,7 +34819,8 @@
                 processedSegments.push({
                   type: 'C',
                   command: firstSplit ? seg.command : undefined, // Preserve M if it was first
-                  p0: split[0][0], p1: split[0][1], p2: split[0][2], p3: split[0][3]
+                  p0: split[0][0], p1: split[0][1], p2: split[0][2], p3: split[0][3],
+                  _ciIdx: seg._ciIdx, _ciN: seg._ciN // side-color palette: keep the SOURCE index across the split
                 });
                 firstSplit = false;
 
@@ -34515,7 +34831,8 @@
               processedSegments.push({
                 type: 'C',
                 command: firstSplit ? seg.command : undefined, // In case of no valid splits despite roots? Or just the tail.
-                p0: remainingSeg.p0, p1: remainingSeg.p1, p2: remainingSeg.p2, p3: remainingSeg.p3
+                p0: remainingSeg.p0, p1: remainingSeg.p1, p2: remainingSeg.p2, p3: remainingSeg.p3,
+                _ciIdx: seg._ciIdx, _ciN: seg._ciN // side-color palette: keep the SOURCE index across the split
               });
             }
           }
@@ -34716,26 +35033,29 @@
         const MAX_DEPTH = 4;   // ≤ 16 pieces per original segment
         const isPinched = (seg) => this._ribbonQuadPinched([seg], mvpFront, mvpBack);
         const lerpP = (p, q, t) => [0, 1, 2].map(k => (p[k] || 0) + t * ((q[k] || 0) - (p[k] || 0)));
+        // Halves inherit _ciIdx: this split is a CAMERA-dependent refinement of
+        // one source segment, so both halves keep that segment's palette index
+        // and a pinch can never introduce a color change (side-color palette).
         const splitSeg = (seg) => {
           if (seg.type === 'L') {
             const mid = lerpP(seg.pStart, seg.pEnd, 0.5);
             return [
-              { type: 'L', command: seg.command, pStart: seg.pStart, pEnd: mid, subPathClosed: false },
-              { type: 'L', pStart: mid, pEnd: seg.pEnd, subPathClosed: seg.subPathClosed || false }
+              { type: 'L', command: seg.command, pStart: seg.pStart, pEnd: mid, subPathClosed: false, _ciIdx: seg._ciIdx, _ciN: seg._ciN },
+              { type: 'L', pStart: mid, pEnd: seg.pEnd, subPathClosed: seg.subPathClosed || false, _ciIdx: seg._ciIdx, _ciN: seg._ciN }
             ];
           }
           if (seg.type === 'Q') {
             const q01 = lerpP(seg.p0, seg.p1, 0.5), q12 = lerpP(seg.p1, seg.p2, 0.5);
             const m = lerpP(q01, q12, 0.5);
             return [
-              { type: 'Q', command: seg.command, p0: seg.p0, p1: q01, p2: m },
-              { type: 'Q', p0: m, p1: q12, p2: seg.p2 }
+              { type: 'Q', command: seg.command, p0: seg.p0, p1: q01, p2: m, _ciIdx: seg._ciIdx, _ciN: seg._ciN },
+              { type: 'Q', p0: m, p1: q12, p2: seg.p2, _ciIdx: seg._ciIdx, _ciN: seg._ciN }
             ];
           }
           const sp = splitCubicBezier(seg.p0, seg.p1, seg.p2, seg.p3, 0.5);
           return [
-            { type: 'C', command: seg.command, p0: sp[0][0], p1: sp[0][1], p2: sp[0][2], p3: sp[0][3] },
-            { type: 'C', p0: sp[1][0], p1: sp[1][1], p2: sp[1][2], p3: sp[1][3] }
+            { type: 'C', command: seg.command, p0: sp[0][0], p1: sp[0][1], p2: sp[0][2], p3: sp[0][3], _ciIdx: seg._ciIdx, _ciN: seg._ciN },
+            { type: 'C', p0: sp[1][0], p1: sp[1][1], p2: sp[1][2], p3: sp[1][3], _ciIdx: seg._ciIdx, _ciN: seg._ciN }
           ];
         };
         const out = [];
@@ -35068,6 +35388,10 @@
           divisionsV: Math.max(2, rs.divsV || 16),
           cleanSegsU: Math.max(4, rs.segments || 32),  // used by drawSurface when cleanRender=true
           surfaceColor: rs.useRibbonColor ? rs.ribbonColor : null,
+          // SIDE COLOR PALETTE (v20260726s): revolve's colors 2..N ride the same
+          // remap as the scalar, so drawSurface only ever reads `surfaceColors`.
+          surfaceColors: rs.useRibbonColor ? rs.ribbonColors : null,
+          paletteMode: rs.paletteMode,
           useSurfaceColor: rs.useRibbonColor || false,
           curvedSurface: rs.curvedSurface || false,
           silhouetteSplit: true,  // always on for revolve
@@ -35132,6 +35456,10 @@
           cleanSegsU: Math.max(4, es.divisionsU || 8),
           surfaceColor: es.useSideColor ? es.sideColor : null,
           useSurfaceColor: es.useSideColor || false,
+          // SIDE COLOR PALETTE: extrude's colors 2..N ride the same remap as
+          // the scalar, so drawSurface only ever reads `surfaceColors`.
+          surfaceColors: es.useSideColor ? es.sideColors : null,
+          paletteMode: es.paletteMode,
           curvedSurface: es.curvedSurface || false,
           silhouetteSplit: es.silhouetteSplit || false,
           respectSubpaths: true,
@@ -35282,6 +35610,11 @@
         const _effSurface = getEffectiveStyle(this);
         const resolvedFill = (this.style.fill && this.style.fill !== 'none') ? rgbToHex(this.style.fill) : this.style.fill;
         const fillColor = (ss.useSurfaceColor && ss.surfaceColor) ? ss.surfaceColor : resolvedFill;
+        // SIDE COLOR PALETTE (v20260726r): null unless a list of 2+ colors is
+        // set, and null means every read below keeps its pre-feature expression.
+        // Mesh and Layer cycle by U (owner decision D1: "layers"), so the index
+        // is the ORIGINAL rail station — see the read sites for why that matters.
+        const surfPal = ss.useSurfaceColor ? facePalette(ss.surfaceColor, ss.surfaceColors) : null;
         // Cap fill uses the path's own fill
         const capFillColor = resolvedFill;
         const strokeColor = (this.style.stroke && this.style.stroke !== 'none') ? rgbToHex(this.style.stroke) : null;
@@ -35378,7 +35711,12 @@
 
             // Use cap fill for first/last layers, surface color for intermediate
             const isCapLayer = isFirstLayer || isLastLayer;
-            const layerFill = isCapLayer ? capFillColor : fillColor;
+            // PALETTE: caps are never palette-colored (they carry the object's
+            // own fill). The colored layers run li = 1..N-1, so the index is
+            // li - 1 and the FIRST colored layer gets color 1, not color 2.
+            // `li` is a pure geometric station index — camera-independent.
+            const layerFill = isCapLayer ? capFillColor
+              : (surfPal ? paletteColorAt(surfPal, li - 1, uStations.length - 2, ss.paletteMode) : fillColor);
             // Only fill layers when all subpaths are closed (otherwise SVG
             // implicitly closes open paths, creating unwanted closure faces)
             layerPath.setAttribute('fill', allSubpathsClosed ? (layerFill || 'none') : 'none');
@@ -35454,7 +35792,11 @@
             // covers (p = _pIdx + t in [0, profileSegs.length]). Split t values
             // differ per U-interval, so geometric keys cannot line up - parameter
             // space is the only shared frame between adjacent intervals.
-            if (silh) profileSegs.forEach((s, i) => { s._pIdx = i; });
+            // The SIDE COLOR PALETTE needs the same bookkeeping for the same
+            // reason (v20260726s): clean-mode chains break at the camera-derived
+            // horizon and at facing flips, so a chain's position in the emitted
+            // list is camera-dependent and only _pIdx is stable.
+            if (silh || surfPal) profileSegs.forEach((s, i) => { s._pIdx = i; });
             const silhSub = silh ? {
               profileSegs,
               closed: !!subpathClosed[subpathGroups.indexOf(profileSegs)],
@@ -36151,7 +36493,16 @@
 
                 const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 pathEl.setAttribute('d', d);
-                pathEl.setAttribute('fill', fillColor);
+                // PALETTE (v20260726s): clean mode cycles by V — the profile
+                // "sides" (owner decision D1). The index is the chain's FIRST
+                // source segment (_pIdx), never its position in the emitted
+                // list: chains break at the camera-derived horizon and at facing
+                // flips, so list position moves as the camera orbits. This is
+                // also the D2 rule — a chain that merged several profile
+                // segments takes the first one's color.
+                pathEl.setAttribute('fill', surfPal
+                  ? paletteColorAt(surfPal, segsA[firstIdx]?._pIdx ?? firstIdx, profileSegs.length, ss.paletteMode)
+                  : fillColor);
                 pathEl.setAttribute('fill-opacity', _effSurface['fill-opacity']);
                 if (strokeColor) {
                   pathEl.setAttribute('stroke', strokeColor);
@@ -36576,6 +36927,15 @@
             }
           }
 
+          // Row index → rail u. Built for EVERY mesh render and maintained by the
+          // same splice loop that mutates `grid`, so it cannot drift from it. Used
+          // by the curved gridUCurves rebuild below (where it used to be a local)
+          // and by the SIDE COLOR PALETTE, whose index must come from the ORIGINAL
+          // station interval — a plain row index is camera-dependent, because the
+          // silhouette pass splices extra rows in at horizon crossings.
+          const rowUValues = [];
+          for (let i = 0; i <= divsU; i++) rowUValues.push(i / divsU);
+
           // --- Silhouette Splitting: Insert extra U-rows at horizon crossings ---
           if (ss.silhouetteSplit && grid.length >= 3) {
             const camPos = activeCamera.position;
@@ -36714,6 +37074,9 @@
                 newRow.push(sweepPoint(frame, profilePoints[j]));
               }
               grid.splice(afterRow + 1, 0, newRow);
+              // Same index, same reverse order as the grid splice above — the
+              // two arrays are mutated together so they can never disagree.
+              rowUValues.splice(afterRow + 1, 0, u);
 
               if (isCurved && gridCurves && profileCurves) {
                 const newCurveRow = [];
@@ -36735,14 +37098,8 @@
               // Recompute with proper frame-sampled Bezier fitting
               const newRowCount = grid.length;
               gridUCurves = [];
-              // Build u-value array: original rows at i/divsU, inserted rows at their crossing u
-              const rowUValues = [];
-              // Start with original rows
-              for (let i = 0; i <= divsU; i++) rowUValues.push(i / divsU);
-              // Insert crossing u-values at the correct positions (same reverse order as grid insertions)
-              for (let c = crossingUs.length - 1; c >= 0; c--) {
-                rowUValues.splice(crossingUs[c].afterRow + 1, 0, crossingUs[c].u);
-              }
+              // rowUValues (hoisted above) already holds the original rows at
+              // i/divsU with each crossing u inserted at its row position.
 
               for (let i = 0; i < newRowCount - 1; i++) {
                 const uA = rowUValues[i];
@@ -36858,7 +37215,15 @@
 
               const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
               pathEl.setAttribute('d', d);
-              pathEl.setAttribute('fill', fillColor);
+              // PALETTE: index by the ORIGINAL station interval this row falls
+              // in, NOT by the row index `i` — the silhouette pass splices extra
+              // rows into `grid` at horizon crossings, so `i` shifts with the
+              // camera. Reading it off rowUValues means an inserted row resolves
+              // to the same interval as the row above it, so a horizon split can
+              // never introduce a color change and the banding is camera-stable.
+              pathEl.setAttribute('fill', surfPal
+                ? paletteColorAt(surfPal, Math.floor(rowUValues[i] * divsU + 1e-9), divsU, ss.paletteMode)
+                : fillColor);
               if (strokeColor) {
                 pathEl.setAttribute('stroke', strokeColor);
                 pathEl.setAttribute('stroke-width', strokeWidth);
@@ -37867,6 +38232,12 @@
           const avgZ = silh.zCount > 0 ? silh.zSum / silh.zCount : 0;
           const fillEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           fillEl.setAttribute('d', silh.fillD.trim());
+          // SIDE COLOR PALETTE x SILHOUETTE: incompatible BY CONSTRUCTION, and
+          // said out loud rather than failing quietly. This mode's whole point is
+          // that every patch merges into ONE union fill path, so there are no
+          // per-patch faces left to cycle a palette over. Silhouette wins and
+          // color 1 is used; the panel hides the palette rows while the mode is
+          // on, so the two controls can never appear to contradict each other.
           fillEl.setAttribute('fill', fillColor);
           // nonzero is load-bearing: all rings are orientation-normalized, so
           // overlaps cannot cancel and the fill is exactly the union - and it
@@ -38380,6 +38751,12 @@
         const _effLoft = getEffectiveStyle(this);
         const resolvedFill = (this.style.fill && this.style.fill !== 'none') ? rgbToHex(this.style.fill) : this.style.fill;
         const fillColor = (ls.useSurfaceColor && ls.surfaceColor) ? ls.surfaceColor : resolvedFill;
+        // SIDE COLOR PALETTE (v20260726s): null unless 2+ colors are set, and
+        // null means every read below keeps its pre-feature expression. Loft
+        // cycles by U — the cross-section index in Mesh, the layer index in
+        // Layer (owner decision D1: "layers"). Both are pure geometric indices,
+        // so neither moves with the camera.
+        const loftPal = ls.useSurfaceColor ? facePalette(ls.surfaceColor, ls.surfaceColors) : null;
         const strokeColor = (this.style.stroke && this.style.stroke !== 'none') ? rgbToHex(this.style.stroke) : null;
         const strokeWidth = getEffectiveStrokeWidth(_effLoft['stroke-width'] || (2 / FRAME_SIZE).toString());
         const renderMode = ls.renderMode || 'mesh';
@@ -38424,7 +38801,11 @@
             const layerPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             layerPath.setAttribute('d', dStr);
             layerPath.setAttribute('fill-rule', 'evenodd');
-            layerPath.setAttribute('fill', (allClosed && fillColor && fillColor !== 'none') ? fillColor : 'none');
+            // Unlike drawSurface's layer mode, loft has no separate CAP fill —
+            // every layer including the first and last is a surface layer — so
+            // the index is li directly and layer 1 gets color 1.
+            const layerFill = loftPal ? paletteColorAt(loftPal, li, layerCount + 1, ls.paletteMode) : fillColor;
+            layerPath.setAttribute('fill', (allClosed && layerFill && layerFill !== 'none') ? layerFill : 'none');
             layerPath.setAttribute('fill-opacity', _effLoft['fill-opacity'] || '1');
             if (strokeColor) {
               layerPath.setAttribute('stroke', strokeColor);
@@ -38682,7 +39063,8 @@
                 d = null; // flat branch emits its own element below
                 const poly = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 poly.setAttribute('d', `M ${s0.x} ${s0.y} L ${s1.x} ${s1.y} L ${s2.x} ${s2.y} L ${s3.x} ${s3.y} Z`);
-                poly.setAttribute('fill', fillColor || 'none');
+                // PALETTE: i is the CROSS-SECTION index along the loft (U).
+                poly.setAttribute('fill', (loftPal ? paletteColorAt(loftPal, i, crossSectionsForSp.length - 1, ls.paletteMode) : fillColor) || 'none');
                 poly.setAttribute('fill-opacity', _effLoft['fill-opacity'] || '1');
                 if (strokeColor) {
                   poly.setAttribute('stroke', strokeColor);
@@ -38706,7 +39088,7 @@
               // Curved face element
               const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
               pathEl.setAttribute('d', d);
-              pathEl.setAttribute('fill', fillColor || 'none');
+              pathEl.setAttribute('fill', (loftPal ? paletteColorAt(loftPal, i, crossSectionsForSp.length - 1, ls.paletteMode) : fillColor) || 'none');
               pathEl.setAttribute('fill-opacity', _effLoft['fill-opacity'] || '1');
               if (strokeColor) {
                 pathEl.setAttribute('stroke', strokeColor);
@@ -38852,13 +39234,45 @@
         // const tFront = createTranslationMatrix(0, 0, frontZ); ... REMOVED
 
         const sideColor = (_exr.useSideColor && _exr.sideColor) ? _exr.sideColor : null;
+        // SIDE COLOR PALETTE (v20260726r): colors cycle over the SOURCE profile
+        // segment index (D1 — clean mode cycles by V, the sides). Stamped only
+        // when a palette is active, so the single-color path is untouched.
+        const sidePal = _exr.useSideColor ? facePalette(_exr.sideColor, _exr.sideColors) : null;
+        const sideMode = _exr.paletteMode;
+        // PER-CONTOUR index (v20260727a, owner decision D7): the index restarts
+        // at every closed contour and _ciN carries that contour's own length, so
+        // each contour of a compound profile gets the FULL palette — one ramp per
+        // counter in a letter, not one ramp smeared across outer + holes. This
+        // also makes clean extrude agree with clean revolve/sweep, whose _pIdx
+        // has always been per-subpath. getSegments() marks a contour's first
+        // segment with command 'M'.
+        // NOTE both fields are stamped on the AUTHORED segments, BEFORE
+        // processSilhouetteSegments splits at the horizon and before
+        // _refineRibbonSegments subdivides. That ordering is load-bearing: it is
+        // what keeps _ciN camera-independent, and an n that moved with the camera
+        // would make an interpolated gradient breathe as the camera orbits.
+        if (sidePal) {
+          let runStart = 0;
+          const closeRun = (end) => {
+            const len = end - runStart;
+            for (let k = runStart; k < end; k++) {
+              if (segments[k]) { segments[k]._ciIdx = k - runStart; segments[k]._ciN = len; }
+            }
+            runStart = end;
+          };
+          for (let i = 1; i < segments.length; i++) {
+            if (segments[i] && segments[i].command === 'M') closeRun(i);
+          }
+          closeRun(segments.length);
+        }
 
-        const createPath = (d) => {
+        const createPath = (d, ciIdx, ciN) => {
           const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           p.setAttribute('d', d);
           p.setAttribute('fill-rule', 'nonzero');
           if (sideColor) {
-            p.setAttribute('fill', sideColor);
+            p.setAttribute('fill', (sidePal && ciIdx !== undefined && ciIdx !== null)
+              ? paletteColorAt(sidePal, ciIdx, ciN, sideMode) : sideColor);
             const opacity = _effSide['fill-opacity'] !== undefined ? _effSide['fill-opacity'] : 1;
             p.setAttribute('fill-opacity', opacity);
             // Ensure opacity is maintained if we override the fill
@@ -38988,7 +39402,15 @@
           const ribbons = this.generateSimpleSideRibbon(processedSegments, mvpFront, mvpBack, eyeLocal, E, taperInfo, collectIx);
           if (ribbons) {
             ribbons.forEach(ribbon => {
-              const sidePath = createPath(ribbon.d);
+              // D2 (owner decision): a merged ribbon takes its FIRST source
+              // segment's color. Simple Sides geometry is deliberately NOT
+              // broken at color boundaries — on a CORNERED profile chains break
+              // at the corners anyway, so the coloring is camera-stable; on a
+              // SMOOTH profile chains break only at the camera-derived horizon,
+              // so the color changes shift as you orbit. Turn Simple Sides off
+              // for exact per-segment colors.
+              const _rs0 = (ribbon.srcSegs && ribbon.srcSegs.length) ? ribbon.srcSegs[0] : null;
+              const sidePath = createPath(ribbon.d, _rs0 ? _rs0._ciIdx : undefined, _rs0 ? _rs0._ciN : undefined);
               const entry = { element: sidePath, z: ribbon.z };
               entry._prismRole = 'ribbon'; entry._prismSegs = ribbon.srcSegs || null; // v20260720c
               if (collectIx && ribbon.ixCurved) entry.ix = { ...ribbon.ixCurved, splits: 0, owner: this };
@@ -38999,7 +39421,10 @@
           // faceted side faces
           const faces = this.generateLoftFaces(processedSegments, mvpFront, mvpBack, null, null, null, collectIx ? { collectIx: true } : {});
           faces.forEach(f => {
-            const sidePath = createPath(f.d);
+            // Faceted sides: one face per source profile segment (possibly
+            // split at the horizon), so the index is exact and fully stable.
+            const sidePath = createPath(f.d, f.srcSeg ? f.srcSeg._ciIdx : undefined,
+              f.srcSeg ? f.srcSeg._ciN : undefined);
             const entry = { element: sidePath, z: f.z };
             entry._prismRole = 'ribbon'; entry._prismSegs = f.srcSeg ? [f.srcSeg] : null; // v20260720c
             if (collectIx && f.ixPts) {
@@ -46791,6 +47216,18 @@
         sideColorHexInput.disabled = !extrudable || !extrudeEnabledInput.checked || !sideColorOn;
       }
 
+      // SIDE COLOR PALETTE (v20260726r; extracted to the shared builder in
+      // v20260726s). Disabled predicate matches the fixed hex/swatch above.
+      syncPaletteList({
+        listId: 'extrudeSideColorList', addRowId: 'extrudeAddSideColorRow',
+        addBtnId: 'extrudeAddSideColorBtn',
+        modeRowId: 'extrudePaletteModeRow', modeSelId: 'extrudePaletteModeInput',
+        settings: extrudable ? selectedObject.extrudeSettings : null,
+        listKey: 'sideColors',
+        available: !!extrudable,
+        disabled: !extrudable || !extrudeEnabledInput.checked || !sideColorOn
+      });
+
       // Revolve
       const revolveEnabledInput = document.getElementById('revolveEnabledInput');
       const revolveAxisInput = document.getElementById('revolveAxisInput');
@@ -46944,6 +47381,19 @@
         revolveRibbonColorHexInput.disabled = !isPath || !revolveEnabled || !ribbonColorOn;
       }
 
+      // PALETTE (v20260726s). Hidden entirely while Silhouette is on: that mode
+      // merges every patch into ONE union fill, so there are no per-patch faces
+      // to cycle over and offering the control would contradict the render.
+      syncPaletteList({
+        listId: 'revolveSideColorList', addRowId: 'revolveAddSideColorRow',
+        addBtnId: 'revolveAddSideColorBtn',
+        modeRowId: 'revolvePaletteModeRow', modeSelId: 'revolvePaletteModeInput',
+        settings: isPath ? selectedObject.revolveSettings : null,
+        listKey: 'ribbonColors',
+        available: !!isPath && !silhouetteMergeOn,
+        disabled: !isPath || !revolveEnabled || !ribbonColorOn
+      });
+
       // Surface Settings (Profile × Rail)
       const sweepEnabledInput = document.getElementById('sweepEnabledInput');
       const sweepRailSelect = document.getElementById('sweepRailSelect');
@@ -47003,6 +47453,16 @@
           if (document.activeElement !== sweepColorHexInput) sweepColorHexInput.value = scColor.slice(1).toUpperCase();
           sweepColorHexInput.disabled = !isPath || !sweepEnabled || !sweepColorEnabledInput.checked;
         }
+
+        syncPaletteList({
+          listId: 'sweepSideColorList', addRowId: 'sweepAddSideColorRow',
+          addBtnId: 'sweepAddSideColorBtn',
+          modeRowId: 'sweepPaletteModeRow', modeSelId: 'sweepPaletteModeInput',
+          settings: isPath ? selectedObject.sweepSettings : null,
+          listKey: 'surfaceColors',
+          available: !!isPath,
+          disabled: !isPath || !sweepEnabled || !sweepColorEnabledInput.checked
+        });
 
         // Draw Points controls
         // Curved Surface checkbox
@@ -47312,6 +47772,16 @@
           if (document.activeElement !== loftColorHexInput) loftColorHexInput.value = lcColor.slice(1).toUpperCase();
           loftColorHexInput.disabled = !isPath || !loftEnabled || !(loftColorEnabledInput && loftColorEnabledInput.checked);
         }
+
+        syncPaletteList({
+          listId: 'loftSideColorList', addRowId: 'loftAddSideColorRow',
+          addBtnId: 'loftAddSideColorBtn',
+          modeRowId: 'loftPaletteModeRow', modeSelId: 'loftPaletteModeInput',
+          settings: isPath ? selectedObject.loftSettings : null,
+          listKey: 'surfaceColors',
+          available: !!isPath,
+          disabled: !isPath || !loftEnabled || !(loftColorEnabledInput && loftColorEnabledInput.checked)
+        });
 
         // Div V
         const loftDivsVInput = document.getElementById('loftDivisionsVInput');
@@ -50973,6 +51443,31 @@
         document.getElementById('extrudeSideColorInput').value = '#' + hex;
         updateStyleFromInput(e);
       }
+    });
+
+    // --- SIDE COLOR PALETTE listeners (v20260726r; shared wiring v20260726s) ---
+    wirePaletteList({
+      listId: 'extrudeSideColorList', addBtnId: 'extrudeAddSideColorBtn', modeSelId: 'extrudePaletteModeInput',
+      settingsOf: (obj) => obj.extrudeSettings,
+      baseKey: 'sideColor', listKey: 'sideColors'
+    });
+    // v20260726s: the other three modifiers. Same helper, so the four instances
+    // cannot drift; only the key names differ (each matches the scalar already
+    // beside it — sideColor / ribbonColor / surfaceColor).
+    wirePaletteList({
+      listId: 'revolveSideColorList', addBtnId: 'revolveAddSideColorBtn', modeSelId: 'revolvePaletteModeInput',
+      settingsOf: (obj) => obj.revolveSettings,
+      baseKey: 'ribbonColor', listKey: 'ribbonColors'
+    });
+    wirePaletteList({
+      listId: 'sweepSideColorList', addBtnId: 'sweepAddSideColorBtn', modeSelId: 'sweepPaletteModeInput',
+      settingsOf: (obj) => obj.sweepSettings,
+      baseKey: 'surfaceColor', listKey: 'surfaceColors'
+    });
+    wirePaletteList({
+      listId: 'loftSideColorList', addBtnId: 'loftAddSideColorBtn', modeSelId: 'loftPaletteModeInput',
+      settingsOf: (obj) => obj.loftSettings,
+      baseKey: 'surfaceColor', listKey: 'surfaceColors'
     });
     // New mesh render controls
     document.getElementById('extrudeRenderModeInput').addEventListener('change', function (e) {

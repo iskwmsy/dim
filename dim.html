@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260727d -->
+<!-- dim v20260727e -->
 
 <!--
   MIT License
@@ -14938,6 +14938,19 @@
       return [((mx - (width / 2 + CANVAS_OFFSET_X)) / vs) / BASE_DISPLAY_SCALE,
       -((my - height / 2) / vs) / BASE_DISPLAY_SCALE, z];
     };
+    // Pen on a 2D-Mode path (v20260727e): the cursor maps straight to frame
+    // space — the camera ray × pen working plane would land the point where
+    // the ray hits the 3D workplane, not where the user clicked. Returns the
+    // fabricated straight-down {ray, plane} pair (the P2 drag-handler
+    // pattern) so each pen site's plane-intersection code lands exactly, or
+    // null when the path isn't in 2D Mode (callers fall through to the
+    // camera ray + getPenWorkingPlane). New-path creation always starts 3D
+    // (mode2D is off by default), so only "continue an existing 2D path"
+    // routes through this.
+    const pen2DRayPlane = (path, ev) => !path || !isIn2DMode(path) ? null : {
+      ray: { origin: mouseToFrame2D(ev.clientX, ev.clientY, path.position[2] + 1), direction: [0, 0, -1] },
+      plane: { point: [0, 0, path.position[2]], normal: [0, 0, 1] },
+    };
 
     // --- 2D MODE self-test (v20260727d, PLAN-2d-mode.md P4) ---------------
     // Console: Mode2D.selfTest() — asserts the frame-matrix contract, the
@@ -14961,6 +14974,14 @@
           return p;
         };
         const camSave = { pos: [...activeCamera.position], tgt: [...activeCamera.target] };
+        // Parked browser-pane tabs cache width/height = 0 (report §9), which
+        // fails the two viewport-dependent asserts (mouse inverse, pen pair)
+        // SPURIOUSLY. Surface that as its own named failure so the table
+        // explains itself instead of implicating the frame math.
+        if (!(Math.min(width, height) > 0)) {
+          t('viewport ready (unparked tab)', false,
+            'width/height = 0 — screenshot the tab, dispatch a window resize event, re-run');
+        }
         try {
           // 1. The frame-matrix contract: internal (1,1,z) → frame (100,−100)
           // for ANY z (depth inert) — and the scale is tied to the display
@@ -15034,6 +15055,20 @@
           p2.draw(vpB, { externalFaceList: fl, cameraVP: vpB });
           t('z-sorted group: one whole-element entry at z=-Infinity',
             fl.length === 1 && fl[0].z === -Infinity && fl[0].element === p2.svgElement);
+
+          // 8. Pen on a 2D path (v20260727e): null for 3D paths, and the
+          // fabricated pair's plane sits at the path's z with the ray
+          // starting one unit above it — so the intersection lands the
+          // cursor's frame point at local z = 0 exactly.
+          const vsT = Math.min(width, height) / FRAME_SIZE;
+          const mxT = (width / 2 + CANVAS_OFFSET_X) + 2 * BASE_DISPLAY_SCALE * vsT;
+          const myT = (height / 2) - 1.5 * BASE_DISPLAY_SCALE * vsT;
+          const pp = pen2DRayPlane(p2, { clientX: mxT, clientY: myT });
+          t('pen2DRayPlane: null for 3D; 2D pair intersects at cursor frame point, plane at path z',
+            pen2DRayPlane(p3, { clientX: mxT, clientY: myT }) === null &&
+            pp && pp.plane.point[2] === p2.position[2] && pp.ray.direction[2] === -1 &&
+            eq(pp.ray.origin[0], 2) && eq(pp.ray.origin[1], 1.5) &&
+            eq(pp.ray.origin[2], p2.position[2] + 1));
         } catch (e) {
           t('selfTest completed without exception', false,
             e.message + (e.stack ? ' @ ' + String(e.stack).split('\n')[1] : ''));
@@ -15885,7 +15920,10 @@
             )
           )
         );
-      const mvpMatrix = matrixMultiply(vpMatrix, modelMatrix);
+      // 2D MODE (v20260727e): rubber band where the renderer will draw
+      const mvpMatrix = activePath.getWorldMatrix
+        ? resolveObjectMVP(activePath, vpMatrix)
+        : matrixMultiply(vpMatrix, modelMatrix);
 
       // Determine closed state from the last subpath
       const lastSub = activePath.subPathData && activePath.subPathData.length > 0
@@ -54687,9 +54725,11 @@
         const projectionMatrix = activeCamera.createProjectionMatrix();
         const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
 
-        const ray = getRayFromClick(event, vpMatrix);
+        // 2D MODE (v20260727e): adding to a 2D-mode path — frame-space cursor
+        const _pen2D = pen2DRayPlane(activePath, event);
+        const ray = _pen2D ? _pen2D.ray : getRayFromClick(event, vpMatrix);
         if (ray) {
-          const workingPlane = getPenWorkingPlane();
+          const workingPlane = _pen2D ? _pen2D.plane : getPenWorkingPlane();
           const planeNormal = workingPlane.normal;
           const planePoint = workingPlane.point;
 
@@ -54713,18 +54753,21 @@
                 if (_prevLocal) {
                   const _prevWorld = vectorAdd(
                     vectorApplyMatrix(_prevLocal, activePath.rotationMatrix), activePath.position);
-                  const _b = getGridBasis();
+                  // 2D MODE: the 45° grid lives in frame axes
+                  const _b = _pen2D ? { u: [1, 0, 0], v: [0, 1, 0] } : getGridBasis();
                   hitPoint = vectorAdd(_prevWorld,
                     constrainDelta45(vectorSubtract(hitPoint, _prevWorld), _b.u, _b.v));
                 }
               }
 
               if (activeWorkplane.snapToGrid) {
-                const basis = getGridBasis();
+                // 2D MODE: snap in frame axes (plane point is [0,0,z] there)
+                const basis = _pen2D ? { u: [1, 0, 0], v: [0, 1, 0] } : getGridBasis();
                 hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
               }
-              // Snap to point (if enabled)
-              if (snapToPoint) {
+              // Snap to point (if enabled; 2D skips — frame space can't be
+              // compared through the camera projection)
+              if (!_pen2D && snapToPoint) {
                 if (_snapTargetCache === null) {
                   // Include activePath for self-snapping but exclude the last anchor
                   // (the point the cursor is extending from) and its bezier handles
@@ -55441,9 +55484,11 @@
         const viewMatrix = activeCamera.createViewMatrix();
         const projectionMatrix = activeCamera.createProjectionMatrix();
         const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
-        const ray = getRayFromClick(event, vpMatrix);
+        // 2D MODE (v20260727e): preview must predict the frame-space click
+        const _pen2D = pen2DRayPlane(activePath, event);
+        const ray = _pen2D ? _pen2D.ray : getRayFromClick(event, vpMatrix);
         if (ray) {
-          const workingPlane = getPenWorkingPlane();
+          const workingPlane = _pen2D ? _pen2D.plane : getPenWorkingPlane();
           const planeNormal = workingPlane.normal;
           const planePoint = workingPlane.point;
           const denom = ray.direction[0] * planeNormal[0] + ray.direction[1] * planeNormal[1] + ray.direction[2] * planeNormal[2];
@@ -55452,11 +55497,13 @@
             if (t >= 0) {
               let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
               if (activeWorkplane.snapToGrid) {
-                const basis = getGridBasis();
+                // 2D MODE: snap in frame axes (plane point is [0,0,z] there)
+                const basis = _pen2D ? { u: [1, 0, 0], v: [0, 1, 0] } : getGridBasis();
                 hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
               }
               // Snap to point preview — shows indicator circle during hover
-              if (snapToPoint) {
+              // (2D skips — frame space vs camera projection)
+              if (!_pen2D && snapToPoint) {
                 if (_snapTargetCache === null) {
                   // Include activePath for self-snapping but exclude last anchor + handles
                   const excludeVertices = [];
@@ -55839,7 +55886,10 @@
                 )
               )
             );
-          const mvpMatrix = matrixMultiply(vpMatrix, modelMatrix);
+          // 2D MODE (v20260727e): preview where the renderer will draw
+          const mvpMatrix = activePath.getWorldMatrix
+            ? resolveObjectMVP(activePath, vpMatrix)
+            : matrixMultiply(vpMatrix, modelMatrix);
           const FS = FRAME_SIZE;
 
           const anchorPt = _penDragAnchorLocalPos;
@@ -55898,12 +55948,14 @@
         svg.style.cursor = 'grabbing';
 
         // Raycast to get current cursor in local space
+        // (2D MODE, v20260727e: fabricated frame-space ray/plane instead)
         const viewMatrix = activeCamera.createViewMatrix();
         const projectionMatrix = activeCamera.createProjectionMatrix();
         const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
-        const ray = getRayFromClick(event, vpMatrix);
+        const _pen2D = pen2DRayPlane(activePath, event);
+        const ray = _pen2D ? _pen2D.ray : getRayFromClick(event, vpMatrix);
         if (!ray) return;
-        const workingPlane = getPenWorkingPlane();
+        const workingPlane = _pen2D ? _pen2D.plane : getPenWorkingPlane();
         const planeNormal = workingPlane.normal;
         const planePoint = workingPlane.point;
         const denom = ray.direction[0] * planeNormal[0] + ray.direction[1] * planeNormal[1] + ray.direction[2] * planeNormal[2];
@@ -55912,11 +55964,12 @@
         if (t < 0) return;
         let cursorWorld = vectorAdd(ray.origin, vectorScale(ray.direction, t));
         if (activeWorkplane.snapToGrid) {
-          const basis = getGridBasis();
+          // 2D MODE: snap in frame axes (plane point is [0,0,z] there)
+          const basis = _pen2D ? { u: [1, 0, 0], v: [0, 1, 0] } : getGridBasis();
           cursorWorld = snapPointToPlaneLocal(cursorWorld, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
         }
-        // Snap to point during vertex drag (if enabled)
-        if (snapToPoint) {
+        // Snap to point during vertex drag (if enabled; 2D skips)
+        if (!_pen2D && snapToPoint) {
           if (_snapTargetCache === null) {
             // Include activePath for self-snapping, exclude dragged vertex
             const excludeVertices = [];
@@ -55985,12 +56038,14 @@
         if (!_penIsDraggingTangent && (sdx * sdx + sdy * sdy) < 25) return;
 
         // Raycast to get current cursor in local space
+        // (2D MODE, v20260727e: fabricated frame-space ray/plane instead)
         const viewMatrix = activeCamera.createViewMatrix();
         const projectionMatrix = activeCamera.createProjectionMatrix();
         const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
-        const ray = getRayFromClick(event, vpMatrix);
+        const _pen2D = pen2DRayPlane(activePath, event);
+        const ray = _pen2D ? _pen2D.ray : getRayFromClick(event, vpMatrix);
         if (!ray) return;
-        const workingPlane = getPenWorkingPlane();
+        const workingPlane = _pen2D ? _pen2D.plane : getPenWorkingPlane();
         const planeNormal = workingPlane.normal;
         const planePoint = workingPlane.point;
         const denom = ray.direction[0] * planeNormal[0] + ray.direction[1] * planeNormal[1] + ray.direction[2] * planeNormal[2];
@@ -55999,7 +56054,8 @@
         if (t < 0) return;
         let cursorWorld = vectorAdd(ray.origin, vectorScale(ray.direction, t));
         if (activeWorkplane.snapToGrid) {
-          const basis = getGridBasis();
+          // 2D MODE: snap in frame axes (plane point is [0,0,z] there)
+          const basis = _pen2D ? { u: [1, 0, 0], v: [0, 1, 0] } : getGridBasis();
           cursorWorld = snapPointToPlaneLocal(cursorWorld, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
         }
         const relativePos = vectorSubtract(cursorWorld, activePath.position);
@@ -56015,7 +56071,8 @@
         // world-space; rotate it into the path's local space so a rotated path
         // constrains along ITS plane rather than the world's.
         if (event.shiftKey) {
-          const _b = getGridBasis();
+          // 2D MODE: the 45° grid lives in frame axes
+          const _b = _pen2D ? { u: [1, 0, 0], v: [0, 1, 0] } : getGridBasis();
           const _invR = matrixTranspose(activePath.rotationMatrix);
           delta = constrainDelta45(delta,
             vectorNormalize(vectorApplyMatrix(_b.u, _invR)),
@@ -56048,7 +56105,10 @@
                 )
               )
             );
-          const mvpMatrix = matrixMultiply(vpMatrix, modelMatrix);
+          // 2D MODE (v20260727e): preview where the renderer will draw
+          const mvpMatrix = activePath.getWorldMatrix
+            ? resolveObjectMVP(activePath, vpMatrix)
+            : matrixMultiply(vpMatrix, modelMatrix);
           const FS = FRAME_SIZE;
 
           const anchorPt = _penDragAnchorLocalPos;

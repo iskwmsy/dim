@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260729d -->
+<!-- dim v20260729i -->
 
 <!--
   MIT License
@@ -3574,6 +3574,11 @@
       width: 160px;
       min-width: 160px;
       border-right: 1px solid var(--border-light);
+      /* v20260729f — see .tl-tracks-area. Without this the column's box stops at
+         the fold and its right-hand border does too, even though the label rows
+         below it scroll into view normally. */
+      align-self: flex-start;
+      min-height: 100%;
     }
 
     .tl-track-label {
@@ -3687,6 +3692,23 @@
       color: var(--accent-color);
     }
 
+    /* Cut (split layer duration at the playhead) — rides the key-all button's
+       box so the two sit as a pair; only the glyph differs. Centred by flex
+       rather than a hand-computed margin, since the glyph is slightly taller
+       than it is wide (viewBox 10 x 10.65) and would otherwise sit low. */
+    .tl-cut-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .tl-cut-btn svg {
+      width: 9px;
+      height: 9.6px;
+      display: block;
+      overflow: visible;
+    }
+
     .tl-key-single-btn {
       width: 14px;
       height: 14px;
@@ -3745,6 +3767,18 @@
       flex: 1;
       position: relative;
       overflow: visible;
+      /* v20260729f — the playhead is `top:0; bottom:0` of THIS box, so the box
+         has to be as tall as the rows it holds. .tl-tracks-container is the
+         scroll container and a flex row, so `align-items: stretch` was sizing
+         this column to the container's CLIENT height while its rows overflowed
+         visibly past it: measured with 10 animated objects, content 888 px in a
+         119 px viewport, the playhead was 119 px tall and sat at rect top −168
+         once scrolled to the bottom — i.e. gone. align-self:flex-start drops the
+         stretch so the box takes its content height; min-height keeps it filling
+         the viewport when the rows are shorter than the panel, which is what
+         makes the line still span the full panel on a small scene. */
+      align-self: flex-start;
+      min-height: 100%;
     }
 
     .tl-track-row {
@@ -4010,17 +4044,11 @@
       z-index: 10;
     }
 
-    .tl-playhead::before {
-      content: '';
-      position: absolute;
-      top: -1px;
-      left: -5px;
-      width: 0;
-      height: 0;
-      border-left: 5px solid transparent;
-      border-right: 5px solid transparent;
-      border-top: 6px solid var(--accent-color);
-    }
+    /* v20260729g: the tracks-area playhead has NO arrowhead of its own. It used
+       to draw one at its top edge, which sat directly beneath the ruler
+       playhead's marker — two triangles a few pixels apart reading as one
+       doubled glyph. The ruler keeps the marker (that is the part you grab to
+       scrub); this line just continues it down through the rows. */
 
     /* Ruler playhead (in ruler area) */
     .tl-ruler-playhead {
@@ -64791,6 +64819,29 @@
       return segs.length ? segs : [{ in: 0, out: last, isDefault: true }];
     };
 
+    // Split the segment CONTAINING `frame`, at that frame. One home for the cut
+    // (v20260729f), shared by the bar's ⌥ + click and the header's Cut button —
+    // two entry points re-deriving "where does a split land and what does it
+    // write" would drift, and the write side has a rule that is easy to get
+    // wrong: the two halves are ADJACENT, so this must NOT go through
+    // _tlSetLayerSegs, whose normalize would coalesce them and undo the split on
+    // the spot (see _tlNormalizeSegs on overlap-vs-touch). Returns false when the
+    // cut would land on an edge — a segment of zero length is not a cut.
+    const _tlSplitLayerAt = (obj, frame) => {
+      if (!obj) return false;
+      const segs = _tlLayerSegs(obj).map(s => ({ in: s.in, out: s.out }));
+      const idx = segs.findIndex(s => frame > s.in && frame <= s.out);
+      if (idx < 0) return false;
+      const seg = segs[idx];
+      pushUndoState('Split layer duration');
+      segs.splice(idx, 1, { in: seg.in, out: frame - 1 }, { in: frame, out: seg.out });
+      obj.layerRanges = segs;
+      tlApplyFrame(animationTimeline.currentFrame);
+      tlRenderTracks();
+      requestRender();
+      return true;
+    };
+
     // Commit a segment list back onto the object. A list that covers the whole
     // timeline in one span is not a trim at all, so the key is DELETED and the
     // object serializes byte-identically again (the double-click-reset rule,
@@ -66274,20 +66325,7 @@
         const splitAtClientX = (clientX) => {
           const rect = tlTracksArea.getBoundingClientRect();
           const f = snap(Math.round((clientX - rect.left) / pxPerFrame));
-          // A cut needs a frame on each side; anything narrower is a no-op rather
-          // than a segment of zero length.
-          if (f <= seg.in || f > seg.out) return false;
-          pushUndoState('Split layer duration');
-          const next = segs.map(s => ({ in: s.in, out: s.out }));
-          next.splice(idx, 1, { in: seg.in, out: f - 1 }, { in: f, out: seg.out });
-          // Written directly, NOT through _tlSetLayerSegs's merge: the two halves
-          // are adjacent by construction, and coalescing them would undo the
-          // split on the spot (see the _tlNormalizeSegs note on overlap-vs-touch).
-          obj.layerRanges = next;
-          tlApplyFrame(animationTimeline.currentFrame);
-          tlRenderTracks();
-          requestRender();
-          return true;
+          return _tlSplitLayerAt(obj, f);   // v20260729f: one shared cut
         };
 
         // ⌥ is checked on the HANDLES too — otherwise an ⌥ press that lands a few
@@ -67244,7 +67282,48 @@
         name.textContent = displayName;
         header.appendChild(name);
 
-        // Keyframe-all button
+        // CUT (v20260729f) — splits this layer's duration bar at the PLAYHEAD.
+        // ⌥ + click on the bar has done this since v20260729d, but a modifier
+        // gesture is invisible to anyone who has not been told about it, so the
+        // operation gets a button of its own. The button cuts at the playhead
+        // rather than at a click position because a header button has no
+        // position on the timeline to cut at — which also makes it the exact
+        // keyboard-free twin of the [ / ] shortcuts.
+        // Objects only: tlObjOf is null for the reserved Camera / Workplane
+        // keys, which have no duration to cut.
+        {
+          const cutObj = tlObjOf(objectName);
+          if (cutObj) {
+            const cutBtn = document.createElement('button');
+            cutBtn.className = 'tl-key-all-btn tl-cut-btn';
+            // Owner-supplied glyph (v20260729i, the settled one): two chevrons
+            // meeting a centre line that spans exactly between their vertices
+            // (3.15 → 7.49). Authored geometry and stroke weights kept verbatim
+            // (viewBox 0 0 10 10.65, polylines at .91, the line at its default
+            // 1); only the colour is swapped to currentColor so it inherits the
+            // button's hover/accent state like every other icon here.
+            cutBtn.innerHTML = '<svg viewBox="0 0 10 10.65" fill="none" stroke="currentColor" stroke-miterlimit="10">'
+              + '<line x1="5" y1="3.15" x2="5" y2="7.49"/>'
+              + '<polyline stroke-width=".91" points="7.83 .32 5 3.15 2.17 .32"/>'
+              + '<polyline stroke-width=".91" points="2.17 10.32 5 7.49 7.83 10.32"/>'
+              + '<' + '/svg>';
+            cutBtn.title = 'Cut the layer duration at the playhead (⌥ click the bar to cut anywhere)';
+            cutBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              // No-op when the playhead sits on a segment edge or in a gap —
+              // _tlSplitLayerAt returns false and nothing is pushed to undo.
+              _tlSplitLayerAt(cutObj, animationTimeline.currentFrame);
+            });
+            header.appendChild(cutBtn);
+          }
+        }
+
+        // Keyframe-all button. Appended AFTER the cut button (v20260729g) so the
+        // keyframe diamond is the RIGHTMOST control on every row — the header is
+        // a flex row whose name cell takes the slack, so append order IS visual
+        // order, and the diamond then lines up down the panel with the per-track
+        // diamonds beneath it. Rows without a cut button (Camera, Workplane) put
+        // their diamond in the same place, because it stays last either way.
         if (onKeyAll) {
           const keyBtn = document.createElement('button');
           keyBtn.className = 'tl-key-all-btn';
@@ -68247,12 +68326,31 @@
         return;
       }
       animationTimeline.totalFrames = 360; // fixed; not user-configurable
-      animationTimeline.playbackRange = data.playbackRange || 360;
-      // Migrate old data: if playbackRange was exactly 240 (old default), upgrade to 360.
-      // Do NOT touch any other value — this was previously `<= 240` which wrongly
-      // reset custom short ranges like 60, 90, 120 to 360.
-      if (animationTimeline.playbackRange === 240) {
-        animationTimeline.playbackRange = 360;
+      // v20260729e: the saved playback range is restored VERBATIM. There used to
+      // be a migration here that rewrote exactly 240 to 360, because 240 was the
+      // pre-v20260616 default and old files carried it without the user choosing
+      // it. It was born as `<= 240`, which silently reset every custom short
+      // range (60 / 90 / 120 — reported, narrowed to `=== 240`), and the
+      // narrowing left one value that could never be used: measured, 60/90/120/
+      // 239/241/300/360 all round-tripped and only 240 came back as 360. That is
+      // 10 seconds at 24 fps, i.e. a value people pick on purpose, and it looked
+      // exactly like "the playback range is not saved".
+      //
+      // The migration was also redundant for its own stated purpose: the problem
+      // it was written for was an old file's 240-frame RULER, and the line above
+      // already forces totalFrames to 360 regardless of the file. The only cost
+      // of dropping it is that a pre-2026-06 file opens with the range its own
+      // JSON states instead of 360 — one field to change, and arguably the more
+      // honest reading of the file.
+      //
+      // Clamped exactly like tlSetPlaybackRange, the interactive writer, so the
+      // two entry points cannot disagree about what a valid range is; a missing
+      // or non-numeric value still falls back to the full 360.
+      {
+        const _pr = Number(data.playbackRange);
+        animationTimeline.playbackRange = Number.isFinite(_pr) && _pr > 0
+          ? Math.max(1, Math.min(360, Math.round(_pr)))
+          : 360;
       }
       animationTimeline.fps = data.fps || 24;
       animationTimeline.loop = data.loop !== undefined ? data.loop : true;

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260729i -->
+<!-- dim v20260731e -->
 
 <!--
   MIT License
@@ -76,6 +76,13 @@
       --surface-color: oklch(from var(--base-color) calc(l * 1.2) c h);
       --accent-color: #2645d2;
       --accent-color-hover: oklch(from var(--accent-color) calc(l * 1.15) c h);
+
+      /* Timeline label column (v20260730c): ONE width for the ruler spacer and
+         the track-label column — they sit in different flex rows and misalign
+         the playhead against the ruler if they ever disagree. Widened from
+         160px when the object header row gained the shoot-on input and cut
+         button and long names ran out of room. */
+      --tl-label-w: 220px;
 
       --bg-app: #f5f5f5;
       --bg-panel: #fafafa;
@@ -3545,8 +3552,8 @@
     }
 
     .tl-track-label-spacer {
-      width: 160px;
-      min-width: 160px;
+      width: var(--tl-label-w);
+      min-width: var(--tl-label-w);
       border-right: 1px solid var(--border-light);
     }
 
@@ -3571,8 +3578,8 @@
     }
 
     .tl-track-labels {
-      width: 160px;
-      min-width: 160px;
+      width: var(--tl-label-w);
+      min-width: var(--tl-label-w);
       border-right: 1px solid var(--border-light);
       /* v20260729f — see .tl-tracks-area. Without this the column's box stops at
          the fold and its right-hand border does too, even though the label rows
@@ -3690,6 +3697,29 @@
     .tl-key-all-btn:hover {
       background: rgba(0, 0, 0, 0.08);
       color: var(--accent-color);
+    }
+
+    /* SHOOT ON N (v20260731e) — the curve editor's per-segment stepped-playback
+       field, and the worked example for wrapSpinnerNoScrub. It rides .ui-input
+       (the house field idiom) inside that wrapper, so SIZING LIVES ON THE WRAP:
+       the global .num-spin-wrap>input[type="number"] rule forces the input to
+       width:100% and sets its own `color`, which is also why the armed state
+       below needs a (0,3,1) selector to outrank it. */
+    .tl-ce-shoot-wrap {
+      flex: 0 0 auto;
+      width: 56px;
+    }
+
+    .tl-ce-shoot-wrap>input[type="number"] {
+      padding-left: 6px;
+      padding-right: 12px;
+    }
+
+    /* Stepped (>= 2) reads accent, the same "this is doing something" cue the
+       timeline uses for a selected label. */
+    .tl-ce-shoot-wrap>input[type="number"].armed {
+      color: var(--accent-color);
+      font-weight: 600;
     }
 
     /* Cut (split layer duration at the playhead) — rides the key-all button's
@@ -7863,6 +7893,13 @@
               <input type="number" id="tlCurvePtY" step="0.01" value="0.00">
             </div>
           </div>
+        </div>
+        <!-- Shoot on N: hold each pose for N frames across THIS segment -->
+        <div class="xyz-row" style="margin-top:0; padding:4px var(--row-padding-h);">
+          <label for="tlCurveShootOn" style="flex:0 0 auto;"
+            title="Hold each pose for N frames across this segment. 1 = ones (every frame), 2 = twos, 3 = threes — the hand-animated stepped look. Steps restart at the left keyframe, and easing still shapes the held poses.">Shoot
+            on</label>
+          <input type="number" id="tlCurveShootOn" class="ui-input" min="1" max="24" step="1" value="1">
         </div>
       </div>
     </div>
@@ -12089,6 +12126,10 @@
             };
             if (k.cubicBezier) entry.cubicBezier = k.cubicBezier.map(p => Array.isArray(p) ? [...p] : p);
             if (k.curveAlgorithm) entry.curveAlgorithm = k.curveAlgorithm;
+            // Without this the shoot-on edit diffs as NOTHING, so its own
+            // pushAnimUndoState creates no entry and any later undo strips the
+            // field on restore.
+            if (k.shootOn >= 2) entry.shootOn = k.shootOn;
             return entry;
           });
         }
@@ -12122,6 +12163,7 @@
               };
               if (k.cubicBezier) entry.cubicBezier = k.cubicBezier.map(p => Array.isArray(p) ? [...p] : p);
               if (k.curveAlgorithm) entry.curveAlgorithm = k.curveAlgorithm;
+              if (k.shootOn >= 2) entry.shootOn = k.shootOn;
               // Migrate all legacy interp strings to modern cubicBezier presets
               if (!entry.cubicBezier) {
                 if (entry.interp === 'step' || entry.interp === 'constant') {
@@ -51528,6 +51570,9 @@
         newGroup.pivotShift = [...(obj.pivotShift || [0, 0, 0])];
         newGroup.faceCamera = { ...obj.faceCamera };
         newGroup.mode2D = !!obj.mode2D; // 2D MODE (v20260727b)
+        // LAYER RANGE (v20260729a, copy added v20260730b — was missed): lazy
+        // key, so an untrimmed duplicate stays byte-identical when serialized.
+        if (Array.isArray(obj.layerRanges) && obj.layerRanges.length) newGroup.layerRanges = obj.layerRanges.map(s => ({ in: s.in, out: s.out }));
         newGroup.zSortChildren = obj.zSortChildren;
         newGroup.zSortMode = obj.zSortMode;
         newGroup.renderIntersections = obj.renderIntersections;
@@ -51600,6 +51645,9 @@
         newPath.pivotShift = [...(obj.pivotShift || [0, 0, 0])];
         newPath.faceCamera = { ...obj.faceCamera };
         newPath.mode2D = !!obj.mode2D; // 2D MODE (v20260727b)
+        // LAYER RANGE (v20260729a, copy added v20260730b — was missed): lazy
+        // key, so an untrimmed duplicate stays byte-identical when serialized.
+        if (Array.isArray(obj.layerRanges) && obj.layerRanges.length) newPath.layerRanges = obj.layerRanges.map(s => ({ in: s.in, out: s.out }));
         newPath.visible = obj.visible;
         newPath.lock = obj.lock;
 
@@ -63168,6 +63216,105 @@
       document.documentElement.style.setProperty('--timeline-height', h + 'px');
     };
 
+    // --- SPINNER-ONLY NUMBER FIELD (v20260731d) — REUSABLE PATTERN -----------
+    // Wraps a number input in the app's standard .num-spin-wrap chrome — the
+    // hover/focus-revealed 8 px chevron column, built from the same markup and
+    // the same two SVGs as every other number field — but WITHOUT the
+    // .num-spin-scrub drag handle that initCustomSpinners always installs.
+    //
+    // Reach for this whenever a drag-scrub would be wrong rather than merely
+    // unnecessary: a small integer range where dragging buys nothing, or a
+    // control living in a row that owns its own pointer gestures (the timeline
+    // header, where a horizontal drag would fight the panel's own drags).
+    // initCustomSpinners stays the default everywhere else — it is what the
+    // ordinary panels want, scrub included.
+    //
+    // SIZING BELONGS ON THE WRAP, not the input: the global
+    // `.num-spin-wrap>input[type="number"]` rule forces the input to
+    // width:100%, so pass opts.className and style that class (worked example:
+    // .tl-ce-shoot-wrap, the curve editor's Shoot-on field, which also
+    // re-scopes its colour state because that same global rule sets `color`).
+    //
+    // Two things this gets right that a hand-rolled copy reliably gets wrong:
+    //   • the press-and-hold stop signal lives on DOCUMENT (+ window blur),
+    //     never on the button — a panel that rebuilds its own DOM detaches the
+    //     button mid-hold, an element-anchored mouseup then never fires, and the
+    //     repeat timer runs forever (the v20260721o–p "value runs away" bug);
+    //   • a step that cannot move the value (already at min/max) dispatches
+    //     NOTHING, so holding against a clamp cannot spawn empty undo entries.
+    //
+    // opts.className      extra class on the wrap (sizing + looks live there)
+    // opts.onBurstStart() once per press, BEFORE the first step — the hook for
+    //                     pushing ONE undo entry to cover a whole hold
+    // opts.onBurstEnd()   once on release (or window blur)
+    // Returns the wrap, already standing in the input's place in the DOM.
+    const wrapSpinnerNoScrub = (input, opts = {}) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'num-spin-wrap' + (opts.className ? ' ' + opts.className : '');
+      if (input.parentNode) input.parentNode.insertBefore(wrap, input);
+      wrap.appendChild(input);
+
+      const btns = document.createElement('div');
+      btns.className = 'num-spin-btns';
+      const mkBtn = (cls, points) => {
+        const b = document.createElement('button');
+        b.className = cls;
+        b.tabIndex = -1;
+        b.type = 'button';
+        b.innerHTML = '<svg viewBox="0 0 8 8"><polyline points="' + points + '"/></svg>';
+        return b;
+      };
+      const upBtn = mkBtn('num-spin-up', '6.4 5.6 4 2.4 1.6 5.6');
+      const downBtn = mkBtn('num-spin-down', '1.6 2.4 4 5.6 6.4 2.4');
+      btns.appendChild(upBtn);
+      btns.appendChild(downBtn);
+      wrap.appendChild(btns);
+
+      // One step, in the input's own units — min / max / step come off the
+      // element, so the caller configures behaviour by setting attributes.
+      const step = (dir) => {
+        const s = parseFloat(input.step) || 1;
+        const min = input.min !== '' ? parseFloat(input.min) : -Infinity;
+        const max = input.max !== '' ? parseFloat(input.max) : Infinity;
+        const cur = parseFloat(input.value) || 0;
+        let next = Math.round((cur + dir * s) * 1e9) / 1e9;   // float-noise guard
+        next = Math.max(min, Math.min(max, next));
+        if (next === cur) return;
+        input.value = next;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+
+      const bindBtn = (btn, dir) => {
+        let holdTimer = null, holdInterval = null;
+        const stopHold = () => {
+          clearTimeout(holdTimer);
+          clearInterval(holdInterval);
+          holdTimer = holdInterval = null;
+          document.removeEventListener('mouseup', stopHold);
+          window.removeEventListener('blur', stopHold);
+          if (opts.onBurstEnd) opts.onBurstEnd();
+        };
+        // Consumed so a press cannot reach a clickable ancestor (a timeline
+        // group header toggles its own collapse on click).
+        btn.addEventListener('click', (e) => e.stopPropagation());
+        btn.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (opts.onBurstStart) opts.onBurstStart();
+          document.addEventListener('mouseup', stopHold);
+          window.addEventListener('blur', stopHold);
+          holdTimer = setTimeout(() => {
+            holdInterval = setInterval(() => step(dir), 80);
+          }, 400);
+          step(dir);
+        });
+      };
+      bindBtn(upBtn, 1);
+      bindBtn(downBtn, -1);
+      return wrap;
+    };
+
     // ═══════════════════════════════════════════════════════════
     //  ANIMATION TIMELINE — Engine
     // ═══════════════════════════════════════════════════════════
@@ -63385,6 +63532,7 @@
     const tlCurveExport = document.getElementById('tlCurveExport');
     const tlCurveImport = document.getElementById('tlCurveImport');
     const tlCurveImportInput = document.getElementById('tlCurveImportInput');
+    const tlCurveShootOn = document.getElementById('tlCurveShootOn');
     let _activeCurveKf = null;
     Object.defineProperty(window, '_activeCurveKf', { get: () => _activeCurveKf, configurable: true });
     let _ceSelectedIdx = 0;  // index into kf.cubicBezier (which handle is selected)
@@ -63517,7 +63665,31 @@
       for (let i = 0; i < allPts.length - 1; i++) {
         if (allPts[i + 1][0] < allPts[i][0] - 0.001) { hasRevertingX = true; break; }
       }
-      if (hasRevertingX) {
+      // SHOOT ON N (v20260731e): when this segment steps, the overlay shows the
+      // STAIRCASE that actually plays — a hold at the eased value of each step
+      // start, a riser at each boundary. It takes priority over the
+      // non-monotonic overlay rather than competing with it, because its
+      // _evaluateCurve calls already resolve the effective (non-monotonic)
+      // value, so the staircase IS the effective curve in that case too.
+      const _soN = (_activeCurveKf && _activeCurveKf.shootOn >= 2) ? _activeCurveKf.shootOn : 1;
+      const _soSpan = _activeCurveEndFrame - _activeCurveStartFrame;
+      if (_soN >= 2 && _soSpan > 0) {
+        let ed = '';
+        for (let fs = 0; fs < _soSpan; fs += _soN) {
+          const fe = Math.min(fs + _soN, _soSpan);
+          const v = _evaluateCurve(fs / _soSpan, algo, pts);
+          ed += (fs === 0 ? `M${_cePx(0)},${_cePy(v)}` : ` L${_cePx(fs / _soSpan)},${_cePy(v)}`);
+          ed += ` L${_cePx(fe / _soSpan)},${_cePy(v)}`;
+        }
+        // Final riser to (1,1): the RIGHT keyframe's own frame shows ITS pose,
+        // mirroring the `frame < k1.frame` exception in tlInterpolate. Without
+        // it the preview would disagree with playback on any span that is not a
+        // whole number of steps.
+        ed += ` L${_cePx(1)},${_cePy(1)}`;
+        tlCurveEffectivePath.setAttribute('d', ed);
+        tlCurveEffectivePath.style.display = '';
+        tlCurvePath.setAttribute('opacity', '0.3');
+      } else if (hasRevertingX) {
         // Sample the actual _evaluateCurve at uniform X steps
         const steps = 100;
         let ed = '';
@@ -63798,6 +63970,11 @@
       // Default algorithm
       if (!kf.curveAlgorithm) kf.curveAlgorithm = 'bezier';
       tlCurveAlgorithm.value = kf.curveAlgorithm;
+      // Shoot on: synced HERE rather than on popover-show, because clicking
+      // another segment line re-targets _activeCurveKf while the editor is
+      // already open — that path never fires a show event.
+      tlCurveShootOn.value = (kf.shootOn >= 2) ? kf.shootOn : 1;
+      tlCurveShootOn.classList.toggle('armed', kf.shootOn >= 2);
       _ceSelectedIdx = Math.min(_ceSelectedIdx, kf.cubicBezier.length - 1);
       _updateCurveSvg(kf.cubicBezier);
       tlCurvePreset.value = _matchPreset(kf.cubicBezier, kf.curveAlgorithm);
@@ -63852,6 +64029,38 @@
       _updateCurveSvg(_activeCurveKf.cubicBezier);
       tlCurvePreset.value = _matchPreset(_activeCurveKf.cubicBezier, tlCurveAlgorithm.value);
       tlApplyFrame(animationTimeline.currentFrame, true);
+      sceneObjects.forEach(obj => updateVisualsRecursive(obj));
+      tlRenderTracks();
+      tlUpdateTrackInputs();
+    });
+
+    // SHOOT ON N (v20260731e) — per-segment stepped playback, on the OUTGOING
+    // keyframe beside its easing curve, because it describes the same thing the
+    // rest of this popover does: how the motion between these two keys plays.
+    // Keyframe METADATA, not an animatable property — none of the six timeline
+    // dispatch sites are involved. Animation data, so it rides the ANIMATION
+    // undo stack (⌥X) like every other edit in this editor.
+    //
+    // The wrapper is installed ONCE here, not per open: unlike the timeline
+    // rows, the curve-editor DOM is static and only its VALUES are re-synced
+    // (see _openCurveEditor).
+    let _ceShootBurst = false;   // true during a spinner hold → one undo entry
+    wrapSpinnerNoScrub(tlCurveShootOn, {
+      className: 'tl-ce-shoot-wrap',
+      onBurstStart: () => { if (_activeCurveKf) pushAnimUndoState('shoot on'); _ceShootBurst = true; },
+      onBurstEnd: () => { _ceShootBurst = false; },
+    });
+    tlCurveShootOn.addEventListener('change', () => {
+      if (!_activeCurveKf) return;
+      let n = Math.round(parseFloat(tlCurveShootOn.value) || 1);
+      n = Math.max(1, Math.min(24, n));
+      tlCurveShootOn.value = n;
+      if (!_ceShootBurst) pushAnimUndoState('shoot on');
+      if (n >= 2) _activeCurveKf.shootOn = n;
+      else delete _activeCurveKf.shootOn;   // 1 = off; the lazy-key rule
+      tlCurveShootOn.classList.toggle('armed', n >= 2);
+      _updateCurveSvg(_activeCurveKf.cubicBezier);   // redraws the staircase
+      tlApplyFrame(animationTimeline.currentFrame);
       sceneObjects.forEach(obj => updateVisualsRecursive(obj));
       tlRenderTracks();
       tlUpdateTrackInputs();
@@ -64448,6 +64657,34 @@
       return result;
     };
 
+    // --- Keyframe metadata snapshot/restore (extracted v20260731e) ------------
+    // ONE home for "everything a keyframe carries besides its frame".
+    // tlAddKeyframe only carries value + interp, so every code path that MOVES
+    // keys (segment drag, diamond batch drag, arrow nudge) snapshots this record
+    // before the remove and re-attaches the extras after the re-add. A new
+    // metadata field (cubicBezier, curveAlgorithm, shootOn, …) is added HERE and
+    // in _tlKfApplyExtras — nowhere else. Before this existed the copying was
+    // triplicated, and every new field had to find all three sites or be lost
+    // silently by exactly one gesture.
+    const _tlKfData = (k) => ({
+      value: Array.isArray(k.value) ? [...k.value] : k.value,
+      interp: k.interp || 'linear',
+      cubicBezier: k.cubicBezier ? k.cubicBezier.map(p => [...p]) : undefined,
+      curveAlgorithm: k.curveAlgorithm,
+      shootOn: k.shootOn,
+    });
+    // kfs = the live keyframe array AFTER the re-add; frame = destination frame.
+    // Each field is applied only when the moved key HAD it, so landing on an
+    // occupied frame never erases the destination's own metadata (tlAddKeyframe
+    // mutates the existing keyframe in that case).
+    const _tlKfApplyExtras = (kfs, frame, data) => {
+      const nk = kfs ? kfs.find(k => k.frame === frame) : null;
+      if (!nk) return;
+      if (data.cubicBezier) nk.cubicBezier = data.cubicBezier;
+      if (data.curveAlgorithm) nk.curveAlgorithm = data.curveAlgorithm;
+      if (data.shootOn >= 2) nk.shootOn = data.shootOn;
+    };
+
     // --- Interpolation ---
     // Quadratic easing curves
     const _easeIn = (t) => t * t;
@@ -64621,7 +64858,23 @@
         const k0 = keyframes[i];
         const k1 = keyframes[i + 1];
         if (frame >= k0.frame && frame <= k1.frame) {
-          const t = (frame - k0.frame) / (k1.frame - k0.frame);
+          // SHOOT ON N (v20260731e): hold each pose for N frames across THIS
+          // segment — quantize TIME, then ease (the Posterize Time model), so
+          // the held poses are samples of the eased motion rather than of a
+          // linear one. Anchored at k0.frame, so a keyframe's pose always shows
+          // exactly on its own frame.
+          //
+          // `frame < k1.frame` is load-bearing, not defensive: this loop matches
+          // a segment INCLUSIVE of its right endpoint, so k1's own frame arrives
+          // here as part of the LEFT segment. Unquantized that is harmless
+          // (t = 1 returns k1.value), but a naive floor would show a held
+          // earlier step there on any span not divisible by N.
+          let f = frame;
+          const so = k0.shootOn;
+          if (so >= 2 && frame < k1.frame) {
+            f = k0.frame + Math.floor((f - k0.frame) / so) * so;
+          }
+          const t = (f - k0.frame) / (k1.frame - k0.frame);
           // Determine easing for this segment
           let et = t;
           if (k0.cubicBezier) {
@@ -66404,7 +66657,7 @@
       const addSubTrack = (objectName, prop, labelText, keyframes, precision, inputOpts) => {
         // Filter: skip tracks without keyframes when "Keyframed" filter is on
         if (_tlShowKeyframedOnly && (!keyframes || keyframes.length === 0)) return;
-        const collapsed = _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : (objectName === '__camera__');
+        const collapsed = _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : true; // v20260730c: every group starts COLLAPSED (was: camera only) — the scene-tree fold precedent; _tlGroupCollapsed remembers what the user opened, per session
 
         // Label
         const label = document.createElement('div');
@@ -66962,10 +67215,7 @@
                 const snapshots = changed.map(({ kf: k, newFrame }) => ({
                   frame: k.frame,
                   newFrame,
-                  value: Array.isArray(k.value) ? [...k.value] : k.value,
-                  interp: k.interp || 'linear',
-                  cubicBezier: k.cubicBezier ? k.cubicBezier.map(p => [...p]) : undefined,
-                  curveAlgorithm: k.curveAlgorithm
+                  ..._tlKfData(k)
                 }));
 
                 // Remove all affected frames first
@@ -66974,15 +67224,8 @@
                 // Re-add at new frames, restoring full curve data
                 for (const s of snapshots) {
                   tlAddKeyframe(objectName, prop, s.newFrame, s.value, s.interp);
-                  // Restore curve data that tlAddKeyframe doesn't carry
-                  if (s.cubicBezier || s.curveAlgorithm) {
-                    const newKfs = animationTimeline.tracks.get(objectName)?.get(prop);
-                    const newKf = newKfs?.find(k => k.frame === s.newFrame);
-                    if (newKf) {
-                      if (s.cubicBezier) newKf.cubicBezier = s.cubicBezier;
-                      if (s.curveAlgorithm) newKf.curveAlgorithm = s.curveAlgorithm;
-                    }
-                  }
+                  // Restore metadata that tlAddKeyframe doesn't carry
+                  _tlKfApplyExtras(animationTimeline.tracks.get(objectName)?.get(prop), s.newFrame, s);
                 }
 
                 // Keep segment selected so user can immediately drag again
@@ -67186,10 +67429,7 @@
                     moves.push({
                       objectName: info.objectName, prop: info.prop,
                       fromFrame: info.startFrame, toFrame: destFrame,
-                      value: Array.isArray(info.kf.value) ? [...info.kf.value] : info.kf.value,
-                      interp: info.kf.interp || 'linear',
-                      cubicBezier: info.kf.cubicBezier ? info.kf.cubicBezier.map(p => [...p]) : undefined,
-                      curveAlgorithm: info.kf.curveAlgorithm
+                      ..._tlKfData(info.kf)
                     });
                   }
                   // Remove all source keyframes first
@@ -67199,14 +67439,7 @@
                   // Add at destination (overwrite any existing), restoring curve data
                   for (const m of moves) {
                     tlAddKeyframe(m.objectName, m.prop, m.toFrame, m.value, m.interp);
-                    if (m.cubicBezier || m.curveAlgorithm) {
-                      const newKfs = animationTimeline.tracks.get(m.objectName)?.get(m.prop);
-                      const newKf = newKfs?.find(k => k.frame === m.toFrame);
-                      if (newKf) {
-                        if (m.cubicBezier) newKf.cubicBezier = m.cubicBezier;
-                        if (m.curveAlgorithm) newKf.curveAlgorithm = m.curveAlgorithm;
-                      }
-                    }
+                    _tlKfApplyExtras(animationTimeline.tracks.get(m.objectName)?.get(m.prop), m.toFrame, m);
                   }
                   // Rebuild selection set with new frame positions
                   tlSelectedKfs.clear();
@@ -67266,7 +67499,7 @@
 
       // Helper: create a group header (collapsible)
       const addGroupHeader = (objectName, displayName, isSelected, onKeyAll) => {
-        const collapsed = _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : (objectName === '__camera__');
+        const collapsed = _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : true; // v20260730c: every group starts COLLAPSED (was: camera only) — the scene-tree fold precedent; _tlGroupCollapsed remembers what the user opened, per session
 
         // Header label
         const header = document.createElement('div');
@@ -67280,6 +67513,9 @@
         const name = document.createElement('span');
         name.className = 'tl-group-name';
         name.textContent = displayName;
+        // Long names ellipsize (the row also carries shoot-on / cut / diamond);
+        // the full name stays reachable on hover — the scene-tree idiom.
+        name.title = displayName;
         header.appendChild(name);
 
         // CUT (v20260729f) — splits this layer's duration bar at the PLAYHEAD.
@@ -67414,7 +67650,7 @@
         const _kfSub = animationTimeline.tracks.get(objectName);
         const _forceOpen = _tlShowKeyframedOnly && !!_kfSub && _kfSub.size > 0;
         const collapsed = _forceOpen ? false : (_tlSubGroupCollapsed.has(key) ? _tlSubGroupCollapsed.get(key) : true);
-        const parentCollapsed = _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : (objectName === '__camera__');
+        const parentCollapsed = _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : true; // v20260730c: every group starts COLLAPSED (was: camera only) — the scene-tree fold precedent; _tlGroupCollapsed remembers what the user opened, per session
 
         const header = document.createElement('div');
         header.className = 'tl-subgroup-header' + (collapsed ? ' collapsed' : '') + (parentCollapsed ? ' tl-collapsed' : '');
@@ -67721,6 +67957,11 @@
       // keyframed filter is on; renderedNames keeps it from double-rendering.
       {
         const walkRanges = (obj) => {
+          // Deliberately layerRanges ONLY: the timeline lists camera +
+          // workplane + selection + animated layers by design (state report
+          // §10), and an unselected layer dropping out of the list is WANTED
+          // behaviour. A layer bar earns its exception because it is a control
+          // that can only be operated ON this row.
           if (_tlHasLayerRange(obj)) {
             const k = tlKeyOf(obj);
             renderObjectGroup(k, animationTimeline.tracks.get(k) || null);
@@ -68036,29 +68277,16 @@
       const totalF = animationTimeline.totalFrames;
       if (refs.some(r => r.frame + delta < 0 || r.frame + delta > totalF - 1)) return;
       pushAnimUndoState('Move keyframes');
-      const moves = refs.map(r => {
-        const k = r.kf;
-        return {
-          objectName: r.objectName, prop: r.prop,
-          fromFrame: r.frame, toFrame: r.frame + delta,
-          value: Array.isArray(k.value) ? [...k.value] : k.value,
-          interp: k.interp || 'linear',
-          cubicBezier: k.cubicBezier ? k.cubicBezier.map(p => [...p]) : undefined,
-          curveAlgorithm: k.curveAlgorithm
-        };
-      });
+      const moves = refs.map(r => ({
+        objectName: r.objectName, prop: r.prop,
+        fromFrame: r.frame, toFrame: r.frame + delta,
+        ..._tlKfData(r.kf)
+      }));
       // Remove all first, then re-add — avoids intra-selection collisions.
       for (const m of moves) tlRemoveKeyframe(m.objectName, m.prop, m.fromFrame);
       for (const m of moves) {
         tlAddKeyframe(m.objectName, m.prop, m.toFrame, m.value, m.interp);
-        if (m.cubicBezier || m.curveAlgorithm) {
-          const kfs2 = animationTimeline.tracks.get(m.objectName)?.get(m.prop);
-          const nk = kfs2?.find(k => k.frame === m.toFrame);
-          if (nk) {
-            if (m.cubicBezier) nk.cubicBezier = m.cubicBezier;
-            if (m.curveAlgorithm) nk.curveAlgorithm = m.curveAlgorithm;
-          }
-        }
+        _tlKfApplyExtras(animationTimeline.tracks.get(m.objectName)?.get(m.prop), m.toFrame, m);
       }
       // Rebuild the selection at the new frames; keep the last-clicked ref live.
       tlSelectedKfs.clear();
@@ -68288,6 +68516,7 @@
             if (k.interp && k.interp !== 'linear') entry.interp = k.interp;
             if (k.cubicBezier) entry.cubicBezier = k.cubicBezier.map(p => Array.isArray(p) ? [...p] : p);
             if (k.curveAlgorithm && k.curveAlgorithm !== 'bezier') entry.curveAlgorithm = k.curveAlgorithm;
+            if (k.shootOn >= 2) entry.shootOn = k.shootOn;   // SHOOT ON N — lazy
             return entry;
           });
         }
@@ -68381,6 +68610,10 @@
               };
               if (k.cubicBezier) kf.cubicBezier = _migrateBezierData(k.cubicBezier);
               if (k.curveAlgorithm) kf.curveAlgorithm = k.curveAlgorithm;
+              // SHOOT ON N: guard + normalize — a hand-edited file may carry
+              // 0 / floats / strings; anything not rounding to an int >= 2 is
+              // dropped, matching the write side's lazy rule.
+              { const _so = Math.round(Number(k.shootOn)); if (_so >= 2) kf.shootOn = Math.min(24, _so); }
               // Migrate all legacy interp strings to modern cubicBezier presets
               if (!kf.cubicBezier && k.interp) {
                 if (k.interp === 'step' || k.interp === 'constant') {

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260731e -->
+<!-- dim v20260802d -->
 
 <!--
   MIT License
@@ -3699,6 +3699,64 @@
       color: var(--accent-color);
     }
 
+    /* "Key Selected" while the A tool holds a vertex selection: the button
+       keys the SHAPE, and says so (v20260731j). */
+    .tl-transport-btn.tl-key-shape-mode {
+      color: var(--accent-color);
+    }
+
+    /* SHAPE KEYFRAMES (v20260731f) — the drill-down's vertex rows.
+       A VECTOR ROW packs a pinned-narrow name plus three house inputs into the
+       220px label column; the name ellipsizes with its full text on hover
+       (min-width:0 is the load-bearing half — a flex item refuses to shrink
+       below its content without it, the v20260728t lesson). */
+    .tl-vector-row {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .tl-vector-row .tl-track-name {
+      flex: 0 0 36px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 9px;
+      color: var(--text-muted);
+    }
+
+    .tl-vector-row .num-spin-wrap {
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* Echo the A-tool selection into the panel. */
+    .tl-vector-row.tl-vertex-selected .tl-track-name {
+      color: var(--accent-color);
+      font-weight: 600;
+    }
+
+    /* Read-only "changes at this key" marker. NOT .tl-keyframe and never
+       pointer-interactive: the marquee, the selection highlighter and the drag
+       code all query '.tl-keyframe' and would treat these as draggable keys. */
+    .tl-vertex-change-dot {
+      position: absolute;
+      top: 50%;
+      width: 5px;
+      height: 5px;
+      margin: -2.5px 0 0 -2.5px;
+      border-radius: 50%;
+      background: var(--accent-color);
+      opacity: 0.45;
+      pointer-events: none;
+    }
+
+    /* Inert net: the structure changed under the keys, so the morph is paused. */
+    .tl-track-label.tl-shape-stale .tl-track-name {
+      color: #c0392b;
+    }
+
     /* SHOOT ON N (v20260731e) — the curve editor's per-segment stepped-playback
        field, and the worked example for wrapSpinnerNoScrub. It rides .ui-input
        (the house field idiom) inside that wrapper, so SIZING LIVES ON THE WRAP:
@@ -3720,6 +3778,34 @@
     .tl-ce-shoot-wrap>input[type="number"].armed {
       color: var(--accent-color);
       font-weight: 600;
+    }
+
+    /* CURVE EDITOR ROWS (v20260802c) — the panel's own rows now follow the
+       Settings-panel pattern: a fixed label column with ONE right-aligned
+       control cell of the same width on every row, instead of each control
+       starting wherever its label happened to end. The rows are plain
+       .xyz-row / .xyz-inputs, so the shared rules do the work; these three
+       are the only scoped deltas.
+       The label column is wider than the global 68px because "Loop Before"
+       would otherwise ellipsis — scoped to this popover so no other panel
+       shifts. */
+    #tlCurveEditor .xyz-row>label {
+      flex: 0 0 78px;
+    }
+
+    /* Both single-control cells FILL the cell, so Shoot on, Loop After and
+       Loop Before share one right edge (the shoot-on wrapper is 56px on its
+       own; the select would otherwise size to its widest option). */
+    #tlCurveEditor .xyz-row>.xyz-inputs>.tl-ce-shoot-wrap {
+      flex: 1;
+      width: auto;
+    }
+
+    #tlCurveEditor .xyz-row>.xyz-inputs>.ui-select {
+      flex: 1;
+      min-width: 0;
+      border: none;
+      border-radius: 0;
     }
 
     /* Cut (split layer duration at the playhead) — rides the key-all button's
@@ -3784,6 +3870,32 @@
     .tl-sub-track .num-spin-wrap {
       flex: 1;
       min-width: 0;
+    }
+
+    /* TIMELINE ROW BALANCE (v20260802d) — the name was pinned to 36px while the
+       field took every remaining pixel (flex:1), so "Stroke Opacity",
+       "Percentage" and "H Offset" ellipsized to "Stroke Op…" / "Perce…" /
+       "H Off…" next to a ~130px box showing "0.88". Inverted: the NAME takes
+       the slack and the field is fixed at a width that still fits its values
+       plus the scrub grip and spinner arrows.
+       :not(.tl-vector-row) is load-bearing — the shape drill-down's vertex rows
+       pack THREE fields into this same 220px column and must keep flex:1 each.
+       Both .tl-sub-track rules sit LATER in this sheet than the .tl-vector-row
+       ones at equal specificity, so without the exclusion they would win and
+       squeeze those rows to 3 x 72px. */
+    .tl-sub-track:not(.tl-vector-row) .tl-track-name {
+      width: auto;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    /* 78px, not "half of 133": measured. The widest label the timeline can show
+       ("Stroke Opacity") needs 72px, and this leaves the name 91px — while
+       being the narrowest field that still shows an 8-character value like
+       "-1234.56" without clipping (12px of padding each side carries the scrub
+       grip and the spinner arrows, so only 54px of it is text). */
+    .tl-sub-track:not(.tl-vector-row) .num-spin-wrap {
+      flex: 0 0 78px;
     }
 
     /* Collapsed sub-tracks hidden */
@@ -7745,7 +7857,7 @@
         <input type="number" id="tlFpsInput" value="24" min="1" max="120" step="1" title="FPS"> fps
         &nbsp;
         <label class="tl-checkbox-label" title="Play back and forth (ping-pong)">
-          <input type="checkbox" id="tlPingPong" class="ui-checkbox"> B&amp;F
+          <input type="checkbox" id="tlPingPong" class="ui-checkbox"> Pingpong
         </label>
       </div>
     </div>
@@ -7882,7 +7994,7 @@
         </div>
         <!-- Numeric inputs for selected point (xyz-row style, like Taper) -->
         <div class="xyz-row" style="margin-top:0; padding:4px var(--row-padding-h);">
-          <label style="flex:0 0 auto;">Point</label>
+          <label>Point</label>
           <div class="xyz-inputs">
             <div class="xyz-field">
               <span class="xyz-col-label">X</span>
@@ -7896,10 +8008,41 @@
         </div>
         <!-- Shoot on N: hold each pose for N frames across THIS segment -->
         <div class="xyz-row" style="margin-top:0; padding:4px var(--row-padding-h);">
-          <label for="tlCurveShootOn" style="flex:0 0 auto;"
+          <label for="tlCurveShootOn"
             title="Hold each pose for N frames across this segment. 1 = ones (every frame), 2 = twos, 3 = threes — the hand-animated stepped look. Steps restart at the left keyframe, and easing still shapes the held poses.">Shoot
             on</label>
-          <input type="number" id="tlCurveShootOn" class="ui-input" min="1" max="24" step="1" value="1">
+          <div class="xyz-inputs">
+            <input type="number" id="tlCurveShootOn" class="ui-input" min="1" max="24" step="1" value="1">
+          </div>
+        </div>
+        <!-- TRACK LOOPING (v20260802b): extrapolation OUTSIDE the keyframe
+             range. TRACK-scoped (the whole attribute track), unlike everything
+             above, which is segment-scoped — set it from any segment. -->
+        <div class="xyz-row" style="margin-top:0; padding:4px var(--row-padding-h);">
+          <label for="tlCurveLoopAfter"
+            title="Loop the WHOLE track after its last keyframe. Looping repeats from the first keyframe's value; Looping with Offset continues from the last keyframe's value, accumulating each cycle; Pingpong plays back and forth. Applies to the whole attribute track, not just this segment.">Loop
+            After</label>
+          <div class="xyz-inputs">
+            <select id="tlCurveLoopAfter" class="ui-select">
+              <option value="none">None</option>
+              <option value="cycle">Looping</option>
+              <option value="offset">Looping with Offset</option>
+              <option value="pingpong">Pingpong</option>
+            </select>
+          </div>
+        </div>
+        <div class="xyz-row" style="margin-top:0; padding:4px var(--row-padding-h);">
+          <label for="tlCurveLoopBefore"
+            title="Loop the WHOLE track before its first keyframe. Looping repeats the span; Looping with Offset flows continuously into the first keyframe; Pingpong plays back and forth. Applies to the whole attribute track, not just this segment.">Loop
+            Before</label>
+          <div class="xyz-inputs">
+            <select id="tlCurveLoopBefore" class="ui-select">
+              <option value="none">None</option>
+              <option value="cycle">Looping</option>
+              <option value="offset">Looping with Offset</option>
+              <option value="pingpong">Pingpong</option>
+            </select>
+          </div>
         </div>
       </div>
     </div>
@@ -12130,6 +12273,7 @@
             // pushAnimUndoState creates no entry and any later undo strips the
             // field on restore.
             if (k.shootOn >= 2) entry.shootOn = k.shootOn;
+            if (k.sig) entry.sig = k.sig;   // SHAPE sig — same reasoning
             return entry;
           });
         }
@@ -12141,9 +12285,18 @@
           originals[key] = val;
         }
       }
+      // TRACK LOOPING (v20260802b). Missing this pair is INVISIBLE: the loop
+      // dropdown's own pushAnimUndoState would diff two states that both omit
+      // the modes, create no entry, and the next ⌥X would strip every loop
+      // "for no reason". Runtime keys here — no wire mapping (undo is internal).
+      const loops = {};
+      if (typeof _tlLoopModes !== 'undefined') {
+        for (const [key, val] of _tlLoopModes) loops[key] = { ...val };
+      }
       return {
         tracks,
         originals,
+        loops,
       };
     };
 
@@ -12164,6 +12317,7 @@
               if (k.cubicBezier) entry.cubicBezier = k.cubicBezier.map(p => Array.isArray(p) ? [...p] : p);
               if (k.curveAlgorithm) entry.curveAlgorithm = k.curveAlgorithm;
               if (k.shootOn >= 2) entry.shootOn = k.shootOn;
+              if (k.sig) entry.sig = k.sig;   // SHAPE sig (v20260731f)
               // Migrate all legacy interp strings to modern cubicBezier presets
               if (!entry.cubicBezier) {
                 if (entry.interp === 'step' || entry.interp === 'constant') {
@@ -12193,6 +12347,16 @@
         if (state.originals) {
           for (const [key, val] of Object.entries(state.originals)) {
             _tlOriginalValues.set(key, val);
+          }
+        }
+      }
+      // Restore TRACK LOOPING modes (v20260802b) — the other half of the pair
+      // in captureAnimationState; see the note there.
+      if (typeof _tlLoopModes !== 'undefined') {
+        _tlLoopModes.clear();
+        if (state.loops) {
+          for (const [key, val] of Object.entries(state.loops)) {
+            _tlLoopModes.set(key, { ...val });
           }
         }
       }
@@ -47458,6 +47622,12 @@
     // geometry.
     const penCutAtHit = (obj, hit) => {
       if (!obj || !hit || !hit.span) return false;
+      // SHAPE KEYS (v20260731g): a cut on an OPEN subpath splits the path into
+      // two OBJECTS and the host keeps its id, so its poses would re-attach to
+      // a structurally different path. Ask first, and abort the whole cut if
+      // the user says no — this runs BEFORE penInsertAtHit mutates anything.
+      if (typeof _tlShapeConfirmDrop === 'function'
+        && !_tlShapeConfirmDrop(obj, 'Cutting this path')) return false;
       const sp = hit.span.sp;
       const spIdx = obj.subPathData.indexOf(sp);
       if (spIdx < 0) return false;
@@ -51482,6 +51652,14 @@
             if (key.startsWith(prefix)) _tlOriginalValues.set(newName + '::' + key.slice(prefix.length), Array.isArray(val) ? [...val] : val);
           }
         }
+        // TRACK LOOPING (v20260802b) — the copy loops like the original, and
+        // independently (fresh object per entry).
+        if (typeof _tlLoopModes !== 'undefined') {
+          const prefix = oldName + '::';
+          for (const [key, val] of [..._tlLoopModes]) {
+            if (key.startsWith(prefix)) _tlLoopModes.set(newName + '::' + key.slice(prefix.length), { ...val });
+          }
+        }
       }
     };
     // --- CROSS-OBJECT REFERENCE REMAP (v20260726n) --------------------------
@@ -52022,6 +52200,12 @@
       if (!obj || obj.isGroup || !(obj instanceof Path)) return false;
       if (obj.algorithm === 'bezier') return false;
       if (!obj.localVertices || !obj.subPathData) return false;
+      // SHAPE KEYS (v20260731h): the conversion rebuilds the whole
+      // representation (new algorithm, new counts, new stride), so no pose can
+      // be carried across index-wise. Ask, and abort on cancel — returning
+      // false is exactly what the caller already handles.
+      if (typeof _tlShapeConfirmDrop === 'function'
+        && !_tlShapeConfirmDrop(obj, 'Converting this path to B\u00e9zier')) return false;
       const V = obj.localVertices;
       const algo = obj.algorithm;
       const isBS = (algo === 'bspline' || algo === 'bspline2');
@@ -52147,6 +52331,17 @@
       if (eps.length !== 2) return null;
       const [a, b] = eps;
       if (a.obj.primitiveData || b.obj.primitiveData) return null;   // bake first
+      // SHAPE KEYS (v20260731g): every join form rewrites the buffer — a weld
+      // or bridge concatenates slices, a cross-path join absorbs another
+      // object, and CLOSING a subpath flips its closed flag (and materializes
+      // a closing segment on a bezier), all of which change the structure the
+      // poses were recorded against. Refuse, beside the primitive gate rather
+      // than below — the close-subpath branch RETURNS EARLY, so a guard placed
+      // after it would silently miss that form (measured: the close join went
+      // through). Because the Join button is shown by THIS predicate, the
+      // affordance disappears too instead of offering data loss.
+      if (typeof _tlHasShapeTrack === 'function'
+        && (_tlHasShapeTrack(a.obj) || _tlHasShapeTrack(b.obj))) return null;
       if (a.obj === b.obj && a.sp === b.sp) {
         return (a.atStart !== b.atStart) ? { kind: 'close', a, b } : null;
       }
@@ -52278,6 +52473,12 @@
             obj.subPathData.reverse();
           }
 
+          // SHAPE KEYS (v20260731h): the poses reverse with the buffer. Phase
+          // safe by construction on a bezier — A C C A reads the same backwards
+          // (§8.5) — and the sig is re-stamped from the object afterwards, so
+          // the subpath reordering above is already reflected in it.
+          _tlShapeCarry(obj, (n) => { n.reverse(); return n; });
+
           // Force visual update
           updateVisualsRecursive(obj);
         }
@@ -52385,12 +52586,18 @@
         pushUndoState(); // Snapshot before vertex delete
         // Same logic as Delete key
         const { object, vertexIndex } = selectedVertexInfo;
+        const _shLenBefore = object.localVertices.length;   // SHAPE KEYS (v20260731h)
         removeVertexFromSubPaths(object, vertexIndex); // splices + preserves subpath structure
         selectedVertexInfo = null;
         hoveredVertexInfo = null;
 
         if (object.localVertices.length === 0) {
+          // Emptied: the object is destroyed, so its tracks become ORPHANS —
+          // inert by construction and restored with it by undo. No propagation.
           removeEmptiedObject(object);
+        } else if (_shLenBefore > object.localVertices.length) {
+          const _shN = _shLenBefore - object.localVertices.length;   // SHAPE KEYS
+          _tlShapeCarry(object, (n) => { n.splice(vertexIndex, _shN); return n; });
         }
 
         updateTreeView();
@@ -52477,6 +52684,12 @@
         const target = sp.start + 3 * jTo;
         e.target.value = target;                    // the field never lies
         if (target === vertexIndex) return;
+        // SHAPE KEYS (v20260731h): a reorder permutes anchors WITH their
+        // handles, and the poses were recorded against the old order. Ask
+        // BEFORE the undo push, and abort cleanly on cancel (the field snaps
+        // back — the house convention for a refused index edit).
+        if (typeof _tlShapeConfirmDrop === 'function'
+          && !_tlShapeConfirmDrop(object, 'Reordering anchors')) { e.target.value = vertexIndex; return; }
         pushUndoState();
         const landed = reorderBezierAnchor(object, sp, vertexIndex, target);
         if (landed < 0) { e.target.value = vertexIndex; return; }
@@ -56060,10 +56273,30 @@
           }
           const hit = activePath ? penCurveHitTest(activePath, event.clientX, event.clientY) : null;
           if (hit) {
-            pushUndoState();
             const obj = activePath;
+            // SHAPE KEYS (v20260731i): a b-spline insert makes the clicked
+            // point a CONTROL point, which has no shape-preserving equivalent
+            // for a stored pose — ask BEFORE anything is mutated, and abort
+            // the whole insert on cancel. bezier / linear propagate exactly,
+            // from parameters captured here because the insert moves them.
+            let _shPre = null;
+            if (hit.span) {
+              if (hit.span.kind === 'bspline') {
+                if (typeof _tlShapeConfirmDrop === 'function'
+                  && !_tlShapeConfirmDrop(obj, 'Adding a point to this B-spline path')) return;
+              } else {
+                _shPre = {
+                  kind: hit.span.kind, t: hit.t,
+                  baseIdx: hit.span.baseIdx, aIdx: hit.span.aIdx,
+                  closure: !!hit.span.closure,
+                  spStart: hit.span.sp.start, spCount: hit.span.sp.count,
+                };
+              }
+            }
+            pushUndoState();
             const newIdx = penInsertAtHit(obj, hit);
             if (newIdx >= 0) {
+              if (_shPre) _tlShapeCarryInsert(obj, _shPre);
               notifyPathUpdated(obj);
               _penAddHit = null;
               resetPenBezierState();
@@ -56091,6 +56324,7 @@
             if (range) {
               pushUndoState();
               const obj = activePath;
+              const _shLenBefore = obj.localVertices.length;   // SHAPE KEYS (v20260731h)
               // Splice from the TOP of the range down so the lower indices
               // stay valid; removeVertexFromSubPaths keeps subPathData
               // coherent on every step (and bails once the path is empty).
@@ -56102,6 +56336,15 @@
                 removeEmptiedObject(obj);   // ghost-object fix (v20260724a)
                 activePath = null;
               } else {
+                // SHAPE KEYS (v20260731h): carry the poses through the same
+                // removal. The count comes from the BUFFER, not range.count —
+                // removeVertexFromSubPaths carries a legacy-inconsistency
+                // fallback and the loop breaks early on an emptied path, so the
+                // only honest source for "how many went" is the length delta.
+                const _shRemoved = _shLenBefore - obj.localVertices.length;
+                if (_shRemoved > 0) {
+                  _tlShapeCarry(obj, (n) => { n.splice(range.start, _shRemoved); return n; });
+                }
                 notifyPathUpdated(obj);
               }
               resetPenBezierState();
@@ -60065,7 +60308,24 @@
         } else if (pivotModes.includes(_prevDragMode) && selectedObject) {
           tlAutoKeyProps(tlKeyOf(selectedObject), ['pivX', 'pivY', 'pivZ']); // create
           tlAutoKeyObject(selectedObject);   // pivot editing is single-object
+        } else if (_prevDragMode === 'edit-polygon' && selectedObject
+          && _tlShapeEligible(selectedObject)) {
+          // SHAPE (v20260731f, owner decision): a direct vertex / handle drag
+          // ended — record the pose at the playhead. Same convention as the
+          // translate branches above: no did-it-move test, because
+          // tlAutoKeyProps re-reads the live value through the resolver chain.
+          tlAutoKeyProps(tlKeyOf(selectedObject), ['shape']);
         }
+      }
+
+      // SHAPE drill-down (v20260731f): the vertex rows are a function of the
+      // A-tool selection, so refresh the panel when a direct-select gesture
+      // ends. MOUSEUP ONLY — rebuilding on selection change mid-gesture is the
+      // self-rebuilding-panel trap (v20260721o-p): it would destroy the element
+      // under the pointer.
+      if (typeof tlExpanded !== 'undefined' && tlExpanded && currentTool === 'directSelect'
+        && selectedObject && _tlShapeEligible(selectedObject)) {
+        tlRenderTracks();
       }
     };
 
@@ -60562,6 +60822,11 @@
               }
             });
             nudgeVertexCompanions(worldSpaceDelta); // Move Handles with Anchor (v20260725k)
+            // AUTO-KEY SHAPE (v20260731f): a vertex nudge is a vertex edit
+            // like an A-tool drag — record the pose at the playhead.
+            if (typeof tlAutoKeyProps === 'function' && selectedObject && _tlShapeEligible(selectedObject)) {
+              tlAutoKeyProps(tlKeyOf(selectedObject), ['shape']);
+            }
             updatePropertiesPanel();
             updateMoveToolUI();
             requestRender();
@@ -60574,6 +60839,11 @@
               selectedVertexInfo.worldPosition = vectorAdd(selectedVertexInfo.worldPosition, worldSpaceDelta);
             }
             nudgeVertexCompanions(worldSpaceDelta); // Move Handles with Anchor (v20260725k)
+            // AUTO-KEY SHAPE (v20260731f): a vertex nudge is a vertex edit
+            // like an A-tool drag — record the pose at the playhead.
+            if (typeof tlAutoKeyProps === 'function' && selectedObject && _tlShapeEligible(selectedObject)) {
+              tlAutoKeyProps(tlKeyOf(selectedObject), ['shape']);
+            }
             updatePropertiesPanel();
             updateMoveToolUI();
             requestRender();
@@ -61067,12 +61337,16 @@
       if (selectedVertexInfo) {
         // Delete Vertex
         const { object, vertexIndex } = selectedVertexInfo;
+        const _shLenBefore = object.localVertices.length;   // SHAPE KEYS (v20260731h)
         removeVertexFromSubPaths(object, vertexIndex); // splices + preserves subpath structure
         selectedVertexInfo = null;
         hoveredVertexInfo = null;
 
         if (object.localVertices.length === 0) {
-          removeEmptiedObject(object);
+          removeEmptiedObject(object);   // emptied → orphan tracks, no propagation
+        } else if (_shLenBefore > object.localVertices.length) {
+          const _shN = _shLenBefore - object.localVertices.length;   // SHAPE KEYS
+          _tlShapeCarry(object, (n) => { n.splice(vertexIndex, _shN); return n; });
         }
 
         updateTreeView();
@@ -63533,7 +63807,14 @@
     const tlCurveImport = document.getElementById('tlCurveImport');
     const tlCurveImportInput = document.getElementById('tlCurveImportInput');
     const tlCurveShootOn = document.getElementById('tlCurveShootOn');
+    const tlCurveLoopAfter = document.getElementById('tlCurveLoopAfter');
+    const tlCurveLoopBefore = document.getElementById('tlCurveLoopBefore');
     let _activeCurveKf = null;
+    // TRACK LOOPING (v20260802b): the loop dropdowns are TRACK-scoped, so the
+    // editor needs the track identity, not just the keyframe. Cleared wherever
+    // _activeCurveKf is — a stale track would let a change write loop modes
+    // for an editor that is already closed.
+    let _activeCurveTrack = null;   // {key, prop} of the open segment's track
     Object.defineProperty(window, '_activeCurveKf', { get: () => _activeCurveKf, configurable: true });
     let _ceSelectedIdx = 0;  // index into kf.cubicBezier (which handle is selected)
     let _curveClipboard = null; // { points: [[x,y],...], algorithm: string }
@@ -63948,9 +64229,10 @@
       return 'custom';
     };
 
-    const _openCurveEditor = (lineEl, kf, nextFrame) => {
+    const _openCurveEditor = (lineEl, kf, nextFrame, trackKey, prop) => {
 
       _activeCurveKf = kf;
+      _activeCurveTrack = (trackKey != null) ? { key: trackKey, prop } : null;
       _activeCurveStartFrame = kf.frame;
       _activeCurveEndFrame = (nextFrame != null) ? nextFrame : kf.frame;
       // Default to bezier equivalent of preset if missing
@@ -63975,6 +64257,11 @@
       // already open — that path never fires a show event.
       tlCurveShootOn.value = (kf.shootOn >= 2) ? kf.shootOn : 1;
       tlCurveShootOn.classList.toggle('armed', kf.shootOn >= 2);
+      // TRACK LOOPING — synced HERE for the same reason as Shoot-on above, and
+      // read from the TRACK, so every segment of a track shows the same modes.
+      const _lm = _activeCurveTrack ? _tlLoopOf(_activeCurveTrack.key, _activeCurveTrack.prop) : null;
+      tlCurveLoopAfter.value = (_lm && _lm.after) || 'none';
+      tlCurveLoopBefore.value = (_lm && _lm.before) || 'none';
       _ceSelectedIdx = Math.min(_ceSelectedIdx, kf.cubicBezier.length - 1);
       _updateCurveSvg(kf.cubicBezier);
       tlCurvePreset.value = _matchPreset(kf.cubicBezier, kf.curveAlgorithm);
@@ -63988,6 +64275,7 @@
     // Close button — hides the popover AND clears the active keyframe reference
     document.getElementById('tlCurveClose').addEventListener('click', () => {
       _activeCurveKf = null;
+      _activeCurveTrack = null;
       tlCurveEditor.hidePopover();
     });
 
@@ -63999,6 +64287,7 @@
         }
         _tlSelectedSegment = null;
         _activeCurveKf = null;
+        _activeCurveTrack = null;
         tlRenderTracks();
       }
     });
@@ -64065,6 +64354,23 @@
       tlRenderTracks();
       tlUpdateTrackInputs();
     });
+
+    // TRACK LOOPING (v20260802b) — the only TRACK-scoped controls in this
+    // otherwise segment-scoped popover. They guard on _activeCurveTrack, not
+    // _activeCurveKf, and write through _tlSetLoop so 'none' deletes the side
+    // (and an entry with neither side is removed entirely — the lazy rule).
+    // No tlRenderTracks(): nothing in the track rows changes, since the looped
+    // region has no visualization yet (a recorded upgrade path).
+    const _ceLoopHandler = (side, sel) => () => {
+      if (!_activeCurveTrack) return;
+      pushAnimUndoState('loop mode');
+      _tlSetLoop(_activeCurveTrack.key, _activeCurveTrack.prop, side, sel.value);
+      tlApplyFrame(animationTimeline.currentFrame);
+      sceneObjects.forEach(obj => updateVisualsRecursive(obj));
+      tlUpdateTrackInputs();
+    };
+    tlCurveLoopAfter.addEventListener('change', _ceLoopHandler('after', tlCurveLoopAfter));
+    tlCurveLoopBefore.addEventListener('change', _ceLoopHandler('before', tlCurveLoopBefore));
 
     // Add point button
     tlCurveAddPt.addEventListener('click', () => {
@@ -64392,6 +64698,33 @@
     // --- Original value storage for revert on keyframe removal ---
     const _tlOriginalValues = new Map(); // key: "objectName::prop", value: original value
 
+    // TRACK LOOPING (v20260802b) — per-track extrapolation, set in the curve
+    // editor. Key "trackKey::prop" (same convention as _tlOriginalValues),
+    // value {before?: mode, after?: mode} with mode in
+    // 'cycle'|'offset'|'pingpong'; an absent side means none and an entry with
+    // NEITHER side is never stored (lazy — untouched scenes serialize
+    // byte-identically). TRACK metadata, not keyframe metadata: it rides the
+    // SAME seams as _tlOriginalValues (tlSerialize/tlDeserialize name-keyed,
+    // captureAnimationState/restoreAnimationState for anim-undo,
+    // _copyAnimTracks for duplicate, orphan-skip at serialize) and NONE of the
+    // six keyframe-metadata sites.
+    //
+    // Looping is EXTRAPOLATION — a rule for what happens outside the keyframe
+    // range — so it can only be a property of the TRACK: the space "beyond" an
+    // interior segment is already occupied by other segments. The curve editor
+    // edits it from any segment of the track.
+    const _tlLoopModes = new Map();
+    const TL_LOOP_MODES = new Set(['cycle', 'offset', 'pingpong']);
+    const _tlLoopOf = (trackKey, prop) => _tlLoopModes.get(trackKey + '::' + prop);
+    const _tlSetLoop = (trackKey, prop, side, mode) => {
+      const key = trackKey + '::' + prop;
+      const cur = _tlLoopModes.get(key) || {};
+      if (TL_LOOP_MODES.has(mode)) cur[side] = mode;
+      else delete cur[side];                       // 'none' deletes the side
+      if (cur.before || cur.after) _tlLoopModes.set(key, cur);
+      else _tlLoopModes.delete(key);               // both none → no entry
+    };
+
     // Read the current live value of a property from the scene
     const _tlReadPropertyValue = (objectName, prop) => {
       if (objectName === '__camera__') {
@@ -64401,6 +64734,9 @@
       if (objectName === TL_WORKPLANE_KEY) return _wpRead(prop);   // v20260728w
       const obj = tlObjOf(objectName);
       if (!obj) return null;
+      // SHAPE (v20260731f): returns the FLAT snapshot — an ARRAY, so any caller
+      // that coerces with parseFloat must branch on it first (see tlAutoKeyProps).
+      if (prop === 'shape') return _tlShapeEligible(obj) ? _tlShapeSnapshot(obj) : null;
       // Transform param
       const paramDef = _objParams.find(p => p.prop === prop);
       if (paramDef) {
@@ -64511,6 +64847,13 @@
       }
       const obj = tlObjOf(objectName);
       if (!obj) return;
+      // SHAPE (v20260731f): the restore path for tlRemoveKeyframe / Clear
+      // Animation. Length-guarded inside _tlShapeWrite, so an original captured
+      // before a structural edit can never scribble a resized buffer.
+      if (prop === 'shape') {
+        if (_tlShapeEligible(obj) && _tlShapeWrite(obj, val)) notifyPathUpdated(obj);
+        return;
+      }
       const paramDef = _objParams.find(p => p.prop === prop);
       if (paramDef) {
         if (paramDef.vecProp === 'position') obj.position[paramDef.vecIdx] = val;
@@ -64672,6 +65015,7 @@
       cubicBezier: k.cubicBezier ? k.cubicBezier.map(p => [...p]) : undefined,
       curveAlgorithm: k.curveAlgorithm,
       shootOn: k.shootOn,
+      sig: k.sig,          // SHAPE structure signature (v20260731f)
     });
     // kfs = the live keyframe array AFTER the re-add; frame = destination frame.
     // Each field is applied only when the moved key HAD it, so landing on an
@@ -64683,6 +65027,7 @@
       if (data.cubicBezier) nk.cubicBezier = data.cubicBezier;
       if (data.curveAlgorithm) nk.curveAlgorithm = data.curveAlgorithm;
       if (data.shootOn >= 2) nk.shootOn = data.shootOn;
+      if (data.sig) nk.sig = data.sig;
     };
 
     // --- Interpolation ---
@@ -64846,9 +65191,42 @@
       return t < 0.5 ? a : b; // Fallback for non-numeric types
     };
 
-    const tlInterpolate = (keyframes, frame) => {
+    const tlInterpolate = (keyframes, frame, loop) => {
       if (!keyframes || keyframes.length === 0) return null;
       if (keyframes.length === 1) return keyframes[0].value;
+      // TRACK LOOPING (v20260802b): remap an out-of-range frame into [F, L],
+      // then fall through to normal evaluation — so easing and Shoot-on replay
+      // in every cycle with zero extra wiring, and camera/workplane/shape
+      // tracks loop for free (every tlApplyFrame branch shares this function).
+      //
+      // The recursion is depth-1 and MUST NOT pass `loop`: the remapped frame
+      // is inside the span, and forwarding it would re-enter this block at
+      // boundary values. Offset returns a NEW value because the early clamps
+      // below hand back the STORED keyframe value BY REFERENCE — mutating it
+      // in place would corrupt the keyframe itself.
+      if (loop) {
+        const F = keyframes[0].frame, L = keyframes[keyframes.length - 1].frame;
+        const span = L - F;
+        const mode = span > 0
+          ? (frame > L ? loop.after : (frame < F ? loop.before : null)) : null;
+        if (mode) {
+          // floor-division, NOT `%`: JS remainder is negative for the
+          // Loop-Before side, and the parity below needs a true modulo too
+          // (a bare `c % 2` is -1 for odd negative c, so `=== 1` would never
+          // match and Before-pingpong would silently degrade to cycle).
+          const raw = frame - F;
+          const c = Math.floor(raw / span);
+          const r = raw - c * span;
+          const back = mode === 'pingpong' && ((c % 2) + 2) % 2 === 1;
+          const base = tlInterpolate(keyframes, F + (back ? span - r : r));
+          if (mode !== 'offset') return base;
+          const a = keyframes[0].value, b = keyframes[keyframes.length - 1].value;
+          if (Array.isArray(base)) {
+            return base.map((v, i) => v + c * ((b[i] || 0) - (a[i] || 0)));
+          }
+          return base + c * (b - a);
+        }
+      }
       // Before first keyframe
       if (frame <= keyframes[0].frame) return keyframes[0].value;
       // After last keyframe
@@ -64960,27 +65338,30 @@
       const rotKfs = [objTracks.get('rotX'), objTracks.get('rotY'), objTracks.get('rotZ')];
       const sclKfs = [objTracks.get('sclX'), objTracks.get('sclY'), objTracks.get('sclZ')];
 
-      const trackVal = (kfs, f, rest) => {
+      // `prop` is threaded through so the derived shift follows TRACK LOOPING
+      // (v20260802b) — without it, a looping rotation would derive its pivot
+      // shift from the clamped pose and drift out of sync past the last key.
+      const trackVal = (kfs, f, rest, prop) => {
         if (!kfs || kfs.length === 0) return rest;
-        const v = tlInterpolate(kfs, f);
+        const v = tlInterpolate(kfs, f, _tlLoopOf(objectName, prop));
         return v === null ? rest : v;
       };
       const pivotAt = (f) => [
-        trackVal(pivKfs[0], f, restPivot[0]),
-        trackVal(pivKfs[1], f, restPivot[1]),
-        trackVal(pivKfs[2], f, restPivot[2])
+        trackVal(pivKfs[0], f, restPivot[0], 'pivX'),
+        trackVal(pivKfs[1], f, restPivot[1], 'pivY'),
+        trackVal(pivKfs[2], f, restPivot[2], 'pivZ')
       ];
       // R * orientedS at frame f (orientedS = RP * S * invRP, matching getLocalMatrix)
       const poseAt = (f) => {
         const R = matrixFromEuler([
-          trackVal(rotKfs[0], f, restEuler[0]),
-          trackVal(rotKfs[1], f, restEuler[1]),
-          trackVal(rotKfs[2], f, restEuler[2])
+          trackVal(rotKfs[0], f, restEuler[0], 'rotX'),
+          trackVal(rotKfs[1], f, restEuler[1], 'rotY'),
+          trackVal(rotKfs[2], f, restEuler[2], 'rotZ')
         ]);
         const S = createScaleMatrix(
-          trackVal(sclKfs[0], f, restScale[0]),
-          trackVal(sclKfs[1], f, restScale[1]),
-          trackVal(sclKfs[2], f, restScale[2])
+          trackVal(sclKfs[0], f, restScale[0], 'sclX'),
+          trackVal(sclKfs[1], f, restScale[1], 'sclY'),
+          trackVal(sclKfs[2], f, restScale[2], 'sclZ')
         );
         const RP = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
         const invRP = [
@@ -65031,6 +65412,231 @@
     // v20260729a wrote a single object under `layerRange`; that key is still READ
     // on import (one line in deserializeObject) so files written that day keep
     // working, and is never written again.
+    // --- SHAPE KEYFRAMES (v20260731f) ----------------------------------------
+    // Whole-path vertex animation: ONE 'shape' track per Path whose keyframe
+    // value is a FLAT [x0,y0,z0, x1,y1,z1, …] snapshot of localVertices. Flat is
+    // load-bearing: tlLerp's numeric array branch interpolates it with no engine
+    // change, and every existing shallow [...value] copy site (tlAddKeyframe,
+    // tlSerialize, captureAnimationState, _tlKfData) stays a real copy — nested
+    // triples would ALIAS their inner arrays across keyframes, undo and the wire
+    // format. Interpolating requires identical structure, so every shape
+    // keyframe carries a structure SIGNATURE and a mismatch makes the track
+    // INERT (skipped, flagged, never corrupting) — the orphan-track philosophy.
+    // "Identical structure" means vertex COUNTS + CLOSEDNESS only: the sig also
+    // records the algorithm, but that half is deliberately NOT compared, so
+    // switching Path Type keeps the morph running (v20260802a — see
+    // _tlShapeStruct).
+    // The timeline's per-vertex rows are VIEWS into these snapshots, not tracks:
+    // there are no per-vertex track keys anywhere, which is what keeps vertex
+    // identity a non-problem across structural edits.
+    const _tlShapeEligible = (obj) =>
+      !!(obj && !obj.isGroup && !obj.primitiveData &&
+        Array.isArray(obj.localVertices) && obj.localVertices.length > 0);
+
+    const _tlShapeSig = (obj) => {
+      const sub = (obj.subPathData && obj.subPathData.length)
+        ? obj.subPathData.map(sp => sp.count + (sp.closed ? 'c' : 'o')).join(',')
+        : (obj.localVertices.length + (obj.loop ? 'c' : 'o'));
+      return obj.algorithm + '|' + sub;
+    };
+
+    // The STRUCTURAL half of a shape signature — everything after the
+    // algorithm. Interpolation needs index correspondence between poses, and
+    // that is decided entirely by vertex counts + closedness; the algorithm is
+    // how the SAME buffer is drawn, not what it contains. Switching Path Type
+    // (linear <-> bspline <-> bezier) rewrites no vertex and no count — its
+    // handler sets obj.algorithm and nothing else — so a pose recorded under
+    // one algorithm interpolates correctly under another; measured, incl. the
+    // bezier stride-3 (A0 C1 C2 A3) case, v20260802a. Keeping the algorithm IN
+    // the stored sig keeps it useful for diagnosing an inert track and lets
+    // every file written since v20260731f match with no migration.
+    // indexOf('|') === -1 makes slice(0) return the WHOLE string: the right
+    // degenerate answer for a malformed sig (it matches nothing structural, so
+    // the track stays inert). split('|')[1] would yield undefined and make two
+    // malformed sigs compare EQUAL — do not "simplify" it to that.
+    const _tlShapeStruct = (sig) =>
+      (typeof sig === 'string') ? sig.slice(sig.indexOf('|') + 1) : '';
+
+    const _tlShapeSnapshot = (obj) => {
+      const out = new Array(obj.localVertices.length * 3);
+      for (let i = 0; i < obj.localVertices.length; i++) {
+        const v = obj.localVertices[i];
+        out[i * 3] = v[0]; out[i * 3 + 1] = v[1]; out[i * 3 + 2] = v[2];
+      }
+      return out;
+    };
+
+    // THE ONLY WRITER of shape keyframes: snapshot + sig in one place, so a
+    // keyframe can never exist without the signature the inert net reads. At
+    // the playhead localVertices already HOLDS the applied interpolated pose,
+    // so keying mid-segment captures the right thing with no special code —
+    // which is also what makes a single-vertex edit there not pop its
+    // neighbours. Returns the keyframe (truthy) or false.
+    const tlAddShapeKeyframe = (obj, frame) => {
+      if (!_tlShapeEligible(obj)) return false;
+      const key = tlKeyOf(obj);
+      tlAddKeyframe(key, 'shape', frame, _tlShapeSnapshot(obj));
+      const kf = animationTimeline.tracks.get(key).get('shape').find(k => k.frame === frame);
+      if (kf) kf.sig = _tlShapeSig(obj);
+      return kf || false;
+    };
+
+    // Write a flat snapshot into localVertices IN PLACE — never replace the
+    // array or its triples (other code holds references to both) and never
+    // mutate the INPUT, because tlInterpolate returns a keyframe's own array by
+    // reference at and beyond the track ends. Returns whether anything actually
+    // changed, so callers skip cache invalidation on held frames (shoot-on
+    // holds, exact track ends).
+    const _tlShapeWrite = (obj, flat) => {
+      if (!flat || flat.length !== obj.localVertices.length * 3) return false;
+      let changed = false;
+      for (let i = 0; i < obj.localVertices.length; i++) {
+        const v = obj.localVertices[i];
+        const x = flat[i * 3], y = flat[i * 3 + 1], z = flat[i * 3 + 2];
+        if (v[0] !== x || v[1] !== y || v[2] !== z) {
+          v[0] = x; v[1] = y; v[2] = z; changed = true;
+        }
+      }
+      return changed;
+    };
+
+    // Does this object carry vertex animation? The question every structural
+    // edit has to ask before it changes the buffer (v20260731g).
+    const _tlHasShapeTrack = (obj) => {
+      if (!obj) return false;
+      const tr = animationTimeline.tracks.get(tlKeyOf(obj));
+      const kfs = tr && tr.get('shape');
+      return !!(kfs && kfs.length);
+    };
+
+    // CONFIRM-DROP (v20260731g): for structural edits whose result cannot carry
+    // the old poses at all — a scissors cut splits the path into two objects,
+    // a reorder permutes anchors, a Bezier conversion rebuilds the whole
+    // representation. Ask, then delete the track and its rest baseline. Returns
+    // FALSE when the user cancels, and every caller must then ABORT its edit —
+    // making the data loss an explicit choice rather than a mysterious red
+    // badge later (the inert net still catches anything not routed here).
+    const _tlShapeConfirmDrop = (obj, opName) => {
+      if (!_tlHasShapeTrack(obj)) return true;
+      const key = tlKeyOf(obj);
+      const tr = animationTimeline.tracks.get(key);
+      const n = tr.get('shape').length;
+      if (!confirm(opName + ' will remove this path\u2019s vertex animation ('
+        + n + ' shape keyframe' + (n === 1 ? '' : 's') + '). Continue?')) return false;
+      pushAnimUndoState('Drop shape keys');
+      tr.delete('shape');
+      _tlOriginalValues.delete(key + '::shape');
+      if (obj._tlShapeStale) obj._tlShapeStale = false;
+      tlRenderTracks();
+      return true;
+    };
+
+    // PROPAGATION (v20260731h): run an INDEX-SPACE edit over every shape
+    // keyframe so a structural change carries the poses with it instead of
+    // stranding them. `fn` receives a NESTED [[x,y,z], …] copy of one snapshot
+    // and returns the edited nested array; the result is re-flattened and the
+    // keyframe re-stamped with the CURRENT (post-edit) live sig.
+    //
+    // Call it AFTER the live path edit has completed — the sig it stamps is
+    // read from the object, so a half-finished edit would stamp the wrong one.
+    // The rest baseline in _tlOriginalValues gets the SAME transform, or
+    // removing the last keyframe would later restore a differently-sized pose
+    // and the length guard in _tlShapeWrite would silently refuse it.
+    const _tlShapePropagate = (obj, fn) => {
+      const key = tlKeyOf(obj);
+      const tr = animationTimeline.tracks.get(key);
+      const kfs = tr && tr.get('shape');
+      const origKey = key + '::shape';
+      const orig = _tlOriginalValues.get(origKey);
+      if ((!kfs || !kfs.length) && !orig) return false;
+      const sig = _tlShapeSig(obj);
+      const run = (flat) => {
+        const nested = [];
+        for (let i = 0; i < flat.length; i += 3) nested.push([flat[i], flat[i + 1], flat[i + 2]]);
+        const out = fn(nested);
+        const f2 = new Array(out.length * 3);
+        for (let i = 0; i < out.length; i++) {
+          f2[i * 3] = out[i][0]; f2[i * 3 + 1] = out[i][1]; f2[i * 3 + 2] = out[i][2];
+        }
+        return f2;
+      };
+      // Compute EVERYTHING first, then commit — and only if every result has
+      // the live vertex count (v20260731i). A transform that silently produced
+      // the wrong length (a refused bezier split, say) would otherwise be
+      // stamped with a sig that MATCHES while the data does not, and the
+      // morph would stop with no explanation. Bailing here leaves the track
+      // stale instead, which is the inert net doing its job honestly.
+      const want = obj.localVertices.length * 3;
+      const nextVals = kfs ? kfs.map(k => run(k.value)) : [];
+      const nextOrig = orig ? run(orig) : null;
+      if (nextVals.some(v => v.length !== want) || (nextOrig && nextOrig.length !== want)) return false;
+      if (kfs) kfs.forEach((k, i) => { k.value = nextVals[i]; k.sig = sig; });
+      if (nextOrig) _tlOriginalValues.set(origKey, nextOrig);
+      obj._tlShapeStale = false;
+      return true;
+    };
+
+    // Convenience wrapper for the edit sites: pushes the anim-undo entry only
+    // when there is something to carry, then propagates and refreshes.
+    const _tlShapeCarry = (obj, fn) => {
+      if (!obj) return;
+      const key = tlKeyOf(obj);
+      if (!_tlHasShapeTrack(obj) && !_tlOriginalValues.has(key + '::shape')) return;
+      pushAnimUndoState('Propagate shape keys');
+      if (_tlShapePropagate(obj, fn)) tlRenderTracks();
+    };
+
+    // ADD POINT propagation (v20260731i). `pre` is captured BEFORE the live
+    // insert, because sp.count and the buffer both move underneath it.
+    //   bezier — an EXACT de Casteljau split of the SNAPSHOT's own span at the
+    //            same t, spliced exactly as penInsertAtHit does ([C1,C2] →
+    //            [L1,L2,M,R1,R2], net +3): every pose keeps its rendered shape
+    //            and the stride-3 phase survives.
+    //   linear — the point at the same t along the snapshot's own segment,
+    //            which is exact too (a straight cubic's parameter IS the
+    //            segment parameter).
+    // b-spline never reaches here: the clicked point becomes a CONTROL point,
+    // for which no shape-preserving per-pose equivalent exists, so that branch
+    // confirm-drops before the insert instead.
+    const _tlShapeCarryInsert = (obj, pre) => {
+      if (!pre) return;
+      if (pre.kind === 'bezier') {
+        _tlShapeCarry(obj, (n) => {
+          const i = pre.baseIdx;
+          if (!n[i] || !n[i + 1] || !n[i + 2] || !n[i + 3]) return n;   // length guard rejects
+          const h = splitCubicBezier(n[i], n[i + 1], n[i + 2], n[i + 3], pre.t);
+          if (!h || h.length !== 2) return n;
+          const L = h[0], R = h[1];
+          n.splice(i + 1, 2, L[1], L[2], L[3], R[1], R[2]);
+          return n;
+        });
+      } else if (pre.kind === 'linear') {
+        _tlShapeCarry(obj, (n) => {
+          const a = pre.aIdx;
+          const b = pre.closure ? pre.spStart : (a + 1);
+          const A = n[a], B = n[b];
+          if (!A || !B) return n;
+          const t = pre.t;
+          const P = [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t,
+                     (A[2] || 0) + ((B[2] || 0) - (A[2] || 0)) * t];
+          n.splice(pre.closure ? (pre.spStart + pre.spCount) : (a + 1), 0, P);
+          return n;
+        });
+      }
+    };
+
+    // The INERT NET: a shape track applies only while EVERY keyframe's sig
+    // matches the live structure. _tlShapeStale is derived per applied frame
+    // (underscore = no serializer sees it) and drives the red row badge.
+    const _tlShapeTrackValid = (obj, kfs) => {
+      const live = _tlShapeStruct(_tlShapeSig(obj));
+      for (const k of kfs) {
+        if (_tlShapeStruct(k.sig) !== live) { obj._tlShapeStale = true; return false; }
+      }
+      obj._tlShapeStale = false;
+      return true;
+    };
+
     const _tlHasLayerRange = (obj) => !!(obj && Array.isArray(obj.layerRanges) && obj.layerRanges.length);
 
     // Sort, clamp, drop degenerate spans, and coalesce OVERLAPPING ones.
@@ -65142,7 +65748,7 @@
           for (const paramDef of _wpParams) {
             const kfs = objTracks.get(paramDef.prop);
             if (!kfs) continue;
-            const val = tlInterpolate(kfs, frame);
+            const val = tlInterpolate(kfs, frame, _tlLoopOf(objectName, paramDef.prop));
             if (val !== null) _wpWrite(paramDef.prop, val);
           }
           continue;
@@ -65152,7 +65758,7 @@
           // Per-property camera lookup
           const getVal = (prop) => {
             const kfs = objTracks.get(prop);
-            return kfs ? tlInterpolate(kfs, frame) : null;
+            return kfs ? tlInterpolate(kfs, frame, _tlLoopOf(objectName, prop)) : null;
           };
           const azKf = getVal('azimuth');
           const elKf = getVal('elevation');
@@ -65242,7 +65848,7 @@
         let rotChanged = false;
         let newPivot = null;
         for (const [prop, keyframes] of objTracks) {
-          const val = tlInterpolate(keyframes, frame);
+          const val = tlInterpolate(keyframes, frame, _tlLoopOf(objectName, prop));
           if (val === null) continue;
           // Look up the paramDef for this prop to find vecProp and vecIdx
           const paramDef = _objParams.find(p => p.prop === prop);
@@ -65274,6 +65880,25 @@
           if (derivedShift) obj.pivotShift = derivedShift;
         }
 
+        // --- SHAPE track (v20260731f) --- one in-place write per frame. Every
+        // downstream consumer reads localVertices, so extrude / revolve / sweep
+        // / loft, fold, mapping and both SVG exporters morph with no wiring of
+        // their own; easing and shoot-on ride the segment inside tlInterpolate.
+        {
+          const shKfs = objTracks.get('shape');
+          if (shKfs && shKfs.length && _tlShapeEligible(obj) && _tlShapeTrackValid(obj, shKfs)) {
+            const flat = tlInterpolate(shKfs, frame, _tlLoopOf(objectName, 'shape'));
+            if (flat && _tlShapeWrite(obj, flat)) {
+              // Rails, motion-path targets and spline flow read this path's
+              // arc-length map, and _arcLengthData / _frameData are NOT
+              // checksum-self-validating like the trim cache — a morphing rail
+              // must invalidate them. Gated on real change so shoot-on holds
+              // and exact track ends cost nothing.
+              notifyPathUpdated(obj);
+            }
+          }
+        }
+
         // --- Parametric shape params ---
         const primParams = _getPrimitiveParamsForObj(obj);
         if (primParams) {
@@ -65281,7 +65906,7 @@
           for (const paramDef of primParams) {
             const kfs = objTracks.get(paramDef.prop);
             if (!kfs) continue;
-            const val = tlInterpolate(kfs, frame);
+            const val = tlInterpolate(kfs, frame, _tlLoopOf(objectName, paramDef.prop));
             if (val !== null) {
               obj.primitiveData[paramDef.pdKey] = val;
               primitiveChanged = true;
@@ -65298,7 +65923,7 @@
           for (const paramDef of sfParams) {
             const kfs = objTracks.get(paramDef.prop);
             if (!kfs) continue;
-            const val = tlInterpolate(kfs, frame);
+            const val = tlInterpolate(kfs, frame, _tlLoopOf(objectName, paramDef.prop));
             if (val !== null) {
               obj.surfaceConstraint[paramDef.scKey] = val;
             }
@@ -65311,7 +65936,7 @@
           for (const paramDef of smParams) {
             const kfs = objTracks.get(paramDef.prop);
             if (!kfs) continue;
-            const val = tlInterpolate(kfs, frame);
+            const val = tlInterpolate(kfs, frame, _tlLoopOf(objectName, paramDef.prop));
             if (val !== null) {
               obj.surfaceConstraint.surfaceMapping[paramDef.dataKey] = val;
             }
@@ -65323,7 +65948,7 @@
           for (const paramDef of _strokeTrimParams) {
             const kfs = objTracks.get(paramDef.prop);
             if (!kfs) continue;
-            const val = tlInterpolate(kfs, frame);
+            const val = tlInterpolate(kfs, frame, _tlLoopOf(objectName, paramDef.prop));
             if (val !== null) {
               if (!obj.style) obj.style = {};
               const v = Math.min(100, Math.max(0, val));
@@ -65344,7 +65969,7 @@
           for (const paramDef of _opacityParams) {
             const kfs = objTracks.get(paramDef.prop);
             if (!kfs) continue;
-            const val = tlInterpolate(kfs, frame);
+            const val = tlInterpolate(kfs, frame, _tlLoopOf(objectName, paramDef.prop));
             if (val !== null) {
               if (!obj.style) obj.style = {};
               obj.style[paramDef.styleKey] = Math.min(1, Math.max(0, val));
@@ -65359,7 +65984,7 @@
           for (const paramDef of _motionPathParams) {
             const kfs = objTracks.get(paramDef.prop);
             if (!kfs) continue;
-            const val = tlInterpolate(kfs, frame);
+            const val = tlInterpolate(kfs, frame, _tlLoopOf(objectName, paramDef.prop));
             if (val !== null) obj.motionPathSettings[paramDef.mpKey] = val;
           }
         }
@@ -65369,7 +65994,7 @@
           for (const paramDef of _foldDynamicParams(obj)) {
             const kfs = objTracks.get(paramDef.prop);
             if (!kfs) continue;
-            const val = tlInterpolate(kfs, frame);
+            const val = tlInterpolate(kfs, frame, _tlLoopOf(objectName, paramDef.prop));
             if (val !== null) _foldWrite(obj, paramDef, val);
           }
         }
@@ -65380,7 +66005,7 @@
           for (const paramDef of tdInfo.params) {
             const kfs = objTracks.get(paramDef.prop);
             if (!kfs) continue;
-            const val = tlInterpolate(kfs, frame);
+            const val = tlInterpolate(kfs, frame, _tlLoopOf(objectName, paramDef.prop));
             if (val !== null) {
               _writeSettingsKey(obj[tdInfo.settingsObj], paramDef.settingsKey, val);
             }
@@ -65984,6 +66609,29 @@
         const objTracks = animationTimeline.tracks.get(objectName);
         const kfs = objTracks ? objTracks.get(prop) : null;
 
+        // SHAPE vertex rows (v20260731f): three inputs bound to ONE vertex of
+        // the pose. tlApplyFrame has already written the interpolated pose into
+        // localVertices, so the live buffer IS the frame's value; when a shape
+        // keyframe is SELECTED, show that snapshot's exact numbers instead (the
+        // _tlLastClickedKf convention every other row follows).
+        if (type === 'shapeVertex') {
+          const vObj = tlObjOf(objectName);
+          if (!vObj || !vObj.localVertices || !vObj.localVertices[entry.vi]) continue;
+          let triple = vObj.localVertices[entry.vi];
+          if (_tlLastClickedKf && _tlLastClickedKf.objectName === objectName
+            && _tlLastClickedKf.prop === 'shape' && Array.isArray(_tlLastClickedKf.kf.value)) {
+            const fv = _tlLastClickedKf.kf.value;
+            triple = [fv[entry.vi * 3], fv[entry.vi * 3 + 1], fv[entry.vi * 3 + 2]];
+          }
+          for (let c = 0; c < 3; c++) {
+            const inp = inputs[c];
+            if (inp && document.activeElement !== inp) {
+              inp.value = (typeof triple[c] === 'number' ? triple[c] : 0).toFixed(2);
+            }
+          }
+          continue;
+        }
+
         // Sync keyframe button state (filled ◆ vs empty ◇)
         if (keyBtn) {
           const checkFrame = (_tlLastClickedKf && _tlLastClickedKf.objectName === objectName && _tlLastClickedKf.prop === prop)
@@ -66038,7 +66686,7 @@
 
         if (objectName === TL_WORKPLANE_KEY) {
           // v20260728w — interpolated, else the live grid value
-          let val = kfs ? tlInterpolate(kfs, frame) : null;
+          let val = kfs ? tlInterpolate(kfs, frame, _tlLoopOf(objectName, prop)) : null;
           if (val === null) val = _wpRead(prop);
           if (val !== null && val !== undefined && inputs[0] && document.activeElement !== inputs[0]) {
             const paramDef = _wpParams.find(p => p.prop === prop);
@@ -66046,7 +66694,7 @@
           }
         } else if (objectName === '__camera__') {
           // Get interpolated or live camera value
-          let val = kfs ? tlInterpolate(kfs, frame) : null;
+          let val = kfs ? tlInterpolate(kfs, frame, _tlLoopOf(objectName, prop)) : null;
           if (val === null) {
             // Show live camera value
             const camState = getCameraOrbitalState(activeCamera);
@@ -66059,7 +66707,7 @@
         } else {
           // Object track — per-component scalar row
           let paramDef = _objParams.find(p => p.prop === prop);
-          let val = kfs ? tlInterpolate(kfs, frame) : null;
+          let val = kfs ? tlInterpolate(kfs, frame, _tlLoopOf(objectName, prop)) : null;
           if (val === null && paramDef) {
             // Show live object value
             const obj = tlObjOf(objectName);
@@ -66363,6 +67011,17 @@
       for (const prop of props) {
         let val = _tlReadPropertyValue(objectName, prop);
         if (val === null || val === undefined) continue;
+        // SHAPE (v20260731f): an ARRAY-valued prop. parseFloat would yield NaN
+        // and `continue` — i.e. shape keys would silently never record, with
+        // nothing failing loudly. Route through the one writer, which is also
+        // the only place that stamps the structure sig.
+        if (prop === 'shape') {
+          const shObj = tlObjOf(objectName);
+          if (!shObj) continue;
+          if (!changed) pushAnimUndoStateCoalesced();
+          if (tlAddShapeKeyframe(shObj, frame)) changed = true;
+          continue;
+        }
         val = parseFloat(val);
         if (!isFinite(val)) continue;
         if (!changed) pushAnimUndoStateCoalesced();
@@ -66413,17 +67072,57 @@
       return changed;
     };
 
+    // The paths whose SHAPE "Key Selected" should key: only while the A tool
+    // actually holds a vertex selection (v20260731j). Both selection stores are
+    // read — the marquee/multi list AND the single selectedVertexInfo — because
+    // either can be the live one depending on how the vertices were picked.
+    const _tlShapeSelectionTargets = () => {
+      if (typeof currentTool === 'undefined' || currentTool !== 'directSelect') return [];
+      const set = new Set();
+      for (const v of (typeof selectedVertices !== 'undefined' && selectedVertices ? selectedVertices : [])) {
+        if (v && v.object) set.add(v.object);
+      }
+      if (typeof selectedVertexInfo !== 'undefined' && selectedVertexInfo && selectedVertexInfo.object) {
+        set.add(selectedVertexInfo.object);
+      }
+      return [...set].filter(o => _tlShapeEligible(o));
+    };
+
     // "Key Selected": snapshot the full transform of every selected object at
     // the current frame in ONE undo step. The robust way to keyframe a
     // multi-selection pose (orbit-correct — see above). Works regardless of
     // the Auto-Keyframing checkbox (this is how you START animating).
+    //
+    // SHAPE-AWARE since v20260731j (owner report): while the A tool holds a
+    // VERTEX selection the button keys those paths' SHAPE instead. That is what
+    // you are working on there, and keying twelve transform channels you never
+    // touched is exactly the noise Auto-Key's channel scoping exists to avoid.
+    // It does NOT reopen the "key-all must never snapshot vertices" rule (§6.1
+    // E8): that rule protects the group-header key-all and the plain
+    // object-selection case from silently snapshotting hundreds of vertices per
+    // object, whereas holding specific vertices in a vertex-editing tool is
+    // explicit intent. Falls through to the transform path when the vertex
+    // selection has no shape-eligible owner (a parametric primitive, say), so
+    // the button always does something.
     const tlKeySelected = () => {
+      const frame = animationTimeline.currentFrame;
+      const shapeTargets = _tlShapeSelectionTargets();
+      if (shapeTargets.length) {
+        pushAnimUndoState('Key selected shape');
+        let changed = false;
+        for (const o of shapeTargets) { if (tlAddShapeKeyframe(o, frame)) changed = true; }
+        if (changed) {
+          tlApplyFrame(frame);
+          tlRenderTracks();
+          tlUpdateTrackInputs();
+        }
+        return;
+      }
       const targets = (typeof selectedObjects !== 'undefined' && selectedObjects && selectedObjects.length)
         ? selectedObjects
         : (selectedObject ? [selectedObject] : []);
       if (!targets.length) return;
       pushAnimUndoState('Key selected');
-      const frame = animationTimeline.currentFrame;
       if (tlKeyframeObjectsTransform(targets, frame)) {
         tlApplyFrame(frame);
         tlRenderTracks();
@@ -66615,6 +67314,372 @@
       });
     };
 
+    // --- HOUSE TRACK INPUT (extracted v20260731f) ----------------------------
+    // The timeline's number field: a flat .ui-input inside a .num-spin-wrap,
+    // with hold-repeat spin arrows AND the drag-scrub handle. Extracted from
+    // addSubTrack verbatim so the shape drill-down's vertex rows can have THREE
+    // real house inputs per row without triplicating ~140 lines of gesture
+    // handling. Behaviour is unchanged for the scalar rows — that inertness was
+    // gated before any second caller existed.
+    //
+    // Both gestures anchor their stop signal on DOCUMENT (+ window blur), never
+    // on the element: a committed change synchronously rebuilds the whole track
+    // DOM, so an element-level mouseup can never fire and the hold timer would
+    // run forever (the v20260721o-p "value runs away" bug). A detached input
+    // still dispatches change and commits work by identity, not by element, so
+    // the data path survives the rebuild.
+    //
+    //   opts.step        step attribute (drives spin step AND scrub sensitivity)
+    //   opts.onCommit(v) called on every committed change with the parsed number
+    //   opts.onFocusIn / opts.onFocusOut   optional focus bookkeeping
+    // Returns { wrap, input }.
+    const _tlMakeTrackInput = (opts = {}) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'num-spin-wrap';
+
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.className = 'ui-input';
+      inp.step = opts.step || 0.1;
+      inp.value = '0';
+      inp.addEventListener('click', (e) => e.stopPropagation());
+      if (opts.onFocusIn) inp.addEventListener('focusin', opts.onFocusIn);
+      if (opts.onFocusOut) inp.addEventListener('focusout', opts.onFocusOut);
+      inp.addEventListener('change', () => {
+        if (opts.onCommit) opts.onCommit(parseFloat(inp.value) || 0);
+      });
+      wrap.appendChild(inp);
+
+      // Spinner buttons (right side — increment/decrement arrows)
+      const btns = document.createElement('div');
+      btns.className = 'num-spin-btns';
+      const upBtn = document.createElement('button');
+      upBtn.className = 'num-spin-up';
+      upBtn.tabIndex = -1;
+      upBtn.type = 'button';
+      upBtn.innerHTML = '<svg viewBox="0 0 8 8"><polyline points="6.4 5.6 4 2.4 1.6 5.6"/></svg>';
+      const downBtn = document.createElement('button');
+      downBtn.className = 'num-spin-down';
+      downBtn.tabIndex = -1;
+      downBtn.type = 'button';
+      downBtn.innerHTML = '<svg viewBox="0 0 8 8"><polyline points="1.6 2.4 4 5.6 6.4 2.4"/></svg>';
+      btns.appendChild(upBtn);
+      btns.appendChild(downBtn);
+      wrap.appendChild(btns);
+
+      const doStep = (dir) => {
+        const st = parseFloat(inp.step) || 1;
+        const min = inp.min !== '' ? parseFloat(inp.min) : -Infinity;
+        const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
+        let val = parseFloat(inp.value) || 0;
+        val = Math.round((val + dir * st) * 1e9) / 1e9;
+        val = Math.max(min, Math.min(max, val));
+        inp.value = val;
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const bindSpinBtn = (btn, dir) => {
+        let holdTimer = null;
+        let holdInterval = null;
+        const stopHold = () => {
+          clearTimeout(holdTimer);
+          clearInterval(holdInterval);
+          holdTimer = null;
+          holdInterval = null;
+          document.removeEventListener('mouseup', stopHold);
+          window.removeEventListener('blur', stopHold);
+        };
+        btn.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          document.addEventListener('mouseup', stopHold);
+          window.addEventListener('blur', stopHold);
+          holdTimer = setTimeout(() => {
+            holdInterval = setInterval(() => doStep(dir), 80);
+          }, 400);
+          doStep(dir); // last: may synchronously rebuild the track DOM under us
+        });
+      };
+      bindSpinBtn(upBtn, 1);
+      bindSpinBtn(downBtn, -1);
+
+      // Scrub handle (left side — drag to adjust)
+      const scrub = document.createElement('button');
+      scrub.className = 'num-spin-scrub';
+      scrub.tabIndex = -1;
+      scrub.type = 'button';
+      scrub.setAttribute('aria-label', 'Drag to adjust value');
+      scrub.innerHTML = '<svg viewBox="0 0 8 16"><polyline points="5.2 9.2 6.8 8 5.2 6.8"/><polyline points="2.8 6.8 1.2 8 2.8 9.2"/><line x1="6.8" y1="8" x2="1.2" y2="8"/></svg>';
+      wrap.appendChild(scrub);
+
+      let scrubDragging = false;
+      let scrubStartVal = 0;
+      let scrubAccum = 0;
+      let scrubLastX = 0;
+      let scrubLastY = 0;
+      let scrubAxis = null;
+      let scrubOriginX = 0;
+      let scrubOriginY = 0;
+      const SCRUB_AXIS_THRESHOLD = 3;
+
+      const onScrubMove = (e) => {
+        if (!scrubDragging) return;
+        if (!scrubAxis) {
+          const totalDx = Math.abs(e.clientX - scrubOriginX);
+          const totalDy = Math.abs(e.clientY - scrubOriginY);
+          if (totalDx < SCRUB_AXIS_THRESHOLD && totalDy < SCRUB_AXIS_THRESHOLD) return;
+          scrubAxis = totalDx >= totalDy ? 'h' : 'v';
+          document.documentElement.style.cursor = scrubAxis === 'h' ? 'ew-resize' : 'ns-resize';
+          scrubLastX = e.clientX;
+          scrubLastY = e.clientY;
+          return;
+        }
+        let delta;
+        if (scrubAxis === 'h') {
+          delta = e.clientX - scrubLastX;
+          scrubLastX = e.clientX;
+        } else {
+          delta = -(e.clientY - scrubLastY);
+          scrubLastY = e.clientY;
+        }
+        const st = parseFloat(inp.step) || 1;
+        const sensitivity = st / 4;
+        let mult = 1;
+        if (e.shiftKey) mult = 10;
+        else if (e.altKey) mult = 0.1;
+        scrubAccum += delta * sensitivity * mult;
+        const min = inp.min !== '' ? parseFloat(inp.min) : -Infinity;
+        const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
+        let newVal = scrubStartVal + scrubAccum;
+        newVal = Math.round(newVal * 1e9) / 1e9;
+        newVal = Math.max(min, Math.min(max, newVal));
+        inp.value = newVal;
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const onScrubUp = () => {
+        if (!scrubDragging) return;
+        scrubDragging = false;
+        scrubAxis = null;
+        scrub.classList.remove('scrubbing');
+        document.documentElement.style.cursor = '';
+        document.removeEventListener('mousemove', onScrubMove);
+        document.removeEventListener('mouseup', onScrubUp);
+        document.removeEventListener('keydown', onScrubKey);
+        document.body.style.userSelect = '';
+      };
+      const onScrubKey = (e) => {
+        if (e.key === 'Escape' && scrubDragging) {
+          inp.value = scrubStartVal;
+          inp.dispatchEvent(new Event('input', { bubbles: true }));
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+          onScrubUp();
+        }
+      };
+      scrub.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        scrubDragging = true;
+        scrubAxis = null;
+        scrubStartVal = parseFloat(inp.value) || 0;
+        scrubAccum = 0;
+        scrubOriginX = e.clientX;
+        scrubOriginY = e.clientY;
+        scrubLastX = e.clientX;
+        scrubLastY = e.clientY;
+        scrub.classList.add('scrubbing');
+        document.body.style.userSelect = 'none';
+        document.addEventListener('mousemove', onScrubMove);
+        document.addEventListener('mouseup', onScrubUp);
+        document.addEventListener('keydown', onScrubKey);
+      });
+      // NOTE: no rebuild-time cleanup here. The scrub is rebuild-safe by
+      // construction - its move/up/key listeners live on document, so a
+      // mid-drag DOM rebuild (every value change re-renders the tracks)
+      // leaves the drag running until the real mouseup. The v20260721o
+      // registry FORCED onScrubUp() on every rebuild, which terminated a
+      // live drag after its first value change - that was a regression,
+      // verified and removed in v20260721p.
+
+      return { wrap, input: inp };
+    };
+
+
+    // --- SHAPE DRILL-DOWN (v20260731f) ---------------------------------------
+    // Per-vertex rows are VIEWS into the shape snapshots — no per-vertex track
+    // keys exist anywhere, which is what keeps vertex identity a non-problem
+    // across structural edits. Rows are rebuilt from the live path every render
+    // and vanish entirely when the track is stale (indices could lie).
+
+    // Vertex label. Bezier reads as anchors owning their handles (the §8.5
+    // model): A0 / A0> out-handle / <A1 in-handle, from the stride-3 phase
+    // A0 C1 C2 A3 — mod 1 is the OUT handle of anchor floor(relIdx/3), mod 2 is
+    // the IN handle of anchor (relIdx+1)/3. bezierRoleOf returns the subpath
+    // OBJECT, so the ordinal comes from indexOf. Any failure falls back to V<i>.
+    const _tlVertexLabel = (obj, vi) => {
+      try {
+        if (obj.algorithm === 'bezier' && typeof bezierRoleOf === 'function') {
+          const r = bezierRoleOf(obj, vi);
+          if (r) {
+            const a = r.mod === 0 ? (r.relIdx / 3)
+              : r.mod === 1 ? Math.floor(r.relIdx / 3)
+                : ((r.relIdx + 1) / 3);
+            let base = r.mod === 0 ? ('A' + a) : r.mod === 1 ? ('A' + a + '\u203A') : ('\u2039A' + a);
+            if (obj.subPathData && obj.subPathData.length > 1) {
+              const spi = obj.subPathData.indexOf(r.sp);
+              if (spi >= 0) base = spi + ':' + base;
+            }
+            return base;
+          }
+        }
+      } catch (_) { /* fall through */ }
+      return 'V' + vi;
+    };
+
+    // ANIMATED = this vertex's triple differs anywhere across the track.
+    const _tlAnimatedVertexSet = (obj, kfs) => {
+      const set = new Set();
+      if (!kfs || kfs.length < 2) return set;
+      const first = kfs[0].value;
+      for (let k = 1; k < kfs.length; k++) {
+        const v = kfs[k].value;
+        for (let i = 0; i < obj.localVertices.length; i++) {
+          if (set.has(i)) continue;
+          if (v[i * 3] !== first[i * 3] || v[i * 3 + 1] !== first[i * 3 + 1] || v[i * 3 + 2] !== first[i * 3 + 2]) set.add(i);
+        }
+      }
+      return set;
+    };
+
+    // Reusable VECTOR SUB-ROW: one label + N house inputs on a single row.
+    // A view widget — it binds to get/commit closures and owns no data. The
+    // pattern is reusable; the vector STORAGE model deliberately is not applied
+    // to transforms, whose separate x/y/z tracks buy per-axis easing/timing that
+    // shape keys do not have (which is why combining is right HERE only).
+    // Appends to BOTH columns: the label list and the tracks area are parallel,
+    // and a row in one without a row in the other shears everything below it.
+    const _tlAddVectorRow = (labelText, comps, getComp, commitComp, opts = {}) => {
+      const label = document.createElement('div');
+      label.className = 'tl-track-label tl-sub-track tl-vector-row' + (opts.extraClass ? ' ' + opts.extraClass : '');
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'tl-track-name';
+      nameSpan.textContent = labelText;
+      if (opts.title) nameSpan.title = opts.title;
+      label.appendChild(nameSpan);
+      const inputs = [];
+      for (let c = 0; c < comps; c++) {
+        const { wrap, input } = _tlMakeTrackInput({
+          step: opts.step || 0.1,
+          onCommit: (v) => commitComp(c, v),
+        });
+        const cur = getComp(c);
+        input.value = (typeof cur === 'number' ? cur : 0).toFixed(opts.precision != null ? opts.precision : 2);
+        inputs.push(input);
+        label.appendChild(wrap);
+      }
+      tlTrackLabels.appendChild(label);
+      const row = document.createElement('div');
+      row.className = 'tl-track-row tl-vector-track-row';
+      tlTracksArea.appendChild(row);
+      return { label, row, inputs };
+    };
+
+    // Edit ONE component of ONE vertex. Target: the SELECTED shape keyframe if
+    // one is selected on this object (the _tlLastClickedKf convention every
+    // timeline input follows), else key at the playhead. Keying at the playhead
+    // snapshots the LIVE buffer — which already holds the applied interpolated
+    // pose — so a mid-segment edit writes the pose the user is looking at and
+    // the other vertices cannot pop.
+    const _tlCommitVertexEdit = (objectName, vi, comp, v) => {
+      if (animationTimeline.isPlaying) return;
+      const obj = tlObjOf(objectName);
+      if (!obj || !_tlShapeEligible(obj) || !isFinite(v)) return;
+      pushAnimUndoStateCoalesced();
+      let kf = null;
+      if (_tlLastClickedKf && _tlLastClickedKf.objectName === objectName
+        && _tlLastClickedKf.prop === 'shape' && Array.isArray(_tlLastClickedKf.kf.value)) {
+        kf = _tlLastClickedKf.kf;
+        if (_tlShapeStruct(kf.sig) !== _tlShapeStruct(_tlShapeSig(obj))) return;   // stale selected key — inert
+      } else {
+        kf = tlAddShapeKeyframe(obj, animationTimeline.currentFrame);
+        if (!kf) return;
+      }
+      kf.value[vi * 3 + comp] = v;
+      tlApplyFrame(animationTimeline.currentFrame);   // playhead contract (v20260724b)
+      tlRenderTracks();
+      tlUpdateTrackInputs();
+    };
+
+    // Read-only "changes at this key" markers: a dot at every keyframe where
+    // THIS vertex's triple differs from the PREVIOUS keyframe's (never on the
+    // first key — nothing precedes it). Deliberately NOT class 'tl-keyframe'
+    // and pointer-events:none, because the marquee (mqComputeHits), the
+    // selection highlighter and the drag code all query '.tl-keyframe' and
+    // would treat these as draggable keyframes. Clickable/removable dots and
+    // true per-vertex timing are recorded upgrade paths, not scope.
+    const _tlDrawVertexChangeDots = (row, obj, kfs, vi) => {
+      if (!kfs || kfs.length < 2) return;
+      const total = animationTimeline.totalFrames;
+      const areaW = tlTracksArea.clientWidth;
+      for (let k = 1; k < kfs.length; k++) {
+        const a = kfs[k - 1].value, b = kfs[k].value;
+        if (a[vi * 3] === b[vi * 3] && a[vi * 3 + 1] === b[vi * 3 + 1] && a[vi * 3 + 2] === b[vi * 3 + 2]) continue;
+        const dot = document.createElement('div');
+        dot.className = 'tl-vertex-change-dot';
+        dot.style.left = ((kfs[k].frame / (total - 1)) * areaW) + 'px';
+        dot.title = _tlVertexLabel(obj, vi) + ' changes at frame ' + kfs[k].frame;
+        row.appendChild(dot);
+      }
+    };
+
+    // Rows for ANIMATED union A-TOOL-SELECTED vertices (owner decision).
+    const _TL_VERTEX_ROW_CAP = 48;
+    const _tlAddVertexRows = (objectName, obj, shKfs) => {
+      if (obj._tlShapeStale) return;   // indices may lie — the row badge explains
+      const animated = _tlAnimatedVertexSet(obj, shKfs);
+      const selected = new Set(
+        (typeof selectedVertices !== 'undefined' && selectedVertices ? selectedVertices : [])
+          .filter(sv => sv && sv.object === obj)
+          .map(sv => sv.vertexIndex));
+      let vis = [...new Set([...animated, ...selected])]
+        .filter(i => i >= 0 && i < obj.localVertices.length)
+        .sort((a, b) => a - b);
+      let hidden = 0;
+      if (vis.length > _TL_VERTEX_ROW_CAP) {
+        // Selected first — those are what the user is touching right now.
+        const sel = vis.filter(v => selected.has(v));
+        const merged = [...new Set([...sel, ...vis])];
+        hidden = merged.length - _TL_VERTEX_ROW_CAP;
+        vis = merged.slice(0, _TL_VERTEX_ROW_CAP).sort((a, b) => a - b);
+      }
+      for (const vi of vis) {
+        const entry = { objectName, prop: 'shape', vi, inputs: [], type: 'shapeVertex' };
+        const refs = _tlAddVectorRow(
+          _tlVertexLabel(obj, vi), 3,
+          (c) => (obj.localVertices[vi] ? obj.localVertices[vi][c] : 0),
+          (c, v) => _tlCommitVertexEdit(objectName, vi, c, v),
+          {
+            title: 'Vertex ' + vi + ' \u2014 local X / Y / Z (raw local units, not display units). '
+              + 'Editing keys the whole pose at the playhead.',
+            extraClass: selected.has(vi) ? 'tl-vertex-selected' : '',
+          });
+        entry.inputs = refs.inputs;
+        _tlTrackInputs.push(entry);
+        _tlDrawVertexChangeDots(refs.row, obj, shKfs, vi);
+      }
+      if (hidden > 0) {
+        // Cap summary — BOTH columns, or every row below shears.
+        const label = document.createElement('div');
+        label.className = 'tl-track-label tl-sub-track';
+        label.style.color = 'var(--text-muted)';
+        label.textContent = '\u2026 ' + hidden + ' more \u2014 select vertices in the A tool to edit';
+        tlTrackLabels.appendChild(label);
+        const row = document.createElement('div');
+        row.className = 'tl-track-row';
+        tlTracksArea.appendChild(row);
+      }
+    };
+
     const tlRenderTracks = () => {
       if (!tlTrackLabels || !tlTracksArea) return;
 
@@ -66666,226 +67731,71 @@
         nameSpan.className = 'tl-track-name';
         nameSpan.textContent = labelText;
         label.appendChild(nameSpan);
+        // SHAPE inert net (v20260731f): the structure changed under the keys, so
+        // the morph is paused rather than corrupting geometry. Derived per
+        // applied frame, so it clears on the next scrub after an undo.
+        if (prop === 'shape') {
+          const shObj = tlObjOf(objectName);
+          if (shObj && shObj._tlShapeStale) {
+            label.classList.add('tl-shape-stale');
+            label.title = 'Vertex animation paused: the path structure changed since these keys were recorded. Undo the structural edit to revive it.';
+          }
+        }
 
         // Inline input — single scalar input per row, using num-spin-wrap
         const inputEntry = { objectName, prop, inputs: [], type: 'scalar' };
 
-        // Build num-spin-wrap structure
-        const wrap = document.createElement('div');
-        wrap.className = 'num-spin-wrap';
-
-        const inp = document.createElement('input');
-        inp.type = 'number';
-        inp.className = 'ui-input';
-        inp.step = inputOpts.step || 0.1;
-        inp.value = '0';
-        inp.addEventListener('click', (e) => e.stopPropagation());
-        inp.addEventListener('focusin', () => { _tlFocusedTrack = { objectName, prop }; });
-        inp.addEventListener('focusout', () => {
-          // Delay clearing so the trash click handler can still read it
-          setTimeout(() => {
-            if (_tlFocusedTrack?.objectName === objectName && _tlFocusedTrack?.prop === prop) {
-              _tlFocusedTrack = null;
-            }
-          }, 150);
-        });
-        inp.addEventListener('change', () => {
-          if (animationTimeline.isPlaying) return; // Don't create keyframes during playback
-          pushAnimUndoStateCoalesced();
-          const newVal = parseFloat(inp.value) || 0;
-
-          // If this track has a selected keyframe, edit that keyframe
-          if (_tlLastClickedKf && _tlLastClickedKf.objectName === objectName && _tlLastClickedKf.prop === prop) {
-            _tlLastClickedKf.kf.value = newVal;
-            tlApplyFrame(animationTimeline.currentFrame);   // viewport follows the edit (2026-07-24 fix)
-            tlRenderTracks();
-            // Re-highlight since render rebuilds DOM
-            requestAnimationFrame(() => {
-              for (const k of tlSelectedKfs) {
-                const ref = _tlFindKfByKey(k);
-                if (ref) {
-                  const sel = document.querySelector(`.tl-keyframe[data-obj="${ref.objectName}"][data-prop="${ref.prop}"][data-frame="${ref.frame}"]`);
-                  if (sel) sel.classList.add('selected');
+        // The scalar value field. Built by the shared house-input helper
+        // (v20260731f) — same markup, same spin + scrub gestures as before the
+        // extraction; only the commit body stayed here, where it belongs.
+        // `noInput` (v20260731f) omits it entirely: the SHAPE row owns keyframe
+        // diamonds but has no scalar to show, and inputEntry stays registered
+        // with an empty inputs[] (every reader in tlUpdateTrackInputs already
+        // guards with `inputs[0] &&`).
+        if (!inputOpts.noInput) {
+          const { wrap, input: inp } = _tlMakeTrackInput({
+            step: inputOpts.step || 0.1,
+            onFocusIn: () => { _tlFocusedTrack = { objectName, prop }; },
+            onFocusOut: () => {
+              // Delay clearing so the trash click handler can still read it
+              setTimeout(() => {
+                if (_tlFocusedTrack?.objectName === objectName && _tlFocusedTrack?.prop === prop) {
+                  _tlFocusedTrack = null;
                 }
+              }, 150);
+            },
+            onCommit: (newVal) => {
+              if (animationTimeline.isPlaying) return; // Don't create keyframes during playback
+              pushAnimUndoStateCoalesced();
+
+              // If this track has a selected keyframe, edit that keyframe
+              if (_tlLastClickedKf && _tlLastClickedKf.objectName === objectName && _tlLastClickedKf.prop === prop) {
+                _tlLastClickedKf.kf.value = newVal;
+                tlApplyFrame(animationTimeline.currentFrame);   // viewport follows the edit (2026-07-24 fix)
+                tlRenderTracks();
+                // Re-highlight since render rebuilds DOM
+                requestAnimationFrame(() => {
+                  for (const k of tlSelectedKfs) {
+                    const ref = _tlFindKfByKey(k);
+                    if (ref) {
+                      const sel = document.querySelector(`.tl-keyframe[data-obj="${ref.objectName}"][data-prop="${ref.prop}"][data-frame="${ref.frame}"]`);
+                      if (sel) sel.classList.add('selected');
+                    }
+                  }
+                });
+                return;
               }
-            });
-            return;
-          }
 
-          // Default: add/update keyframe at current frame
-          const frame = animationTimeline.currentFrame;
-          tlAddKeyframe(objectName, prop, frame, newVal);
-          tlApplyFrame(frame);
-          tlRenderTracks();
-        });
-        wrap.appendChild(inp);
-
-        // Spinner buttons (right side — increment/decrement arrows)
-        const btns = document.createElement('div');
-        btns.className = 'num-spin-btns';
-        const upBtn = document.createElement('button');
-        upBtn.className = 'num-spin-up';
-        upBtn.tabIndex = -1;
-        upBtn.type = 'button';
-        upBtn.innerHTML = '<svg viewBox="0 0 8 8"><polyline points="6.4 5.6 4 2.4 1.6 5.6"/></svg>';
-        const downBtn = document.createElement('button');
-        downBtn.className = 'num-spin-down';
-        downBtn.tabIndex = -1;
-        downBtn.type = 'button';
-        downBtn.innerHTML = '<svg viewBox="0 0 8 8"><polyline points="1.6 2.4 4 5.6 6.4 2.4"/></svg>';
-        btns.appendChild(upBtn);
-        btns.appendChild(downBtn);
-        wrap.appendChild(btns);
-
-        // Step function for spin buttons
-        const doStep = (dir) => {
-          const s = parseFloat(inp.step) || 1;
-          const min = inp.min !== '' ? parseFloat(inp.min) : -Infinity;
-          const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
-          let val = parseFloat(inp.value) || 0;
-          val = Math.round((val + dir * s) * 1e9) / 1e9;
-          val = Math.max(min, Math.min(max, val));
-          inp.value = val;
-          inp.dispatchEvent(new Event('input', { bubbles: true }));
-          inp.dispatchEvent(new Event('change', { bubbles: true }));
-        };
-        const bindSpinBtn = (btn, dir) => {
-          // The first doStep() SYNCHRONOUSLY rebuilds the whole track DOM
-          // (change -> tlAddKeyframe -> tlRenderTracks), detaching this
-          // button - so element-level mouseup/mouseleave can never fire,
-          // and a rebuild-time cleanup registry (the v20260721o attempt)
-          // cannot work either: the hold timer is armed AFTER doStep
-          // returns, i.e. after the rebuild already ran the cleanups. The
-          // only stop signal that survives the rebuild is a DOCUMENT-level
-          // mouseup (the scrub handle's long-standing pattern). The hold
-          // lives on this closure and keeps stepping the detached input -
-          // detached elements still dispatch change, and the handler works
-          // by (objectName, prop), so the data path is unaffected - until
-          // the user releases the mouse anywhere (or the window blurs).
-          let holdTimer = null;
-          let holdInterval = null;
-          const stopHold = () => {
-            clearTimeout(holdTimer);
-            clearInterval(holdInterval);
-            holdTimer = null;
-            holdInterval = null;
-            document.removeEventListener('mouseup', stopHold);
-            window.removeEventListener('blur', stopHold);
-          };
-          btn.addEventListener('mousedown', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            document.addEventListener('mouseup', stopHold);
-            window.addEventListener('blur', stopHold);
-            holdTimer = setTimeout(() => {
-              holdInterval = setInterval(() => doStep(dir), 80);
-            }, 400);
-            doStep(dir); // last: synchronously rebuilds the track DOM under us
+              // Default: add/update keyframe at current frame
+              const frame = animationTimeline.currentFrame;
+              tlAddKeyframe(objectName, prop, frame, newVal);
+              tlApplyFrame(frame);
+              tlRenderTracks();
+            },
           });
-        };
-        bindSpinBtn(upBtn, 1);
-        bindSpinBtn(downBtn, -1);
-
-        // Scrub handle (left side — drag to adjust)
-        const scrub = document.createElement('button');
-        scrub.className = 'num-spin-scrub';
-        scrub.tabIndex = -1;
-        scrub.type = 'button';
-        scrub.setAttribute('aria-label', 'Drag to adjust value');
-        scrub.innerHTML = '<svg viewBox="0 0 8 16"><polyline points="5.2 9.2 6.8 8 5.2 6.8"/><polyline points="2.8 6.8 1.2 8 2.8 9.2"/><line x1="6.8" y1="8" x2="1.2" y2="8"/></svg>';
-        wrap.appendChild(scrub);
-
-        let scrubDragging = false;
-        let scrubStartVal = 0;
-        let scrubAccum = 0;
-        let scrubLastX = 0;
-        let scrubLastY = 0;
-        let scrubAxis = null;
-        let scrubOriginX = 0;
-        let scrubOriginY = 0;
-        const SCRUB_AXIS_THRESHOLD = 3;
-
-        const onScrubMove = (e) => {
-          if (!scrubDragging) return;
-          if (!scrubAxis) {
-            const totalDx = Math.abs(e.clientX - scrubOriginX);
-            const totalDy = Math.abs(e.clientY - scrubOriginY);
-            if (totalDx < SCRUB_AXIS_THRESHOLD && totalDy < SCRUB_AXIS_THRESHOLD) return;
-            scrubAxis = totalDx >= totalDy ? 'h' : 'v';
-            document.documentElement.style.cursor = scrubAxis === 'h' ? 'ew-resize' : 'ns-resize';
-            scrubLastX = e.clientX;
-            scrubLastY = e.clientY;
-            return;
-          }
-          let delta;
-          if (scrubAxis === 'h') {
-            delta = e.clientX - scrubLastX;
-            scrubLastX = e.clientX;
-          } else {
-            delta = -(e.clientY - scrubLastY);
-            scrubLastY = e.clientY;
-          }
-          const step = parseFloat(inp.step) || 1;
-          const sensitivity = step / 4;
-          let mult = 1;
-          if (e.shiftKey) mult = 10;
-          else if (e.altKey) mult = 0.1;
-          scrubAccum += delta * sensitivity * mult;
-          const min = inp.min !== '' ? parseFloat(inp.min) : -Infinity;
-          const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
-          let newVal = scrubStartVal + scrubAccum;
-          newVal = Math.round(newVal * 1e9) / 1e9;
-          newVal = Math.max(min, Math.min(max, newVal));
-          inp.value = newVal;
-          inp.dispatchEvent(new Event('input', { bubbles: true }));
-          inp.dispatchEvent(new Event('change', { bubbles: true }));
-        };
-        const onScrubUp = () => {
-          if (!scrubDragging) return;
-          scrubDragging = false;
-          scrubAxis = null;
-          scrub.classList.remove('scrubbing');
-          document.documentElement.style.cursor = '';
-          document.removeEventListener('mousemove', onScrubMove);
-          document.removeEventListener('mouseup', onScrubUp);
-          document.removeEventListener('keydown', onScrubKey);
-          document.body.style.userSelect = '';
-        };
-        const onScrubKey = (e) => {
-          if (e.key === 'Escape' && scrubDragging) {
-            inp.value = scrubStartVal;
-            inp.dispatchEvent(new Event('input', { bubbles: true }));
-            inp.dispatchEvent(new Event('change', { bubbles: true }));
-            onScrubUp();
-          }
-        };
-        scrub.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          scrubDragging = true;
-          scrubAxis = null;
-          scrubStartVal = parseFloat(inp.value) || 0;
-          scrubAccum = 0;
-          scrubOriginX = e.clientX;
-          scrubOriginY = e.clientY;
-          scrubLastX = e.clientX;
-          scrubLastY = e.clientY;
-          scrub.classList.add('scrubbing');
-          document.body.style.userSelect = 'none';
-          document.addEventListener('mousemove', onScrubMove);
-          document.addEventListener('mouseup', onScrubUp);
-          document.addEventListener('keydown', onScrubKey);
-        });
-        // NOTE: no rebuild-time cleanup here. The scrub is rebuild-safe by
-        // construction - its move/up/key listeners live on document, so a
-        // mid-drag DOM rebuild (every value change re-renders the tracks)
-        // leaves the drag running until the real mouseup. The v20260721o
-        // registry FORCED onScrubUp() on every rebuild, which terminated a
-        // live drag after its first value change - that was a regression,
-        // verified and removed in v20260721p.
-
-        inputEntry.inputs.push(inp);
-        label.appendChild(wrap);
+          inputEntry.inputs.push(inp);
+          label.appendChild(wrap);
+        }
 
         // Per-property keyframe toggle button (add ◇ / remove ◆)
         const keyBtn = document.createElement('button');
@@ -66919,6 +67829,14 @@
             } else {
               // Object property — check transform params first, then primitive
               const obj = tlObjOf(objectName);
+              // SHAPE (v20260731f): routed through the ONE writer, which is the
+              // only place that stamps the structure sig.
+              if (prop === 'shape') {
+                if (obj) tlAddShapeKeyframe(obj, frame);
+                tlRenderTracks();
+                tlUpdateTrackInputs();
+                return;
+              }
               const paramDef = _objParams.find(p => p.prop === prop);
               if (paramDef && obj) {
                 let val;
@@ -67181,7 +68099,7 @@
 
                 if (!isDragging) {
                   // Plain click — open curve editor
-                  _openCurveEditor(line, kf, nextKf.frame);
+                  _openCurveEditor(line, kf, nextKf.frame, objectName, prop);
                   return;
                 }
 
@@ -67189,7 +68107,7 @@
                   // Moved back to origin — restore line position and open editor
                   line.style.left = origLineLeft + 'px';
                   line.style.width = origLineWidth + 'px';
-                  _openCurveEditor(line, kf, nextKf.frame);
+                  _openCurveEditor(line, kf, nextKf.frame, objectName, prop);
                   return;
                 }
 
@@ -67923,6 +68841,19 @@
             }
           }
         }
+
+        // --- Shape (vertex animation) sub-group (v20260731f) ---
+        // The parent row owns the keyframe diamonds and the segment lines (so
+        // easing and shoot-on apply to the whole pose); the vertex rows below
+        // are numeric VIEWS of animated + A-tool-selected vertices.
+        if (_tlShapeEligible(obj)) {
+          const shCollapsed = addSubGroupHeader(objectName, 'shape', 'Shape');
+          if (!shCollapsed) {
+            const shKfs = objTracks ? objTracks.get('shape') || null : null;
+            addSubTrack(objectName, 'shape', 'Vertices', shKfs, 0, { noInput: true });
+            _tlAddVertexRows(objectName, obj, shKfs);
+          }
+        }
       };
 
       // 1. Always show camera
@@ -67973,6 +68904,22 @@
 
       tlUpdatePlayheadPosition();
       tlUpdateTrackInputs();
+
+      // "Key Selected" announces which of its two behaviours is armed
+      // (v20260731j). Resolved by getElementById rather than the module-level
+      // const, which is declared further down and would be in its TDZ on the
+      // render that runs during init.
+      {
+        const ksBtn = document.getElementById('tlKeySelectedBtn');
+        if (ksBtn) {
+          const shapeMode = _tlShapeSelectionTargets().length > 0;
+          ksBtn.title = shapeMode
+            ? 'Keyframe the SHAPE (all vertex positions) of the path whose vertices are selected'
+            : 'Keyframe the full transform of all selected objects at the current frame';
+          ksBtn.classList.toggle('tl-key-shape-mode', shapeMode);
+        }
+      }
+
       // Restore scroll position after DOM rebuild
       if (container) container.scrollTop = savedScroll;
     };
@@ -68204,7 +69151,8 @@
     });
     tlFpsInput.addEventListener('click', (e) => e.stopPropagation());
 
-    // Ping-pong (B&F) checkbox
+    // Ping-pong PLAYBACK checkbox (labeled "Pingpong" since v20260802b —
+    // distinct from per-track loop modes, which are extrapolation).
     tlPingPong.addEventListener('change', () => {
       animationTimeline.pingPong = tlPingPong.checked;
     });
@@ -68517,6 +69465,7 @@
             if (k.cubicBezier) entry.cubicBezier = k.cubicBezier.map(p => Array.isArray(p) ? [...p] : p);
             if (k.curveAlgorithm && k.curveAlgorithm !== 'bezier') entry.curveAlgorithm = k.curveAlgorithm;
             if (k.shootOn >= 2) entry.shootOn = k.shootOn;   // SHOOT ON N — lazy
+            if (k.sig) entry.sig = k.sig;                    // SHAPE structure sig
             return entry;
           });
         }
@@ -68534,6 +69483,20 @@
         const wire = sep < 0 ? key : (_tlWireName(key.slice(0, sep)) + key.slice(sep));
         data.originalValues[wire] = Array.isArray(val) ? [...val] : val;
       }
+      // TRACK LOOPING (v20260802b) — same wire treatment as originalValues:
+      // name-keyed and orphan-skipped. The key is OMITTED entirely when no
+      // track loops, so scenes that never touched the feature round-trip
+      // byte-identically (the lazy-key convention).
+      if (_tlLoopModes.size) {
+        data.loops = {};
+        for (const [key, val] of _tlLoopModes) {
+          const sep = key.indexOf('::');
+          if (sep >= 0 && tlIsOrphanKey(key.slice(0, sep))) continue;
+          const wire = sep < 0 ? key : (_tlWireName(key.slice(0, sep)) + key.slice(sep));
+          data.loops[wire] = { ...val };
+        }
+        if (!Object.keys(data.loops).length) delete data.loops;
+      }
       return data;
     };
 
@@ -68543,6 +69506,7 @@
         animationTimeline.currentFrame = 0;
         animationTimeline.tracks.clear();
         _tlOriginalValues.clear();
+        _tlLoopModes.clear();   // v20260802b — else loops leak into a scene with no animation
         _tlGroupCollapsed.clear();
         _tlSubGroupCollapsed.clear();
         tlClearKfSelection();
@@ -68614,6 +69578,9 @@
               // 0 / floats / strings; anything not rounding to an int >= 2 is
               // dropped, matching the write side's lazy rule.
               { const _so = Math.round(Number(k.shootOn)); if (_so >= 2) kf.shootOn = Math.min(24, _so); }
+              // SHAPE structure signature (v20260731f) — a shape keyframe
+              // without one can never match the live path, so it stays inert.
+              if (typeof k.sig === 'string') kf.sig = k.sig;
               // Migrate all legacy interp strings to modern cubicBezier presets
               if (!kf.cubicBezier && k.interp) {
                 if (k.interp === 'step' || k.interp === 'constant') {
@@ -68645,6 +69612,22 @@
           const sep = key.indexOf('::');
           const k2 = sep < 0 ? key : (_tlKeyFromWire(key.slice(0, sep)) + key.slice(sep));
           _tlOriginalValues.set(k2, Array.isArray(val) ? [...val] : val);
+        }
+      }
+      // TRACK LOOPING (v20260802b). Whitelisted on the way in: a hand-edited or
+      // future-written file cannot inject an unknown mode string, and an entry
+      // with neither side is dropped rather than stored empty.
+      _tlLoopModes.clear();
+      if (data.loops) {
+        for (const [key, val] of Object.entries(data.loops)) {
+          if (!val || typeof val !== 'object') continue;
+          const entry = {};
+          if (TL_LOOP_MODES.has(val.before)) entry.before = val.before;
+          if (TL_LOOP_MODES.has(val.after)) entry.after = val.after;
+          if (!entry.before && !entry.after) continue;
+          const sep = key.indexOf('::');
+          const k2 = sep < 0 ? key : (_tlKeyFromWire(key.slice(0, sep)) + key.slice(sep));
+          _tlLoopModes.set(k2, entry);
         }
       }
       // Fallback for files saved before originalValues existed: use each track's

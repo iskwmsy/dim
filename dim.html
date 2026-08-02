@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260802d -->
+<!-- dim v20260802h -->
 
 <!--
   MIT License
@@ -3898,6 +3898,65 @@
       flex: 0 0 78px;
     }
 
+    /* A read-only panel field (v20260802h, the Lens section's Framing read-out).
+       Reads as a value, not an input: no focus ring, no caret, dimmed — so it is
+       never mistaken for something you can type into. Accents when the timeline's
+       Hold Framing link is holding it. */
+    input.cam-readonly {
+      background: transparent;
+      border-color: transparent;
+      color: var(--text-secondary);
+      cursor: default;
+      pointer-events: none;
+    }
+
+    input.cam-readonly.armed {
+      color: var(--accent-color);
+      font-weight: 600;
+    }
+
+    /* HOLD FRAMING (v20260802h; moved into the LABEL column in v20260802g after an
+       owner report — in the tracks area it sat inside the marquee's pointerdown
+       region, so opening the dropdown began a rubber-band selection). It is a
+       normal sub-track row now, so it inherits the column width, the collapse
+       behaviour and the row rhythm for free; only the field sizing differs.
+       The 78px numeric-field rule must NOT apply to a dropdown this wide, hence
+       the explicit override below. */
+    .tl-holdframing-row>.ui-select {
+      flex: 0 0 118px;
+      height: 18px;
+      padding: 0 16px 0 5px;
+      font-size: var(--font-size-subsection);
+      min-width: 0;
+    }
+
+    /* Armed reads at a glance, like the Auto-Key indicator: this silently takes
+       over a channel, so it must never be ambiguous whether it is on. */
+    .tl-holdframing-row.armed>.tl-track-name {
+      color: var(--accent-color);
+      font-weight: 600;
+    }
+
+    /* A DERIVED track row (v20260802h): an output, not an input. Dimmed, its
+       field disabled, and no keyframe diamond at all — gated by the same
+       predicate the evaluator uses, so the affordance cannot lie. */
+    .tl-track-label.tl-track-derived .tl-track-name {
+      opacity: 0.5;
+      font-style: italic;
+    }
+
+    .tl-track-label.tl-track-derived .num-spin-wrap {
+      opacity: 0.5;
+    }
+
+    /* Clamped: the framing is unreachable at this distance, so the solved FOV hit
+       the (1, 179) bound. Shown rather than swallowed — silently declining during
+       playback would freeze the lens mid-move. */
+    .tl-track-label.tl-track-clamped .tl-track-name {
+      color: #c0392b;      /* the .tl-shape-stale red — one "this is wrong" colour in the timeline */
+      opacity: 0.9;
+    }
+
     /* Collapsed sub-tracks hidden */
     .tl-sub-track.tl-collapsed,
     .tl-track-row.tl-collapsed,
@@ -4110,6 +4169,43 @@
       width: 100%;
       height: 100%;
       fill: currentColor;
+    }
+
+    /* LOOP GHOSTS (v20260802h) — the extrapolated region drawn as dimmed repeats
+       of the track's own keys over a dimmed line. Deliberately NOT .tl-keyframe /
+       .tl-kf-line: those selectors are queried by the marquee, the selection
+       highlighter and both drag handlers, so a ghost wearing them would be
+       selectable and would shadow the real key of the same frame.
+       pointer-events:none is the second half of that guarantee. z-index sits under
+       the real keys (1) so the boundary key wins where they meet. */
+    .tl-kf-loop {
+      position: absolute;
+      top: 50%;
+      width: 10px;
+      height: 10px;
+      color: #999;
+      transform: translate(-50%, -50%);
+      opacity: 0.32;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .tl-kf-loop>svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      fill: currentColor;
+    }
+
+    .tl-kf-loop-line {
+      position: absolute;
+      top: 50%;
+      height: 1px;
+      margin-top: -0.5px;
+      background-color: #999;
+      opacity: 0.22;
+      z-index: 0;
+      pointer-events: none;
     }
 
     /* --- Marquee (drag-box) keyframe selection ---
@@ -4775,6 +4871,67 @@
           </div>
         </div>
 
+        <div class="ui-header-small">Orientation</div>
+        <!-- Rotation (Azimuth/Elevation) -->
+        <div class="xyz-row">
+          <label>Orbit</label>
+          <div class="xyz-inputs">
+            <div class="xyz-field">
+              <span class="xyz-col-label">Az</span>
+              <input type="number" id="camAzimuthInput" step="1" />
+            </div>
+            <div class="xyz-field">
+              <span class="xyz-col-label">El</span>
+              <input type="number" id="camElevationInput" step="1" min="-90" max="90" />
+            </div>
+          </div>
+        </div>
+        <!-- Pan / Tilt -->
+        <div class="xyz-row">
+          <label>Offset</label>
+          <div class="xyz-inputs">
+            <div class="xyz-field">
+              <span class="xyz-col-label">Pan</span>
+              <input type="number" id="camPanInput" step="1" />
+            </div>
+            <div class="xyz-field">
+              <span class="xyz-col-label">Tilt</span>
+              <input type="number" id="camTiltInput" step="1" min="-90" max="90" />
+            </div>
+          </div>
+        </div>
+
+        <div class="ui-header-small">Lens</div>
+        <!-- Distance & FOV/Size -->
+        <div class="xyz-row">
+          <label id="camFovLabelInput">Lens</label>
+          <div class="xyz-inputs">
+            <div class="xyz-field">
+              <span class="xyz-col-label">Dist</span>
+              <input type="number" id="camDistInput" step="1" min="0" />
+            </div>
+            <div class="xyz-field">
+              <span class="xyz-col-label" id="camFovColLabel">FOV</span>
+              <input type="number" id="camFovInput" step="1" min="1" max="179" />
+            </div>
+          </div>
+        </div>
+        <div class="prop-row prop-inline">
+          <label for="camFovCompensateCheckbox" class="ui-checkbox-label">Keep Size</label>
+          <input type="checkbox" id="camFovCompensateCheckbox" class="ui-checkbox" />
+        </div>
+        <!-- FRAMING read-out (v20260802h) — the quantity Keep Size actually holds
+             (dist·tan(fov/2), the frustum half-height at the target plane). Shown
+             so the invariant is legible while working interactively: drag Dist
+             with Keep Size on and this number stays put. READ-ONLY here; it is
+             animated from the timeline's Camera group (Hold Framing). -->
+        <div class="xyz-row">
+          <label for="camFramingReadout">Framing</label>
+          <div class="xyz-inputs">
+            <input type="text" id="camFramingReadout" class="cam-readonly" readonly tabindex="-1" />
+          </div>
+        </div>
+
         <div class="ui-header-small">Spatial</div>
         <!-- Position -->
         <div class="xyz-row">
@@ -4812,56 +4969,6 @@
         </div>
         <div class="prop-row prop-row-plain">
           <button id="btnResetTruckPedestal" class="ui-btn" style="width: 100%;">Reset Truck / Pedestal</button>
-        </div>
-
-        <div class="ui-header-small">Lens</div>
-        <!-- Distance & FOV/Size -->
-        <div class="xyz-row">
-          <label id="camFovLabelInput">Lens</label>
-          <div class="xyz-inputs">
-            <div class="xyz-field">
-              <span class="xyz-col-label">Dist</span>
-              <input type="number" id="camDistInput" step="1" min="0" />
-            </div>
-            <div class="xyz-field">
-              <span class="xyz-col-label" id="camFovColLabel">FOV</span>
-              <input type="number" id="camFovInput" step="1" min="1" max="179" />
-            </div>
-          </div>
-        </div>
-        <div class="prop-row prop-inline">
-          <label for="camFovCompensateCheckbox" class="ui-checkbox-label">Keep Size</label>
-          <input type="checkbox" id="camFovCompensateCheckbox" class="ui-checkbox" />
-        </div>
-
-        <div class="ui-header-small">Orientation</div>
-        <!-- Rotation (Azimuth/Elevation) -->
-        <div class="xyz-row">
-          <label>Orbit</label>
-          <div class="xyz-inputs">
-            <div class="xyz-field">
-              <span class="xyz-col-label">Az</span>
-              <input type="number" id="camAzimuthInput" step="1" />
-            </div>
-            <div class="xyz-field">
-              <span class="xyz-col-label">El</span>
-              <input type="number" id="camElevationInput" step="1" min="-90" max="90" />
-            </div>
-          </div>
-        </div>
-        <!-- Pan / Tilt -->
-        <div class="xyz-row">
-          <label>Offset</label>
-          <div class="xyz-inputs">
-            <div class="xyz-field">
-              <span class="xyz-col-label">Pan</span>
-              <input type="number" id="camPanInput" step="1" />
-            </div>
-            <div class="xyz-field">
-              <span class="xyz-col-label">Tilt</span>
-              <input type="number" id="camTiltInput" step="1" min="-90" max="90" />
-            </div>
-          </div>
         </div>
 
 
@@ -8904,7 +9011,7 @@
         const refDist = REFERENCE_ORTHO_ZOOM / Math.tan(activeCamera.fovRadians / 2);
         const dir = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
         activeCamera.position = vectorAdd(activeCamera.target, vectorScale(dir, refDist));
-        updateCameraUI();
+        updateCameraPanel();
         requestRender();
       });
     }
@@ -12293,10 +12400,16 @@
       if (typeof _tlLoopModes !== 'undefined') {
         for (const [key, val] of _tlLoopModes) loops[key] = { ...val };
       }
+      // HOLD FRAMING (v20260802h) — same pair, same invisible failure mode.
+      const holdFraming = {};
+      if (typeof _tlHoldFraming !== 'undefined') {
+        for (const [key, val] of _tlHoldFraming) holdFraming[key] = val;
+      }
       return {
         tracks,
         originals,
         loops,
+        holdFraming,
       };
     };
 
@@ -12357,6 +12470,15 @@
         if (state.loops) {
           for (const [key, val] of Object.entries(state.loops)) {
             _tlLoopModes.set(key, { ...val });
+          }
+        }
+      }
+      // Restore HOLD FRAMING (v20260802h) — the other half of its capture pair.
+      if (typeof _tlHoldFraming !== 'undefined') {
+        _tlHoldFraming.clear();
+        if (state.holdFraming) {
+          for (const [key, val] of Object.entries(state.holdFraming)) {
+            if (TL_HOLD_FRAMING_MODES.has(val)) _tlHoldFraming.set(key, val);
           }
         }
       }
@@ -15369,6 +15491,147 @@
       const e = resolveEyeForObject(obj);
       return e.w === 1 ? e.E : [e.E[0] * 1e6, e.E[1] * 1e6, e.E[2] * 1e6];
     };
+
+    // --- FRAMING (v20260802h, PLAN-animatable-keep-size.md) -------------------
+    // K = dist · tan(fov/2) — the half-height of the frustum at the TARGET
+    // plane, i.e. the apparent size of whatever sits there. This is exactly the
+    // quantity the Lens section's Keep Size checkbox holds constant, and making
+    // it nameable is what lets a vertigo be ANIMATED (§1 of the plan: keying
+    // dist and fov independently drifts the framing 40% at mid-segment, because
+    // K is not linear in either and the two tracks interpolate on their own).
+    //
+    // Declared HERE, next to the other camera-math resolvers, rather than beside
+    // getCameraOrbitalState where it is first used: updateCameraPanel() runs during
+    // init() and reads camFraming for the Lens read-out, and a const declared
+    // 50k lines further down would still be in its TDZ at that moment — the
+    // documented trap from the v20260731j "Key Selected" sync.
+    //
+    // FOV_MIN/MAX mirror the camFovInput attributes and the interactive
+    // compensation's own (1, 179) guard, so the animated path can never solve to
+    // a lens the panel would refuse.
+    const CAM_FOV_MIN = 1, CAM_FOV_MAX = 179;
+    const camFraming = (dist, fovDeg) => dist * Math.tan((fovDeg * Math.PI) / 360);
+    // The inverse: which FOV puts framing K at this distance. Clamped rather than
+    // skipped — the interactive path silently declines an out-of-range solve,
+    // which is right for a single edit but would FREEZE the lens mid-move during
+    // playback. Returns {fov, clamped} so the caller can surface it (the inert-net
+    // philosophy: show it, never corrupt it, never fail silently).
+    const camFovForFraming = (framing, dist) => {
+      if (!(dist > 1e-6) || !(framing > 0)) return { fov: null, clamped: false };
+      const raw = (2 * Math.atan(framing / dist) * 180) / Math.PI;
+      const fov = Math.min(CAM_FOV_MAX, Math.max(CAM_FOV_MIN, raw));
+      return { fov, clamped: Math.abs(fov - raw) > 1e-9 };
+    };
+    // The other inverse (v20260802h): which DISTANCE puts framing K at this FOV.
+    // No clamp is needed at the far end the way camFovForFraming needs one — the
+    // panel already bounds fov to [1, 179], and tan(0.5deg) is a finite 0.0087,
+    // so the solved distance is always finite; only degenerate input is refused.
+    const camDistForFraming = (framing, fovDeg) => {
+      if (!(framing > 0) || !(fovDeg > 0) || !(fovDeg < 180)) return null;
+      const t = Math.tan((fovDeg * Math.PI) / 360);
+      if (!(t > 1e-9)) return null;
+      const d = framing / t;
+      return Number.isFinite(d) && d > 0 ? d : null;
+    };
+
+    // HOLD FRAMING (v20260802h, PLAN-animatable-keep-size.md) — the animated twin
+    // of the Lens section's Keep Size checkbox. Mode 'fov' makes FOV a DERIVED
+    // channel: per frame, fov = 2·atan(framing / dist), so the framing is exact at
+    // every in-between rather than only at the keyframes (§1 of the plan measured
+    // the hand-keyed alternative drifting 40.1% mid-segment).
+    //
+    // TRACK-GROUP metadata, exactly like _tlLoopModes: an enum, so by the house
+    // rule it is NOT keyframable and touches NONE of the six dispatch sites. It
+    // rides the same seams (serialize/deserialize name-keyed with orphan-skip and
+    // the anim-undo capture/restore pair) and is LAZY — 'free' deletes the entry
+    // and the wire key is omitted when the map is empty, so scenes that never
+    // touched the feature round-trip byte-identically.
+    //
+    // Keyed by TRACK KEY ('__camera__' is the only consumer today) rather than
+    // held in a bare global, so a future per-camera timeline needs no migration.
+    //
+    // Deliberately NOT read from #camFovCompensateCheckbox: that checkbox is
+    // unpersisted DOM state that THREE HUD bars force on/off mid-drag and restore
+    // afterwards (_hudFovSavedKeepSize / _hudFovZoomSavedKeepSize /
+    // _hudDistSavedKeepSize), so dragging a HUD bar would silently re-arm or
+    // disarm an animation contract. Two different things, two controls, two names
+    // — the v20260802b Pingpong-vs-loop-modes lesson, avoided up front.
+    //
+    // DECLARED HERE, with the camera math, and not down beside _tlLoopModes where
+    // it logically belongs: updateCameraPanel() runs during init() and asks
+    // _tlFramingDerives whether the link is armed, and `typeof` on a const still
+    // in its TDZ THROWS rather than returning 'undefined' — so a late declaration
+    // could not even be feature-detected around. The function BODIES may reference
+    // late consts (animationTimeline, _tlOriginalValues, getCameraOrbitalState)
+    // because they only ever run from event handlers, long after init.
+    const _tlHoldFraming = new Map();
+    // Derived per applied frame, never serialized (the _tlOutOfRange convention):
+    // true when the solved FOV hit the (1, 179) clamp, i.e. the shot the framing
+    // asks for is not achievable at that distance. Surfaced on the FOV row rather
+    // than swallowed — the interactive path can afford to decline one edit, but
+    // declining silently during playback would freeze the lens mid-move.
+    let _tlHoldFramingClamped = false;
+    const TL_HOLD_FRAMING_MODES = new Set(['fov', 'dist']);
+    const _tlHoldFramingOf = (trackKey) => _tlHoldFraming.get(trackKey) || null;
+    const _tlSetHoldFraming = (trackKey, mode) => {
+      if (TL_HOLD_FRAMING_MODES.has(mode)) {
+        _tlHoldFraming.set(trackKey, mode);
+        // ARMING CAPTURES THE CURRENT FRAMING. Without a track the held K has to
+        // come from somewhere, and it cannot be re-read live each frame — that is
+        // circular (live framing IS dist·tan(fov/2), so as the dolly animates it
+        // would follow dist and compensate nothing). Snapshotting makes the rule
+        // predictable: disarm, reframe, re-arm captures the new size. Only when no
+        // framing TRACK exists — a track's own baseline is owned by tlAddKeyframe
+        // and clobbering it would break the remove-last-keyframe restore.
+        if (trackKey === '__camera__') {
+          const tr = animationTimeline.tracks.get('__camera__');
+          const hasTrack = !!(tr && tr.get('framing') && tr.get('framing').length);
+          if (!hasTrack) {
+            const k = getCameraOrbitalState(activeCamera).framing;
+            if (k > 0) _tlOriginalValues.set('__camera__::framing', k);
+          }
+        }
+      } else {
+        _tlHoldFraming.delete(trackKey);          // 'free' → no entry (lazy)
+      }
+    };
+    // The framing this frame should hold: the track if it has keys, else the
+    // baseline captured when the mode was armed.
+    const _tlFramingHeld = (frKf) => {
+      if (frKf !== null && frKf !== undefined) return frKf;
+      const b = _tlOriginalValues.get('__camera__::framing');
+      return (typeof b === 'number' && b > 0) ? b : null;
+    };
+    // WHICH camera channel is DERIVED right now (v20260802h — generalized from the
+    // v20260802h version, which only knew about the armed-fov case).
+    //
+    // dist, fov and framing are THREE quantities bound by ONE relation
+    // K = dist·tan(fov/2), so there are only ever two degrees of freedom: exactly
+    // ONE of them is always an output, and the Hold Framing dropdown simply names
+    // which. That symmetry is the whole model:
+    //
+    //   Free              → dist + fov are inputs, FRAMING is derived
+    //   FOV follows Dist  → dist + framing are inputs, FOV is derived
+    //   Dist follows FOV  → fov + framing are inputs, DISTANCE is derived
+    //
+    // Modelling Free as "framing is derived" is what fixes the owner-reported bug
+    // that the Framing row was editable under Free and did nothing: it was an
+    // OUTPUT presented as an input. There is no mode in which nothing is derived.
+    //
+    // Orthographic / oblique: distance does not affect apparent size at all
+    // (orthoZoom does), so framing is not an authorable quantity there either —
+    // it degrades to the Free case, which is why this returns 'framing' rather
+    // than null. The dropdown itself is disabled in those projections.
+    const _tlDerivedCamProp = () => {
+      if ((activeCamera?.projectionType || projectionType) !== 'perspective') return 'framing';
+      const m = _tlHoldFramingOf('__camera__');
+      return m === 'fov' ? 'fov' : m === 'dist' ? 'distance' : 'framing';
+    };
+    // The ONE predicate — the evaluator, the row greying, the diamond gating,
+    // key-all and the Auto-Key map all call it, so the affordance can never
+    // disagree with the action (the §8.5 UI principle).
+    const _tlFramingDerives = (trackKey, prop) =>
+      trackKey === '__camera__' && prop === _tlDerivedCamProp();
 
     // --- 2D MODE self-test (v20260727d, PLAN-2d-mode.md P4) ---------------
     // Console: Mode2D.selfTest() — asserts the frame-matrix contract, the
@@ -51660,6 +51923,12 @@
             if (key.startsWith(prefix)) _tlLoopModes.set(newName + '::' + key.slice(prefix.length), { ...val });
           }
         }
+        // HOLD FRAMING (v20260802h) is deliberately NOT copied here, and that is
+        // not an oversight: _tlHoldFraming is keyed by bare TRACK key and its only
+        // possible key is the reserved '__camera__', which duplicate never reaches
+        // (this runs over scene objects). Wiring it would be unreachable code. If a
+        // per-camera timeline ever makes cameras duplicable, add the same
+        // prefix-copy shape as the loop modes above — the storage already allows it.
       }
     };
     // --- CROSS-OBJECT REFERENCE REMAP (v20260726n) --------------------------
@@ -54170,11 +54439,26 @@
       // redefine the whole orbit, so they key the orbital quintet.
       if (typeof tlAutoKeyProps === 'function' && cam === activeCamera) {
         let camProps = null;
+        // HOLD FRAMING (v20260802h): while the link is armed FOV is DERIVED, so it
+        // must never be keyed — auto-key would create a track the evaluator
+        // overwrites on the very next applied frame. A Dist edit keys Dist alone
+        // (the framing is held by its own baseline or track), and an edit that
+        // lands on FOV keys FRAMING instead, since that is the channel the user
+        // effectively just changed.
+        // v20260802h: generalized to both directions. The rule is the same in
+        // each — key the channel the user actually drove, and NEVER the derived
+        // one. Editing the field that IS derived is read as "I want this size",
+        // so it keys FRAMING instead.
+        const _drv = _tlDerivedCamProp();
         if (activeId === 'camFovInput') {
-          camProps = projectionType === 'perspective'
-            ? (keepSizeComp ? ['fov', 'distance'] : ['fov']) : ['orthoZoom'];
+          camProps = projectionType !== 'perspective' ? ['orthoZoom']
+            : _drv === 'fov' ? ['framing']                    // fov is an output → key the size
+              : _drv === 'distance' ? ['fov']                 // fov drives, dist follows
+                : (keepSizeComp ? ['fov', 'distance'] : ['fov']);   // Free: legacy
         } else if (activeId === 'camDistInput') {
-          camProps = (keepSizeComp && projectionType === 'perspective') ? ['distance', 'fov'] : ['distance'];
+          camProps = _drv === 'distance' ? ['framing']        // dist is an output → key the size
+            : _drv === 'fov' ? ['distance']                   // dist drives, fov follows
+              : ((keepSizeComp && projectionType === 'perspective') ? ['distance', 'fov'] : ['distance']);
         } else if (activeId === 'camAzimuthInput') camProps = ['azimuth'];
         else if (activeId === 'camElevationInput') camProps = ['elevation'];
         else if (['camPosXInput', 'camPosYInput', 'camPosZInput',
@@ -54318,6 +54602,26 @@
           }
         } else {
           obliqueSettingsContainer.style.display = 'none';
+        }
+      }
+
+      // FRAMING read-out (v20260802h) — dist·tan(fov/2), the quantity Keep Size
+      // holds. Perspective only: in ortho/oblique the size comes from orthoZoom
+      // and distance does not enter it, so a number here would be meaningless
+      // rather than merely unused. Says "Hold Framing" when the timeline link is
+      // armed, so the two controls read as related without being the same switch.
+      {
+        const ro = document.getElementById('camFramingReadout');
+        if (ro) {
+          const persp = projectionType === 'perspective';
+          const armed = _tlFramingDerives('__camera__', 'fov');
+          ro.value = persp ? camFraming(dist, cam.fovDegrees).toFixed(2) : '—';
+          ro.title = !persp
+            ? 'Perspective only — in orthographic and oblique the size comes from Size, not from distance.'
+            : (armed
+              ? 'Held by the timeline (Hold Framing): FOV is derived from Dist + Framing every frame.'
+              : 'dist × tan(fov/2) — the subject size at the target plane. Keep Size holds this while you edit Dist or FOV.');
+          ro.classList.toggle('armed', !!armed);
         }
       }
 
@@ -55421,7 +55725,7 @@
           const refDist = REFERENCE_ORTHO_ZOOM / Math.tan(cam.fovRadians / 2);
           const dir = vectorNormalize(vectorSubtract(cam.position, cam.target));
           cam.position = vectorAdd(cam.target, vectorScale(dir, refDist));
-          updateCameraUI();
+          updateCameraPanel();
           requestRender();
         }
         if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
@@ -55486,7 +55790,7 @@
           const refDist = REFERENCE_ORTHO_ZOOM / Math.tan(cam.fovRadians / 2);
           const dir = vectorNormalize(vectorSubtract(cam.position, cam.target));
           cam.position = vectorAdd(cam.target, vectorScale(dir, refDist));
-          updateCameraUI();
+          updateCameraPanel();
           requestRender();
         }
         if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
@@ -55564,7 +55868,7 @@
           const refDist = REFERENCE_ORTHO_ZOOM / Math.tan(cam.fovRadians / 2);
           const dir = vectorNormalize(vectorSubtract(cam.position, cam.target));
           cam.position = vectorAdd(cam.target, vectorScale(dir, refDist));
-          updateCameraUI();
+          updateCameraPanel();
           requestRender();
         }
         if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
@@ -64359,14 +64663,20 @@
     // otherwise segment-scoped popover. They guard on _activeCurveTrack, not
     // _activeCurveKf, and write through _tlSetLoop so 'none' deletes the side
     // (and an entry with neither side is removed entirely — the lazy rule).
-    // No tlRenderTracks(): nothing in the track rows changes, since the looped
-    // region has no visualization yet (a recorded upgrade path).
+    // v20260802h: this now DOES call tlRenderTracks(). The original comment here
+    // said it deliberately did not, because the looped region had no
+    // visualization — true when written, and exactly the kind of gate that
+    // becomes a bug the moment the feature it assumed away ships. With loop
+    // ghosts drawn per track row, skipping the re-render would leave the
+    // dropdown changing the animation while the row it was set from showed the
+    // old picture.
     const _ceLoopHandler = (side, sel) => () => {
       if (!_activeCurveTrack) return;
       pushAnimUndoState('loop mode');
       _tlSetLoop(_activeCurveTrack.key, _activeCurveTrack.prop, side, sel.value);
       tlApplyFrame(animationTimeline.currentFrame);
       sceneObjects.forEach(obj => updateVisualsRecursive(obj));
+      tlRenderTracks();
       tlUpdateTrackInputs();
     };
     tlCurveLoopAfter.addEventListener('change', _ceLoopHandler('after', tlCurveLoopAfter));
@@ -64716,6 +65026,91 @@
     const _tlLoopModes = new Map();
     const TL_LOOP_MODES = new Set(['cycle', 'offset', 'pingpong']);
     const _tlLoopOf = (trackKey, prop) => _tlLoopModes.get(trackKey + '::' + prop);
+
+    // LOOP VISUALIZATION (v20260802h) — ghost repeats in the extrapolated region.
+    // Draws what the loop actually DOES: dimmed copies of the track's keyframes at
+    // the frames they replay on, over a dimmed continuous line. That shows the
+    // cadence and the phase, not just the fact of looping (AE's dashed line says
+    // only "this loops"), and it needs no legend.
+    //
+    // NOT class 'tl-keyframe' / 'tl-kf-line', and pointer-events:none — the
+    // marquee, the selection highlighter and BOTH drag handlers query those
+    // selectors (including row.querySelector('.tl-keyframe[data-frame=...]')), so
+    // a ghost wearing the real class would be selectable, draggable and would
+    // shadow the real key of the same frame. Same rule the shape drill-down's
+    // change dots already follow.
+    //
+    // Frame math mirrors tlInterpolate's remap exactly, so the picture cannot
+    // drift from the evaluation: cycle c maps a key at f to F + c*span + r, and
+    // PINGPONG mirrors odd cycles to F + c*span + (span - r). OFFSET is
+    // deliberately identical to cycle here — it shifts VALUES, not time, and this
+    // row is a time axis.
+    const TL_LOOP_GHOST_MIN_PX = 8;      // below this a cycle cannot read as diamonds
+    const TL_LOOP_GHOST_MAX_CYCLES = 40; // hard backstop on DOM growth
+    const _tlBuildLoopGhosts = (row, modes, keyframes, areaW, total) => {
+      if (!modes || !keyframes || keyframes.length < 2) return;
+      const F = keyframes[0].frame, L = keyframes[keyframes.length - 1].frame;
+      const span = L - F;
+      if (span <= 0) return;                       // matches tlInterpolate's own guard
+      const last = total - 1;
+      const xOf = (f) => (f / last) * areaW;
+      // Judge readability in SCREEN PIXELS, not frames: the same cycle is legible
+      // on a long timeline and mush on a short one. Under the threshold the line
+      // alone carries the meaning, which degrades honestly instead of drawing a
+      // smear of overlapping diamonds.
+      const showDots = ((span / last) * areaW) >= TL_LOOP_GHOST_MIN_PX;
+
+      const addLine = (fa, fb) => {
+        const a = Math.max(0, fa), b = Math.min(last, fb);
+        if (b <= a) return;
+        const el = document.createElement('div');
+        el.className = 'tl-kf-loop-line';
+        el.style.left = xOf(a) + 'px';
+        el.style.width = (xOf(b) - xOf(a)) + 'px';
+        row.appendChild(el);
+      };
+      const addDot = (f) => {
+        if (f < 0 || f > last) return;
+        const el = document.createElement('div');
+        el.className = 'tl-kf-loop';
+        el.innerHTML = _tlKeyframeIcons.linear;
+        el.style.left = xOf(f) + 'px';
+        row.appendChild(el);
+      };
+
+      const side = (dir, mode) => {
+        if (!mode) return;
+        // One continuous line over the whole extrapolated region, drawn first so
+        // the diamonds sit on top of it.
+        if (dir > 0) addLine(L, last); else addLine(0, F);
+        if (!showDots) return;
+        // Two exclusions, both because a doubled diamond renders DARKER than a
+        // single one and would read as a different kind of key:
+        //   - strictly outside [F, L], since cycle 1's first repeat lands exactly
+        //     ON the boundary key it repeats (r = 0 → f = L), and
+        //   - deduped across cycles, since a cycle's last repeat and the next
+        //     cycle's first land on the same frame by construction.
+        const seen = new Set();
+        for (let n = 1; n <= TL_LOOP_GHOST_MAX_CYCLES; n++) {
+          const c = dir > 0 ? n : -n;
+          const back = mode === 'pingpong' && ((c % 2) + 2) % 2 === 1;
+          let inRange = false;
+          for (const kf of keyframes) {
+            const r = kf.frame - F;
+            const f = F + c * span + (back ? span - r : r);
+            if (f < 0 || f > last) continue;
+            inRange = true;
+            if (dir > 0 ? f <= L : f >= F) continue;   // never over the real range
+            if (seen.has(f)) continue;
+            seen.add(f);
+            addDot(f);
+          }
+          if (!inRange) break;   // this cycle is entirely off-timeline; so is the next
+        }
+      };
+      side(1, modes.after);
+      side(-1, modes.before);
+    };
     const _tlSetLoop = (trackKey, prop, side, mode) => {
       const key = trackKey + '::' + prop;
       const cur = _tlLoopModes.get(key) || {};
@@ -65301,6 +65696,13 @@
         pedestal,
         fov: cam.fovDegrees,
         orthoZoom: cam.orthoZoom,
+        // HOLD FRAMING (v20260802h): K = dist·tan(fov/2), the half-height of the
+        // frustum at the TARGET plane — "how big the subject is in shot", and the
+        // exact quantity the Keep Size checkbox holds. Derived here so every
+        // existing camera reader gets it for free: _tlReadPropertyValue, the
+        // per-track diamond's camState[prop] add, _tlAddAllCamKeyframes and the
+        // live row display all go through this object.
+        framing: camFraming(dist, cam.fovDegrees),
       };
     };
 
@@ -65838,6 +66240,57 @@
           // Apply fov/orthoZoom independently
           if (fvKf !== null) activeCamera.fovDegrees = fvKf;
           if (ozKf !== null) activeCamera.orthoZoom = ozKf;
+
+          // HOLD FRAMING (v20260802h) — THE ONE EVALUATION SEAM. Runs LAST in
+          // this branch, so the distance it reads is whatever the orbital
+          // reconstruction above actually produced (keyed or live), and the FOV
+          // it writes wins over any fvKf: while armed, FOV is a DERIVED channel.
+          //
+          // Measuring the distance back off the camera instead of re-deriving
+          // "keyed ?? live" keeps one source of truth — this is the real
+          // distance being rendered this frame, whatever produced it.
+          //
+          // Because this sits AFTER tlInterpolate, easing / Shoot on / Looping
+          // all replay correctly with no wiring of their own: they shape the
+          // DRIVER, and the compensation is recomputed from whatever came out.
+          // That is what makes the framing exact at every in-between rather than
+          // only at the keyframes (the 40.1% mid-segment drift of the hand-keyed
+          // alternative — PLAN-animatable-keep-size.md §1).
+          //
+          // An existing FOV track is deliberately KEPT and merely overridden, not
+          // deleted — a control must never destroy data it only cannot display
+          // (v20260726m; the Silhouette × palette precedent). Disarming restores
+          // it on the next applied frame.
+          _tlHoldFramingClamped = false;
+          {
+            const _drv = _tlDerivedCamProp();   // 'framing' under Free — nothing to solve
+            if (_drv !== 'framing') {
+              const held = _tlFramingHeld(getVal('framing'));
+              if (held !== null) {
+                const rel = vectorSubtract(activeCamera.position, activeCamera.target);
+                const distNow = vectorLength(rel);
+                if (_drv === 'fov') {
+                  const sol = camFovForFraming(held, distNow);
+                  if (sol.fov !== null) {
+                    activeCamera.fovDegrees = sol.fov;
+                    _tlHoldFramingClamped = sol.clamped;
+                  }
+                } else if (_drv === 'distance') {
+                  // Dist follows FOV (v20260802h): the reverse dolly-zoom — the
+                  // lens drives and the camera moves to keep the subject size.
+                  // Rescaling the EXISTING offset preserves the azimuth/elevation
+                  // the reconstruction above already produced, and truck/pedestal
+                  // stay intact because they moved the TARGET, which is the origin
+                  // of that offset.
+                  const nd = camDistForFraming(held, activeCamera.fovDegrees);
+                  if (nd !== null && distNow > 1e-9) {
+                    const dir = vectorScale(rel, 1 / distNow);
+                    activeCamera.position = vectorAdd(activeCamera.target, vectorScale(dir, nd));
+                  }
+                }
+              }
+            }
+          }
           continue;
         }
         // Find scene object by name
@@ -66108,6 +66561,11 @@
       { prop: 'truck', label: 'Truck', precision: 2, step: 0.1 },
       { prop: 'pedestal', label: 'Ped', precision: 2, step: 0.1 },
       { prop: 'fov', label: 'FOV', precision: 0, suffix: '°', step: 1 },
+      // HOLD FRAMING (v20260802h): K = dist·tan(fov/2). Animatable like any other
+      // camera channel — a FLAT framing track is the pure vertigo, a keyed one is
+      // a dolly-zoom whose subject size drifts on purpose. Sits next to FOV
+      // because they are the two halves of the same lens decision.
+      { prop: 'framing', label: 'Framing', precision: 2, step: 0.1 },
       { prop: 'orthoZoom', label: 'OrthoZm', precision: 1, step: 0.1 },
     ];
     // WORKPLANE sub-track parameter definitions (v20260728w). The grid belongs to
@@ -66641,8 +67099,12 @@
           keyBtn.title = hasKf ? `Remove keyframe for ${entry.label || prop}` : `Add keyframe for ${entry.label || prop}`;
         }
 
-        // If this track's keyframe is selected, show its exact value
-        if (_tlLastClickedKf && _tlLastClickedKf.objectName === objectName && _tlLastClickedKf.prop === prop) {
+        // If this track's keyframe is selected, show its exact value.
+        // A DERIVED channel is excluded (v20260802h): its keys are overridden, so
+        // showing a selected one would contradict the rendered viewport. It falls
+        // through to the live read below.
+        if (_tlLastClickedKf && _tlLastClickedKf.objectName === objectName && _tlLastClickedKf.prop === prop
+          && !_tlFramingDerives(objectName, prop)) {
           const selVal = _tlLastClickedKf.kf.value;
           if (selVal !== null && selVal !== undefined && inputs[0] && document.activeElement !== inputs[0]) {
             let paramDef;
@@ -66693,8 +67155,12 @@
             inputs[0].value = val.toFixed(paramDef ? paramDef.precision : 2);
           }
         } else if (objectName === '__camera__') {
-          // Get interpolated or live camera value
-          let val = kfs ? tlInterpolate(kfs, frame, _tlLoopOf(objectName, prop)) : null;
+          // Get interpolated or live camera value.
+          // HOLD FRAMING (v20260802h): a DERIVED channel must read the LIVE camera
+          // even when it has keyframes — those keys are overridden, not applied,
+          // and showing them would contradict what the viewport is rendering.
+          let val = (kfs && !_tlFramingDerives(objectName, prop))
+            ? tlInterpolate(kfs, frame, _tlLoopOf(objectName, prop)) : null;
           if (val === null) {
             // Show live camera value
             const camState = getCameraOrbitalState(activeCamera);
@@ -66917,7 +67383,24 @@
       tlAddKeyframe('__camera__', 'distance', frame, state.distance);
       tlAddKeyframe('__camera__', 'truck', frame, state.truck);
       tlAddKeyframe('__camera__', 'pedestal', frame, state.pedestal);
-      tlAddKeyframe('__camera__', 'fov', frame, state.fov);
+      // HOLD FRAMING (v20260802h, generalized v20260802g): key-all keys the two
+      // INPUT channels and skips whichever one is DERIVED — keying the derived one
+      // would create a track the evaluator overrides on the next frame. The row has
+      // no diamond for exactly this reason, and the group key-all must obey the
+      // same rule as the per-row one. Distance is above; re-keyed here only when it
+      // is not the derived channel.
+      {
+        const drv = _tlDerivedCamProp();
+        if (drv !== 'fov') tlAddKeyframe('__camera__', 'fov', frame, state.fov);
+        if (drv !== 'framing') tlAddKeyframe('__camera__', 'framing', frame, state.framing);
+        if (drv === 'distance') {
+          // Distance was keyed unconditionally above (it is part of the orbital
+          // quintet); under this mode it is an output, so drop it again rather
+          // than leave a track the evaluator ignores.
+          const tr = animationTimeline.tracks.get('__camera__');
+          if (tr) tlRemoveKeyframe('__camera__', 'distance', frame);
+        }
+      }
       tlAddKeyframe('__camera__', 'orthoZoom', frame, state.orthoZoom);
     };
 
@@ -67946,9 +68429,24 @@
           tlRenderTracks();
           tlUpdateTrackInputs();
         });
-        label.appendChild(keyBtn);
+        // HOLD FRAMING (v20260802h): a DERIVED channel gets no diamond and no
+        // editable field — it is not an input this frame, it is an output. Gated
+        // by _tlFramingDerives, the SAME predicate the evaluator uses, so the
+        // affordance and the action can never disagree (the §8.5 UI principle).
+        // Any existing keyframes on the row still DRAW (they are kept, merely
+        // overridden) so the user can see what disarming would restore.
+        if (_tlFramingDerives(objectName, prop)) {
+          label.classList.add('tl-track-derived');
+          if (inputEntry.inputs[0]) inputEntry.inputs[0].disabled = true;
+          label.title = _tlHoldFramingClamped
+            ? 'Derived from Dist + Framing (Hold Framing). CLAMPED at this frame — the framing is unreachable at this distance.'
+            : 'Derived from Dist + Framing while Hold Framing is on. Key Dist or Framing instead.';
+          if (_tlHoldFramingClamped) label.classList.add('tl-track-clamped');
+        } else {
+          label.appendChild(keyBtn);
+          inputEntry.keyBtn = keyBtn;
+        }
 
-        inputEntry.keyBtn = keyBtn;
         inputEntry.label = labelText;
         _tlTrackInputs.push(inputEntry);
 
@@ -67958,6 +68456,9 @@
         const row = document.createElement('div');
         row.className = 'tl-track-row' + (collapsed ? ' tl-collapsed' : '');
         if (keyframes) {
+          // LOOP GHOSTS (v20260802h) — drawn FIRST so the real, interactive
+          // keyframes and segment lines paint over them at the boundary.
+          _tlBuildLoopGhosts(row, _tlLoopOf(objectName, prop), keyframes, areaW, total);
           // --- Draw connecting lines first (so they are under the diamonds) ---
           for (let i = 0; i < keyframes.length - 1; i++) {
             const kf = keyframes[i];
@@ -68522,6 +69023,63 @@
           _tlAddAllCamKeyframes(animationTimeline.currentFrame);
           tlRenderTracks();
         });
+
+        // HOLD FRAMING (v20260802h; MOVED to the label column in v20260802g after
+        // an owner report). It first sat in the Camera header ROW — the wide
+        // tracks-area strip — where it looked right but was inside the MARQUEE's
+        // territory: tlTracksArea owns a pointerdown marquee handler, and opening
+        // the dropdown started a rubber-band selection. Stopping propagation on
+        // the select would have patched that one symptom while leaving a control
+        // sitting in a region whose whole job is drag-to-select. The label column
+        // has no such gesture, and the owner's placement — first row under the
+        // Camera name — also reads better: it is a property OF the camera group,
+        // not something positioned in time.
+        //
+        // Built as a label row + a matching empty track row, because the two
+        // columns are parallel lists and every label row needs its counterpart or
+        // every row below it goes out of alignment.
+        //
+        // Perspective-only, and the control says so rather than vanishing: in
+        // orthographic / oblique, orthoZoom sets the size and distance does not
+        // affect it, so a dolly-zoom has nothing to trade off. Disabled + titled
+        // beats hidden, which would read as "the feature is missing".
+        {
+          const persp = (activeCamera?.projectionType || projectionType) === 'perspective';
+          const collapsedCam = _tlGroupCollapsed.has('__camera__') ? _tlGroupCollapsed.get('__camera__') : true;
+          const label = document.createElement('div');
+          label.className = 'tl-track-label tl-sub-track tl-holdframing-row'
+            + (collapsedCam ? ' tl-collapsed' : '');
+          const lab = document.createElement('span');
+          lab.className = 'tl-track-name';
+          lab.textContent = 'Hold Framing';
+          label.appendChild(lab);
+          const sel = document.createElement('select');
+          sel.className = 'ui-select';
+          sel.id = 'tlHoldFramingSelect';
+          sel.innerHTML = '<option value="free">Free</option>'
+            + '<option value="fov">FOV follows Dist</option>'
+            + '<option value="dist">Dist follows FOV</option>';
+          sel.value = _tlHoldFramingOf('__camera__') || 'free';
+          sel.disabled = !persp;
+          label.title = !persp
+            ? 'Perspective only — in orthographic and oblique, distance does not change apparent size, so there is nothing to compensate.'
+            : 'Hold the subject size while the camera moves. FOV follows Dist: key Dist for a vertigo. Dist follows FOV: key FOV and the camera moves to compensate.';
+          if (_tlHoldFramingOf('__camera__') && persp) label.classList.add('armed');
+          sel.addEventListener('change', () => {
+            pushAnimUndoState('Hold Framing');
+            _tlSetHoldFraming('__camera__', sel.value);
+            tlApplyFrame(animationTimeline.currentFrame);
+            updateCameraPanel();   // refresh the Lens read-out + the derived field
+            tlRenderTracks();
+            tlUpdateTrackInputs();
+          });
+          label.appendChild(sel);
+          tlTrackLabels.appendChild(label);
+          const spacer = document.createElement('div');
+          spacer.className = 'tl-track-row' + (collapsedCam ? ' tl-collapsed' : '');
+          tlTracksArea.appendChild(spacer);
+        }
+
         for (const paramDef of _camParams) {
           const kfs = objTracks ? objTracks.get(paramDef.prop) || null : null;
           addSubTrack('__camera__', paramDef.prop, paramDef.label, kfs, paramDef.precision, {
@@ -69497,6 +70055,17 @@
         }
         if (!Object.keys(data.loops).length) delete data.loops;
       }
+      // HOLD FRAMING (v20260802h) — same wire treatment, same lazy key. Keys here
+      // are bare TRACK keys (no '::prop' half), so the whole key maps through
+      // _tlWireName; '__camera__' is reserved and passes through unchanged.
+      if (_tlHoldFraming.size) {
+        data.holdFraming = {};
+        for (const [key, val] of _tlHoldFraming) {
+          if (tlIsOrphanKey(key)) continue;
+          data.holdFraming[_tlWireName(key)] = val;
+        }
+        if (!Object.keys(data.holdFraming).length) delete data.holdFraming;
+      }
       return data;
     };
 
@@ -69507,6 +70076,7 @@
         animationTimeline.tracks.clear();
         _tlOriginalValues.clear();
         _tlLoopModes.clear();   // v20260802b — else loops leak into a scene with no animation
+        _tlHoldFraming.clear(); // v20260802h — same reason; BOTH branches must clear
         _tlGroupCollapsed.clear();
         _tlSubGroupCollapsed.clear();
         tlClearKfSelection();
@@ -69628,6 +70198,14 @@
           const sep = key.indexOf('::');
           const k2 = sep < 0 ? key : (_tlKeyFromWire(key.slice(0, sep)) + key.slice(sep));
           _tlLoopModes.set(k2, entry);
+        }
+      }
+      // HOLD FRAMING (v20260802h). Same whitelist discipline — an unknown mode
+      // string from a hand-edited or future file is dropped, never stored.
+      _tlHoldFraming.clear();
+      if (data.holdFraming) {
+        for (const [key, val] of Object.entries(data.holdFraming)) {
+          if (TL_HOLD_FRAMING_MODES.has(val)) _tlHoldFraming.set(_tlKeyFromWire(key), val);
         }
       }
       // Fallback for files saved before originalValues existed: use each track's

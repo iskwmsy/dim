@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260803d -->
+<!-- dim v20260803h -->
 
 <!--
   MIT License
@@ -17686,7 +17686,20 @@
       }
 
       // v20260207: Smooth Mapping Segment Function
-      static mapBezierSegment(seg, projectFn, depth = 0, options = {}, minSubdiv = 0) {
+      // v20260803f: tanIn/tanOut thread SHARED JOINT TANGENTS through the
+      // recursion (PLAN-smooth-joint-tangents.md). Each recursive piece used
+      // to estimate its own end tangents with an inward finite-difference
+      // secant whose epsilon was inflated by PIECE SCREEN SIZE (up to 0.2 —
+      // a secant across 20% of the piece). At a tight 3D turn recursion makes
+      // pieces small, both sides of a shared joint computed DIFFERENT 10–20%
+      // secants of a curving arc, and the joint kinked 5–43° — and because
+      // the epsilon was relative, subdividing further never converged it
+      // (measured tolerance-flat on _repro_jaggyR_3drail: worst joint 42.9°
+      // at 3 tolerances spanning 50×). Now a split computes ONE tangent at
+      // the split parameter and hands the SAME vector to both children, so
+      // internal joints are G1 by construction; roots estimate one-sided
+      // with a small PARAMETER-space step instead of the screen-size ladder.
+      static mapBezierSegment(seg, projectFn, depth = 0, options = {}, minSubdiv = 0, tanIn = null, tanOut = null) {
         // (v20260704h: the multi-sample horizon scan that lived here fed
         // the legacy splitter; silhouette splitting now happens in the
         // region-clip pipeline before this fitter runs.)
@@ -17708,40 +17721,25 @@
         // path it always evaluated to 'back').
         const layer = 'back';
 
-        // 2. Calculate Tangents (Phase 3b)
-        // Improved (v20260207c): Use "Inward" Finite Difference.
-        // Adaptive Epsilon (v20260207e): Small screen segments need larger epsilon for stability.
-
-        let epsilon = 0.01;
-        if (p0 && p3) {
-          // Calculate Screen Space Length (approx)
-          // p0, p3 are NDC [-1, 1]. Length could be small.
-          // 0.02 is about 1% of screen width.
-          const segLen = vectorLength(vectorSubtract(p3, p0));
-          if (segLen < 0.05) epsilon = 0.2; // Tiny segment -> 20% sample
-          else if (segLen < 0.2) epsilon = 0.1; // Small segment -> 10% sample
-          else if (segLen < 0.5) epsilon = 0.05; // med -> 5%
-        }
-
-        // Start Tangent: P(0) -> P(eps)
-        const pAtEps = projectFn(SurfaceMapper.evaluateCurvePoint(seg, epsilon));
-        let t0 = [1, 0, 0];
-        if (pAtEps && p0) {
-          t0 = vectorNormalize(vectorSubtract(pAtEps, p0));
-        } else if (p1 && p0) {
-          // Fallback: Use P0 -> P1 (Chord)
-          t0 = vectorNormalize(vectorSubtract(p1, p0));
-        }
-
-        // End Tangent: P(1-eps) -> P(1)
-        const pAtOneMinusEps = projectFn(SurfaceMapper.evaluateCurvePoint(seg, 1 - epsilon));
-        let t3 = [1, 0, 0];
-        if (pAtOneMinusEps && p3) {
-          t3 = vectorNormalize(vectorSubtract(p3, pAtOneMinusEps));
-        } else if (p3 && p2) {
-          // Fallback: P2 -> P3 (Chord)
-          t3 = vectorNormalize(vectorSubtract(p3, p2));
-        }
+        // 2. Tangents (v20260803f). SCREEN-ONLY direction (z = 0): depth is
+        // invisible, and letting it into the tangent skewed the screen
+        // handles wherever the rail turned in depth (the owner's "3rd
+        // dimension" hypothesis — real, but secondary to the joint secants).
+        // With z = 0 here, fitCubicWithTangents' least squares collapses to
+        // pure x/y automatically (the tangent z-coefficients vanish) and the
+        // control points inherit their endpoint's depth.
+        const TAN_H = 1e-3; // parameter-space step — NOT screen-relative
+        const dir2 = (a, b) => {
+          const dx = b[0] - a[0], dy = b[1] - a[1];
+          const L = Math.hypot(dx, dy);
+          return L > 1e-12 ? [dx / L, dy / L, 0] : null;
+        };
+        const pAtEps = projectFn(SurfaceMapper.evaluateCurvePoint(seg, TAN_H));
+        const pAtOneMinusEps = projectFn(SurfaceMapper.evaluateCurvePoint(seg, 1 - TAN_H));
+        const t0 = tanIn ||
+          (pAtEps && dir2(p0, pAtEps)) || dir2(p0, p1) || [1, 0, 0];
+        const t3 = tanOut ||
+          (pAtOneMinusEps && dir2(pAtOneMinusEps, p3)) || dir2(p2, p3) || [1, 0, 0];
 
         // 2b. Fit with Tangents
         const [c1, c2, debug] = SurfaceMapper.fitCubicWithTangents(p0, p3, t0, t3, p1, p2);
@@ -17790,9 +17788,15 @@
         // Smooth mode has; window._SM_FIT_TOL overrides it for measurement (clear
         // obj._rcFragCache when you do — the fragment cache key does not include it).
         const _FIT_TOL = (typeof window !== 'undefined' && window._SM_FIT_TOL) || 0.0001;
+        // v20260803f: error is SCREEN x/y only. Depth error is invisible, and
+        // including dz forced extra subdivision exactly where the rail turns
+        // in depth — more joints for no visible gain.
         const midProj = projectFn(SurfaceMapper.evaluateCurvePoint(seg, 0.5));
         let dist = 0;
-        if (midProj) dist = vectorLength(vectorSubtract(midProj, evalFit(0.5)));
+        if (midProj) {
+          const f = evalFit(0.5);
+          dist = Math.hypot(midProj[0] - f[0], midProj[1] - f[1]);
+        }
         if (dist <= _FIT_TOL) {
           const fitSamples = [];
           for (let k = 0; k <= 8; k++) fitSamples.push(evalFit(k / 8));
@@ -17801,8 +17805,8 @@
             if (!proj) continue;
             let best = Infinity;
             for (const fp of fitSamples) {
-              const dx = proj[0] - fp[0], dy = proj[1] - fp[1], dz = proj[2] - fp[2];
-              const dd = Math.sqrt(dx * dx + dy * dy + dz * dz);
+              const dx = proj[0] - fp[0], dy = proj[1] - fp[1];
+              const dd = Math.sqrt(dx * dx + dy * dy);
               if (dd < best) best = dd;
             }
             if (best > dist) dist = best;
@@ -17822,8 +17826,12 @@
         // converges onto the crease and the joint becomes a genuine corner
         // between two clean single-face fits (this also keeps the inward
         // tangent samples on one face — a cross-crease tangent bows the fit).
-        const nodes = [[0, p0], [epsilon, pAtEps], [1 / 3, p1], [0.5, midProj],
-        [2 / 3, p2], [1 - epsilon, pAtOneMinusEps], [1, p3]]
+        // (v20260803f: the near-end nodes sit at TAN_H — effectively tangent
+        // probes. A crease near an endpoint now surfaces its turn at the 1/3
+        // or 2/3 node instead and recursion converges onto it one level
+        // later; the corner-split clamp below already bounds splitT anyway.)
+        const nodes = [[0, p0], [TAN_H, pAtEps], [1 / 3, p1], [0.5, midProj],
+        [2 / 3, p2], [1 - TAN_H, pAtOneMinusEps], [1, p3]]
           .filter(n => n[1]);
         let maxTurn = 0, turn2 = 0, cornerT = 0.5;
         for (let ni = 1; ni + 1 < nodes.length; ni++) {
@@ -17841,7 +17849,6 @@
 
         // Distance Check (Screen Space Distance)
         if (midProj) {
-          // Tolerance: 0.005 (approx 2.5 pixels if NDC is -1..1)
           if ((dist > _FIT_TOL || minSubdiv > 0 || isCorner) && depth < 8) { // Force subdiv near horizon crossings
             const splitT = isCorner ? Math.max(0.15, Math.min(0.85, cornerT)) : 0.5;
             let leftSeg, rightSeg;
@@ -17858,9 +17865,24 @@
               rightSeg = { type: 'C', p0: split[1][0], p1: split[1][1], p2: split[1][2], p3: split[1][3] };
             }
 
+            // v20260803f: ONE central-difference tangent at the split, handed
+            // to BOTH children — the joint is G1 by construction. At a
+            // detected crease (isCorner) the tangent is genuinely
+            // discontinuous, so sharing a central difference would AVERAGE
+            // across the corner and round it — each side estimates its own
+            // one-sided tangent there instead (tSplit stays null). The
+            // resolved t0/t3 (not the raw tanIn/tanOut) go down, so a root's
+            // estimate is made once and stays consistent through recursion.
+            let tSplit = null;
+            if (!isCorner) {
+              const qa = projectFn(SurfaceMapper.evaluateCurvePoint(seg, Math.max(0, splitT - TAN_H)));
+              const qb = projectFn(SurfaceMapper.evaluateCurvePoint(seg, Math.min(1, splitT + TAN_H)));
+              if (qa && qb) tSplit = dir2(qa, qb);
+            }
+
             const nextMinSubdiv = Math.max(0, minSubdiv - 1);
-            const leftRes = SurfaceMapper.mapBezierSegment(leftSeg, projectFn, depth + 1, options, nextMinSubdiv);
-            const rightRes = SurfaceMapper.mapBezierSegment(rightSeg, projectFn, depth + 1, options, nextMinSubdiv);
+            const leftRes = SurfaceMapper.mapBezierSegment(leftSeg, projectFn, depth + 1, options, nextMinSubdiv, t0, tSplit);
+            const rightRes = SurfaceMapper.mapBezierSegment(rightSeg, projectFn, depth + 1, options, nextMinSubdiv, tSplit, t3);
             return [...leftRes, ...rightRes];
           }
         }
@@ -18268,7 +18290,8 @@
       static getPointOnPath(targetPath, u) {
         // If pre-computed RMF frames exist, use them for smooth frame propagation
         if (targetPath._frameData) {
-          return SurfaceMapper.getFrameAtU(targetPath._frameData, u);
+          // v20260803g: C1 positions — see getFrameAtU's smoothPos note.
+          return SurfaceMapper.getFrameAtU(targetPath._frameData, u, true);
         }
 
         if (!targetPath._arcLengthData) {
@@ -18555,7 +18578,19 @@
       }
 
       // Interpolate pre-computed frame table at given u
-      static getFrameAtU(frames, u) {
+      // smoothPos (v20260803g): C1 Catmull-Rom/Hermite POSITION interpolation
+      // between stations instead of the linear lerp. The lerp makes u→pos a
+      // POLYLINE through the 200 stations — genuinely creased at every
+      // station (~1–2°/station on a 3D-turning rail, measured spikes at
+      // exactly u = k/200) — which the v20260803f tangent-faithful fitter
+      // then reproduces as sharp corners ("still sharp corners" report; the
+      // pre-f fitter's 10–20% secants had been BLURRING the same creases
+      // into wobble). Opt-in per call site: getPointOnPath (spline flow)
+      // passes true; the synthetic revolve/extrude rails (512+ stations,
+      // chord error < R·1e-5) and the sweep/mesh consumers keep the lerp so
+      // their output stays bit-identical. Since v20260803h smoothPos also
+      // Hermites the ORIENTATION vectors — see the note at the branch.
+      static getFrameAtU(frames, u, smoothPos = false) {
         const clampedU = Math.max(0, Math.min(u, 1));
 
         // Binary search
@@ -18573,9 +18608,45 @@
         if (clampedU >= f1.u) return { pos: f1.pos, side: f1.side, normal: f1.normal, scale: f1.scale, scaleU: f1.scaleU, scaleV: f1.scaleV };
 
         const alpha = (clampedU - f0.u) / (f1.u - f0.u);
-        const pos = vectorAdd(vectorScale(f0.pos, 1 - alpha), vectorScale(f1.pos, alpha));
-        let side = vectorNormalize(vectorAdd(vectorScale(f0.side, 1 - alpha), vectorScale(f1.side, alpha)));
-        let normal = vectorNormalize(vectorAdd(vectorScale(f0.normal, 1 - alpha), vectorScale(f1.normal, alpha)));
+        let pos, side, normal;
+        if (smoothPos) {
+          // u-scaled Catmull-Rom tangents (stations are uniform in u, but the
+          // scaling keeps this exact for any spacing); ends clamp one-sided.
+          // v20260803h: the ORIENTATION vectors ride the same Hermite. The
+          // v20260803g position fix left side/normal on the lerp, judged
+          // "offset-scaled and invisible" — wrong at a mapped profile's outer
+          // extremity: the outline point is pos + normal·v, so per-station
+          // normal kinks re-enter multiplied by v, AND the offset trace moves
+          // slower than the spine on the outer side of a bend, amplifying the
+          // same kink angularly (measured: spine 0 spikes, offset trace at
+          // v=0.76 had 23 spikes up to 12.8° at exactly the station spacing —
+          // the owner's "still sharp corners" on the R's bowl). Componentwise
+          // Hermite then normalize: a C1 non-vanishing field stays C1 after
+          // normalization; side/normal are smoothed independently, and their
+          // orthogonality drift is bounded by the per-station rotation
+          // squared (« 0.01°) — sub-pixel in the offset math.
+          const fA = frames[Math.max(0, low - 1)], fB = frames[Math.min(frames.length - 1, high + 1)];
+          const du = f1.u - f0.u;
+          const a2 = alpha * alpha, a3 = a2 * alpha;
+          const h00 = 2 * a3 - 3 * a2 + 1, h10 = a3 - 2 * a2 + alpha,
+            h01 = -2 * a3 + 3 * a2, h11 = a3 - a2;
+          const sA = du / ((f1.u - fA.u) || du), sB = du / ((fB.u - f0.u) || du);
+          const hermite = (k) => {
+            const p1 = f0[k], p2 = f1[k], pA = fA[k], pB = fB[k];
+            return [
+              h00 * p1[0] + h10 * (p2[0] - pA[0]) * sA + h01 * p2[0] + h11 * (pB[0] - p1[0]) * sB,
+              h00 * p1[1] + h10 * (p2[1] - pA[1]) * sA + h01 * p2[1] + h11 * (pB[1] - p1[1]) * sB,
+              h00 * p1[2] + h10 * (p2[2] - pA[2]) * sA + h01 * p2[2] + h11 * (pB[2] - p1[2]) * sB
+            ];
+          };
+          pos = hermite('pos');
+          side = vectorNormalize(hermite('side'));
+          normal = vectorNormalize(hermite('normal'));
+        } else {
+          pos = vectorAdd(vectorScale(f0.pos, 1 - alpha), vectorScale(f1.pos, alpha));
+          side = vectorNormalize(vectorAdd(vectorScale(f0.side, 1 - alpha), vectorScale(f1.side, alpha)));
+          normal = vectorNormalize(vectorAdd(vectorScale(f0.normal, 1 - alpha), vectorScale(f1.normal, alpha)));
+        }
         // Interpolate scale if present (used by extrude front/back taper).
         // Non-extrude frames don't have scale — undefined stays undefined → sweepPoint defaults to 1.0.
         const scale = (f0.scale !== undefined && f1.scale !== undefined)
@@ -21397,10 +21468,15 @@
         // UNION of requested domains, so N children (Earth: 147) trigger ONE
         // field build per frame instead of N. A region built on a larger
         // domain is equally valid for clipping any subject inside it.
-        const fieldKey = [
-          camPos.join(','), RC_GRID_N, options.offsetN || 0,
+        // domKey = everything that can change the UV DOMAIN a child requests;
+        // fieldKey adds the camera, which changes the field VALUES but never
+        // the domain. Splitting them is what lets the domain hint below
+        // survive an orbit while still resetting on a mode change (v20260803e).
+        const domKey = [
+          RC_GRID_N, options.offsetN || 0,
           overflowModeU, overflowModeV, surfGeomKey
         ].join('|');
+        const fieldKey = camPos.join(',') + '|' + domKey;
         let field = null, region = null;
         const fc = surfacePath ? surfacePath._rcFieldCache : null;
         if (fc && fc.key === fieldKey &&
@@ -21416,16 +21492,39 @@
           if (ok) { field = fc.field; region = fc.region; }
         }
         if (!field) {
-          const dom = surfacePath && surfacePath._rcFieldDomain;
-          const uni = dom ? {
-            uMin: Math.min(dom.uMin, uMin), uMax: Math.max(dom.uMax, uMax),
-            vMin: Math.min(dom.vMin, vMin), vMax: Math.max(dom.vMax, vMax)
+          // v20260803e: the running domain union is scoped to domKey.
+          // It used to live in `_rcFieldDomain`, written but NEVER reset — a
+          // session-lifetime accumulator. The field is a FIXED RC_GRID_N grid
+          // stretched over this domain, so domain size silently controls
+          // accuracy, and the comment above ("equally valid for clipping any
+          // subject inside it") is true topologically but FALSE numerically.
+          // One `around` pass widened the domain past a period and
+          // permanently coarsened the grid for every later build on this
+          // surface: the same overflow mode then rendered DIFFERENTLY before
+          // and after visiting `around` (owner report; measured 2.59x coarser
+          // in u, fragments 2 -> 1 and 5 -> 3; repro
+          // _tests/_repro_overflow_domain.json).
+          //
+          // The hint must survive a CAMERA change and only a camera change.
+          // Keying it to fieldKey instead (the first attempt) reset it every
+          // frame of an orbit, so the union had to re-converge from scratch
+          // and the 147-child Earth scene went 1 -> 9 field builds per frame.
+          // The UV domain a child requests does not depend on the camera, so
+          // domKey — fieldKey minus camPos — is the correct scope: an orbit
+          // keeps the converged union (1 build/frame), while a mode, offsetN,
+          // grid or geometry change starts fresh.
+          const hintOK = surfacePath && surfacePath._rcFieldDom &&
+            surfacePath._rcFieldDom.key === domKey;
+          const prev = hintOK ? surfacePath._rcFieldDom.domain : null;
+          const uni = prev ? {
+            uMin: Math.min(prev.uMin, uMin), uMax: Math.max(prev.uMax, uMax),
+            vMin: Math.min(prev.vMin, vMin), vMax: Math.max(prev.vMax, vMax)
           } : { uMin, uMax, vMin, vMax };
           field = SilhouetteField.buildFromPoints(
             (u, v) => surfacePointN(u, v), camPos, uni.uMin, uni.uMax, uni.vMin, uni.vMax, RC_GRID_N);
           region = SilhouetteField.buildFrontRegion(field);
           if (surfacePath) {
-            surfacePath._rcFieldDomain = uni;
+            surfacePath._rcFieldDom = { key: domKey, domain: uni };
             surfacePath._rcFieldCache = {
               key: fieldKey, domain: uni, field, region,
               probes: [

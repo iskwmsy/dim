@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260802h -->
+<!-- dim v20260803d -->
 
 <!--
   MIT License
@@ -7162,9 +7162,25 @@
 
                     <!-- Clean settings -->
                     <div id="sweepCleanGroup">
-                      <div class="style-row">
-                        <label class="ui-checkbox-label">Simple Sides</label>
-                        <input type="checkbox" id="sweepSimpleSidesInput" class="ui-checkbox" />
+                      <!-- PLAN-sweep-mss W1-2: the Simple Sides checkbox became the
+                           three-state Sides select (the revolve M1 precedent). -->
+                      <div class="xyz-row">
+                        <label>Sides</label>
+                        <div class="xyz-inputs">
+                          <select id="sweepSidesInput">
+                            <option value="full">Full</option>
+                            <option value="simple">Simple</option>
+                            <option value="more">More Simple</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div class="style-row" id="sweepStreamlineRow" style="display:none;">
+                        <label class="ui-checkbox-label">Streamline Strokes</label>
+                        <input type="checkbox" id="sweepStreamlineInput" class="ui-checkbox" />
+                      </div>
+                      <div class="style-row" id="sweepStreamShouldersRow" style="display:none;">
+                        <label class="ui-checkbox-label">Shoulder Circles</label>
+                        <input type="checkbox" id="sweepStreamShouldersInput" class="ui-checkbox" checked />
                       </div>
                       <div class="xyz-row">
                         <label>Segs</label>
@@ -17750,10 +17766,34 @@
             w0 * p0[1] + w1 * c1[1] + w2 * c2[1] + w3 * p3[1],
             w0 * p0[2] + w1 * c1[2] + w2 * c2[2] + w3 * p3[2]];
         };
+        // v20260802o: 0.005 -> 0.0001. The old value allowed ~2.5 frame units of
+        // deviation — five times coarser than the fill bumps we had just spent
+        // three releases removing, and it showed as a visibly wrong silhouette at
+        // strongly curved ends. Measured (symmetric-area + chamfer band max vs a
+        // high-res subdivide), spline flow / surface mapping:
+        //   0.005  : 4.56% @44 cmds, 1.89u   |  0.65% @72,  0.94u
+        //   0.0002 : 0.86% @80,      0.94u   |  0.07% @206, 0.33u
+        //   0.0001 : 0.54% @100,     0.80u   |  0.06% @264, 0.33u   <- shipped
+        // Reference points: Subdivide(16) is 0.74% @80 / 0.33u on the spline-flow
+        // repro, Subdivide(8) (the surface-mapping default) is 0.19% @268 / 0.67u.
+        // So Smooth now BEATS its subdivide counterpart on error at comparable
+        // cost, which is what the "cheaper than subdivide at equal quality"
+        // comment above always claimed and did not deliver. 0.00007 buys almost
+        // nothing more (0.43% @123); 0.00004 halves the max for +74% geometry.
+        // Whole-scene cost is bounded and was measured, not assumed: of the ten
+        // mapping scenes in _tests, five rc_* stress scenes + the cat-on-vase are
+        // BYTE-IDENTICAL, and the four that move go 49->105, 18->77, 333->711 and
+        // 2568->2652 path commands. Worst case is ~2x on scenes of a few hundred
+        // commands. Earth is tolerance-inert even when forced to smooth (3370
+        // commands at every tolerance): polyline sources never reach this fitter.
+        // Resolution is inert under anchor-fit, so this is the ONLY accuracy dial
+        // Smooth mode has; window._SM_FIT_TOL overrides it for measurement (clear
+        // obj._rcFragCache when you do — the fragment cache key does not include it).
+        const _FIT_TOL = (typeof window !== 'undefined' && window._SM_FIT_TOL) || 0.0001;
         const midProj = projectFn(SurfaceMapper.evaluateCurvePoint(seg, 0.5));
         let dist = 0;
         if (midProj) dist = vectorLength(vectorSubtract(midProj, evalFit(0.5)));
-        if (dist <= 0.005) {
+        if (dist <= _FIT_TOL) {
           const fitSamples = [];
           for (let k = 0; k <= 8; k++) fitSamples.push(evalFit(k / 8));
           for (const tq of [0.25, 0.75]) {
@@ -17802,7 +17842,7 @@
         // Distance Check (Screen Space Distance)
         if (midProj) {
           // Tolerance: 0.005 (approx 2.5 pixels if NDC is -1..1)
-          if ((dist > 0.005 || minSubdiv > 0 || isCorner) && depth < 8) { // Force subdiv near horizon crossings
+          if ((dist > _FIT_TOL || minSubdiv > 0 || isCorner) && depth < 8) { // Force subdiv near horizon crossings
             const splitT = isCorner ? Math.max(0.15, Math.min(0.85, cornerT)) : 0.5;
             let leftSeg, rightSeg;
 
@@ -17847,13 +17887,42 @@
 
       // Parameter of a (possibly clip-cut, snap-rounded) vertex, recovered
       // by projecting onto the edge's sampling chord.
-      static _rcTOfVertex(v, mt) {
+      // v20260803d: the chord is straight in CLIP SPACE but the segment
+      // parameter need not run linearly along it. The app's polygon idiom —
+      // cubics with coincident control points (p1=p0, p2=p3) — is straight
+      // geometry on a SMOOTHSTEP (3t²−2t³) parameterization, and such edges
+      // pass the straightness probe, so ONE chord spans the whole segment.
+      // The old linear read (t = t0 + (t1−t0)·f) was then off by up to
+      // ~0.1·(t1−t0); anchor-fit fitted that WIDER source interval and the
+      // fitted run overshot the silhouette cut ~40 frame units into the
+      // neighbour fragment — the split "spike"/criss-cross family
+      // (_repro_smoothsplit_a/_b). evalCP(segIdx, t) — the caller's
+      // clip-space segment evaluator — verifies the linear read and, only
+      // when it measurably disagrees, bisects the true chordwise
+      // parameterization (monotone for probe-passed edges). The verify-first
+      // gate keeps affine segments bit-identical.
+      static _rcTOfVertex(v, mt, evalCP) {
         const dx = mt.bx - mt.ax, dy = mt.by - mt.ay;
         const L2 = dx * dx + dy * dy;
         if (L2 < 1e-24) return mt.t0;
         const f = Math.max(0, Math.min(1,
           ((v[0] - mt.ax) * dx + (v[1] - mt.ay) * dy) / L2));
-        return mt.t0 + (mt.t1 - mt.t0) * f;
+        const tLin = mt.t0 + (mt.t1 - mt.t0) * f;
+        if (!evalCP || f <= 0 || f >= 1) return tLin;
+        const fOf = (t) => {
+          const p = evalCP(mt.seg, t);
+          return p ? ((p[0] - mt.ax) * dx + (p[1] - mt.ay) * dy) / L2 : null;
+        };
+        const fL = fOf(tLin);
+        if (fL === null || Math.abs(fL - f) < 1e-9) return tLin;
+        let lo = mt.t0, hi = mt.t1, t = tLin;
+        for (let i = 0; i < 60 && hi - lo > 1e-12; i++) {
+          const fm = fOf(t);
+          if (fm === null) return tLin;
+          if (fm < f) lo = t; else hi = t;
+          t = (lo + hi) / 2;
+        }
+        return t;
       }
 
       // Fit one source interval {seg, t0, t1} (t1 < t0 = reversed ring
@@ -17896,17 +17965,29 @@
       // refined edge; consumed edges hold ''), everything else stays a
       // polyline. bounds/zBounds are optional accumulators. Falls back
       // per-run to refined polylines on any projection failure.
-      static _rcAnchorCmds(r, m, segments, projNDC, bounds, zBounds) {
+      // evalCP(segIdx, t) → clip-space [x,y] of the source segment (each
+      // builder's own clip space) — see _rcTOfVertex (v20260803d).
+      static _rcAnchorCmds(r, m, segments, projNDC, bounds, zBounds, evalCP) {
         const N = m.pts.length, n = r.pts.length;
         const cmds = new Array(N);
         const ndcToFrame = (p) => ({ x: (p[0] * FRAME_SIZE) / 2, y: (-p[1] * FRAME_SIZE) / 2, z: p[2] });
         const elig = (k) => r.srcs[k] === 'path' && r.meta && r.meta[k];
+        // v20260802p: PASS A collects the runs and their fitted curves without
+        // emitting anything, so the ring's vertices can be ANCHORED ONTO THE
+        // FIT (below) before pass B writes the polyline edges that target them.
+        // Emitting in one pass forced the opposite: the fit's last point was
+        // teleported onto the refined-polyline vertex, which sits on a CHORD
+        // and is off the true curve by that chord's sagitta. A loose fit hid
+        // this (the whole curve sat near the chords anyway); an accurate fit
+        // does not, and two fragments meeting at a cut got yanked in different
+        // directions — the hairline tears in v20260802o. See _repro_splineflow_
+        // stiff/_torn_a/_torn_b.
+        const runs = [];
         let i = 0;
         while (i < N) {
           const k = m.edges[i];
           if (!elig(k)) {
-            const p2 = m.pts[(i + 1) % N];
-            cmds[i] = 'L ' + p2.x + ' ' + p2.y + ' ';
+            runs.push({ i, j: i + 1, curves: null });
             i++;
             continue;
           }
@@ -17924,8 +18005,8 @@
           const ivs = [];
           for (const kk of ks) {
             const mt = r.meta[kk];
-            const tA = SurfaceMapper._rcTOfVertex(r.pts[kk], mt);
-            const tB = SurfaceMapper._rcTOfVertex(r.pts[(kk + 1) % n], mt);
+            const tA = SurfaceMapper._rcTOfVertex(r.pts[kk], mt, evalCP);
+            const tB = SurfaceMapper._rcTOfVertex(r.pts[(kk + 1) % n], mt, evalCP);
             const last = ivs[ivs.length - 1];
             if (last && last.seg === mt.seg) last.t1 = tB;
             else ivs.push({ seg: mt.seg, t0: tA, t1: tB });
@@ -17938,38 +18019,28 @@
             if (cs === null) { failed = true; break; }
             curves.push(...cs);
           }
-          // Refined-polyline fallback for this whole run (used on fit
-          // failure AND on the crease-overrun guard below).
-          const emitPolylineFallback = () => {
-            for (let q = i; q < j; q++) {
-              const p2 = m.pts[(q + 1) % N];
-              cmds[q] = 'L ' + p2.x + ' ' + p2.y + ' ';
-            }
-          };
           if (failed || !curves.length) {
-            emitPolylineFallback();
+            runs.push({ i, j, curves: null });   // refined-polyline fallback
             i = j;
             continue;
           }
-          const endVertex = m.pts[j % N];
-          // Degenerate-fit guard: the last curve's endpoint is snapped to
-          // endVertex below but its control points are NOT, and
-          // _rcFitInterval can overrun a hard crease — either way the run
-          // ends up with a cubic whose handles dwarf its chord, drawing a
-          // doubled-back spike/hook into the fill (Smooth-mode corner
-          // scene). Scan the run's cubics AS THEY WILL BE EMITTED (endpoint
-          // teleport included) and, if any handle exceeds max(3, 2.5*chord)
-          // frame units, treat the fit as untrustworthy at this fold and
-          // fall back to the refined polyline (graceful). fitCubicWithTangents
-          // clamps healthy handles to ~2*chord, so 2.5 leaves margin; the
-          // abs floor protects tiny healthy cubics.
+          // Degenerate-fit guard: _rcFitInterval can overrun a hard crease,
+          // leaving the run with a cubic whose handles dwarf its chord and
+          // drawing a doubled-back spike/hook into the fill (Smooth-mode
+          // corner scene). Scan the run's cubics AS THEY WILL BE EMITTED and,
+          // if any handle exceeds max(3, 2.5*chord) frame units, treat the fit
+          // as untrustworthy at this fold and fall back to the refined
+          // polyline (graceful). fitCubicWithTangents clamps healthy handles
+          // to ~2*chord, so 2.5 leaves margin; the abs floor protects tiny
+          // healthy cubics. (Pre-v20260802p this also had to absorb the
+          // endpoint teleport; the fit now owns its own endpoints.)
           {
             const K = (SurfaceMapper._rcFitDegenK ?? 2.5), ABS = 3;
-            let prev = { x: m.pts[i].x, y: m.pts[i].y }, bad = false;
+            let prev = ndcToFrame(curves[0].start), bad = false;
             for (let ci = 0; ci < curves.length; ci++) {
               const c = curves[ci];
               const c1 = ndcToFrame(c.cp1), c2 = ndcToFrame(c.cp2);
-              const e = (ci === curves.length - 1) ? endVertex : ndcToFrame(c.end);
+              const e = ndcToFrame(c.end);
               const chord = Math.hypot(e.x - prev.x, e.y - prev.y);
               const lim = Math.max(ABS, K * chord);
               if (Math.hypot(c1.x - prev.x, c1.y - prev.y) > lim ||
@@ -17977,16 +18048,169 @@
               prev = e;
             }
             if (bad) {
-              emitPolylineFallback();
+              runs.push({ i, j, curves: null });
               SurfaceMapper._rcFitGuardHits = (SurfaceMapper._rcFitGuardHits || 0) + 1;
               i = j;
               continue;
             }
           }
+          runs.push({ i, j, curves });
+          i = j;
+        }
+
+        // ANCHOR THE RING ONTO THE FIT. A fitted run's endpoints are the exact
+        // projected curve points at the run's source parameters; the refined
+        // vertices they replace are chord samples. Moving the RING (rather
+        // than teleporting the curve) keeps every consumer consistent — the
+        // adjacent polyline edges are written from these points in pass B, and
+        // the caller's 'M' and per-run stroke starts read the same m.pts. Two
+        // fragments meeting at a cut recover the SAME source parameter from the
+        // SAME shared vertex, so both land on the same point and still tile.
+        // x/y only: z stays the sampled depth the painter already sorts by.
+        for (const run of runs) {
+          if (!run.curves) continue;
+          const s = ndcToFrame(run.curves[0].start);
+          const e = ndcToFrame(run.curves[run.curves.length - 1].end);
+          const endIdx = run.j % N;
+          m.pts[run.i].x = s.x; m.pts[run.i].y = s.y;
+          // A run spanning the whole ring starts and ends at the same vertex;
+          // the 'M' wins and the last curve closes back onto it.
+          if (endIdx !== run.i) { m.pts[endIdx].x = e.x; m.pts[endIdx].y = e.y; }
+        }
+
+        // FOLD EDGES: ONE CANONICAL CURVE PER REGION-CONTOUR EDGE (v20260803c,
+        // PLAN-fold-split-artifacts.md). Under anchor-fit every path edge is an
+        // exact fitted cubic while the fold stayed a chord chain — the owner's
+        // "stiff choppy cornered render". Two constraints make this delicate,
+        // both learned by building the wrong thing first:
+        //
+        //  1. SMOOTHING PER FRAGMENT DOES NOT WORK. The two rings sharing a fold
+        //     carry DIFFERENT vertex sets (each has an extra ring-start break
+        //     vertex), so per-fragment interpolation gives the shared boundary
+        //     two different curves and opens a notch. The curve is therefore
+        //     keyed to the REGION edge k — data both fragments share
+        //     byte-identically — so both sides compute the SAME cubic by
+        //     construction. A ring whose break lands mid-cell emits that same
+        //     cubic de Casteljau-SPLIT at the break (exact), and m.pts[0] moves
+        //     onto the curve (the v20260802p rule: move the sampled point onto
+        //     the exact geometry, never the reverse).
+        //
+        //  2. AN ACCURATE FOLD NEEDS NONZERO FILL. At a grazing fold the outline
+        //     genuinely self-crosses; evenodd CANCELS that lens to white. The old
+        //     chords only hid it because chords of a convex arc stay strictly
+        //     inside the true curve and never reach the crossing — they were
+        //     load-bearing concealment. Rings that gain a curved fold are tagged
+        //     (foldSmoothed) and emitted nonzero. Safe: audited 19 hole-bearing
+        //     fragments across the mapping corpus, holes wind OPPOSITE the outer
+        //     in every one, so nonzero keeps letter counters open.
+        {
+          const isS = (q) => r.srcs[m.edges[q]] === 'silhouette';
+          const groups = [];
+          const gOf = new Int32Array(N).fill(-1);
+          const seen = new Uint8Array(N);
+          for (let q0 = 0; q0 < N; q0++) {
+            if (seen[q0] || !isS(q0)) continue;
+            const k = m.edges[q0];
+            let s0 = q0;
+            for (let guard = 0; guard < N; guard++) {
+              const pv = (s0 - 1 + N) % N;
+              if (pv === q0 || seen[pv] || !isS(pv) || m.edges[pv] !== k) break;
+              s0 = pv;
+            }
+            const qs = [];
+            let q = s0;
+            while (qs.length < N && !seen[q] && isS(q) && m.edges[q] === k) {
+              seen[q] = 1; gOf[q] = groups.length; qs.push(q); q = (q + 1) % N;
+            }
+            groups.push({ qs });
+          }
+          const splitCubic = (P0, C1, C2, P3, t) => {
+            const L = (a, b) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+            const q0 = L(P0, C1), q1 = L(C1, C2), q2 = L(C2, P3);
+            const r0 = L(q0, q1), r1 = L(q1, q2), mPt = L(r0, r1);
+            return { left: [P0, q0, r0, mPt], right: [mPt, r1, q2, P3] };
+          };
+          for (const g of groups) {
+            const qs = g.qs, len = qs.length;
+            if (len === N) continue;               // whole-ring cell: keep chords
+            const s0 = qs[0], last = qs[len - 1];
+            const A = m.pts[s0], B = m.pts[(last + 1) % N];
+            const pvE = (s0 - 1 + N) % N, nxE = (last + 1) % N;
+            const Pn = isS(pvE) ? m.pts[groups[gOf[pvE]].qs[0]] : A;
+            const Qn = isS(nxE) ? m.pts[(groups[gOf[nxE]].qs[groups[gOf[nxE]].qs.length - 1] + 1) % N] : B;
+            // CHORDAL (not uniform) Catmull-Rom. Marching-squares contour
+            // points are irregularly spaced by construction — a cell crossing
+            // near a corner sits a hair from its neighbour — and UNIFORM CR
+            // overshoots hard on uneven spacing, bowing the fold INTO the
+            // fill and cutting a visible notch at the junction (measured on
+            // _stiff; the notch is a boundary notch, not an enclosed hole, so
+            // the tear detector cannot see it — check it by eye or by fill
+            // area lost against the previous build). Weighting each tangent
+            // by its neighbouring chord lengths removes the overshoot and
+            // reduces EXACTLY to the uniform form when spacing is even.
+            const dPA = Math.hypot(A.x - Pn.x, A.y - Pn.y);
+            const dAB = Math.hypot(B.x - A.x, B.y - A.y);
+            const dBQ = Math.hypot(Qn.x - B.x, Qn.y - B.y);
+            // At a JUNCTION the neighbour is an exact fitted path cubic, not a
+            // contour point, so there is no CR neighbour to take a tangent
+            // from — clamping (Pn = A) makes the end tangent the chord, which
+            // still bows slightly into the fill. Widening the weight by the
+            // clamped side's own chord flattens the end toward the chord
+            // direction and closes the residual nick.
+            const w1 = (dPA > 0 ? dPA + dAB : 2 * dAB) || 1;
+            const w2 = (dBQ > 0 ? dAB + dBQ : 2 * dAB) || 1;
+            const t1x = (B.x - Pn.x) / w1, t1y = (B.y - Pn.y) / w1;
+            const t2x = (Qn.x - A.x) / w2, t2y = (Qn.y - A.y) / w2;
+            const C1 = { x: A.x + t1x * dAB / 3, y: A.y + t1y * dAB / 3 };
+            const C2 = { x: B.x - t2x * dAB / 3, y: B.y - t2y * dAB / 3 };
+            if (bounds) for (const pt of [A, C1, C2, B]) {
+              if (pt.x < bounds.minX) bounds.minX = pt.x;
+              if (pt.x > bounds.maxX) bounds.maxX = pt.x;
+              if (pt.y < bounds.minY) bounds.minY = pt.y;
+              if (pt.y > bounds.maxY) bounds.maxY = pt.y;
+            }
+            m.foldSmoothed = true;
+            let wrapAt = -1;
+            for (let i = 0; i + 1 < len; i++) if ((qs[i] + 1) % N !== qs[i + 1]) { wrapAt = i + 1; break; }
+            const wraps = wrapAt < 0 ? (s0 > last) : true;
+            if (!wraps) {
+              cmds[s0] = 'C ' + C1.x + ' ' + C1.y + ' ' + C2.x + ' ' + C2.y + ' ' + B.x + ' ' + B.y + ' ';
+              for (let i = 1; i < len; i++) cmds[qs[i]] = '';
+            } else {
+              const v0 = m.pts[0];
+              const dx = B.x - A.x, dy = B.y - A.y;
+              const L2 = dx * dx + dy * dy;
+              let t = L2 > 1e-24 ? ((v0.x - A.x) * dx + (v0.y - A.y) * dy) / L2 : 0.5;
+              t = Math.max(0.02, Math.min(0.98, t));
+              const sp = splitCubic(A, C1, C2, B, t);
+              m.pts[0] = { x: sp.left[3].x, y: sp.left[3].y, z: v0.z };
+              const emit = (c, endPt) => 'C ' + c[1].x + ' ' + c[1].y + ' ' + c[2].x + ' ' + c[2].y + ' ' + endPt.x + ' ' + endPt.y + ' ';
+              cmds[s0] = emit(sp.left, m.pts[0]);
+              for (let q = s0 + 1; q < N; q++) if (gOf[q] === gOf[s0]) cmds[q] = '';
+              cmds[0] = emit(sp.right, B);
+              for (let q = 1; q <= last; q++) if (gOf[q] === gOf[s0]) cmds[q] = '';
+            }
+          }
+        }
+
+        // PASS B — emit.
+        for (const run of runs) {
+          if (!run.curves) {
+            for (let q = run.i; q < run.j; q++) {
+              if (cmds[q] !== undefined) continue;   // fold block owns this edge
+              const p2 = m.pts[(q + 1) % N];
+              cmds[q] = 'L ' + p2.x + ' ' + p2.y + ' ';
+            }
+            continue;
+          }
+          const curves = run.curves, endIdx = run.j % N;
           let out = '';
           curves.forEach((c, ci) => {
             const c1 = ndcToFrame(c.cp1), c2 = ndcToFrame(c.cp2);
-            const e = (ci === curves.length - 1) ? endVertex : ndcToFrame(c.end);
+            const ef = ndcToFrame(c.end);
+            const e = (ci === curves.length - 1)
+              ? { x: m.pts[endIdx].x, y: m.pts[endIdx].y, z: ef.z }
+              : ef;
             out += 'C ' + c1.x + ' ' + c1.y + ' ' + c2.x + ' ' + c2.y + ' ' + e.x + ' ' + e.y + ' ';
             if (bounds) {
               for (const p of [c1, c2, e]) {
@@ -18001,9 +18225,8 @@
               if (e.z > zBounds.maxZ) zBounds.maxZ = e.z;
             }
           });
-          cmds[i] = out;
-          for (let q = i + 1; q < j; q++) cmds[q] = '';
-          i = j;
+          cmds[run.i] = out;
+          for (let q = run.i + 1; q < run.j; q++) cmds[q] = '';
         }
         return cmds;
       }
@@ -21380,6 +21603,7 @@
           for (const o of outers) {
             let d = '', zSum = 0, count = 0;
             const strokes = [];
+            let foldSmoothed = false;   // v20260803c: a curved fold needs nonzero
             for (const ri of [o.idx, ...o.holes]) {
               const m = mapped[ri].m;
               const rUV = mapped[ri].uv;
@@ -21389,8 +21613,10 @@
               // hold '' and the run's commands sit on its first edge).
               const cmds = !smoothMode ? null
                 : (anchorFit && rUV.meta)
-                  ? SurfaceMapper._rcAnchorCmds(rUV, m, sourceSegs, projNDC, null, null)
+                  ? SurfaceMapper._rcAnchorCmds(rUV, m, sourceSegs, projNDC, null, null,
+                    (si, t) => sourceSegs[si] ? uvAtT(sourceSegs[si], t) : null)
                   : catmullCmds(m);
+              if (m.foldSmoothed) foldSmoothed = true;
               if (cmds) {
                 d += 'M ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
                 for (let i = 0; i < nseg; i++) d += cmds[i];
@@ -21443,7 +21669,7 @@
             fragments.push({
               d: d.trim(), zSum, count, avgZ: zSum / count,
               type: 'split', layer, subpathIdx: 0,
-              strokes, useNonzero: false,
+              strokes, useNonzero: foldSmoothed,
               startUV: null, endUV: null,
               startIsCrossing: false, endIsCrossing: false
             });
@@ -21931,6 +22157,7 @@
           for (const o of outers) {
             let d = '', zSum = 0, count = 0;
             const strokes = [];
+            let foldSmoothed = false;   // v20260803c: a curved fold needs nonzero
             const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
             const zBounds = { minZ: Infinity, maxZ: -Infinity };
             for (const ri of [o.idx, ...o.holes]) {
@@ -21942,8 +22169,16 @@
               // smooth mode; anchor-fit consumes whole runs — consumed
               // edges hold '' and the run's commands sit on its first edge).
               const cmds = (anchorFit && smoothMode && rUV.meta)
-                ? SurfaceMapper._rcAnchorCmds(rUV, m, segments, project, bounds, zBounds)
+                ? SurfaceMapper._rcAnchorCmds(rUV, m, segments, project, bounds, zBounds,
+                  (si, t) => {
+                    const seg = segments[si];
+                    if (!seg) return null;
+                    const p = SurfaceMapper.evaluateCurvePoint(seg, t);
+                    const p3 = [p[0], p[1], p[2] || 0];
+                    return [p3[axS], p3[axT]];
+                  })
                 : edgeCmds(m);
+              if (m.foldSmoothed) foldSmoothed = true;
               d += 'M ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
               for (let i = 0; i < nseg; i++) d += cmds[i];
               d += 'Z ';
@@ -21983,7 +22218,7 @@
             if (!count) continue;
             fragments.push({
               d: d.trim(), zSum, count, avgZ: zSum / count,
-              type: 'split', layer, strokes,
+              type: 'split', layer, strokes, useNonzero: foldSmoothed,
               bounds, zBounds
             });
           }
@@ -30663,6 +30898,12 @@
           renderMode: 'clean', // 'clean' | 'mesh' | 'layer'
           layerCount: 16,      // layer mode: number of profile copies
           simpleSides: false,
+          // MSS for sweep (PLAN-sweep-mss W1-1). Same key NAMES the shared
+          // surface renderer already reads for revolve — a native sweep's
+          // sweepSettings IS the `ss` the engine sees, so no mapping exists.
+          moreSimpleSides: false,
+          streamlineStrokes: false,
+          streamlineShoulders: true,
           showCapStart: true,
           showCapEnd: true,
           scaleStart: 1.0,   // Taper scale at rail start (u=0)
@@ -36845,14 +37086,47 @@
                   }
                 }
                 // joint sign-flips (per coordinate, strict opposite signs)
+                // W1-6b (PLAN-sweep-mss): the control-point test above cannot
+                // see an extreme that lands EXACTLY on a SMOOTH joint — there
+                // the one-sided difference is 0 on one side, so the product is
+                // 0, not < 0. A tube (4-pt closed B-spline circle) puts ALL
+                // FOUR of its extremes there, which left a swept tube with
+                // ZERO bands (measured: extremes [] → one band → no palette,
+                // front/back only). Sampling the TRUE derivative just inside
+                // each side sees them (+1e-4 → -1e-4 across the joint).
+                // NON-REVOLVE ONLY: revolve profiles can hit the same gap, but
+                // closing it there would silently re-band the owner-approved
+                // donut/bottle; recorded as a finding for a separate decision.
+                const _dAt = (s, t) => {
+                  if (s.type !== 'C') return [s.p3[0] - s.p0[0], s.p3[1] - s.p0[1]];
+                  const mt = 1 - t, k0 = 3 * mt * mt, k1 = 6 * mt * t, k2 = 3 * t * t;
+                  return [
+                    k0 * (s.p1[0] - s.p0[0]) + k1 * (s.p2[0] - s.p1[0]) + k2 * (s.p3[0] - s.p2[0]),
+                    k0 * (s.p1[1] - s.p0[1]) + k1 * (s.p2[1] - s.p1[1]) + k2 * (s.p3[1] - s.p2[1])
+                  ];
+                };
                 for (let k = silhSub.closed ? 0 : 1; k < n; k++) {
                   const sL = profileSegs[(k - 1 + n) % n], sR = profileSegs[k];
                   const dL = endDeriv(sL), dR = startDeriv(sR);
-                  let isExt = false;
+                  let isExt = false, extCi = -1;
                   for (const ci of [0, 1]) {
-                    if (dL[ci] * dR[ci] < 0 && Math.max(Math.abs(dL[ci]), Math.abs(dR[ci])) > 1e-9) { isExt = true; break; }
+                    if (dL[ci] * dR[ci] < 0 && Math.max(Math.abs(dL[ci]), Math.abs(dR[ci])) > 1e-9) { isExt = true; extCi = ci; break; }
                   }
-                  if (isExt) ext.push(k);
+                  if (!isExt && !isRevolveSurface) {
+                    const aL = _dAt(sL, 1 - 1e-4), aR = _dAt(sR, 1e-4);
+                    for (const ci of [0, 1]) {
+                      if (aL[ci] * aR[ci] < 0 && Math.max(Math.abs(aL[ci]), Math.abs(aR[ci])) > 1e-12) { isExt = true; extCi = ci; break; }
+                    }
+                  }
+                  if (isExt) {
+                    ext.push(k);
+                    // Radial tagging for the Streamline ink rule. Integer params
+                    // never reach the extremesR test in _uInk (they take the
+                    // joint branch), so this is inert for ink today — it is kept
+                    // consistent for future readers, and non-revolve-only so
+                    // revolve's arrays stay bit-for-bit what they were.
+                    if (!isRevolveSurface && (extCi === radIdx || noShoulderInk)) extR.push(k);
+                  }
                 }
                 ext.sort((a, b) => a - b);
                 extR.sort((a, b) => a - b);
@@ -36871,7 +37145,111 @@
             // mode2D, so V-splits, facing signs and the Silhouette classifier
             // solve for the projection that is actually drawing.
             const camPos = resolveEyePointForObject(this);
-            if (!simpleSides) {
+            // --- C (PLAN-fill-silhouette-fidelity): ADAPTIVE AZIMUTH DENSITY ---
+            // The fill's boundary is assembled from U-edges that each run at a
+            // CONSTANT profile parameter, while the true silhouette's parameter
+            // DRIFTS along the rail. Wherever it drifts quickly the quad chords
+            // the fold, and the fill wobbles around the analytic silhouette that
+            // the stroke draws (measured on the owner's donut: 1.50 frame units
+            // at segments 32, falling as 1/n^2, identical in every Sides mode,
+            // and collapsing at a top view where the horizon cannot drift).
+            // Splitting in V cannot fix it - that only adds more constant-p
+            // curves (tried and reverted, v20260802l). Subdividing in U does,
+            // and the error is O(drift^2), so halving an interval's drift
+            // quarters its wobble. Only the intervals that actually drift are
+            // subdivided, so a flat-horizon view pays nothing.
+            {
+              const nSegP = profileSegs.length;
+              if (nSegP > 0 && uStations.length > 1) {
+                // Denser profile sampling than the crossing pass below needs:
+                // the drift estimate must resolve WHERE on the profile the
+                // horizon sits, not merely that it crossed.
+                const SUB = 4;
+                const dP = [], dSamp = [];
+                for (let si = 0; si < nSegP; si++) {
+                  const s = profileSegs[si];
+                  const at = (t) => {
+                    if (s.type !== 'C') return [s.p0[0] + (s.p3[0]-s.p0[0])*t, s.p0[1] + (s.p3[1]-s.p0[1])*t, 0];
+                    const u2 = 1 - t;
+                    return [u2*u2*u2*s.p0[0] + 3*u2*u2*t*s.p1[0] + 3*u2*t*t*s.p2[0] + t*t*t*s.p3[0],
+                            u2*u2*u2*s.p0[1] + 3*u2*u2*t*s.p1[1] + 3*u2*t*t*s.p2[1] + t*t*t*s.p3[1], 0];
+                  };
+                  for (let k = 0; k < SUB; k++) {
+                    const t0 = k / SUB, t1 = (k + 1) / SUB, tm = (t0 + t1) / 2;
+                    const a = at(t0), b = at(t1), m = at(tm);
+                    dP.push(si + tm);
+                    dSamp.push({ pp: m, vp0: a, vp1: b });
+                  }
+                }
+                const dotU = (u, sm) => {
+                  const frame = SurfaceMapper.getFrameAtU(railPath._frameData, u);
+                  const pt = sweepPoint(frame, sm.pp);
+                  const frameEps = SurfaceMapper.getFrameAtU(railPath._frameData, Math.min(1, u + 0.001));
+                  const du = vectorSubtract(sweepPoint(frameEps, sm.pp), pt);
+                  const dv = vectorSubtract(sweepPoint(frame, sm.vp1), sweepPoint(frame, sm.vp0));
+                  const n = vectorCross(du, dv);
+                  const vv = vectorSubtract(camPos, pt);
+                  const L = Math.hypot(vv[0], vv[1], vv[2]);
+                  return L > 1e-9 ? (n[0]*vv[0] + n[1]*vv[1] + n[2]*vv[2]) / L : 0;
+                };
+                // horizon parameters at one station: sign changes across the profile
+                const horizonsAt = (u) => {
+                  const out = [];
+                  let prev = dotU(u, dSamp[0]);
+                  for (let k = 1; k < dSamp.length; k++) {
+                    const d = dotU(u, dSamp[k]);
+                    if (prev * d < 0) {
+                      const f = Math.abs(prev) / (Math.abs(prev) + Math.abs(d));
+                      out.push(dP[k-1] + f * (dP[k] - dP[k-1]));
+                    }
+                    prev = d;
+                  }
+                  return out;
+                };
+                const hs = uStations.map(horizonsAt);
+                // drift per interval, matched by crossing index; an interval where
+                // the COUNT changes holds a fold event, which the crossing pass
+                // below owns - do not also subdivide it here.
+                const DRIFT_FRAC = (window._SILH_DRIFT_FRAC ?? 0.025);   // of the profile's param range
+                // 2 is the measured Pareto point once birth/death intervals are
+                // refined: it removes every visible bump cluster the owner's
+                // low-elevation donut had, at 40% less added geometry than 4
+                // (which only trims the invisible tail, max 0.30 -> 0.21 units);
+                // 3 is dominated by 2 on both counts.
+                const MAXSUB = (window._SILH_MAXSUB ?? 2);
+                const tol = DRIFT_FRAC * nSegP;
+                const adds = [];
+                for (let i = 0; i < uStations.length - 1; i++) {
+                  const a = hs[i], b = hs[i+1];
+                  if (!a.length && !b.length) continue;
+                  let mx = 0;
+                  if (a.length !== b.length) {
+                    // A horizon is BORN or DIES inside this interval. The
+                    // parameter is not comparable across it, but this is the
+                    // last place that may be left coarse: the fill's boundary
+                    // has to round a curve that only exists on part of the
+                    // interval, so it cuts a chord and opens a visible WEDGE
+                    // against the true silhouette. An earlier version handed
+                    // these to the crossing pass instead, which only plants ONE
+                    // station AT the crossing and does not refine around it —
+                    // measured on the owner's low-elevation donut: 8 bump
+                    // clusters, p95 1.008, max 1.848, and completely immune to
+                    // subdividing everything else 8x harder. Refining them
+                    // instead: 0 clusters, p95 0.122, max 0.207.
+                    mx = tol * MAXSUB;
+                  } else {
+                    for (let k = 0; k < a.length; k++) mx = Math.max(mx, Math.abs(b[k] - a[k]));
+                  }
+                  const kSub = Math.min(MAXSUB, Math.floor(mx / tol));
+                  for (let j = 1; j <= kSub; j++) {
+                    adds.push({ afterIdx: i, u: uStations[i] + (j / (kSub + 1)) * (uStations[i+1] - uStations[i]) });
+                  }
+                }
+                for (let c = adds.length - 1; c >= 0; c--) uStations.splice(adds[c].afterIdx + 1, 0, adds[c].u);
+                if (window._SILH_DEBUG) window._silhAdaptive = { added: adds.length, stations: uStations.length };
+              }
+            }
+            if (!simpleSides || !isRevolveSurface) {
               const extraUs = [];
 
               // Build one sample per profile segment: midpoint + chord for V-direction
@@ -36907,31 +37285,58 @@
               // Lower threshold than non-clean render (0.3) because segment count is small
               // — e.g. a 4-segment square profile needs threshold ≤ 25% to catch a 1-segment inner-rim crossing.
               const minFlipRatio = 0.15;
+              // Binary search for one sample's crossing t inside interval i.
+              const bisectCross = (i, k) => {
+                let tMin = 0, tMax = 1;
+                const signA = dotsGrid[i][k] >= 0 ? 1 : -1;
+                for (let iter = 0; iter < 8; iter++) {
+                  const tMid = (tMin + tMax) / 2;
+                  const uMid = uStations[i] + tMid * (uStations[i + 1] - uStations[i]);
+                  const dMid = dotAtUForSample(uMid, samplePairs[k]);
+                  if ((dMid >= 0 ? 1 : -1) === signA) tMin = tMid; else tMax = tMid;
+                }
+                return (tMin + tMax) / 2;
+              };
               for (let i = 0; i < uStations.length - 1; i++) {
                 let flipCount = 0;
                 let bestK = 0, bestAbsDot = 0;
+                const flipKs = [];
                 for (let k = 0; k < samplePairs.length; k++) {
                   if (dotsGrid[i][k] * dotsGrid[i + 1][k] < 0) {
                     flipCount++;
+                    flipKs.push(k);
                     const absDot = Math.abs(dotsGrid[i][k]) + Math.abs(dotsGrid[i + 1][k]);
                     if (absDot > bestAbsDot) { bestAbsDot = absDot; bestK = k; }
                   }
                 }
                 if (flipCount < Math.max(1, Math.ceil(samplePairs.length * minFlipRatio))) continue;
 
-                // Binary search for crossing u using strongest-signal sample
-                let tMin = 0, tMax = 1;
-                const signA = dotsGrid[i][bestK] >= 0 ? 1 : -1;
-                for (let iter = 0; iter < 8; iter++) {
-                  const tMid = (tMin + tMax) / 2;
-                  const uMid = uStations[i] + tMid * (uStations[i + 1] - uStations[i]);
-                  const dMid = dotAtUForSample(uMid, samplePairs[bestK]);
-                  if ((dMid >= 0 ? 1 : -1) === signA) tMin = tMid; else tMax = tMid;
+                // ONE STATION PER CROSSING, not per interval (PLAN-sweep-mss
+                // polish). A single interval can hold SEVERAL folds: the two
+                // flanks of a V-profile go edge-on at different u, so a twisted
+                // ribbon crosses twice inside one interval. The legacy rule
+                // bisected only the STRONGEST-signal sample and dropped the
+                // rest — and when that winner's crossing landed in the
+                // too-close-to-a-station guard band it took the whole interval
+                // with it, losing a perfectly good fold elsewhere in the span
+                // (measured on the owner's ribbon: interval 11 held crossings
+                // at t=0.0028 and t=0.89; the 0.0028 winner was rejected and
+                // t=0.89 never got its station, so Simple/More Simple drew the
+                // fold at a station boundary instead of on the silhouette).
+                // REVOLVE keeps the single-best pick verbatim — its fixtures
+                // are byte-gated and its analytic producer owns the silhouette.
+                const ks = isRevolveSurface ? [bestK] : flipKs;
+                const ts = [];
+                for (const k of ks) {
+                  const t = bisectCross(i, k);
+                  if (t > 0.01 && t < 0.99) ts.push(t);
                 }
-                const tCross = (tMin + tMax) / 2;
-                if (tCross > 0.01 && tCross < 0.99) {
-                  const uCross = uStations[i] + tCross * (uStations[i + 1] - uStations[i]);
-                  extraUs.push({ afterIdx: i, u: uCross });
+                ts.sort((a, b) => a - b);
+                let lastT = -1;
+                for (const t of ts) {
+                  if (lastT >= 0 && t - lastT < 0.02) continue;   // same fold seen twice
+                  lastT = t;
+                  extraUs.push({ afterIdx: i, u: uStations[i] + t * (uStations[i + 1] - uStations[i]) });
                 }
               }
 
@@ -37204,6 +37609,20 @@
                 for (let _segIdx = 0; _segIdx < profileSegs.length; _segIdx++) {
                   const seg = profileSegs[_segIdx];
                   if (seg.type === 'C') {
+                    // F1 (PLAN-fill-silhouette-fidelity) was TRIED HERE and
+                    // REVERTED: splitting at the union of BOTH stations' horizon
+                    // params (instead of the interval midpoint's) grew the fill
+                    // from 830 to 1024 path commands and moved the silhouette
+                    // wobble by NOTHING - sd 0.292 / max 1.496 / 2x-segment
+                    // harmonic 0.0665, identical to three decimal places. The
+                    // V-split is not the cause: every U-edge runs at CONSTANT
+                    // profile param, so adding more of them only adds more
+                    // constant-p curves, while the true silhouette's param
+                    // drifts across the interval. The wobble is a U-DIRECTION
+                    // tessellation error - the surface folds over inside one
+                    // azimuth interval and the quads chord that fold - which is
+                    // why it follows 1/n^2 in `segments` and why it collapses at
+                    // a top view, where the fold does not run along u.
                     let tsMid = this.findBezierHorizonT(seg.p0, seg.p1, seg.p2, seg.p3, vxMid, vyMid, false);
                     tsMid.push(0.5); // mandatory midpoint split: anchors curvature peak
                     // M4b: interior SHOULDER (extreme) params must split here and
@@ -37255,7 +37674,8 @@
                   segsA = [];
                   segsB = [];
 
-                  for (const seg of profileSegs) {
+                  for (let _segIdx = 0; _segIdx < profileSegs.length; _segIdx++) {
+                    const seg = profileSegs[_segIdx];
                     if (seg.type === 'C') {
                       let tsMid = this.findBezierHorizonT(seg.p0, seg.p1, seg.p2, seg.p3, vxMid, vyMid, false);
                       tsMid.push(0.5); // mandatory midpoint split: anchors curvature peak
@@ -37264,6 +37684,18 @@
                       tsMid = tsMid.filter(t => t > 0.02 && t < 0.98).sort((a, b) => a - b);
                       // Remove duplicates after quantization
                       tsMid = tsMid.filter((t, idx) => idx === 0 || Math.abs(t - tsMid[idx - 1]) > 0.005);
+                      // M4b for sweep (PLAN-sweep-mss W1-7): band bounds must be
+                      // EXACT — a quantized camera t within 0.01 of an extreme
+                      // yields to it, and the extremes are appended with their
+                      // exact values. bandMerge only, so plain Simple Sides
+                      // output (quantization included) is untouched.
+                      const _segExt = (bandMerge && silhSub && silhSub.extremes)
+                        ? silhSub.extremes.filter(p => Math.floor(p) === _segIdx && p - _segIdx > 1e-9).map(p => p - _segIdx)
+                        : [];
+                      if (_segExt.length) {
+                        tsMid = tsMid.filter(t => _segExt.every(e => Math.abs(t - e) > 0.01));
+                        tsMid = tsMid.concat(_segExt).sort((a, b) => a - b);
+                      }
 
                       if (tsMid.length > 0) {
                         const splitResult = splitSeg(seg, tsMid);
@@ -39777,13 +40209,166 @@
             // varies with the camera, which it may.
             const _alphaC = _hz ? _hz.alpha : 0;
             const _totRadC = (_revTotalDeg || 360) * Math.PI / 180;
+            // SWEEP generalization (PLAN-sweep-mss W1-6): DEPTH RUNS.
+            // The cos test above needs the revolve's analytic horizon (`_hz`),
+            // which a sweep never has — and it would NOT fail loudly there:
+            // _revTotalDeg defaults to 360, so a sweep would get a
+            // camera-INDEPENDENT split by rail parameter that renders fine and
+            // orders wrongly. It is also too WEAK a model in general: a binary
+            // near/far cannot order a rail that turns in depth more than once.
+            // The real invariant M4c relies on is that within a piece, depth is
+            // MONOTONE along the rail — then pieces sort by depth cleanly. So
+            // the general split is into maximal monotone-depth RUNS, ordered
+            // far-to-near; the revolve's two azimuth halves are exactly the two
+            // runs of a circular rail, so it keeps its exact cos test and its
+            // byte-identical output. A rail that never turns in depth yields
+            // ONE run — no cut at all, no seam (the common sweep case).
+            // Depths reuse the rings already collected (mean NDC z per (sp,iv));
+            // computed ONCE over ALL rings so a band's FRONT and BACK pieces can
+            // never disagree about which run an interval belongs to (their
+            // shared station has to pair up). NDC min-z = front (nearer).
+            // TAPERED REVOLVES: TRIED AND REJECTED (v20260802k). A tapered
+            // revolve's cos cut sits at the UNTAPERED horizon, so it lands off
+            // the true fold, and the ring-depth referee duly scores the tapered
+            // fixture at 97.4% against 99.4-99.9% for its untapered siblings —
+            // a real gap of the same family the sweep had. Routing it through
+            // this run split was measured and is NOT worth it: ordering rose
+            // only to 98.1% while pieces went 24 -> 88, because a revolve's
+            // per-interval V-split makes bands come and go around the
+            // silhouette, so fold breaks fire far more often than there are
+            // real folds; the render came out visibly littered with seams. The
+            // principled fix is to PLACE the two-run cut at the taper-aware
+            // horizon, not to switch to N runs — left undone deliberately.
+            const _useRunSplit = !_hz;
+            const _ivRun = !_useRunSplit ? null : (() => {
+              const per = new Map();          // 'sp|iv' -> {s, c}
+              for (const r of silh.rings) {
+                if (r.iv === undefined || !(r.zCount > 0)) continue;
+                const k = r.sp + '|' + r.iv;
+                let e = per.get(k); if (!e) { e = { s: 0, c: 0 }; per.set(k, e); }
+                e.s += r.zSum; e.c += r.zCount;
+              }
+              const bySp = new Map();         // sp -> [{iv, d}]
+              for (const [k, e] of per) {
+                const cut = k.indexOf('|');
+                const sp = k.slice(0, cut), iv = +k.slice(cut + 1);
+                let l = bySp.get(sp); if (!l) { l = []; bySp.set(sp, l); }
+                l.push({ iv, d: e.s / e.c });
+              }
+              // Per-(sp, iv) depth of each GROUP (band x facing) — needed for the
+              // swap test below.
+              const grpZ = new Map();         // 'sp|iv' -> Map(groupKey -> z)
+              const grpFace = new Map();      // 'sp|iv' -> Map(band -> 'F'|'B')
+              for (const r of silh.rings) {
+                if (r.iv === undefined || !(r.zCount > 0)) continue;
+                const k = r.sp + '|' + r.iv;
+                let m2 = grpZ.get(k); if (!m2) { m2 = new Map(); grpZ.set(k, m2); }
+                const band = _bandOf(r.sp, r.pMid);
+                const face = (r.areaSign === _frontSign[r.sp]) ? 'F' : 'B';
+                const gk = band + '|' + face;
+                const prev = m2.get(gk);
+                m2.set(gk, prev === undefined ? r.z : (prev + r.z) / 2);
+                let m3 = grpFace.get(k); if (!m3) { m3 = new Map(); grpFace.set(k, m3); }
+                // a band showing BOTH facings in one interval is mid-fold: mark
+                // it ambiguous so it cannot be read as a flip on either side
+                if (m3.has(band) && m3.get(band) !== face) m3.set(band, '?'); else if (!m3.has(band)) m3.set(band, face);
+              }
+              const runOf = new Map();        // 'sp|iv' -> run ordinal (0 = farthest)
+              for (const [sp, list] of bySp) {
+                list.sort((a, b) => a.iv - b.iv);
+                let lo = Infinity, hi = -Infinity;
+                for (const e of list) { if (e.d < lo) lo = e.d; if (e.d > hi) hi = e.d; }
+                // Hysteresis: only a reversal larger than 2% of the total depth
+                // spread starts a new run, so sampling noise on a nearly-flat
+                // rail cannot splinter the piece into slivers.
+                const tol = Math.max((hi - lo) * 0.02, 1e-12);
+                // A run must also break at a FOLD. Where the surface turns away
+                // from the eye, a band flips facing — and the stretches on
+                // either side of a fold are exactly the stretches that can
+                // overlap each other on screen (a twisting ribbon laps over
+                // itself). This is the same invariant the revolve gets from its
+                // near/far azimuth cut: the revolve's horizon IS its fold. A
+                // run spanning a fold has no correct z, and because the two
+                // stretches also carry different facing they end up in
+                // different pieces, so no later rule can rescue them (measured
+                // on the owner's ribbon: 235 of 5216 referee samples painted
+                // band 1 over a nearer band 2). Detect a fold as a change in
+                // the SET of (band x facing) groups present at the station —
+                // the flip shows up as a key appearing/disappearing, not as a
+                // depth swap of a persistent pair.
+                // The test is a genuine FACING FLIP of a band present on BOTH
+                // sides — not merely a change in the key set. On a revolve the
+                // V-split gives each azimuth interval its own profile spans, so
+                // bands legitimately appear and disappear from interval to
+                // interval near the silhouette; a key-set test reads every one
+                // of those as a fold and shatters the surface (measured on the
+                // tapered fixture: 24 pieces -> 112, for +0.6pp of ordering).
+                const swapAt = new Set();
+                for (let i = 1; i < list.length; i++) {
+                  const a = grpFace.get(sp + '|' + list[i - 1].iv), b = grpFace.get(sp + '|' + list[i].iv);
+                  if (!a || !b) continue;
+                  let flipped = false;
+                  for (const [band, f] of a) { const f2 = b.get(band); if (f2 !== undefined && f2 !== f) { flipped = true; break; } }
+                  if (flipped) swapAt.add(i);
+                }
+                const raw = new Array(list.length).fill(0);
+                let rid = 0, dir = 0, pivot = list.length ? list[0].d : 0;
+                for (let i = 1; i < list.length; i++) {
+                  const delta = list[i].d - pivot;
+                  if (swapAt.has(i)) { rid++; dir = 0; pivot = list[i].d; raw[i] = rid; continue; }
+                  if (dir === 0) { if (Math.abs(delta) > tol) { dir = Math.sign(delta); pivot = list[i].d; } }
+                  else if (Math.sign(delta) === dir) { pivot = list[i].d; }
+                  else if (Math.abs(delta) > tol) { rid++; dir = -dir; pivot = list[i].d; }
+                  raw[i] = rid;
+                }
+                // CLOSED RAIL WRAP: on a 360 deg revolve the last interval is
+                // adjacent to the first, so a run that spans the seam was split
+                // in two by the linear walk above. Merge them when the seam
+                // carries neither a fold nor a depth reversal — otherwise the
+                // seam would behave like a permanent cut and the piece would be
+                // ordered as two, which is exactly the artifact the run split
+                // exists to remove.
+                if (railClosed && list.length > 2 && raw[list.length - 1] !== raw[0]) {
+                  const a = grpZ.get(sp + '|' + list[list.length - 1].iv), b = grpZ.get(sp + '|' + list[0].iv);
+                  let changed = !a || !b || a.size !== b.size;
+                  if (!changed) for (const k of a.keys()) if (!b.has(k)) { changed = true; break; }
+                  // depth must also continue in the same direction across the seam
+                  const dPrev = list[list.length - 1].d - list[list.length - 2].d;
+                  const dSeam = list[0].d - list[list.length - 1].d;
+                  const reversed = dPrev * dSeam < 0 && Math.abs(dSeam) > tol;
+                  if (!changed && !reversed) {
+                    const from = raw[list.length - 1], to = raw[0];
+                    for (let i = 0; i < list.length; i++) if (raw[i] === from) raw[i] = to;
+                  }
+                }
+                // Renumber runs by mean depth: FARTHEST run paints first (ord 0).
+                const agg = new Map();
+                for (let i = 0; i < list.length; i++) {
+                  let a = agg.get(raw[i]); if (!a) { a = { s: 0, c: 0 }; agg.set(raw[i], a); }
+                  a.s += list[i].d; a.c++;
+                }
+                const order = [...agg.entries()].sort((x, y) => (y[1].s / y[1].c) - (x[1].s / x[1].c));
+                const ordOf = new Map(); order.forEach(([id], i) => ordOf.set(id, i));
+                for (let i = 0; i < list.length; i++) runOf.set(sp + '|' + list[i].iv, ordOf.get(raw[i]));
+              }
+              return runOf;
+            })();
             const _pieces = [];
             for (const [key, g] of _groups.entries()) {
               const subP = silh.perSubpath[g.sp];
               const nIvP = subP ? (subP.intervals.length || 1) : 1;
-              const flagOf = (iv) => Math.cos(((iv + 0.5) / nIvP) * _totRadC - _alphaC) > 0;
-              const nearR = [], farR = [];
-              for (const r of g.rings) (flagOf(r.iv) ? nearR : farR).push(r);
+              // runOf: UNTAPERED revolve = the two azimuth halves (far 0 / near 1,
+              // the exact legacy test, byte-identical); sweep AND tapered revolve
+              // = monotone depth-run ordinal with fold breaks.
+              const runOf = !_useRunSplit
+                ? (iv) => (Math.cos(((iv + 0.5) / nIvP) * _totRadC - _alphaC) > 0 ? 1 : 0)
+                : (iv) => _ivRun.get(g.sp + '|' + iv) ?? 0;
+              const byRun = new Map();
+              for (const r of g.rings) {
+                const ro = runOf(r.iv);
+                let l = byRun.get(ro); if (!l) { l = []; byRun.set(ro, l); }
+                l.push(r);
+              }
               // S1 (Streamline): silent stations for the minimal-ink rule —
               // az-cut boundaries INSIDE the parent piece (camera seams, M4c)
               // plus, S2, the open-rail CUT stations when their cap is shown:
@@ -39799,7 +40384,7 @@
                 for (let s = 0; s < stN; s++) {
                   const li = s > 0 ? s - 1 : (railClosed ? nIvP - 1 : -1);
                   const ri = s < nIvP ? s : -1;
-                  if (li >= 0 && ri >= 0 && ivSet.has(li) && ivSet.has(ri) && flagOf(li) !== flagOf(ri)) {
+                  if (li >= 0 && ri >= 0 && ivSet.has(li) && ivSet.has(ri) && runOf(li) !== runOf(ri)) {
                     silent.add(railClosed ? ((s % nIvP) + nIvP) % nIvP : s);
                   }
                 }
@@ -39808,7 +40393,10 @@
                   if (ss.showCapEnd) silent.add(nIvP);
                 }
               }
-              for (const [half, rl] of [['near', nearR], ['far', farR]]) {
+              // Emit far-to-near so the piece list starts in paint order (the
+              // sort below is the authority; this only keeps the list readable).
+              for (const ro of [...byRun.keys()].sort((a, b) => a - b)) {
+                const rl = byRun.get(ro);
                 if (!rl.length) continue;
                 let zS = 0, zC = 0, d = '';
                 const reps = [];
@@ -39816,9 +40404,12 @@
                   zS += r.zSum; zC += r.zCount; d += ' ' + r.d;
                   if (reps.length < 64 && r.iv !== undefined) reps.push([r.pMid, r.iv]);
                 }
+                // Revolve keeps its familiar near/far debug key; other rails
+                // name the run ordinal (there can be more than two).
+                const tag = !_useRunSplit ? (ro === 1 ? 'near' : 'far') : ('r' + ro);
                 _pieces.push({
-                  key: key + '|' + half, d: d.trim(), front: g.front, sp: g.sp, band: g.band,
-                  near: half === 'near', reps, rings: rl, silent,
+                  key: key + '|' + tag, d: d.trim(), front: g.front, sp: g.sp, band: g.band,
+                  runOrd: ro, near: ro === 1, reps, rings: rl, silent,
                   z: zC > 0 ? zS / zC : avgZ
                 });
               }
@@ -39854,9 +40445,13 @@
             // has no correct answer there). The global painter is a plain
             // z-sort, so the order is enforced by monotone-nudging each
             // piece's avg-z under its predecessor.
+            // W1-6: the class is (depth-run ordinal, facing). For revolve the
+            // run ordinal is far=0 / near=1, so the classes come out
+            // 0,1,2,3 in exactly the order the legacy 1,2,3,4 produced
+            // (demoted pieces stay strictly first at -1) — byte-identical.
             _pieces.sort((a, b) => {
-              const ca = a.visFrac === 0 ? 0 : (a.near ? 3 : 1) + (a.front ? 1 : 0);
-              const cb = b.visFrac === 0 ? 0 : (b.near ? 3 : 1) + (b.front ? 1 : 0);
+              const ca = a.visFrac === 0 ? -1 : a.runOrd * 2 + (a.front ? 1 : 0);
+              const cb = b.visFrac === 0 ? -1 : b.runOrd * 2 + (b.front ? 1 : 0);
               if (ca !== cb) return ca - cb;
               return b.z - a.z;
             });
@@ -39979,6 +40574,20 @@
                   return true;
                 }
                 if (!sub.closed && (k === 0 || k === segsP.length)) return true; // open-profile rim
+                // W2-2 (PLAN-sweep-mss): a band boundary that lands ON a joint is
+                // still a SHOULDER, even when the joint is tangent-smooth — a
+                // swept tube puts all four of its extremes exactly there, so the
+                // integer branch used to hand them to _jointSharp, which
+                // (correctly) called them smooth and inked nothing: the band
+                // boundaries vanished under Streamline and the Shoulder Circles
+                // checkbox had nothing to act on. Extremes at joints now follow
+                // the same rule as fractional ones (radial/suppressed => silent).
+                // NON-REVOLVE ONLY: revolve joints are corners whose ink
+                // _jointSharp already decides, and re-routing them here would
+                // risk the owner-approved bottle/donut look.
+                if (!isRevolveSurface && (sub.extremes || []).some(e => Math.abs(e - k) < 1e-6)) {
+                  return !(sub.extremesR || []).some(e => Math.abs(e - k) < 1e-6);
+                }
                 return _jointSharp(piece.sp, k);
               };
               const edges = [];
@@ -49753,11 +50362,31 @@
           sweepLayerCountInput.value = isPath ? (selectedObject.sweepSettings?.layerCount || 16) : 16;
         }
 
-        // Simple Sides checkbox (inside clean group)
-        const sweepSimpleSidesInput = document.getElementById('sweepSimpleSidesInput');
-        if (sweepSimpleSidesInput && document.activeElement !== sweepSimpleSidesInput) {
-          sweepSimpleSidesInput.checked = isPath ? (selectedObject.sweepSettings?.simpleSides || false) : false;
-          sweepSimpleSidesInput.disabled = !isPath || !sweepEnabled;
+        // Sides select + MSS sub-options (inside clean group). PLAN-sweep-mss
+        // W1-3; mirrors the revolve panel sync exactly.
+        const sweepSidesInput = document.getElementById('sweepSidesInput');
+        const swpSidesVal = isPath && selectedObject.sweepSettings
+          ? (selectedObject.sweepSettings.moreSimpleSides ? 'more'
+            : (selectedObject.sweepSettings.simpleSides ? 'simple' : 'full'))
+          : 'full';
+        if (sweepSidesInput && document.activeElement !== sweepSidesInput) {
+          sweepSidesInput.value = swpSidesVal;
+          sweepSidesInput.disabled = !isPath || !sweepEnabled;
+        }
+        const swpStreamOn = isPath && !!selectedObject.sweepSettings?.streamlineStrokes;
+        const swpStreamRow = document.getElementById('sweepStreamlineRow');
+        if (swpStreamRow) swpStreamRow.style.display = (swpCurMode === 'clean' && swpSidesVal === 'more') ? '' : 'none';
+        const swpStreamInput = document.getElementById('sweepStreamlineInput');
+        if (swpStreamInput && document.activeElement !== swpStreamInput) {
+          swpStreamInput.checked = swpStreamOn;
+          swpStreamInput.disabled = !isPath || !sweepEnabled;
+        }
+        const swpShRow = document.getElementById('sweepStreamShouldersRow');
+        if (swpShRow) swpShRow.style.display = (swpCurMode === 'clean' && swpSidesVal === 'more' && swpStreamOn) ? '' : 'none';
+        const swpShInput = document.getElementById('sweepStreamShouldersInput');
+        if (swpShInput && document.activeElement !== swpShInput) {
+          swpShInput.checked = isPath ? (selectedObject.sweepSettings?.streamlineShoulders !== false) : true;
+          swpShInput.disabled = !isPath || !sweepEnabled;
         }
 
         // Cap Start/End checkboxes
@@ -53529,9 +54158,17 @@
           const swpLcInput = document.getElementById('sweepLayerCountInput');
           if (swpLcInput) obj.sweepSettings.layerCount = parseInt(swpLcInput.value) || 16;
 
-          // Simple Sides
-          const ssInput = document.getElementById('sweepSimpleSidesInput');
-          if (ssInput) obj.sweepSettings.simpleSides = ssInput.checked;
+          // Sides select (PLAN-sweep-mss W1-4). FILE ENCODING = the revolve M1
+          // precedent: the legacy simpleSides boolean stays true for BOTH Simple
+          // and More Simple (old builds degrade to Simple) + the moreSimpleSides
+          // marker for the third state. simpleSides is ALSO load-bearing at
+          // runtime — the unified mid-U V-split is gated on it.
+          const swpSidesSel = document.getElementById('sweepSidesInput');
+          const swpSides = swpSidesSel ? swpSidesSel.value : 'full';
+          obj.sweepSettings.simpleSides = swpSides !== 'full';
+          obj.sweepSettings.moreSimpleSides = swpSides === 'more';
+          obj.sweepSettings.streamlineStrokes = document.getElementById('sweepStreamlineInput')?.checked || false;
+          obj.sweepSettings.streamlineShoulders = document.getElementById('sweepStreamShouldersInput')?.checked !== false;
 
           // Cap Start/End
           const capStartInput = document.getElementById('sweepCapStartInput');
@@ -54113,10 +54750,18 @@
       if (cg) cg.style.display = mode === 'clean' ? '' : 'none';
       if (mg) mg.style.display = mode === 'mesh' ? '' : 'none';
       if (lg) lg.style.display = mode === 'layer' ? '' : 'none';
+      // W1-5: Sides is meaningless for mesh/layer — reset it there (the revolve
+      // handler's precedent).
+      if (mode === 'mesh' || mode === 'layer') {
+        const sidesSel = document.getElementById('sweepSidesInput');
+        if (sidesSel) sidesSel.value = 'full';
+      }
       updateStyleFromInput(e);
     });
     document.getElementById('sweepLayerCountInput').addEventListener('input', updateStyleFromInput);
-    document.getElementById('sweepSimpleSidesInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('sweepSidesInput').addEventListener('change', updateStyleFromInput);            // W1-5
+    document.getElementById('sweepStreamlineInput')?.addEventListener('change', updateStyleFromInput);      // W2
+    document.getElementById('sweepStreamShouldersInput')?.addEventListener('change', updateStyleFromInput); // W2
     document.getElementById('sweepCapStartInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('sweepCapEndInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('sweepDrawPointsInput').addEventListener('change', updateStyleFromInput);

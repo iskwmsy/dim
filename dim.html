@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260803h -->
+<!-- dim v20260803j -->
 
 <!--
   MIT License
@@ -7493,6 +7493,10 @@
                       <label class="ui-checkbox-label">Silhouette Split</label>
                       <input type="checkbox" id="surfaceSilhouetteSplitInput" class="ui-checkbox" checked />
                     </div>
+                    <div class="style-row">
+                      <label class="ui-checkbox-label">Sticker Back</label>
+                      <input type="checkbox" id="surfaceStickerBackInput" class="ui-checkbox" />
+                    </div>
                   </div>
 
                   <!-- SURFACE MAPPING SECTION -->
@@ -7633,6 +7637,10 @@
                     <div class="style-row">
                       <label class="ui-checkbox-label">Silhouette Split</label>
                       <input type="checkbox" id="surfaceMappingSplitInput" class="ui-checkbox" checked />
+                    </div>
+                    <div class="style-row">
+                      <label class="ui-checkbox-label">Sticker Back</label>
+                      <input type="checkbox" id="surfaceMappingStickerBackInput" class="ui-checkbox" />
                     </div>
                   </div>
 
@@ -7805,6 +7813,14 @@
                     <div class="style-row" id="foldForceSplitRow">
                       <label class="ui-checkbox-label">Force Split</label>
                       <input type="checkbox" id="foldForceSplitInput" class="ui-checkbox" />
+                    </div>
+                    <!-- v20260803j: back-facing sections reverse child order
+                         (white sticker backing). Default ON — fold's heritage
+                         behavior; OFF shows the authored top layer from any
+                         orientation (the mapping checkbox's off semantics). -->
+                    <div class="style-row" id="foldStickerBackRow">
+                      <label class="ui-checkbox-label">Sticker Back</label>
+                      <input type="checkbox" id="foldStickerBackInput" class="ui-checkbox" checked />
                     </div>
                     <!-- v20260722c: stroke drawn ON the crease lines (Fold
                          mode). Row mirrors the Style tab's Stroke row:
@@ -21703,9 +21719,18 @@
             let d = '', zSum = 0, count = 0;
             const strokes = [];
             let foldSmoothed = false;   // v20260803c: a curved fold needs nonzero
+            // Sticker-back section identity (v20260803i): the fragment's u
+            // extent in the SHARED UV space — comparable across a mapped
+            // group's children, which is what lets the group pass cluster
+            // all children's pieces of one physical band into one section.
+            let u0 = Infinity, u1 = -Infinity;
             for (const ri of [o.idx, ...o.holes]) {
               const m = mapped[ri].m;
               const rUV = mapped[ri].uv;
+              for (const p of rUV.pts) {
+                if (p[0] < u0) u0 = p[0];
+                if (p[0] > u1) u1 = p[0];
+              }
               const nseg = m.pts.length;
               // Smooth mode shares per-edge commands between fill and
               // strokes (anchor-fit consumes whole runs — consumed edges
@@ -21769,6 +21794,7 @@
               d: d.trim(), zSum, count, avgZ: zSum / count,
               type: 'split', layer, subpathIdx: 0,
               strokes, useNonzero: foldSmoothed,
+              u0: u0 <= u1 ? u0 : 0, u1: u0 <= u1 ? u1 : 1,
               startUV: null, endUV: null,
               startIsCrossing: false, endIsCrossing: false
             });
@@ -22158,6 +22184,24 @@
           sourcePath.style.fill !== 'none');
         const strokeEdge = (src) => fillActive ? (src !== 'closure') : (src === 'path');
 
+        // Sticker-back section identity (v20260803i): uGeo is affine in the
+        // subject plane (u = 0.5 + rx/totalLen + hOffset, rx affine in the
+        // source point), so three probes fit u(x,y) exactly. uGeo lives in
+        // GROUP mapping space — comparable across a mapped group's children,
+        // which is what lets the group pass cluster all children's pieces of
+        // one physical band into one section. Rigid mode has no uGeo (null);
+        // fragments then default to [0,1] — one section, still correct.
+        let uOfSub = null;
+        {
+          const q00 = project(srcPtOf(xMin, yMin));
+          const q10 = project(srcPtOf(xMin + 1, yMin));
+          const q01 = project(srcPtOf(xMin, yMin + 1));
+          if (q00 && q10 && q01 && q00.uGeo != null && q10.uGeo != null && q01.uGeo != null) {
+            const ua = q00.uGeo, ub = q10.uGeo - ua, uc = q01.uGeo - ua;
+            uOfSub = (x, y) => ua + ub * (x - xMin) + uc * (y - yMin);
+          }
+        }
+
         // Smooth (Curve Fit) mode: two emissions share this entry point.
         // ANCHOR-FIT (RC_SMOOTH_ANCHOR_FIT, the default): clipped source
         // intervals are re-fitted with the original least-squares fitter so
@@ -22259,9 +22303,17 @@
             let foldSmoothed = false;   // v20260803c: a curved fold needs nonzero
             const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
             const zBounds = { minZ: Infinity, maxZ: -Infinity };
+            let u0 = Infinity, u1 = -Infinity;   // sticker-back section extent
             for (const ri of [o.idx, ...o.holes]) {
               const m = mapped[ri].m;
               const rUV = mapped[ri].uv;
+              if (uOfSub) {
+                for (const p of rUV.pts) {
+                  const u = uOfSub(p[0], p[1]);
+                  if (u < u0) u0 = u;
+                  if (u > u1) u1 = u;
+                }
+              }
               const nseg = m.pts.length;
               // Per-edge commands shared by fill and strokes, so their
               // geometry coincides exactly (anchor-fit or Catmull-Rom in
@@ -22318,6 +22370,7 @@
             fragments.push({
               d: d.trim(), zSum, count, avgZ: zSum / count,
               type: 'split', layer, strokes, useNonzero: foldSmoothed,
+              u0: u0 <= u1 ? u0 : 0, u1: u0 <= u1 ? u1 : 1,
               bounds, zBounds
             });
           }
@@ -30661,7 +30714,16 @@
             return fr.mode === 'curl' || fr.scaleU !== 1 || fr.scaleV !== 1
               || fr.creaseList.some(ck => Math.abs(ck.angle) >= 1e-9);
           })());
-        const zSortOn = this.zSortChildren || foldZSort;
+        // STICKER BACK for mapping (v20260803i): like a fold root, a mapping
+        // root with Sticker Back on must z-sort its subtree deep — the
+        // back-face layer flip reorders faces ACROSS children, which plain
+        // per-child DOM stacking can never express (foldZSort precedent,
+        // v20260721j). Gated on the checkbox, so plain mappings keep their
+        // authored DOM order exactly as before.
+        const mapStickerZSort = !!(activeMapping && activeMapping === this.surfaceConstraint &&
+          ((this.surfaceConstraint.active && this.surfaceConstraint.targetId && this.surfaceConstraint.stickerBack) ||
+            (this.surfaceConstraint.surfaceMapping?.enabled && this.surfaceConstraint.surfaceMapping.surfacePathId && this.surfaceConstraint.surfaceMapping.stickerBack)));
+        const zSortOn = this.zSortChildren || foldZSort || mapStickerZSort;
 
         // Build child draw options (shared by all branches)
         const childOpts = {
@@ -30706,7 +30768,7 @@
           // Propagate deepZSort: 'descendants' mode, inherited from parent,
           // or an implicit fold-root sort (v20260721j — nested groups must
           // flatten so every descendant's fold faces join the one list).
-          const isDeep = (this.zSortMode === 'descendants') || deepZSort || foldZSort;
+          const isDeep = (this.zSortMode === 'descendants') || deepZSort || foldZSort || mapStickerZSort;
 
           for (const child of this.children) {
             child.draw(currentMVP, { ...childOpts, externalFaceList: sharedFaceList, deepZSort: isDeep });
@@ -30760,8 +30822,12 @@
                   members.forEach(m => { area += (m._area || 0); zSum += m.z; });
                   const refSign = members[0]._foldOrd.refSign || -1;
                   const backFacing = area * refSign < 0;
+                  // Sticker Back toggle (v20260803j): default ON — the flip IS
+                  // fold's heritage sticker model. OFF keeps authored order in
+                  // any orientation (the mapping checkbox's off semantics).
+                  const flip = backFacing && members[0]._foldOrd.stickerBack !== false;
                   const gSec = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-                  (backFacing ? members.slice().reverse() : members)
+                  (flip ? members.slice().reverse() : members)
                     .forEach(m => gSec.appendChild(m.element));
                   sections.push({ element: gSec, z: zSum / members.length });
                   sectionPolys.push(members.flatMap(m => m._foldOrd.polys));
@@ -30799,6 +30865,65 @@
                     Path._orderFoldBands(sections, sectionPolys, fr, eyeL);
                   }
                 }
+              }
+            }
+            // STICKER BACK sections for MAPPED groups (v20260803i, mirrors
+            // the fold sticker-section pass above; PLAN-mapping-sticker-back
+            // .md). A mapped group is ONE sticker: all children's fragments
+            // of one physical band of the sheet composite into ONE section
+            // <g> whose inner order is the AUTHORED order (face-list
+            // encounter order) — REVERSED when the band shows its BACK.
+            // Facing comes from the RC layer tag (mapping gets it from the
+            // silhouette field for free, where fold needed the projected-
+            // area sign), corrected for mirrored mappings (negative
+            // scaleU·scaleV flips the field's normal orientation and with
+            // it the tags). Section identity is the u-extent in group
+            // mapping space: pieces of one band OVERLAP in u across
+            // children; same-layer bands that merely TOUCH at a domain cut
+            // stay separate (strict-overlap test), so each wrap of a spiral
+            // z-orders on its own.
+            {
+              const mapKeys = new Map();
+              sharedFaceList.forEach((f, idx) => {
+                if (f && f._mapOrd) {
+                  let arr = mapKeys.get(f._mapOrd.key);
+                  if (!arr) mapKeys.set(f._mapOrd.key, arr = []);
+                  f._mapIdx = idx;
+                  arr.push(f);
+                }
+              });
+              for (const [mk, faces] of mapKeys) {
+                const mirror = ((mk.scaleU ?? 1) * (mk.scaleV ?? 1)) < 0;
+                const sorted = faces.slice().sort((a, b) =>
+                  (a._mapOrd.u0 + a._mapOrd.u1) - (b._mapOrd.u0 + b._mapOrd.u1));
+                const sections = [];
+                let cur = null;
+                for (const f of sorted) {
+                  const o = f._mapOrd;
+                  if (cur && cur.layer === o.layer && o.u0 < cur.u1 - 1e-9) {
+                    cur.members.push(f);
+                    if (o.u1 > cur.u1) cur.u1 = o.u1;
+                  } else {
+                    cur = { layer: o.layer, u1: o.u1, members: [f] };
+                    sections.push(cur);
+                  }
+                }
+                const remove = new Set(faces);
+                const out = [];
+                for (const sec of sections) {
+                  const members = sec.members.slice().sort((a, b) => a._mapIdx - b._mapIdx);
+                  const backFacing = (sec.layer === 'back') !== mirror;
+                  const gSec = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                  (backFacing ? members.slice().reverse() : members)
+                    .forEach(m => gSec.appendChild(m.element));
+                  let zSum = 0;
+                  sec.members.forEach(m => { zSum += m.z; });
+                  out.push({ element: gSec, z: zSum / sec.members.length });
+                }
+                for (let i = sharedFaceList.length - 1; i >= 0; i--) {
+                  if (remove.has(sharedFaceList[i])) sharedFaceList.splice(i, 1);
+                }
+                out.forEach(s => sharedFaceList.push(s));
               }
             }
             // This is the top-level z-sorted group: sort and render.
@@ -31091,6 +31216,7 @@
           scaleV: 1,
           mode: 'fold',  // 'fold' | 'wrap' | 'curl' (v20260720x: curl = endless roll)
           forceSplit: false, // v20260722b: fold cuts at EVERY crease (legacy render); off = bend, cut only at silhouettes/overlaps
+          stickerBack: true, // v20260803j: back-facing sections reverse child order (white sticker backing). DEFAULT ON — fold's heritage behavior; every read is `!== false` so legacy scenes (no key) stay ON
           drawCrease: false,     // v20260722c: stroke drawn ON the crease lines (fold mode)
           creaseColor: '#000000',
           creaseWidth: 1,        // display units (same conversion as the Style tab stroke width)
@@ -34592,7 +34718,7 @@
                   // Fold cells key by SIG (global identity, v20260721n);
                   // curved bands by index (their band arrays are always
                   // full-length per child, so the index IS global).
-                  if (face) face._foldOrd = { frame: foldInh.frame, eye: foldEye, band: b.sig !== undefined ? b.sig : bi, refSign, polys: bandPolys(b), cells: b.cells || null };
+                  if (face) face._foldOrd = { frame: foldInh.frame, eye: foldEye, band: b.sig !== undefined ? b.sig : bi, refSign, polys: bandPolys(b), cells: b.cells || null, stickerBack: foldInh.settings?.stickerBack !== false };
                 });
               }
               // Exact hinge rule (FOLD only — base | flap about the crease
@@ -34799,7 +34925,18 @@
                   }
 
                   if (fragGroup.childNodes.length > 0) {
-                    faceList.push({ element: fragGroup, z: frag.avgZ || 0 });
+                    const face = { element: fragGroup, z: frag.avgZ || 0 };
+                    // Sticker Back (v20260803i): a GROUP-mapped child's split
+                    // fragments carry their section identity up to the group
+                    // pass — mapping-config object as the key (the fold pass's
+                    // frame-object trick), RC layer as the facing signal.
+                    if (inheritedMapping && activeMapping.stickerBack && frag.type === 'split') {
+                      face._mapOrd = {
+                        key: activeMapping, layer: frag.layer,
+                        u0: frag.u0 ?? 0, u1: frag.u1 ?? 1
+                      };
+                    }
+                    faceList.push(face);
                   }
                 });
               }
@@ -34985,7 +35122,17 @@
 
                   // Only add to faceList if the group has children
                   if (fragGroup.childNodes.length > 0) {
-                    faceList.push({ element: fragGroup, z: frag.avgZ || 0 });
+                    const face = { element: fragGroup, z: frag.avgZ || 0 };
+                    // Sticker Back (v20260803i) — see the spline-flow site.
+                    // Key = the surfaceMapping sub-object, so a group's spline
+                    // flow and surface mapping can never share sections.
+                    if (inheritedMapping && activeMapping.surfaceMapping?.stickerBack && frag.type === 'split') {
+                      face._mapOrd = {
+                        key: activeMapping.surfaceMapping, layer: frag.layer,
+                        u0: frag.u0 ?? 0, u1: frag.u1 ?? 1
+                      };
+                    }
+                    faceList.push(face);
                   }
                 });
               }
@@ -49296,6 +49443,25 @@
         }
       });
     }
+
+    // Sticker Back (v20260803i): back-facing bands paint their children in
+    // reversed authored order — the fold sticker model for spline flow.
+    const surfaceStickerBackInput = document.getElementById('surfaceStickerBackInput');
+    if (surfaceStickerBackInput) {
+      surfaceStickerBackInput.addEventListener('change', (e) => {
+        pushUndoStateCoalesced();
+        const val = e.target.checked;
+        if (selectedObject && selectedObject.surfaceConstraint?.active) {
+          selectedObject.surfaceConstraint.stickerBack = val;
+          requestRender();
+        } else if (selectedObjects.length > 0) {
+          selectedObjects.forEach(obj => {
+            if (obj.surfaceConstraint) obj.surfaceConstraint.stickerBack = val;
+          });
+          requestRender();
+        }
+      });
+    }
     // (Closure Steps input removed in v20260704h — it was the legacy
     // closure tracer's quality dial; the region-clip splitter has no
     // closure tracing. closureSteps stays in the data model for scene
@@ -51054,6 +51220,8 @@
           if (hOffInput && document.activeElement !== hOffInput) hOffInput.value = sc.hOffset || 0;
           if (resInput && document.activeElement !== resInput) resInput.value = sc.resolution || 16;
           if (splitInput && document.activeElement !== splitInput) splitInput.checked = (sc.silhouetteSplit !== false);
+          const sfStickerInput = document.getElementById('surfaceStickerBackInput');
+          if (sfStickerInput && document.activeElement !== sfStickerInput) sfStickerInput.checked = !!sc.stickerBack;
           if (bankInput && document.activeElement !== bankInput) bankInput.value = sc.bankFactor ?? 1;
           if (twistInput && document.activeElement !== twistInput) twistInput.value = sc.twist || 0;
           if (sfScaleUInput && document.activeElement !== sfScaleUInput) sfScaleUInput.value = sc.scaleU ?? 1;
@@ -51082,6 +51250,10 @@
         if (hOffInput) hOffInput.disabled = ctrlDisabled;
         if (resInput) resInput.disabled = ctrlDisabled;
         if (splitInput) splitInput.disabled = ctrlDisabled;
+        {
+          const sfStickerEl = document.getElementById('surfaceStickerBackInput');
+          if (sfStickerEl) sfStickerEl.disabled = ctrlDisabled;
+        }
         if (bankInput) bankInput.disabled = ctrlDisabled;
         if (twistInput) twistInput.disabled = ctrlDisabled;
         if (sfScaleUInput) sfScaleUInput.disabled = ctrlDisabled;
@@ -51153,8 +51325,10 @@
 
         const smResolution = document.getElementById('surfaceMappingResolution');
         const smSplitInput = document.getElementById('surfaceMappingSplitInput');
+        const smStickerInput = document.getElementById('surfaceMappingStickerBackInput');
         if (smResolution && document.activeElement !== smResolution) smResolution.value = sm.resolution || 8;
         if (smSplitInput && document.activeElement !== smSplitInput) smSplitInput.checked = (sm.silhouetteSplit !== false);
+        if (smStickerInput && document.activeElement !== smStickerInput) smStickerInput.checked = !!sm.stickerBack;
         const smAlgorithmSelect = document.getElementById('surfaceMappingAlgorithm');
         if (smAlgorithmSelect && document.activeElement !== smAlgorithmSelect) smAlgorithmSelect.value = sm.algorithm || 'subdivision';
         // Resolution row only applies to Subdivide (mirrors spline flow)
@@ -51178,6 +51352,7 @@
         if (smRotation) smRotation.disabled = smDisabled;
         if (smResolution) smResolution.disabled = smDisabled;
         if (smSplitInput) smSplitInput.disabled = smDisabled;
+        if (smStickerInput) smStickerInput.disabled = smDisabled;
         if (smAlgorithmSelect) smAlgorithmSelect.disabled = smDisabled;
         const smAxisUEl = document.getElementById('surfaceMappingAxisU');
         const smAxisVEl = document.getElementById('surfaceMappingAxisV');
@@ -51301,6 +51476,16 @@
           if (fdFsInput && document.activeElement !== fdFsInput) {
             fdFsInput.checked = !!(fd && fd.forceSplit);
             fdFsInput.disabled = fdDisabled;
+          }
+          // Sticker Back (v20260803j): ALL modes — the owner's use case is
+          // curl. Default-ON polarity: read is `!== false` so legacy scenes
+          // (no key) stay checked.
+          {
+            const sbInput = document.getElementById('foldStickerBackInput');
+            if (sbInput && document.activeElement !== sbInput) {
+              sbInput.checked = !fd || fd.stickerBack !== false;
+              sbInput.disabled = fdDisabled;
+            }
           }
           // Draw Crease (v20260722c, Fold mode only): stroke row mirrors the
           // Style tab; the fade row shows only while Draw Crease is on.
@@ -52265,6 +52450,18 @@
         }
       });
     }
+
+    // Sticker Back (v20260803i) — see the spline-flow listener.
+    const surfaceMappingStickerBackInput = document.getElementById('surfaceMappingStickerBackInput');
+    if (surfaceMappingStickerBackInput) {
+      surfaceMappingStickerBackInput.addEventListener('change', (e) => {
+        pushUndoStateCoalesced();
+        if (selectedObject && selectedObject.surfaceConstraint?.surfaceMapping) {
+          selectedObject.surfaceConstraint.surfaceMapping.stickerBack = e.target.checked;
+          requestRender();
+        }
+      });
+    }
     // (Closure Steps input removed in v20260704h — see spline-flow note.)
 
     const surfaceMappingOverflowModeUSelect = document.getElementById('surfaceMappingOverflowModeU');
@@ -52382,6 +52579,7 @@
           if (o.isGroup && !o.foldSettings) {
             o.foldSettings = {
               enabled: false, axisU: 'X', axisV: 'Y', scaleU: 1, scaleV: 1, mode: 'fold', forceSplit: false,
+              stickerBack: true,
               drawCrease: false, creaseColor: '#000000', creaseWidth: 1, creaseFade: false, creaseFadeAngle: 90,
               creaseCap: 'round', creaseDash: '', creaseShowAt0: false,
               creases: [{ position: 0.5, rotation: 0, angle: 0, radius: 0.5, pitch: 0, tighten: 0, side: 'right' }]
@@ -52448,6 +52646,10 @@
       // count changes).
       document.getElementById('foldForceSplitInput')?.addEventListener('change', (e) => {
         fdApply(fd => { fd.forceSplit = e.target.checked; });
+      });
+      // STICKER BACK (v20260803j) — default ON; see the panel row note.
+      document.getElementById('foldStickerBackInput')?.addEventListener('change', (e) => {
+        fdApply(fd => { fd.stickerBack = e.target.checked; });
       });
       // DRAW CREASE (v20260722c)
       document.getElementById('foldDrawCreaseInput')?.addEventListener('change', (e) => {

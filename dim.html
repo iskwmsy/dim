@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260807n -->
+<!-- dim v20260807s -->
 
 <!--
   MIT License
@@ -242,6 +242,56 @@
       color: var(--text-main);
       font-size: var(--font-size-label);
       line-height: var(--line-height-normal);
+      /* UI TEXT SELECTION (v20260807s) — see the block below. */
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* --- UI TEXT SELECTION (v20260807s) ---------------------------------
+       This is an APPLICATION, not a document: a drag across the canvas or a
+       panel must not leave a smear of selected label text behind. So the app
+       defaults to NON-selectable and opts IN for real text entry, which is
+       the inverse of what was here before — fourteen per-component
+       `user-select: none` rules added one report at a time (#toolDrawerHeader,
+       .ui-header, .history-entry, .qs-label, .tree-toggle, .tl-header,
+       .tl-group-header …), each fixing the place someone happened to notice.
+       Measured before this rule: 430 selectable text elements (286 <label>,
+       67 <button>, 44 <div>, 33 <span>), and one drag across the tool panel
+       selected 86 characters of labels.
+       Those fourteen rules are now redundant but harmless and are LEFT IN
+       PLACE: they are not dead (each still wins on its own element) and
+       removing them would be pure diff noise on a cosmetic change.
+       help.html is a separate document and is deliberately NOT changed —
+       help text should stay selectable and copyable.
+       Nothing here can affect copy/paste: the app never reads a document
+       selection (no getSelection / execCommand anywhere); Copy to Clipboard
+       and Export SVG build their strings programmatically. */
+
+    /* Real text entry still selects — and, importantly, a container that opted
+       out above must not take its FIELDS with it. Before this reset seven
+       inputs computed `user-select: none` purely by inheritance, including
+       #objectNameInput (rename) and the timeline's frame / range / fps
+       fields, from .ui-header and .tl-header. Whether that measurably
+       degraded mouse selection inside them could NOT be settled with the
+       synthetic-drag harness (the unblocked control selected nothing while
+       the blocked field selected everything — the instrument, not the code),
+       so this reset is here on correctness grounds: a text field should never
+       inherit "unselectable" from the panel that frames it. */
+    input,
+    textarea,
+    [contenteditable="true"] {
+      user-select: text;
+      -webkit-user-select: text;
+    }
+
+    /* Escape hatch: put .ui-selectable on anything a user should be able to
+       select and copy (a readout, an id, a diagnostic string). Nothing uses it
+       yet — it exists so the next such case is a class, not another one-off
+       override fighting the default. */
+    .ui-selectable,
+    .ui-selectable * {
+      user-select: text;
+      -webkit-user-select: text;
     }
 
     #svgContainer {
@@ -5314,6 +5364,16 @@
             <div class="prop-row prop-inline" id="marqueeIntersectRow">
               <label for="marqueeIntersectCb" class="ui-checkbox-label">Select intersecting Objects</label>
               <input type="checkbox" id="marqueeIntersectCb" class="ui-checkbox" checked />
+            </div>
+            <!-- SELECT CHILD (v20260807p): ON = a canvas click selects the
+                 actual hit LEAF object instead of its root group. OFF (default)
+                 = the historic root-group selection. Cmd/Ctrl-click deep-selects
+                 regardless, the Figma/Sketch idiom. Session tool preference
+                 (DOM state only, never serialized) — V-tool-only row, toggled in
+                 setTool like marqueeMultiObjRow. -->
+            <div class="prop-row prop-inline" id="selectChildRow">
+              <label for="selectChildCb" class="ui-checkbox-label">Select Child</label>
+              <input type="checkbox" id="selectChildCb" class="ui-checkbox" />
             </div>
             <div class="prop-row prop-inline" id="marqueeMultiObjRow">
               <label for="marqueeMultiObjCb" class="ui-checkbox-label">Select from different Objects</label>
@@ -10516,6 +10576,7 @@
       const marqueeIntersectRow = document.getElementById('marqueeIntersectRow');
       const marqueeMultiObjRow = document.getElementById('marqueeMultiObjRow');
       const dsMoveHandlesRow = document.getElementById('dsMoveHandlesRow');
+      const selectChildRow = document.getElementById('selectChildRow');
       if (marqueeContainer) {
         if (tool === 'select') {
           marqueeContainer.classList.remove('hidden');
@@ -10523,12 +10584,15 @@
           if (marqueeIntersectRow) marqueeIntersectRow.style.display = 'flex';
           if (marqueeMultiObjRow) marqueeMultiObjRow.style.display = 'none';
           if (dsMoveHandlesRow) dsMoveHandlesRow.style.display = 'none';
+          if (selectChildRow) selectChildRow.style.display = 'flex';
         } else if (tool === 'directSelect') {
           marqueeContainer.classList.remove('hidden');
           marqueeContainer.style.display = 'block';
           if (marqueeIntersectRow) marqueeIntersectRow.style.display = 'none';
           if (marqueeMultiObjRow) marqueeMultiObjRow.style.display = 'flex';
           if (dsMoveHandlesRow) dsMoveHandlesRow.style.display = 'flex';
+          // v20260807q: the A tool gets the same row — same checkbox, same state.
+          if (selectChildRow) selectChildRow.style.display = 'flex';
         } else {
           marqueeContainer.classList.add('hidden');
           marqueeContainer.style.display = 'none';
@@ -15454,6 +15518,88 @@
         return null;
       };
       return search(sceneObjects);
+    };
+
+    // --- SELECT CHILD: resolving the LEAF object under a hit element ---------
+    // (v20260807p) A canvas pick cannot be answered by DOM nesting alone,
+    // because nesting only mirrors the object tree for PLAIN groups. A
+    // z-sorted group commits its descendants' FACE elements directly into its
+    // own <g> and evicts the child <g>s (see `_zsDomCommitted`), so from the
+    // DOM a face is indistinguishable from geometry the group itself drew.
+    // MEASURED on the boot scene: every one of the group's 68 live paths
+    // resolves to the GROUP under a contains() walk, z-sorted or not — which
+    // is also why the pre-existing `while (obj.parent)` root-walk was a no-op
+    // for grouped objects, and why the old comment claiming Direct Select
+    // already yielded a leaf was wrong.
+    //
+    // So the producing Path stamps each face element it pushes. Stamped
+    // UNCONDITIONALLY every frame: face elements persist across frames, and a
+    // write-once guard leaves a stale owner behind (measured — it reported one
+    // child owning all 68 faces of a two-child group). Only non-group children
+    // stamp, so a nested group's own loop gets there first and the LEAF wins.
+    // It is a JS expando, never an attribute: exported SVG, Copy-to-Clipboard
+    // and dimFillHash are untouched, so this cannot move a corpus hash.
+    const _stampPickOwner = (child, faceList, from) => {
+      if (!child || child.isGroup || !faceList) return;
+      for (let i = from; i < faceList.length; i++) {
+        const f = faceList[i];
+        if (f && f.element) f.element._dimPickOwner = child;
+      }
+    };
+
+    // Deepest object owning `el`: the stamp when there is one, else the
+    // innermost svgElement that contains it. Descends only into containers
+    // that actually contain `el`, so an evicted (detached) child <g> from an
+    // earlier frame can never claim a hit. Falls back to the group when a face
+    // is unstamped, which is the pre-feature answer — degrading safely.
+    const findDeepObjectByElement = (el) => {
+      for (let n = el; n && n !== pathGroup; n = n.parentNode) {
+        if (n._dimPickOwner) return n._dimPickOwner;
+      }
+      const deepest = (objects) => {
+        for (const obj of objects) {
+          if (obj.svgElement && (obj.svgElement === el || obj.svgElement.contains(el))) {
+            if (obj.isGroup) { const d = deepest(obj.children); if (d) return d; }
+            return obj;
+          }
+        }
+        return null;
+      };
+      return deepest(sceneObjects);
+    };
+
+    // Is this click a deep-select? The V-tool checkbox is the persistent form,
+    // Cmd/Ctrl-click the momentary one (Figma/Sketch). Read from the DOM at use
+    // time — session state, like #dsMoveHandlesCb, never serialized.
+    // v20260807q: BOTH selection tools. The A tool never reached a leaf either
+    // (findObjectByElement returns the outermost container regardless of tool,
+    // so its "select the leaf" branch was selecting the group), and on A that
+    // is the difference between being able to edit a grouped path's vertices
+    // and not — vertex editing needs a Path selected, and a Group has none.
+    // ONE checkbox shared by both panels on purpose: "clicks resolve to leaves"
+    // is one preference, and two independent states for the same idea is how a
+    // control starts lying about what it does.
+    const _isDeepSelectClick = (event) => {
+      if (currentTool !== 'select' && currentTool !== 'directSelect') return false;
+      if (event && (event.metaKey || event.ctrlKey)) return true;
+      const cb = document.getElementById('selectChildCb');
+      return !!(cb && cb.checked);
+    };
+
+    // World drag delta -> the object's PARENT space (v20260807p). `position` is
+    // parent-relative, so adding a world delta is only correct at the root.
+    // MEASURED before the fix, group ry=90: a +10 X drag moved the child
+    // -10 in Z. Parentless objects return the delta unchanged, so every
+    // pre-existing drag is bit-identical.
+    const _worldDeltaToParent = (obj, wd) => {
+      if (!obj || !obj.parent || !wd) return wd;
+      const inv = matrixInverse(obj.parent.getWorldMatrix());
+      if (!inv) return wd;                       // singular — keep old behaviour
+      return [
+        inv[0][0] * wd[0] + inv[0][1] * wd[1] + inv[0][2] * wd[2],
+        inv[1][0] * wd[0] + inv[1][1] * wd[1] + inv[1][2] * wd[2],
+        inv[2][0] * wd[0] + inv[2][1] * wd[1] + inv[2][2] * wd[2],
+      ];
     };
 
     // --- Constants ---
@@ -32690,7 +32836,9 @@
           const isDeep = (this.zSortMode === 'descendants') || deepZSort || foldZSort || mapStickerZSort;
 
           for (const child of this.children) {
+            const _pk0 = sharedFaceList.length;
             child.draw(currentMVP, { ...childOpts, externalFaceList: sharedFaceList, deepZSort: isDeep });
+            _stampPickOwner(child, sharedFaceList, _pk0);
           }
 
           if (!externalFaceList) {
@@ -32975,7 +33123,9 @@
             // --- "All Descendants" mode: flatten through this group ---
             // Pass the shared face list through to children recursively
             for (const child of this.children) {
+              const _pk0 = externalFaceList.length;
               child.draw(currentMVP, { ...childOpts, externalFaceList, deepZSort: true });
+              _stampPickOwner(child, externalFaceList, _pk0);
             }
           } else {
             // --- "Children" mode: treat this group as an opaque block ---
@@ -60487,11 +60637,19 @@
 
           // Normalize Selection Target
           if (clickedObject) {
-            // Select/Rotate/Scale -> Select Root
-            if (currentTool !== 'directSelect') {
+            // SELECT CHILD (v20260807p; both selection tools since v20260807q):
+            // the actual hit LEAF, via the shared checkbox or a momentary
+            // Cmd/Ctrl-click. findObjectByElement above returns the OUTERMOST
+            // container whatever the tool, so this needs its own resolver — see
+            // findDeepObjectByElement. Without it the A tool lands in the
+            // else-if below, falls through, and keeps that outermost container:
+            // the historic behaviour, and NOT the leaf its comment claimed.
+            if (_isDeepSelectClick(event)) {
+              clickedObject = findDeepObjectByElement(event.target) || clickedObject;
+            } else if (currentTool !== 'directSelect') {
+              // Select/Rotate/Scale -> Select Root
               while (clickedObject.parent) clickedObject = clickedObject.parent;
             }
-            // DirectSelect -> Select Leaf (clickedObject is already leaf from findObject)
           }
 
           if (clickedObject) {
@@ -61541,15 +61699,29 @@
             }
           }
         } else if (selectedObject) {
-          selectedObject.position = vectorAdd(selectedObject.position, moveVec);
-          if (selectedObjects.length > 1) {
-            selectedObjects.forEach(obj => {
-              obj.position = vectorAdd(obj.position, moveVec);
-              notifyPathUpdated(obj);
-            });
-          } else {
-            notifyPathUpdated(selectedObject);
-          }
+          // v20260807p: moveVec is a WORLD per-frame delta and `position` is
+          // parent-relative, so it has to be rotated into the parent's frame.
+          // No-op at the root. THIS IS THE SECOND TRANSLATE HANDLER — onMouseMove
+          // has two dispatch chains that both answer dragMode 'translate', and a
+          // position-write trap showed them alternating frame by frame, so a fix
+          // applied to only one of them silently does nothing.
+          // v20260807r: MOVE EACH SELECTED OBJECT EXACTLY ONCE. This used to
+          // write the primary and THEN loop over selectedObjects — which
+          // CONTAINS the primary (setSelectedObject pushes it, and the only
+          // other assignment picks a member of the list), so the primary got
+          // the delta twice under multi-select. Latent rather than visible:
+          // the other translate chain rewrites every position ABSOLUTELY from
+          // dragStartPos in the same event and runs second, so it overwrote
+          // the doubled value every frame. Measured before the fix, a
+          // two-object drag moved both by an identical 1.116 — the defect was
+          // real in the arithmetic and invisible in the result. Fixed anyway:
+          // the masking depends entirely on the two chains' order, and these
+          // two are redundant enough that one may well be deleted one day.
+          const _movers = (selectedObjects.length > 1) ? selectedObjects : [selectedObject];
+          _movers.forEach(obj => {
+            obj.position = vectorAdd(obj.position, _worldDeltaToParent(obj, moveVec));
+            notifyPathUpdated(obj);
+          });
         }
         updatePropertiesPanel();
       } else if (dragMode === 'scale') {
@@ -61764,15 +61936,17 @@
           applyVertexDragCarry(totalWorldDelta); // Move Handles with Anchor (v20260725k)
         } else {
           // Multi-object translation
+          // v20260807p: `position` is PARENT-relative, so a world delta has to
+          // be rotated into the parent's frame. No-op at the root.
           if (selectedObjects.length > 0) {
             selectedObjects.forEach(obj => {
               if (obj.dragStartPos) {
-                obj.position = vectorAdd(obj.dragStartPos, totalWorldDelta);
+                obj.position = vectorAdd(obj.dragStartPos, _worldDeltaToParent(obj, totalWorldDelta));
                 notifyPathUpdated(obj);
               }
             });
           } else {
-            selectedObject.position = vectorAdd(dragStartWorldPosition, totalWorldDelta);
+            selectedObject.position = vectorAdd(dragStartWorldPosition, _worldDeltaToParent(selectedObject, totalWorldDelta));
             notifyPathUpdated(selectedObject);
           }
         }
@@ -61891,16 +62065,16 @@
                 }
                 applyVertexDragCarry(totalWorldDelta); // Move Handles with Anchor (v20260725k)
               } else {
-                // Multi-object translation
+                // Multi-object translation (v20260807p: parent-space delta)
                 if (selectedObjects.length > 0) {
                   selectedObjects.forEach(obj => {
                     if (obj.dragStartPos) {
-                      obj.position = vectorAdd(obj.dragStartPos, totalWorldDelta);
+                      obj.position = vectorAdd(obj.dragStartPos, _worldDeltaToParent(obj, totalWorldDelta));
                       notifyPathUpdated(obj);
                     }
                   });
                 } else {
-                  selectedObject.position = vectorAdd(dragStartWorldPosition, totalWorldDelta);
+                  selectedObject.position = vectorAdd(dragStartWorldPosition, _worldDeltaToParent(selectedObject, totalWorldDelta));
                   notifyPathUpdated(selectedObject);
                 }
               }
@@ -61965,16 +62139,16 @@
                 totalWorldDelta = vectorSubtract(_snappedPos, dragStartWorldPosition);
               }
 
-              // Multi-object translation
+              // Multi-object translation (v20260807p: parent-space delta)
               if (selectedObjects.length > 0) {
                 selectedObjects.forEach(obj => {
                   if (obj.dragStartPos) {
-                    obj.position = vectorAdd(obj.dragStartPos, totalWorldDelta);
+                    obj.position = vectorAdd(obj.dragStartPos, _worldDeltaToParent(obj, totalWorldDelta));
                     notifyPathUpdated(obj);
                   }
                 });
               } else {
-                selectedObject.position = vectorAdd(dragStartWorldPosition, totalWorldDelta);
+                selectedObject.position = vectorAdd(dragStartWorldPosition, _worldDeltaToParent(selectedObject, totalWorldDelta));
                 notifyPathUpdated(selectedObject);
               }
             }
@@ -63026,12 +63200,16 @@
           }
           applyVertexDragCarry(totalWorldDelta); // Move Handles with Anchor (v20260725k)
         } else {
+          // v20260807p: parent-space delta (no-op at the root). The single-object
+          // branch cannot reuse newWorldPosition — that is a WORLD point.
           if (selectedObjects.length > 0) {
             selectedObjects.forEach(obj => {
               if (obj.dragStartPos) {
-                obj.position = vectorAdd(obj.dragStartPos, totalWorldDelta);
+                obj.position = vectorAdd(obj.dragStartPos, _worldDeltaToParent(obj, totalWorldDelta));
               }
             });
+          } else if (selectedObject.parent) {
+            selectedObject.position = vectorAdd(dragStartWorldPosition, _worldDeltaToParent(selectedObject, totalWorldDelta));
           } else {
             selectedObject.position = newWorldPosition;
           }
@@ -63083,12 +63261,15 @@
           }
           applyVertexDragCarry(totalWorldDelta); // Move Handles with Anchor (v20260725k)
         } else {
+          // v20260807p: parent-space delta (no-op at the root).
           if (selectedObjects.length > 0) {
             selectedObjects.forEach(obj => {
               if (obj.dragStartPos) {
-                obj.position = vectorAdd(obj.dragStartPos, totalWorldDelta);
+                obj.position = vectorAdd(obj.dragStartPos, _worldDeltaToParent(obj, totalWorldDelta));
               }
             });
+          } else if (selectedObject.parent) {
+            selectedObject.position = vectorAdd(dragStartWorldPosition, _worldDeltaToParent(selectedObject, totalWorldDelta));
           } else {
             selectedObject.position = newWorldPosition;
           }
@@ -63128,8 +63309,17 @@
           };
           let clickedObject = findObjectByElement(event.target, sceneObjects);
           if (clickedObject) {
-            // Walk to root for group selection
-            while (clickedObject.parent) clickedObject = clickedObject.parent;
+            // SELECT CHILD (v20260807p): this path lands on the V tool, so it
+            // honours the same rule. The checkbox is read against the tool this
+            // click is about to switch TO, hence the explicit 'select' test.
+            const _deep = (event.metaKey || event.ctrlKey)
+              || (() => { const cb = document.getElementById('selectChildCb'); return !!(cb && cb.checked); })();
+            if (_deep) {
+              clickedObject = findDeepObjectByElement(event.target) || clickedObject;
+            } else {
+              // Walk to root for group selection
+              while (clickedObject.parent) clickedObject = clickedObject.parent;
+            }
             setSelectedObject(clickedObject);
             // Switch to V tool (which also resets cameraDragControl to 'shortcut')
             setTool('select');
@@ -64215,8 +64405,10 @@
             requestRender();
           } else if (selectedObjects && selectedObjects.length > 1) {
             // Move multiple objects (V tool multi-select)
+            // v20260807p: parent-space delta, same rule as the drag — an arrow
+            // nudge is the keyboard form of the same gesture. No-op at the root.
             selectedObjects.forEach(obj => {
-              obj.position = vectorAdd(obj.position, worldSpaceDelta);
+              obj.position = vectorAdd(obj.position, _worldDeltaToParent(obj, worldSpaceDelta));
             });
             // AUTO-KEY (v20260721q): a nudge is a position edit like a drag
             if (typeof tlAutoKeyProps === 'function') selectedObjects.forEach(o => tlAutoKeyProps(tlKeyOf(o), ['posX', 'posY', 'posZ']));
@@ -64224,8 +64416,8 @@
             updateMoveToolUI();
             requestRender();
           } else if (selectedObject) {
-            // Move single object
-            selectedObject.position = vectorAdd(selectedObject.position, worldSpaceDelta);
+            // Move single object (v20260807p: parent-space delta)
+            selectedObject.position = vectorAdd(selectedObject.position, _worldDeltaToParent(selectedObject, worldSpaceDelta));
             // AUTO-KEY (v20260721q): a nudge is a position edit like a drag
             if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(selectedObject), ['posX', 'posY', 'posZ']);
             updatePropertiesPanel();

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260807s -->
+<!-- dim v20260808j -->
 
 <!--
   MIT License
@@ -1934,10 +1934,48 @@
     }
 
     .ui-checkbox-label {
-      cursor: pointer;
+      /* NOT `pointer`: since v20260807t the text is not a hit area — see below. */
+      cursor: default;
       display: inline-block;
       margin-right: var(--space-sm);
       font-size: var(--font-size-field);
+    }
+
+    /* --- CHECKBOX HIT AREA (v20260807t) ---------------------------------
+       THE BOX IS THE HIT AREA, NOT ITS TEXT. Clicking the LABEL used to
+       toggle the checkbox — native `<label for>` activation, present since
+       the markup was written and NOT introduced by v20260807s (verified by
+       serving the v20260807r build and reproducing the toggle there). What
+       v20260807s changed is how it FEELS: while label text was selectable a
+       stray click read as "I selected some text", and once the UI stopped
+       selecting, the same stray click reads as a setting flipping by itself.
+       Owner-reported after that release, so it is fixed here.
+
+       `pointer-events: none` is the whole mechanism, and it is deliberately
+       NOT a markup change: `for` stays, so the label keeps its ACCESSIBILITY
+       association — screen readers still announce it and keyboard activation
+       is untouched. Only mouse activation through the text goes away.
+
+       Inventory at the time of writing: 38 checkbox labels, 29 wired by `for`
+       and 9 WRAPPING their input — hence the second rule, without which the
+       wrapped boxes (.tl-checkbox-label, and 6 .ui-checkbox-label) would
+       become unclickable altogether. Zero radios exist; the rule covers them
+       anyway if any are added. Six checkbox labels carried NO class and were
+       given .ui-checkbox-label in the same release rather than being matched
+       by a fragile selector.
+
+       Labels for TEXT / NUMBER / SELECT controls (88 of them) are deliberately
+       untouched: clicking those focuses a field, which changes no state and is
+       a genuine convenience. */
+    .ui-checkbox-label,
+    .tl-checkbox-label {
+      pointer-events: none;
+    }
+
+    /* …but a checkbox nested INSIDE its label must stay clickable. */
+    .ui-checkbox-label>*,
+    .tl-checkbox-label>* {
+      pointer-events: auto;
     }
 
     /* Standardize toggle+label: label left, toggle right, inline */
@@ -4966,6 +5004,29 @@
             </div>
           </div>
         </div>
+        <!-- FOCAL LENGTH (v20260807u) — the 35mm-equivalent MIRROR of FOV, so the
+             lens is legible while working ("am I on a 35 or a 135?"). FOV is the
+             mother value; this only converts. Editing it writes the solved FOV
+             into camFovInput and delegates to updateCameraFromInput, so Keep
+             Size, Hold Framing, Auto-Key and camera undo all see an ordinary FOV
+             edit. PERSPECTIVE ONLY — hidden in ortho/oblique, where camFovInput
+             becomes the Size box and a lens has no meaning. -->
+        <div class="xyz-row" id="camFocalRow">
+          <!-- "35mm" rides the COLUMN LABEL, not the row label (v20260807v).
+               The owner asked for "Focal (35mm)"; measured, that string needs
+               75px against .xyz-row's fixed 68px label column and ellipsised.
+               Widening just this row would misalign its field against Dist/FOV
+               above and Framing below, so the qualifier moved into the panel's
+               own idiom instead — the same xyz-col-label slot that carries
+               "Dist" and "FOV" one row up. Reads "Focal | 35mm | 50". -->
+          <label for="camFocalInput" title="Focal length in 35mm-equivalent terms (36mm sensor width). A mirror of FOV — editing either moves the other.">Focal</label>
+          <div class="xyz-inputs">
+            <div class="xyz-field">
+              <span class="xyz-col-label">35mm</span>
+              <input type="number" id="camFocalInput" step="1" min="0.1" />
+            </div>
+          </div>
+        </div>
         <div class="prop-row prop-inline">
           <label for="camFovCompensateCheckbox" class="ui-checkbox-label">Keep Size</label>
           <input type="checkbox" id="camFovCompensateCheckbox" class="ui-checkbox" />
@@ -5045,6 +5106,20 @@
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- RESTORE PRESET CAMERAS (v20260808b) — the seven locked presets are
+             not protected from being overwritten by a scene load (any file whose
+             cameras.list is shorter replaces the whole list, and the autosave
+             makes that permanent — see the state report §8). This puts them back
+             without touching Camera 1 or anything the user made: missing ones are
+             added, changed ones are reset to spec. Sits at the bottom of the
+             panel, below View, because it is a repair action rather than a
+             per-camera control. -->
+        <div class="ui-header-small">Presets</div>
+        <div class="prop-row prop-row-plain">
+          <button id="restorePresetCamerasBtn" class="ui-btn" style="width: 100%;"
+            title="Add any missing preset cameras (Front / Top / Side / Isometric / Dimetric / Trimetric / Default) and reset changed ones to their standard pose. Camera 1 and your own cameras are left alone.">Restore Preset Cameras</button>
         </div>
 
       </div>
@@ -5789,7 +5864,7 @@
               </div>
             </div>
             <div class="prop-row prop-inline">
-              <label for="snfClosePath">Close Path</label>
+              <label for="snfClosePath" class="ui-checkbox-label">Close Path</label>
               <input type="checkbox" id="snfClosePath" class="ui-checkbox" />
             </div>
 
@@ -5874,7 +5949,7 @@
               </div>
             </div>
             <div class="prop-row prop-inline">
-              <label for="textKerningCb">Kerning</label>
+              <label for="textKerningCb" class="ui-checkbox-label">Kerning</label>
               <input type="checkbox" id="textKerningCb" class="ui-checkbox" checked />
             </div>
             <div class="xyz-row">
@@ -6023,7 +6098,7 @@
               </div>
             </div>
             <div class="prop-row prop-inline">
-              <label for="cycClosePath">Close Path</label>
+              <label for="cycClosePath" class="ui-checkbox-label">Close Path</label>
               <input type="checkbox" id="cycClosePath" class="ui-checkbox" />
             </div>
 
@@ -6086,7 +6161,7 @@
               </div>
             </div>
             <div class="prop-row prop-inline">
-              <label for="lisLinearHeight">Linear Height</label>
+              <label for="lisLinearHeight" class="ui-checkbox-label">Linear Height</label>
               <input type="checkbox" id="lisLinearHeight" class="ui-checkbox" />
             </div>
             <div class="xyz-row">
@@ -6128,7 +6203,7 @@
               </div>
             </div>
             <div class="prop-row prop-inline">
-              <label for="lisClosePath">Close Path</label>
+              <label for="lisClosePath" class="ui-checkbox-label">Close Path</label>
               <input type="checkbox" id="lisClosePath" class="ui-checkbox" />
             </div>
 
@@ -6170,7 +6245,7 @@
               </div>
             </div>
             <div class="prop-row prop-inline">
-              <label for="doodleClosePath">Close Path</label>
+              <label for="doodleClosePath" class="ui-checkbox-label">Close Path</label>
               <input type="checkbox" id="doodleClosePath" class="ui-checkbox" />
             </div>
 
@@ -9005,6 +9080,12 @@
     const camFovInput = document.getElementById('camFovInput');
     const camFovLabelInput = document.getElementById('camFovLabelInput');
     const camFovColLabel = document.getElementById('camFovColLabel');
+    // FOCAL LENGTH (v20260807u): deliberately NOT added to `cameraInputs` below.
+    // That array wires every member into updateCameraFromInput as a SOURCE, and
+    // this field is not one — it converts and delegates through camFovInput, so
+    // the camera code never needs to know it exists. It IS added to inputsToLock.
+    const camFocalInput = document.getElementById('camFocalInput');
+    const camFocalRow = document.getElementById('camFocalRow');
     const camAzimuthInput = document.getElementById('camAzimuthInput');
     const camElevationInput = document.getElementById('camElevationInput');
     const camPanInput = document.getElementById('camPanInput');
@@ -15750,6 +15831,41 @@
       if (!(t > 1e-9)) return null;
       const d = framing / t;
       return Number.isFinite(d) && d > 0 ? d : null;
+    };
+
+    // FOCAL LENGTH, 35mm-EQUIVALENT (v20260807u) — a pure MIRROR of FOV, so the
+    // designer can read which lens they are working at. Unlike dist/fov/framing
+    // there is NO third degree of freedom here: given the sensor constant this
+    // is a bijection, so FOV stays the mother value and focal length is only a
+    // VIEW of it. Nothing else in the app stores, serializes or keyframes it.
+    //
+    // WHY 36: dim projects with `aspect = 1` (Camera.createProjectionMatrix), so
+    // its FOV covers a SQUARE field and the 1000-unit frame IS that square —
+    // which means the sensor dimension the square maps to is a CONVENTION, not
+    // a derivation. Mapping it to the full-frame WIDTH is the owner's call
+    // (2026-08-07) and the most legible one: a 50mm lens reads 50mm at FOV
+    // 39.6°, matching the horizontal framing a photographer pictures and
+    // Blender's 36mm default sensor under auto fit on a square render. The two
+    // alternatives were costed and declined — the 43.27mm DIAGONAL puts 50mm at
+    // 46.8° and the 24mm HEIGHT at 27°. Changing this constant re-labels every
+    // displayed lens and changes no geometry.
+    const CAM_SENSOR_MM = 36;
+    const camFocalFromFov = (fovDeg) => {
+      if (!(fovDeg > 0) || !(fovDeg < 180)) return null;
+      const t = Math.tan((fovDeg * Math.PI) / 360);
+      if (!(t > 1e-9)) return null;
+      const f = (CAM_SENSOR_MM / 2) / t;
+      return Number.isFinite(f) ? f : null;
+    };
+    // The inverse, CLAMPED to the same [1, 179] the panel enforces — on
+    // camFovForFraming's contract, and for its reason: a typed 5000mm resolves
+    // to the longest lens this camera can express rather than being silently
+    // refused. At CAM_SENSOR_MM 36 the expressible range is ~0.16–2063mm.
+    const camFovForFocal = (focalMm) => {
+      if (!(focalMm > 1e-6)) return { fov: null, clamped: false };
+      const raw = (2 * Math.atan((CAM_SENSOR_MM / 2) / focalMm) * 180) / Math.PI;
+      const fov = Math.min(CAM_FOV_MAX, Math.max(CAM_FOV_MIN, raw));
+      return { fov, clamped: Math.abs(fov - raw) > 1e-9 };
     };
 
     // HOLD FRAMING (v20260802h, PLAN-animatable-keep-size.md) — the animated twin
@@ -23178,18 +23294,86 @@
         };
 
         // Nodes: arc endpoints located on the perimeter.
-        const nodes = [];
-        arcs.forEach((a) => {
-          const pA = a.pts[0], pB = a.pts[a.pts.length - 1];
-          const sA = sOf(pA), sB = sOf(pB);
-          if (sA < 0 || sB < 0) {
-            a._dropped = true; // NaN-border arc — best-effort: ignore
-            if (typeof debugLog === 'function') debugLog('[RC] buildFrontRegion: dropped non-perimeter arc');
-            return;
+        let sliverDropped = 0;
+        arcs.forEach(a => { a._dropped = false; });
+        const gatherNodes = () => {
+          const out = [];
+          arcs.forEach((a, ai) => {
+            if (a._dropped) return;
+            const pA = a.pts[0], pB = a.pts[a.pts.length - 1];
+            const sA = sOf(pA), sB = sOf(pB);
+            if (sA < 0 || sB < 0) {
+              a._dropped = true; // NaN-border arc — best-effort: ignore
+              if (typeof debugLog === 'function') debugLog('[RC] buildFrontRegion: dropped non-perimeter arc');
+              return;
+            }
+            out.push({ s: sA, pt: pA, ai });
+            out.push({ s: sB, pt: pB, ai });
+          });
+          out.sort((a, b) => a.s - b.s);
+          return out;
+        };
+        let nodes = gatherNodes();
+
+        // NON-SEPARATING ARCS POISON THE LINKER (v20260808h). ------------------
+        //
+        // The boundary of F is assembled by alternating open arcs with the
+        // perimeter intervals between their endpoints, and that only works if
+        // the graph is 2-REGULAR: walking the perimeter, `signAt` must FLIP at
+        // every node, so kept and dropped intervals alternate. An arc that does
+        // not actually separate the two sides breaks that — both intervals
+        // around each of its endpoints score the same, three kept intervals end
+        // up consecutive, and the nodes between them reach DEGREE 3. The walk
+        // below then takes `cands[0]` at a fork, mis-chains, and every chain
+        // carrying a real arc fails to close and is DISCARDED. The region does
+        // not degrade gracefully: it collapses to whatever tiny closed loops
+        // happen to be lying around.
+        //
+        // MEASURED on _tests/_repro_blob_wobble_az0.json (the owner's two-blob
+        // scene at the exact azimuth where it misdraws), pair blobA:ribbon x
+        // blobB:ribbon, hosting blobA. The field yields three open arcs — a real
+        // 52-point intersection contour, a 26-point miss boundary, and a
+        // TWO-POINT sliver clipping the (u1,v1) corner, both of whose edges are
+        // miss-tagged and whose two perimeter endpoints sit 0.034 apart out of a
+        // perimeter of 6. That sliver is a single corner cell flickering, worth
+        // no area at all. With it in: perimeter keep pattern F,T,T,T,F,T, two
+        // degree-3 nodes, both real arcs dropped, region = 4 specks totalling
+        // 20.6 px^2, containment score 0 -> REJECTED. With it out: 5 rings,
+        // 33,412 px^2, fOwn 1.00 / fFor 0.017 -> score 0.983. Not a marginal
+        // repair; the correct region was there the whole time.
+        //
+        // The repair is the invariant itself. A node whose two neighbouring
+        // intervals score alike is a node where the contour does not flip; an
+        // arc BOTH of whose endpoints are such nodes separates nothing and is
+        // dropped. Requiring both ends is deliberate — one bad end is an
+        // aliased midpoint sample on a long interval, which this must not act
+        // on. Iterate, because dropping one arc re-pairs its neighbours'
+        // intervals and can expose another; cap the passes and, if the graph
+        // still will not alternate, fall through to the old behaviour rather
+        // than keep cutting.
+        for (let pass = 0; pass < 4 && nodes.length; pass++) {
+          const nN = nodes.length;
+          const keep = new Array(nN);
+          for (let k = 0; k < nN; k++) {
+            const A = nodes[k].s;
+            const B = (k === nN - 1) ? nodes[0].s + perim : nodes[k + 1].s;
+            if (B - A < 1e-12) { keep[k] = null; continue; }   // coincident ends
+            const m = ptAtS((A + B) / 2);
+            keep[k] = signAt(m[0], m[1]) >= 0;
           }
-          nodes.push({ s: sA, pt: pA });
-          nodes.push({ s: sB, pt: pB });
-        });
+          const badEnds = new Map();
+          for (let k = 0; k < nN; k++) {
+            const before = keep[(k - 1 + nN) % nN], after = keep[k];
+            if (before === null || after === null || before !== after) continue;
+            const ai = nodes[k].ai;
+            badEnds.set(ai, (badEnds.get(ai) || 0) + 1);
+          }
+          let killed = 0;
+          badEnds.forEach((c, ai) => { if (c >= 2) { arcs[ai]._dropped = true; killed++; } });
+          if (!killed) break;
+          sliverDropped += killed;
+          nodes = gatherNodes();
+        }
         const liveArcs = arcs.filter(a => !a._dropped);
 
         if (nodes.length === 0) {
@@ -23205,7 +23389,7 @@
               srcs: ['domain', 'domain', 'domain', 'domain']
             });
           }
-          return { rings };
+          return { rings, sliverDropped };
         }
 
         nodes.sort((a, b) => a.s - b.s);
@@ -23287,7 +23471,7 @@
             debugLog('[RC] buildFrontRegion: unclosed boundary chain dropped (' + ringPts.length + ' pts)');
           }
         });
-        return { rings };
+        return { rings, sliverDropped };
       }
 
       // ------------------------------------------------------------------
@@ -25635,6 +25819,18 @@
       //   or the other face gets to host instead. Measured: sound regions score
       //   0.71-1.00, the collapse repro's degenerate one 0.01 — a wide gap.
       REGION_SAMPLES: 120,    // texel centres sampled per side for that test
+      // EXPORT WELD + SPLIT VERIFICATION (v20260808i, made self-correcting in j).
+      // flattenExport quantises the rings it hands PolyClip onto a lattice, so a
+      // boundary two faces geometrically SHARE becomes exactly coincident. The
+      // candidates are tried IN ORDER and the first one whose split conserves
+      // area is kept — see _splitRobust. 0 in the list means "unwelded".
+      EXPORT_WELD: [0.005, 0, 0.002, 0.01],
+      EXPORT_SPLIT_TOL: 3e-4, // relative signed-area a PolyClip split may fail to
+                              // conserve before it is retried at another weld.
+                              // Placed in a MEASURED EMPTY BAND, not tuned: over 81
+                              // splits across 7 scenes the sound population tops out
+                              // at 5.3e-5 and the two real failures read 1.13e-3 and
+                              // 1.12e-2 — nothing at all in between.
       RETRY_SEEDS: 6,         // grid seeds tried when the partner-depth Newton
       RETRY_ITERS: 30,        //   misses somewhere the raster says it covers
       //   (see _frontRegion: a MISS is not an ABSENCE)
@@ -25920,6 +26116,18 @@
       //   mechanisms — see the deleted-mechanisms note above _mixedCurvedEntry.)
       FIELD_MULT: 1,          // MQ research knob: multiplies the mixed-pair field grid
       PLAN_DEBUG: false,      // MQ research knob: capture the per-pair plan into _lastPlan
+      // REGION_DEBUG (v20260808h): record every _mixedCurvedEntry HOST ATTEMPT
+      // into `_lastRegion` — host side, face ids, ring count/lengths/area, the
+      // raster sample counts, and fOwn/fFor — plus, for each pair that fails
+      // the containment gate, `_rejected` gets {D,N,ev,dRec,nRec,dPts,nPts,best}
+      // so the failure can be REPLAYED in the console (`MaskRender._frontRegion(
+      // r.dRec, r.nRec, {buf:r.ev.buf, otherId:r.ev.nId})`) against a live
+      // buffer. That replay is what localised both v20260808h defects: it is the
+      // only way to see the field's own loops, which is where region collapses
+      // actually happen — every downstream number is already the wreckage.
+      // `_rejected` holds LIVE element and buffer references; leave the flag off
+      // outside a diagnosis session.
+      REGION_DEBUG: false,
       // TEMPORAL HYSTERESIS was built (PLAN-mask-hysteresis) and MEASURED
       // USELESS-TO-HARMFUL — do not rebuild it. Two independent findings, both
       // from working code: (1) cross-frame pair identity by (owner, emission
@@ -25968,20 +26176,23 @@
           idStable: null, idOwnersChanged: 0,
           curvedConst: 0, curvedMixed: 0, curvedUndecided: 0, curvedMixedSkipped: 0, curvedBlob: 0,
           sameOwnerConst: 0, sameOwnerMixedSkipped: 0, coincidentPairs: 0,
-          regionRehosted: 0, regionRejected: 0, depthRetry: 0, depthTagSeed: 0, depthRaster: 0, depthMissCovered: 0,
+          regionRehosted: 0, regionRejected: 0, arcVerifyRetry: 0, sliverArcs: 0,
+          exportSplitRetry: 0, exportSplitFail: 0,
+          depthRetry: 0, depthTagSeed: 0, depthRaster: 0, depthMissCovered: 0,
           groupEmit: 0, pocketFill: 0, antiFill: 0,
           curvedGrazeSkipped: 0, noGeom: 0, pruned: 0, masks: 0, entries: 0, seamInk: 0,
           seamTrimmed: 0, seamDropped: 0, seamNotCrossing: 0, seamInkDeduped: 0,
           rimSnapped: 0, rimSnapMiss: 0, seamChained: 0, arcRingsDropped: 0,
           arcRepaired: 0, arcRepairFail: 0, arcBorderRepaired: 0, arcBorderFail: 0,
           pocketNoCore: 0, rimFitted: 0, rimFitFail: 0, regionFitted: 0, regionFitFail: 0,
-          absorbMoved: 0, absorbRings: 0, absorbFail: 0, absorbMaxTexels: 0, sheetFixed: 0, strokeClip: 0, strokeEls: 0, strokeSkipped: 0,
+          absorbMoved: 0, absorbRings: 0, absorbFail: 0, absorbMaxTexels: 0, sheetFixed: 0, strokeClip: 0, strokeEls: 0, strokeSkipped: 0, mixedToConst: 0,
           tipSpliced: 0, tipSpliceFail: 0,
           partnerKnots: 0,
           budget: false, ms: 0 };
         this.stats = stats;
         this._lastBoundary = [];
         if (this.LADDER_DEBUG) this._lastLadder = [];
+        if (this.REGION_DEBUG) { this._lastRegion = []; this._rejected = []; }
         // Lightweight per-face records — bbox from the authored d (layout-free),
         // plane from the ix record. <g>-wrapped faces read their first path
         // child (the PathRender unwrap idiom).
@@ -26353,8 +26564,40 @@
                         anti: entry.region.anti, complement: !entry.region.complement } });
                     stats.strokeClip++;
                   }
-                } else stats.curvedMixedSkipped++;
-                continue;
+                  continue;                    // handled as a region
+                }
+                // REGION BUILD FAILED -> FALL THROUGH TO THE CONSTANT VERDICT
+                // (v20260808f). This used to `continue`, dropping the pair with
+                // NO MASK, on the reasoning quoted above: "paint order stands
+                // (never worse than painter-without-resolve)". That was true
+                // while the PAINTER was the fallback. IT WAS DELETED IN
+                // v20260806f, so paint order alone is now the whole fallback -
+                // and paint order is exactly what the mask exists to correct.
+                //
+                // MEASURED on _tests/_repro_blob_order_edge.json (two extruded
+                // blobs, one rotated 55 deg): the pair RED:ribbon x BLUE:ribbon
+                // is classed mixed, its region comes back DEGENERATE (rejected
+                // with a containment score below 0.02 - REGION_AGREE was swept
+                // 0.5 -> 0.02 with byte-identical results, so this is not a
+                // marginal call), the entry is null, and the pair is dropped.
+                // Blue then paints over red across the whole shared area:
+                // 12,787 bad texels, referee 13,118 of 189,070 = 6.9%, the
+                // worst score in the corpus - in an EIGHT-FACE scene.
+                //
+                // And the raster already knows the answer: 13,462 texels to 734,
+                // red in front over 95% of the shared coverage. A 95/5 split is
+                // not a coin flip; dropping it FOR a coin flip is. The constant
+                // branch below reads exactly the c.a/c.b that are already in
+                // hand, and its own 3-texel floor (SAME_OWNER_MIN for
+                // same-owner) still gates it, so a genuinely ambiguous pair
+                // still emits nothing.
+                //
+                // Strictly an improvement over emitting nothing: the constant
+                // mask can only be as wrong as the region would have been, and
+                // that region was rejected as degenerate. Same-owner mixed pairs
+                // are unaffected - they `continue` earlier, above.
+                stats.curvedMixedSkipped++;
+                stats.mixedToConst++;
               }
               // constant order at raster resolution: c.a = texels where D is
               // visibly front — a majority there means the paint order
@@ -26993,6 +27236,7 @@
           SilhouetteField._traceProject = null;
         }
         const F = SilhouetteField.buildFrontRegion(field);
+        if (F && F.sliverDropped && this.stats) this.stats.sliverArcs += F.sliverDropped;
         if (!F || !F.rings || !F.rings.length) return null;
         let rings = RI._mapRegionToScreen(host.xr, F.rings, 0,
           this.REGION_MISS_TAG ? 'partner' : null);
@@ -28773,10 +29017,32 @@
         const hostable = (r) => r.xr && !r.xr.srComposite;
         const dPts = ev ? RasterHelper.frontSamples(ev.dId, ev.nId, ev.buf, this.REGION_SAMPLES) : [];
         const nPts = ev ? RasterHelper.frontSamples(ev.nId, ev.dId, ev.buf, this.REGION_SAMPLES) : [];
-        const attempt = (host, other, own, foreign) => {
+        const attempt = (host, other, own, foreign, noVerify) => {
           let rings = null;
           const oEv = ev ? { buf: ev.buf, otherId: other === dRec ? ev.dId : ev.nId } : null;
-          try { rings = this._frontRegion(host, other, oEv); } catch (err) { rings = null; }
+          let rerr = null;
+          const savedAV = this.REGION_ARC_VERIFY;
+          if (noVerify) this.REGION_ARC_VERIFY = false;
+          try { rings = this._frontRegion(host, other, oEv); } catch (err) { rerr = String(err && err.message || err); rings = null; }
+          finally { this.REGION_ARC_VERIFY = savedAV; }
+          if (this.REGION_DEBUG) {
+            (this._lastRegion || (this._lastRegion = [])).push({
+              host: host === dRec ? 'D' : 'N', noVerify: !!noVerify,
+              dName: (D.el && D.el.getAttribute('data-name')) || (D.owner && D.owner.name) || '?',
+              nName: (N.el && N.el.getAttribute('data-name')) || (N.owner && N.owner.name) || '?',
+              dId: ev ? ev.dId : -1, nId: ev ? ev.nId : -1,
+              err: rerr, nRings: rings ? rings.length : 0,
+              ringLens: rings ? rings.map(r => (r.pts || r).length) : [],
+              ringArea: rings ? rings.reduce((s, r) => {
+                const P = r.pts || r; let a = 0;
+                for (let k = 0, l = P.length - 1; k < P.length; l = k++) a += (P[l][0] * P[k][1] - P[k][0] * P[l][1]);
+                return s + Math.abs(a / 2);
+              }, 0) : 0,
+              nOwn: own ? own.length : 0, nFor: foreign ? foreign.length : 0,
+              fOwn: rings && rings.length ? this._ringsContainFrac(rings, own) : null,
+              fFor: rings && rings.length ? this._ringsContainFrac(rings, foreign) : null
+            });
+          }
           if (!rings || !rings.length) return null;
           const fOwn = this._ringsContainFrac(rings, own);
           // no evidence (no buffer, or the side has no visible-front texel) ⇒
@@ -28796,10 +29062,45 @@
             best = alt;
           }
         }
+        // THE PHANTOM TEST IS A HEURISTIC; THE CONTAINMENT SCORE IS THE ORACLE
+        // (v20260808h). REGION_ARC_VERIFY drops a ring whose 'intersection'/
+        // 'partner' knots are MAJORITY off the pair's true Delta=0. It earns
+        // its keep (see the D9 note at its site: narrowing it cost roughMean on
+        // three scenes), but it is a proxy, and a proxy can be wrong about a
+        // ring the raster can judge directly.
+        //
+        // MEASURED on _tests/_repro_blob_wobble_az0.json at elevation -11.25
+        // deg, pair id4 x id5: the region builds a correct 126-point ring —
+        // 39 intersection knots, 35 partner, 52 domain — the phantom test drops
+        // it, and the survivors are four 4-6 point specks totalling 79 px^2 that
+        // score 0. With the drop suppressed the SAME build scores fOwn 0.992 /
+        // fFor 0.008 = 0.983 against the raster. The heuristic was wrong and the
+        // oracle was right, and the oracle is already computed here.
+        //
+        // So: only when both hosts have FAILED the containment gate, rebuild
+        // with the phantom drop suppressed and let the score decide. Costs a
+        // second field build on the failure path only (1-2 pairs per frame at
+        // the angles where this fires, zero on a clean frame), and it cannot
+        // regress a pair that already passes because it never runs for one.
+        if (!ok(best) && this.REGION_ARC_VERIFY) {
+          for (const [h, o, own, foreign] of [[dRec, nRec, dPts, nPts], [nRec, dRec, nPts, dPts]]) {
+            if (!hostable(h)) continue;
+            const nv = attempt(h, o, own, foreign, true);
+            if (nv && nv.score !== null &&
+                (!best || best.score === null || nv.score > best.score)) {
+              best = nv; this.stats.arcVerifyRetry++;
+            }
+            if (ok(best)) break;
+          }
+        }
         if (!best) return null;
         // both hosts unusable ⇒ no mask, exactly as a failed field build has
         // always behaved (paint order stands — never worse than the painter)
-        if (!ok(best)) { this.stats.regionRejected++; return null; }
+        if (!ok(best)) {
+          this.stats.regionRejected++;
+          if (this.REGION_DEBUG) (this._rejected || (this._rejected = [])).push({ D, N, ev, dRec, nRec, dPts, nPts, best });
+          return null;
+        }
         let groups = null;
         // POCKET FILL / ANTI-POCKETS: correct the region against the raster
         // in both directions (see _rasterPockets). H_true = where the host
@@ -29350,14 +29651,28 @@
           walk(el);
           return out;
         };
-        const ringsToD = (rings) => rings.map(r =>
-          'M ' + r.pts.map(p => p[0].toFixed(2) + ' ' + p[1].toFixed(2)).join(' L ') + ' Z').join(' ');
+        // The SOURCE curves every ring vertex came from — the face's own, plus
+        // each occluder's and each clip's, since a cut edge lies on THEIR
+        // outline. Fed to _exportRingsToD to put the béziers back (see there).
+        const segsOf = (el) => {
+          const out = [];
+          const walk = (n) => {
+            if (n.getAttribute && n.getAttribute('d')) {
+              const ss = RI._sourceSegs(n);
+              if (ss) for (const s of ss) out.push(s);
+            }
+            for (const ch of n.children || []) walk(ch);
+          };
+          walk(el);
+          return out;
+        };
         for (const el of masked) {
           const mRef = (el.getAttribute('mask') || '').match(/url\(#(mrm\d+)\)/);
           if (!mRef) continue;
           const maskEl = clonedRoot.querySelector('#' + mRef[1]);
           if (!maskEl) { el.removeAttribute('mask'); continue; }
           let visible = ringsOf(el);
+          const srcSegs = segsOf(el);
           try {
             for (const entry of maskEl.children) {
               if (entry.tagName === 'rect') continue;             // the white keep-field
@@ -29374,7 +29689,7 @@
                   const cp = clonedRoot.querySelector('#' + cRef[1]);
                   if (cp) {
                     const cr = ringsOf(cp);
-                    if (cr.length) clipSets.push(cr);
+                    if (cr.length) { clipSets.push(cr); for (const s of segsOf(cp)) srcSegs.push(s); }
                   }
                 }
                 occEl = occEl.firstElementChild;
@@ -29384,29 +29699,31 @@
               if (occEl.tagName === 'use') {
                 const gRef = (occEl.getAttribute('href') || '').replace('#', '');
                 const geo = clonedRoot.querySelector('#' + gRef);
-                if (geo) occRings = ringsOf(geo);
-              } else occRings = ringsOf(occEl);
+                if (geo) { occRings = ringsOf(geo); for (const s of segsOf(geo)) srcSegs.push(s); }
+              } else { occRings = ringsOf(occEl); for (const s of segsOf(occEl)) srcSegs.push(s); }
               if (!occRings || !occRings.length) continue;
               let eff = occRings;
               for (const cs of clipSets) {
-                eff = PolyClip.split(eff, cs).front || [];
+                eff = this._splitRobust(eff, cs).front || [];
                 if (!eff.length) break;
               }
               if (!eff.length) continue;
-              visible = PolyClip.split(visible, eff).back || [];
+              visible = this._splitRobust(visible, eff).back || [];
               if (!visible.length) break;
             }
           } catch (err) {
             console.error('[MaskRender] export flatten failed for one face (mask kept):', err);
             continue;
           }
-          // Rebuild: fill-only flattened geometry + the original outline
-          // stroked-only, clipped to the visible region.
+          // Rebuild: fill geometry with its CURVES PUT BACK + the original
+          // outline stroked-only, clipped to the visible region. One `d` string
+          // serves both, so the clip can never disagree with the fill.
           const parent = el.parentNode;
           if (!visible.length) { parent.removeChild(el); flattened++; continue; }
+          const visD = this._exportRingsToD(visible, srcSegs);
           const wrap = document.createElementNS(NS, 'g');
           const fillPath = document.createElementNS(NS, 'path');
-          fillPath.setAttribute('d', ringsToD(visible));
+          fillPath.setAttribute('d', visD);
           fillPath.setAttribute('fill-rule', 'evenodd');
           const src = el.getAttribute('d') ? el : (el.firstElementChild || el);
           for (const attr of ['fill', 'fill-opacity', 'opacity']) {
@@ -29422,7 +29739,7 @@
             const cp = document.createElementNS(NS, 'clipPath');
             cp.setAttribute('id', cid);
             const cpath = document.createElementNS(NS, 'path');
-            cpath.setAttribute('d', ringsToD(visible));
+            cpath.setAttribute('d', visD);
             cpath.setAttribute('clip-rule', 'evenodd');
             cp.appendChild(cpath);
             wrap.appendChild(cp);
@@ -29448,6 +29765,175 @@
           if (n.parentNode) n.parentNode.removeChild(n);
         }
         return flattened;
+      },
+
+      // A POLYGON BOOLEAN THAT LOSES AREA IS DETECTABLE (v20260808j). ---------
+      //
+      // v20260808i welded flattenExport's rings onto a lattice so a boundary two
+      // faces geometrically SHARE became exactly coincident, and that fixed the
+      // owner's scene-98 wedge. But a weld is not monotone: it does not remove
+      // degeneracy, it MOVES it. Quantising creates exact coincidences, and
+      // PolyClip's behaviour at exact coincidence is not uniformly better than
+      // at near-coincidence. Measured on the owner's scene 103, blue-over-red
+      // pixels by weld: 0 -> 0, 0.001 -> 0, 0.002 -> 0, **0.005 -> 114**,
+      // 0.01 -> 0, 0.02 -> 0. One value, pathological on one scene. Re-tuning
+      // the constant just buys a different lottery ticket, so do not.
+      //
+      // WHAT IS RELIABLE IS THE FAILURE SIGNATURE. In both defects PolyClip did
+      // not misclassify area, it LOST it: on scene 103 a point verified inside
+      // BOTH the subject and the clip came back in neither `front` nor `back`,
+      // with 89.9 of 79,243 units unaccounted for; on scene 98 the same check
+      // shows 1,337 units gone. front + back must equal subject.
+      //
+      // So verify and retry. _splitRobust runs the candidate welds IN ORDER and
+      // keeps the first split that conserves area, falling back to the least-bad
+      // if none does. Self-verifying, and the extra attempts only ever run on a
+      // split that has already failed — the corpus needs 0 retries on 79 of 81
+      // splits.
+      //
+      // Comparison is |S - (F+B)| OR |S + (F+B)|, whichever is smaller, because
+      // PolyClip legitimately returns the result wound OPPOSITE to the subject —
+      // that is most of the raw disagreement and it is not an error (a naive
+      // check reads it as "200% lost" on 20 of 81 splits).
+      _weldRings(rings, q) {
+        if (!(q > 0)) return rings;
+        return rings.map(r => ({
+          pts: r.pts.map(p => [Math.round(p[0] / q) * q, Math.round(p[1] / q) * q]),
+          srcs: r.srcs || null }));
+      },
+      _signedArea(rings) {
+        let t = 0;
+        for (const r of rings || []) {
+          const P = r.pts; let a = 0;
+          for (let k = 0, l = P.length - 1; k < P.length; l = k++) a += P[l][0] * P[k][1] - P[k][0] * P[l][1];
+          t += a / 2;
+        }
+        return t;
+      },
+      _splitRobust(subject, clip) {
+        if (!subject || !subject.length) return { front: [], back: [] };
+        const cands = this.EXPORT_WELD;
+        const S = this._signedArea(subject);
+        const scale = Math.abs(S) > 1e-9 ? Math.abs(S) : 1;
+        let best = null, bestLoss = Infinity;
+        for (let i = 0; i < cands.length; i++) {
+          const q = cands[i];
+          const s = this._weldRings(subject, q), c = this._weldRings(clip, q);
+          let res = null;
+          try { res = PolyClip.split(s, c); } catch (err) { continue; }
+          if (!res) continue;
+          const sa = this._signedArea(s);
+          const fb = this._signedArea(res.front) + this._signedArea(res.back);
+          const loss = Math.min(Math.abs(sa - fb), Math.abs(sa + fb)) / scale;
+          if (loss <= this.EXPORT_SPLIT_TOL) {
+            if (i > 0 && this.stats) this.stats.exportSplitRetry++;
+            return res;
+          }
+          if (loss < bestLoss) { bestLoss = loss; best = res; }
+        }
+        if (this.stats) this.stats.exportSplitFail++;
+        return best || { front: [], back: subject };
+      },
+
+      // PUT THE CURVES BACK (v20260808i). ------------------------------------
+      //
+      // The flatten is a POLYGON boolean, so `visible` is a point ring and the
+      // emitter used to write `M … L … Z` — an exported curved face arrived in
+      // Illustrator as a 75-segment polyline, which is what the owner reported.
+      // The chord error is small (CURVE_STEPS 12 ⇒ ~0.6 px on a 300-px arc, and
+      // the face's own stroke covers most of it) but the EDITABILITY loss is
+      // total: nobody can pull a handle on a polyline.
+      //
+      // It does not have to be a refit. Every vertex of `visible` is either a
+      // `ringsFromElement` SAMPLE — which sits exactly on some source bézier,
+      // evaluated at t = s/CURVE_STEPS — or a crossing PolyClip computed
+      // between two such samples. So the curve is recoverable by PROJECTION:
+      // classify each ring edge by which source segment its midpoint lies on,
+      // group consecutive edges sharing one, and emit that segment's exact de
+      // Casteljau sub-arc. Interior is mathematically exact, not fitted. This
+      // is the same construction `RI._fitRunExact` uses for split fragments;
+      // it is re-implemented here rather than called because that function
+      // returns NULL for the whole run if any one edge is unmatched, and a
+      // flattened ring legitimately mixes matched arcs with PolyClip's own cut
+      // edges — those must degrade to `L` individually, not poison the ring.
+      //
+      // Watertight by construction: an arc's ENDS are the real ring vertices
+      // (the control handles are translated to meet them), so a shared boundary
+      // cannot open a gap, and the same string feeds the fill and its clipPath.
+      // Self-checked per group: if any interior vertex misses the emitted arc
+      // by more than EXACT_VERIFY_TOL the group falls back to line segments.
+      //
+      // Measured on the 11-scene corpus: byte-identical decisions, export 5-10%
+      // smaller (330 KB -> 298 KB on the vase), and never worse than the
+      // polyline against the live render.
+      _exportRingsToD(rings, srcSegs) {
+        const RI = RenderIntersections;
+        const f = (v) => Math.round(v * 100) / 100;
+        const plain = () => rings.map(r =>
+          'M ' + r.pts.map(p => f(p[0]) + ' ' + f(p[1])).join(' L ') + ' Z').join(' ');
+        if (!srcSegs || !srcSegs.length) return plain();
+        const BAIL = RI.EXACT_PROJ_EPS;
+        let d = '';
+        for (const r of rings) {
+          const P = r.pts, n = P.length;
+          if (n < 3) continue;
+          // Classify each EDGE by its midpoint — unambiguous, and away from the
+          // vertices where two segments meet and the nearest-segment test ties.
+          const eseg = new Array(n);
+          for (let i = 0; i < n; i++) {
+            const a = P[i], b = P[(i + 1) % n];
+            const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+            let bd = Infinity, bk = -1;
+            for (let k = 0; k < srcSegs.length; k++) {
+              const s = srcSegs[k], bb = s.bb;
+              if (mx < bb[0] - BAIL || mx > bb[2] + BAIL || my < bb[1] - BAIL || my > bb[3] + BAIL) continue;
+              const pr = s.cubic ? RI._nearestOnCubic(s.P, [mx, my])
+                                 : RI._nearestOnLine(s.P[0], s.P[1], [mx, my]);
+              if (pr.d < bd) { bd = pr.d; bk = k; }
+            }
+            eseg[i] = (bk >= 0 && bd <= BAIL) ? bk : -1;
+          }
+          // Start at a group boundary so a run is never split across the seam.
+          let start = 0;
+          for (let i = 0; i < n; i++) if (eseg[i] !== eseg[(i - 1 + n) % n]) { start = i; break; }
+          d += 'M ' + f(P[start][0]) + ' ' + f(P[start][1]) + ' ';
+          let i = 0;
+          while (i < n) {
+            const k = eseg[(start + i) % n];
+            let len = 1;
+            while (i + len < n && eseg[(start + i + len) % n] === k) len++;
+            const A = P[(start + i) % n], B = P[(start + i + len) % n];
+            const seg = k >= 0 ? srcSegs[k] : null;
+            if (seg && seg.cubic) {
+              let t0 = RI._nearestOnCubic(seg.P, A).t, t1 = RI._nearestOnCubic(seg.P, B).t;
+              const rev = t0 > t1; if (rev) { const z = t0; t0 = t1; t1 = z; }
+              let arc = RI._subCubic(seg.P, t0, t1);
+              if (rev) arc = [arc[3], arc[2], arc[1], arc[0]];
+              // translate the handles so the arc ENDS on the real ring vertices
+              const d0x = A[0] - arc[0][0], d0y = A[1] - arc[0][1];
+              const d3x = B[0] - arc[3][0], d3y = B[1] - arc[3][1];
+              const c1 = [arc[1][0] + d0x, arc[1][1] + d0y];
+              const c2 = [arc[2][0] + d3x, arc[2][1] + d3y];
+              let ok = true;
+              const bz = [A, c1, c2, B];
+              for (let j = 1; j < len; j++) {
+                if (RI._nearestOnCubic(bz, P[(start + i + j) % n]).d > RI.EXACT_VERIFY_TOL) { ok = false; break; }
+              }
+              if (ok) {
+                d += 'C ' + f(c1[0]) + ' ' + f(c1[1]) + ' ' + f(c2[0]) + ' ' + f(c2[1]) +
+                     ' ' + f(B[0]) + ' ' + f(B[1]) + ' ';
+                i += len; continue;
+              }
+            }
+            for (let j = 1; j <= len; j++) {
+              const q = P[(start + i + j) % n];
+              d += 'L ' + f(q[0]) + ' ' + f(q[1]) + ' ';
+            }
+            i += len;
+          }
+          d += 'Z ';
+        }
+        return d || plain();
       },
 
       // Keep only the spans of a seam polyline where THIS PAIR is the
@@ -45302,73 +45788,123 @@
     const cameras = [];
     let activeCamera = null;
 
-    // Initialize first camera
-    const camera1 = new Camera([10, 10, 10], [0, 1, 0], 32.2);
-    camera1.name = 'Camera 1';
-    cameras.push(camera1);
-    activeCamera = camera1;
-
-    // Initialize preset cameras (locked)
-    const cameraFront = new Camera([0, 0, 17.32], [0, 1, 0], 32.2);
-    cameraFront.name = 'Front Camera';
-    cameraFront.lock = true;
-    cameraFront.projectionType = 'orthographic';
-    cameras.push(cameraFront);
-
-    const cameraTop = new Camera([0, 17.32, 0], [0, 0, -1], 32.2);
-    cameraTop.name = 'Top Camera';
-    cameraTop.lock = true;
-    cameraTop.projectionType = 'orthographic';
-    cameras.push(cameraTop);
-
-    const cameraSide = new Camera([17.32, 0, 0], [0, 1, 0], 32.2);
-    cameraSide.name = 'Side Camera';
-    cameraSide.lock = true;
-    cameraSide.projectionType = 'orthographic';
-    cameras.push(cameraSide);
-
+    // THE DEFAULT CAMERA SET (extracted to a factory in v20260807v). This used
+    // to be straight-line boot code, which meant the presets existed exactly
+    // once — at startup — and nothing could ever rebuild them.
+    //
+    // WHY THAT MATTERED: restoreCameraFromState REPLACES the whole list
+    // (`cameras.length = 0`), so ANY scene carrying a shorter `cameras.list`
+    // wipes the presets permanently — and the localStorage autosave writes that
+    // same full list, so once they are gone they never return, in this session
+    // or any later one. Reproduced: 8 cameras → load a one-camera scene → 1 →
+    // Clear Scene → still 1. The owner reported exactly that ("I think it used
+    // to have Front / Top / Side / Default"). NOTHING WAS EVER DELETED FROM THE
+    // CODE; the list was simply overwritten and had no way back.
+    //
+    // Returns FRESH instances every call — never shared objects — so a reset
+    // cannot hand back cameras the user has since moved or renamed.
+    // THE PRESET SPECS — one table, so "build the whole default set" and
+    // "restore the presets into an existing scene" can never disagree about
+    // what a preset IS. Position/up/fov only; everything else the Camera
+    // constructor derives (notably orthoZoom = tan(fov/2)·R).
+    //
     // Axonometric presets (v20260718n) — orthographic at the standard preset
     // radius R = √300 = 17.3205 (same as Front/Top/Side, so the constructor's
     // orthoZoom = tan(fov/2)·R gives all presets the same framing scale).
     // Position = R·(cos e·sin a, sin e, cos e·cos a) for azimuth a / elevation e;
     // axis foreshortenings f_X = √(cos²a + sin²e·sin²a), f_Y = cos e,
     // f_Z = √(sin²a + sin²e·cos²a), with f_X² + f_Y² + f_Z² = 2.
-
+    //
     // ISOMETRIC (NEN/ISO): a = 45°, e = arcsin(1/√3) = 35.264° (35°16').
-    // Direction (1,1,1)/√3 → exactly (10,10,10); all axes foreshorten 0.8165,
-    // projected axes at 120°/120°/120° (X and Z at 30° from horizontal).
-    const cameraIso = new Camera([10, 10, 10], [0, 1, 0], 32.2);
-    cameraIso.name = 'Isometric Camera';
-    cameraIso.lock = true;
-    cameraIso.projectionType = 'orthographic';
-    cameras.push(cameraIso);
-
+    //   Direction (1,1,1)/√3 → exactly (10,10,10); all axes foreshorten 0.8165,
+    //   projected axes at 120°/120°/120° (X and Z at 30° from horizontal).
     // DIMETRIC (NEN/ISO 42°/7°, scales 1:1:½): e = arcsin(1/3) = 19.471°,
-    // a = arcsin(1/(2√2)) = 20.705°. Direction (1, 1, √7)/3; width/height
-    // foreshorten 0.9428, depth 0.4714 (exactly half); projected X axis at
-    // ≈7.2°, Z at ≈41.4° from horizontal — the classic engineering dimetric.
-    const cameraDim = new Camera([5.7735, 5.7735, 15.2752], [0, 1, 0], 32.2);
-    cameraDim.name = 'Dimetric Camera';
-    cameraDim.lock = true;
-    cameraDim.projectionType = 'orthographic';
-    cameras.push(cameraDim);
+    //   a = arcsin(1/(2√2)) = 20.705°. Direction (1, 1, √7)/3; width/height
+    //   foreshorten 0.9428, depth 0.4714 (exactly half); projected X axis at
+    //   ≈7.2°, Z at ≈41.4° from horizontal — the classic engineering dimetric.
+    // TRIMETRIC (no ISO canon exists — the drafting-flavor choice with round
+    //   scale ratios X:Y:Z = 1 : 7/8 : 3/4, absolute k·(1, 7/8, 3/4) with
+    //   k = √(128/149) = 0.92686): e = 35.806°, a = 27.577°. Projected X axis
+    //   at ≈17.0°, Z at ≈48.3° from horizontal; all three axes distinct.
+    const DEFAULT_CAMERA_PRESETS = [
+      { name: 'Front Camera',     pos: [0, 0, 17.32],              up: [0, 1, 0],  fov: 32.2, proj: 'orthographic' },
+      { name: 'Top Camera',       pos: [0, 17.32, 0],              up: [0, 0, -1], fov: 32.2, proj: 'orthographic' },
+      { name: 'Side Camera',      pos: [17.32, 0, 0],              up: [0, 1, 0],  fov: 32.2, proj: 'orthographic' },
+      { name: 'Isometric Camera', pos: [10, 10, 10],               up: [0, 1, 0],  fov: 32.2, proj: 'orthographic' },
+      { name: 'Dimetric Camera',  pos: [5.7735, 5.7735, 15.2752],  up: [0, 1, 0],  fov: 32.2, proj: 'orthographic' },
+      { name: 'Trimetric Camera', pos: [6.5027, 10.1334, 12.4507], up: [0, 1, 0],  fov: 32.2, proj: 'orthographic' },
+      // Default Camera keeps the app's PERSPECTIVE default — it is the "back to
+      // normal" camera, not an axonometric one.
+      { name: 'Default Camera',   pos: [10, 10, 10],               up: [0, 1, 0],  fov: 32.2 },
+    ];
 
-    // TRIMETRIC (no ISO canon exists — this is the drafting-flavor choice with
-    // round scale ratios X:Y:Z = 1 : 7/8 : 3/4, absolute k·(1, 7/8, 3/4) with
-    // k = √(128/149) = 0.92686): e = 35.806°, a = 27.577°. Projected X axis at
-    // ≈17.0°, Z at ≈48.3° from horizontal; all three axes distinct.
-    const cameraTri = new Camera([6.5027, 10.1334, 12.4507], [0, 1, 0], 32.2);
-    cameraTri.name = 'Trimetric Camera';
-    cameraTri.lock = true;
-    cameraTri.projectionType = 'orthographic';
-    cameras.push(cameraTri);
+    const makePresetCamera = (spec) => {
+      const c = new Camera([...spec.pos], [...spec.up], spec.fov);
+      c.name = spec.name;
+      c.lock = true;
+      if (spec.proj) c.projectionType = spec.proj;
+      return c;
+    };
 
-    const cameraDefault = new Camera([10, 10, 10], [0, 1, 0], 32.2);
-    cameraDefault.name = 'Default Camera';
-    cameraDefault.lock = true;
-    cameras.push(cameraDefault);
+    const buildDefaultCameras = () => {
+      const out = [];
+      const camera1 = new Camera([10, 10, 10], [0, 1, 0], 32.2);
+      camera1.name = 'Camera 1';
+      out.push(camera1);
+      DEFAULT_CAMERA_PRESETS.forEach(spec => out.push(makePresetCamera(spec)));
+      return out;
+    };
+
+    // Boot: the same factory the reset uses, so the two can never drift apart.
+    buildDefaultCameras().forEach(c => cameras.push(c));
+    activeCamera = cameras[0];
 
     let selectedCamera = activeCamera;
+
+    // Restore the default set, in place (v20260807v). `cameras` is a const array
+    // shared by reference across the file, so this MUTATES rather than
+    // reassigns — the same discipline restoreCameraFromState follows.
+    const resetCamerasToDefault = () => {
+      cameras.length = 0;
+      buildDefaultCameras().forEach(c => cameras.push(c));
+      activeCamera = cameras[0];
+      selectedCamera = activeCamera;
+      if (typeof updateCameraList === 'function') updateCameraList();
+      if (typeof updateCameraPanel === 'function') updateCameraPanel();
+    };
+
+    // RESTORE THE PRESETS, NON-DESTRUCTIVELY (v20260808b). Distinct from
+    // resetCamerasToDefault above, which rebuilds the WHOLE list including
+    // Camera 1 and is what "Clear Scene" means. This one touches ONLY the seven
+    // presets: missing ones are added, existing ones are reset to spec, and
+    // every other camera — Camera 1, anything the user made — is left exactly
+    // alone, in place and in order.
+    //
+    // IT MUTATES RATHER THAN REPLACES, which is the load-bearing detail: a
+    // preset may be `activeCamera` or `selectedCamera`, and swapping the object
+    // out would leave those pointing at a camera no longer in the list.
+    // Object.assign from a FRESHLY CONSTRUCTED preset is what keeps this honest
+    // — it copies every own field the Camera constructor sets (including the
+    // derived orthoZoom and the initial* baselines), so this cannot drift when
+    // that constructor changes. Hand-copying a field list would.
+    //
+    // Returns {added, updated} so the caller can say what it did.
+    const restoreDefaultCameraPresets = () => {
+      let added = 0, updated = 0;
+      for (const spec of DEFAULT_CAMERA_PRESETS) {
+        const fresh = makePresetCamera(spec);
+        const existing = cameras.find(c => c.name === spec.name);
+        if (existing) { Object.assign(existing, fresh); updated++; }
+        else { cameras.push(fresh); added++; }
+      }
+      // A restored preset may BE the active camera, so re-sync the global
+      // projection mode from it the way the camera-list activation path does.
+      if (activeCamera && activeCamera.projectionType) projectionType = activeCamera.projectionType;
+      if (typeof updateCameraList === 'function') updateCameraList();
+      if (typeof updateCameraPanel === 'function') updateCameraPanel();
+      requestRender();
+      return { added, updated };
+    };
 
     const updateCameraList = () => {
       const list = document.getElementById('cameraList');
@@ -45488,6 +46024,14 @@
     });
 
     document.getElementById('loadCameraBtn').addEventListener('click', () => {
+      // v20260808a: the DESTINATION is activeCamera, so its lock is the one that
+      // matters. The disabled state in updateCameraPanel is the visible half of
+      // this rule; this guard is the enforcing half — a disabled attribute is a
+      // UI hint, not a contract (it is cleared by the next panel refresh that
+      // runs before the flag is re-evaluated, and says nothing about a
+      // programmatic .click()). Every other camera write in this file guards the
+      // same way (updateCameraFromInput's `if (cam.lock ...) return`).
+      if (activeCamera && activeCamera.lock) return;
       if (selectedCamera && selectedCamera !== activeCamera) {
         pushCameraUndoState();
         // Copy settings from selectedCamera to activeCamera
@@ -45515,6 +46059,19 @@
         pushCameraUndoState();
       }
     });
+
+    // RESTORE PRESET CAMERAS (v20260808b). Undo is pushed on BOTH sides, the
+    // pattern the Load button uses: the leading push captures the pre-restore
+    // list so ⌘Z returns to it, the trailing one commits the new state.
+    const restorePresetCamerasBtn = document.getElementById('restorePresetCamerasBtn');
+    if (restorePresetCamerasBtn) {
+      restorePresetCamerasBtn.addEventListener('click', () => {
+        pushCameraUndoState();
+        const { added, updated } = restoreDefaultCameraPresets();
+        pushCameraUndoState();
+        console.log(`[cameras] preset restore: ${added} added, ${updated} reset to spec.`);
+      });
+    }
 
     // Initial List Update
     // We need to call this after DOM is ready, but we are inside window.onload (presumably, based on context)
@@ -57735,7 +58292,13 @@
       if (projectionType === 'perspective') {
         if (camFovColLabel) camFovColLabel.textContent = 'FOV';
         if (document.activeElement !== camFovInput) {
-          camFovInput.value = Math.round(cam.fovDegrees);
+          // ONE DECIMAL since v20260807u (owner's call). It used to round to a
+          // whole degree, which made the new Focal field look inconsistent with
+          // it — type 50mm and FOV solves to 39.6° but displayed 40. The stored
+          // fovDegrees was never integral; only this display was. `step` stays 1
+          // so the arrows still move whole degrees, and nothing styles :invalid,
+          // so a non-multiple value has no visual consequence.
+          camFovInput.value = cam.fovDegrees.toFixed(1);
           camFovInput.min = 1;
           camFovInput.max = 179;
           camFovInput.step = 1;
@@ -57761,6 +58324,24 @@
           }
         } else {
           obliqueSettingsContainer.style.display = 'none';
+        }
+      }
+
+      // FOCAL LENGTH mirror (v20260807u). Computed from cam.fovDegrees — the TRUE
+      // value — and never from camFovInput.value, which is a rounded DISPLAY:
+      // reading the field back would make the round-trip drift (type 50mm, read
+      // 49.5mm). Perspective only; the row is hidden otherwise, since there
+      // camFovInput is the Size box and a lens has no meaning. Skipped while the
+      // field has focus so it never rewrites what is being typed — the same
+      // guard the Dist/FOV syncs above use.
+      {
+        const persp = projectionType === 'perspective';
+        if (camFocalRow) camFocalRow.style.display = persp ? '' : 'none';
+        if (camFocalInput && persp && document.activeElement !== camFocalInput) {
+          const mm = camFocalFromFov(cam.fovDegrees);
+          camFocalInput.value = mm === null ? '' : (mm < 10 ? mm.toFixed(1) : Math.round(mm));
+          camFocalInput.title = mm === null ? '' :
+            `${mm.toFixed(1)} mm on a ${CAM_SENSOR_MM} mm sensor — the 35mm-equivalent of FOV ${cam.fovDegrees.toFixed(1)}°.`;
         }
       }
 
@@ -57831,6 +58412,7 @@
         'camTargetXInput', 'camTargetYInput', 'camTargetZInput',
         'camDistInput',
         'camFovInput',
+        'camFocalInput',
         'camAzimuthInput', 'camElevationInput',
         'camPanInput', 'camTiltInput',
         'camTruckInput', 'camPedestalInput',
@@ -57847,6 +58429,34 @@
       const resetBtn = document.getElementById('btnResetTruckPedestal');
       if (resetBtn) resetBtn.disabled = cam.lock;
 
+      // LOAD is gated on the ACTIVE camera, not the selected one (v20260808a,
+      // owner-reported "pressing load changes a locked camera"). Load copies
+      // selected -> ACTIVE, so the ACTIVE camera is the thing being written and
+      // the only lock that can protect anything. Measured before the fix:
+      // with Front Camera ACTIVE and Top selected, Load moved Front from
+      // [0,0,17.32] to [0,17.32,0] - a locked camera overwritten, because the
+      // handler's only guard was `selectedCamera !== activeCamera`.
+      //
+      // GATING ON THE SELECTED CAMERA INSTEAD WOULD BREAK THE PRESETS: with a
+      // locked preset SELECTED, Load is exactly the feature - it pulls that
+      // preset's pose into your working camera and leaves the preset untouched
+      // (verified: the locked camera does not change on that path). Disabling
+      // it there would make Front/Top/Side unusable for the one thing they are
+      // for.
+      //
+      // Also disabled when selected === active, where the handler is a strict
+      // no-op - a button that cannot do anything should not look pressable.
+      const loadBtn = document.getElementById('loadCameraBtn');
+      if (loadBtn) {
+        const destLocked = !!(activeCamera && activeCamera.lock);
+        const sameCam = selectedCamera === activeCamera;
+        loadBtn.disabled = destLocked || sameCam;
+        loadBtn.title = destLocked
+          ? 'The active camera is locked — unlock it, or activate an unlocked camera, to load a pose into it.'
+          : (sameCam ? 'Select a different camera to load its pose into the active one.'
+            : 'Copy the selected camera’s pose into the active camera.');
+      }
+
     };
 
 
@@ -57857,6 +58467,36 @@
         input.addEventListener('change', updateCameraFromInput);
       }
     });
+
+    // FOCAL LENGTH (v20260807u) — convert, then DELEGATE. The field never writes
+    // cam.fovDegrees itself: it puts the solved FOV into camFovInput and calls
+    // updateCameraFromInput with that element as the target. Since that function
+    // derives `sourceId = e.target.id`, the whole downstream path then treats it
+    // as an ordinary FOV edit — Keep Size distance compensation, Hold Framing's
+    // derived-channel rule (which keys `framing` when FOV is the output), the
+    // Auto-Key mapping and the coalesced camera undo, all for free and all
+    // guaranteed to stay in step with the FOV field. This is the same delegation
+    // the three canvas HUD bars already use.
+    if (camFocalInput) {
+      camFocalInput.addEventListener('input', () => {
+        const cam = selectedCamera || activeCamera;
+        if (!cam || cam.lock) return;
+        if ((cam.projectionType || projectionType) !== 'perspective') return;
+        const mm = parseFloat(camFocalInput.value);
+        if (!Number.isFinite(mm) || mm <= 0) return;   // mid-typing "", "-", "." — leave the camera alone
+        const sol = camFovForFocal(mm);
+        if (sol.fov === null) return;
+        // FULL PRECISION into the camera; the DISPLAY rounds, the value must not.
+        // Writing sol.fov.toFixed(1) here was measured to cost real accuracy at
+        // long lenses — 0.05° of FOV rounding is a large relative change once the
+        // angle is small, and the round-trip drifted 0.28mm at 200mm (and 0.10mm
+        // at 135mm) against 0.003mm at 50mm. updateCameraPanel re-renders this
+        // field from cam.fovDegrees at 1 decimal anyway, so the panel still reads
+        // clean while cam.fovDegrees keeps every digit.
+        camFovInput.value = String(sol.fov);
+        updateCameraFromInput({ target: camFovInput });
+      });
+    }
 
     // --- Render-Cycle Debug Logging ---
     // Usage: type  window.debugRender()  in the browser console.
@@ -66486,14 +67126,25 @@
       const testSceneBtn = document.getElementById('createTestSceneBtn');
       if (testSceneBtn) {
         testSceneBtn.addEventListener('click', () => {
-          loadTestSceneWithFallback();
+          // v20260808b, owner-directed: Test Scene revives the preset cameras
+          // even though the scene file does not contain them. The file is in the
+          // LEGACY single-camera format, so importScene leaves the camera list
+          // untouched — which is fine on a healthy session and useless on one
+          // that already lost the presets. Chained off the returned promise so
+          // this always lands AFTER the import, whatever format the file grows
+          // into later. Non-destructive: Camera 1 and any user cameras survive.
+          loadTestSceneWithFallback().then(() => {
+            restoreDefaultCameraPresets();
+            pushCameraUndoState();
+          });
         });
       }
 
       const clearSceneBtn = document.getElementById('clearSceneBtn');
       if (clearSceneBtn) {
         clearSceneBtn.addEventListener('click', async () => {
-          const ok = await showAppConfirm('Clear Scene', 'Remove all objects and start with an empty scene?');
+          const ok = await showAppConfirm('Clear Scene',
+            'Remove all objects, and restore the default cameras and workplane?');
           if (!ok) return;
           pushUndoState();
           importScene({
@@ -66502,6 +67153,15 @@
             camera: { position: [10, 10, 10], target: [0, 0, 0], up: [0, 1, 0], fovDegrees: 32.2, name: 'Camera 1' },
             workplane: { active: 0, list: [{ name: 'Workplane 1', mode: 'vertical', offset: 0, gridSize: 1, snapToGrid: false, lock: false, origin: [0, 0, 0], right: [1, 0, 0], normal: [0, 0, 1] }] }
           });
+          // v20260807v, owner-reported: "clear scene should reset the object tree
+          // AND bring back the default cameras". It did not, and the reason is
+          // that the payload above uses the LEGACY single-`camera` shape, whose
+          // importScene branch only moves the active camera's pose and leaves the
+          // list alone — so a session that had lost the presets (any scene or
+          // autosave carrying a shorter `cameras.list` wipes them, permanently)
+          // stayed lost. Reset AFTER importScene so this wins over that branch.
+          resetCamerasToDefault();
+          requestRender();
         });
       }
 
@@ -66549,8 +67209,12 @@
     };
 
     /** Load test scene from JSON file, falling back to inline FALLBACK_SCENE on fetch failure. */
+    // v20260808b: RETURNS the promise now. It was fire-and-forget, so a caller
+    // that wanted to do anything after the scene lands (the Test Scene button
+    // restoring the preset cameras) would have raced the import. The three
+    // pre-existing callers ignore the return value, so this is inert for them.
     const loadTestSceneWithFallback = (skipUndo = false) => {
-      fetch('scenes/dim_scene_testscene.json')
+      return fetch('scenes/dim_scene_testscene.json')
         .then(response => {
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           return response.json();

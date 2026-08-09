@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260808j -->
+<!-- dim v20260809e -->
 
 <!--
   MIT License
@@ -20176,6 +20176,17 @@
               layer: currentLayer,
               subpathIdx: currentSubpathIdx,
               strokes: [d.trim()],
+              // ONE PATH FOR FILL AND STROKE (v20260809b) — the Silhouette-Split
+              // OFF branch. The stroke IS the fill d: the same string, and the
+              // only difference at the consumer is the ' Z' it appends to the
+              // fill. Emitting it WITHOUT that Z fills the identical region (SVG
+              // closes every subpath for filling) and leaves the closing chord
+              // unstroked, exactly as the fill(+Z)/stroke(no Z) pair did.
+              // A 'standard' fragment always has exactly ONE run, which is what
+              // makes this safe against the consumer's stroke gap-joiner — that
+              // pass can splice two runs together with an L, and a merged path
+              // would not draw it.
+              dMerged: d.trim(),
               startUV: fragStartUV ? [...fragStartUV] : null,
               endUV: fragEndUV ? [...fragEndUV] : null,
               startIsCrossing: fragStartIsCrossing,
@@ -20569,8 +20580,66 @@
           if (standardFrags.length > 1) {
             // Merge all standard fragments into one compound path
             const others = fragments.filter(f => f.type !== 'standard');
+            // CHAIN THE SEAM PIECES, DO NOT CLOSE THEM INDIVIDUALLY (v20260809e).
+            // An around-wrap cuts the source outline at every domain crossing,
+            // and the pieces are consecutive ARCS OF ONE CLOSED CONTOUR - each
+            // ends exactly where the next begins. Closing each one with its own
+            // chord builds a fan of lenses whose union is NOT the region the
+            // outline encloses, and the uncovered slivers between them are the
+            // owner's reported "overflow breaks the path when crossing the edge"
+            // (white wedges radiating from the crossing point). Making them
+            // subpaths of one nonzero path stopped the chords CANCELLING each
+            // other, which is why this compound exists, but it never removed
+            // them. Chaining does: walk the arcs end-to-start and close ONCE.
+            // Repro _tests/_repro_map_around_edgebreak.json.
+            //
+            // Granularity is the SUBPATH, not the fragment - a fragment's own d
+            // can already hold several (the R carries its counter), and chaining
+            // whole fragments reads the wrong endpoint and fails to close.
+            // CHAIN_EPS is the endpoint tolerance: the joins are exact on three
+            // of the four corpus compounds and ~0.0014 units on the fourth (the
+            // same sub-texel gaps the consumer's stroke gap-joiner bridges), and
+            // the correct chain count holds from 0.005 all the way to 5, so 0.05
+            // sits in a measured band rather than on an edge. A chain that does
+            // not close keeps its own Z - i.e. exactly the old behaviour - so
+            // anything this cannot prove is left alone.
+            const CHAIN_EPS = 0.05;
+            const _numsOf = (t) => t.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || [];
+            const _startOf = (t) => { const n = _numsOf(t); return [+n[0], +n[1]]; };
+            const _endOf = (t) => {
+              const m = t.match(/[MLC][^MLCZ]*/g);
+              if (!m || !m.length) return [NaN, NaN];
+              const n = _numsOf(m[m.length - 1]);
+              return [+n[n.length - 2], +n[n.length - 1]];
+            };
+            const _subs = [];
+            for (const f of standardFrags) {
+              String(f.d).split(/(?=M)/).forEach(t => {
+                const q = t.trim().replace(/\s*Z\s*$/, '');
+                if (q) _subs.push(q);
+              });
+            }
+            const _used = new Array(_subs.length).fill(false);
+            const _chains = [];
+            for (let i = 0; i < _subs.length; i++) {
+              if (_used[i]) continue;
+              _used[i] = true;
+              let cur = _subs[i], grew = true;
+              while (grew) {
+                grew = false;
+                for (let j = 0; j < _subs.length; j++) {
+                  if (_used[j]) continue;
+                  const e = _endOf(cur), s0 = _startOf(_subs[j]);
+                  if (Math.hypot(e[0] - s0[0], e[1] - s0[1]) <= CHAIN_EPS) {
+                    cur += ' ' + _subs[j].replace(/^\s*M\s+/, 'L ');
+                    _used[j] = true; grew = true;
+                  }
+                }
+              }
+              _chains.push(cur);
+            }
             const compound = {
-              d: standardFrags.map(f => f.d + ' Z').join(' '),
+              d: _chains.map(c => c + ' Z').join(' '),
               zSum: standardFrags.reduce((s, f) => s + f.zSum, 0),
               count: standardFrags.reduce((s, f) => s + f.count, 0),
               avgZ: 0,
@@ -20580,7 +20649,20 @@
               strokes: standardFrags.flatMap(f => f.strokes || [f.d]),
               startUV: standardFrags[0].startUV,
               endUV: standardFrags[standardFrags.length - 1].endUV,
-              useNonzero: true // Seam-split compound needs nonzero fill
+              useNonzero: true,      // Seam-split compound: nonzero, so the
+                                     // counter still punches and any residual
+                                     // self-overlap fills rather than cancels
+              // ONE PATH, NOW THAT THE FILL IS RIGHT (v20260809e). v20260809d
+              // measured this compound and REFUSED to merge it, on the reading
+              // that its fill (a nonzero union of chord-closed lenses) and its
+              // stroke (one chordless spliced outline) were different shapes.
+              // The premise was wrong: those lenses were the BUG the owner then
+              // reported, not an intended picture. With the arcs chained above,
+              // the fill IS the chordless outline — measured, the compound's
+              // fill d and the consumer's gap-joined stroke now carry the SAME
+              // 756 numbers on the repro — so one path carries both and the
+              // last exception to the base model closes.
+              dMerged: _chains.map(c => c + ' Z').join(' '),
             };
             compound.avgZ = compound.count > 0 ? compound.zSum / compound.count : 0;
             fragments.length = 0;
@@ -20807,6 +20889,18 @@
               zBounds: frag.zBounds,
               layer: frag.layer,
               type: 'fill', // Treat as mergeable candidate.
+              // NONZERO IS A CORRECTNESS REQUIREMENT HERE, NOT A STYLE
+              // (v20260809c). These are RAW mapped outlines — unlike the
+              // region-clipped 'split' fragments there is no PolyClip pass to
+              // normalize ring orientation, so a source wrapping a 3D rail
+              // genuinely self-crosses and evenodd CANCELS the overlap to white.
+              // Measured on _repro_jaggyR_3drail with Silhouette Split off:
+              // 161,620 px of the mapped R vanished when the authored evenodd
+              // was honoured here. The consumer used to hardcode 'nonzero' for
+              // every spline-flow fragment, which hid the distinction; the flag
+              // now carries it, so the split fragments can follow the object's
+              // authored rule while these keep the rule they require.
+              useNonzero: true,
               strokes: [strokeDStr] // Attach the Open Path as a stroke decoration.
             });
           });
@@ -20968,6 +21062,22 @@
             return bz - az; // Descending
           });
 
+          // ONE PATH FOR FILL AND STROKE (v20260809b) — the Silhouette-Split OFF
+          // branch. A 'fill' fragment's stroke strings ARE its fill d: both come
+          // from the SAME generateD(frag.ops) call two lines apart, and the merge
+          // above only ever inserts " Z " as a SEPARATOR between merged bodies
+          // while pushing those same strings onto strokes. So joining the runs
+          // reproduces d without the separators — the identical fill region (SVG
+          // closes every subpath for filling) and byte-identical ink (the runs
+          // stay separate subpaths, so nothing gains a join). Measured over 406
+          // non-split fragments across 8 scenes: reconstruction exact on every
+          // one. The spline-flow consumer does no stroke gap-joining, so unlike
+          // the surface-mapping side there is no spliced ink to lose.
+          for (const f of finalFragments) {
+            if (f.type !== 'fill' || !f.strokes) continue;
+            const j = f.strokes.filter(Boolean).join(' ');
+            if (j) f.dMerged = j;
+          }
           // console.log(`[resolveMerges] Output: ${finalFragments.length} (Splits: ${splitFrags.length})`);
           return finalFragments;
         };
@@ -22021,6 +22131,12 @@
             let d = '', zSum = 0, count = 0;
             const strokes = [];
             let foldSmoothed = false;   // v20260803c: a curved fold needs nonzero
+            // ONE PATH FOR FILL AND STROKE (v20260809a). dMerged is the SAME
+            // geometry as `d`, emitted so a single <path> can carry both — the
+            // fold/curl convention (v20260720w) and the app's base model. It is
+            // built only while every ring qualifies; strokeMerge going false
+            // leaves the consumer on its pre-existing two-element path.
+            let dMerged = '', strokeMerge = true;
             // Sticker-back section identity (v20260803i): the fragment's u
             // extent in the SHARED UV space — comparable across a mapped
             // group's children, which is what lets the group pass cluster
@@ -22043,22 +22159,34 @@
                     (si, t) => sourceSegs[si] ? uvAtT(sourceSegs[si], t) : null)
                   : catmullCmds(m);
               if (m.foldSmoothed) foldSmoothed = true;
+              let ringD = '';
               if (cmds) {
-                d += 'M ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
-                for (let i = 0; i < nseg; i++) d += cmds[i];
-                d += 'Z ';
+                ringD += 'M ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
+                for (let i = 0; i < nseg; i++) ringD += cmds[i];
+                ringD += 'Z ';
                 m.pts.forEach((p) => { zSum += p.z; count++; });
               } else {
                 m.pts.forEach((p, i) => {
-                  d += (i ? 'L ' : 'M ') + p.x + ' ' + p.y + ' ';
+                  ringD += (i ? 'L ' : 'M ') + p.x + ' ' + p.y + ' ';
                   zSum += p.z; count++;
                 });
-                d += 'Z ';
+                ringD += 'Z ';
               }
+              d += ringD;
               // Stroke runs: cyclic maximal runs of 'path' edges
-              let anchor = -1;
+              // omitD is what the unstroked edges actually DRAW — the merge
+              // decision below is about emitted geometry, never edge COUNT.
+              // Under anchor-fit a consumed edge holds '' (its commands sit on
+              // its run's first edge), so an unstroked edge can omit nothing at
+              // all; counting edges dropped the Z on 16 corpus fragments and
+              // turned a closed join into two caps.
+              let anchor = -1, omitD = '';
               for (let i = 0; i < nseg; i++) {
-                if (!strokeEdge(m.srcs[i])) { anchor = i; break; }
+                if (!strokeEdge(m.srcs[i])) {
+                  if (anchor === -1) anchor = i;
+                  omitD += cmds ? cmds[i]
+                    : ('L ' + m.pts[(i + 1) % nseg].x + ' ' + m.pts[(i + 1) % nseg].y + ' ');
+                }
               }
               if (anchor === -1) {
                 // Fully front/back ring: one closed stroke loop
@@ -22070,7 +22198,12 @@
                   sd += 'L ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
                 }
                 strokes.push(null, sd);
+                // The stroke IS the ring, so the fill's own d strokes it. The
+                // Z closes the loop with a real linejoin where the explicit
+                // 'L p0' above leaves two caps — same ink, better corner.
+                dMerged += ringD;
               } else {
+                const ringRuns = [];
                 let run = null;
                 for (let k = 1; k <= nseg; k++) {
                   const i = (anchor + k) % nseg;
@@ -22084,11 +22217,26 @@
                       run += 'L ' + p2.x + ' ' + p2.y + ' ';
                     }
                   } else if (run) {
-                    strokes.push(null, run);
+                    ringRuns.push(run);
                     run = null;
                   }
                 }
-                if (run) strokes.push(null, run);
+                if (run) ringRuns.push(run);
+                for (const r of ringRuns) strokes.push(null, r);
+                // Nothing is actually omitted ⇒ the ring IS the stroke, Z and all.
+                if (!omitD.trim()) dMerged += ringD;
+                // THE CLOSURE CASE, merged WITHOUT a Z (the fold convention for
+                // an open run, v20260720w). One run whose omitted geometry is a
+                // SINGLE straight L means that L runs from the run's end back to
+                // its start — precisely what SVG's implicit fill close draws. So
+                // the run alone is both the fill region and the correct ink.
+                // Anything else (a closure SUBDIVIDED into several edges, a
+                // curve, or several separate runs) would have the implicit chord
+                // replace real geometry and change the fill — those keep the
+                // two-element emission.
+                else if (ringRuns.length === 1 && /^\s*L[\s\d.eE+-]*$/.test(omitD)) {
+                  dMerged += ringRuns[0];
+                } else strokeMerge = false;
               }
             }
             if (!count) continue;
@@ -22096,6 +22244,7 @@
               d: d.trim(), zSum, count, avgZ: zSum / count,
               type: 'split', layer, subpathIdx: 0,
               strokes, useNonzero: foldSmoothed,
+              dMerged: (strokeMerge && dMerged) ? dMerged.trim() : null,
               u0: u0 <= u1 ? u0 : 0, u1: u0 <= u1 ? u1 : 1,
               startUV: null, endUV: null,
               startIsCrossing: false, endIsCrossing: false
@@ -22603,6 +22752,9 @@
             let d = '', zSum = 0, count = 0;
             const strokes = [];
             let foldSmoothed = false;   // v20260803c: a curved fold needs nonzero
+            // ONE PATH FOR FILL AND STROKE (v20260809a) — see the twin in
+            // generateSurfaceMappedGeometry for the full rationale.
+            let dMerged = '', strokeMerge = true;
             const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
             const zBounds = { minZ: Infinity, maxZ: -Infinity };
             let u0 = Infinity, u1 = -Infinity;   // sticker-back section extent
@@ -22632,9 +22784,10 @@
                   })
                 : edgeCmds(m);
               if (m.foldSmoothed) foldSmoothed = true;
-              d += 'M ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
-              for (let i = 0; i < nseg; i++) d += cmds[i];
-              d += 'Z ';
+              let ringD = 'M ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
+              for (let i = 0; i < nseg; i++) ringD += cmds[i];
+              ringD += 'Z ';
+              d += ringD;
               m.pts.forEach((p) => {
                 zSum += p.z; count++;
                 if (p.x < bounds.minX) bounds.minX = p.x;
@@ -22644,15 +22797,19 @@
                 if (p.z < zBounds.minZ) zBounds.minZ = p.z;
                 if (p.z > zBounds.maxZ) zBounds.maxZ = p.z;
               });
-              let anchor = -1;
+              // omitD = what the unstroked edges actually DRAW (see the twin);
+              // under anchor-fit a consumed edge holds '' and omits nothing.
+              let anchor = -1, omitD = '';
               for (let i = 0; i < nseg; i++) {
-                if (!strokeEdge(m.srcs[i])) { anchor = i; break; }
+                if (!strokeEdge(m.srcs[i])) { if (anchor === -1) anchor = i; omitD += cmds[i]; }
               }
               if (anchor === -1) {
                 let sd = 'M ' + m.pts[0].x + ' ' + m.pts[0].y + ' ';
                 for (let i = 0; i < nseg; i++) sd += cmds[i];
                 strokes.push(null, sd);
+                dMerged += ringD;               // the stroke IS the ring
               } else {
+                const ringRuns = [];
                 let run = null;
                 for (let k = 1; k <= nseg; k++) {
                   const i = (anchor + k) % nseg;
@@ -22661,17 +22818,25 @@
                     if (!run) run = 'M ' + p1.x + ' ' + p1.y + ' ';
                     run += cmds[i];
                   } else if (run) {
-                    strokes.push(null, run);
+                    ringRuns.push(run);
                     run = null;
                   }
                 }
-                if (run) strokes.push(null, run);
+                if (run) ringRuns.push(run);
+                for (const r of ringRuns) strokes.push(null, r);
+                // Nothing omitted ⇒ the ring IS the stroke; else the closure
+                // case merged without a Z — see the surface-mapping twin.
+                if (!omitD.trim()) dMerged += ringD;
+                else if (ringRuns.length === 1 && /^\s*L[\s\d.eE+-]*$/.test(omitD)) {
+                  dMerged += ringRuns[0];
+                } else strokeMerge = false;
               }
             }
             if (!count) continue;
             fragments.push({
               d: d.trim(), zSum, count, avgZ: zSum / count,
               type: 'split', layer, strokes, useNonzero: foldSmoothed,
+              dMerged: (strokeMerge && dMerged) ? dMerged.trim() : null,
               u0: u0 <= u1 ? u0 : 0, u1: u0 <= u1 ? u1 : 1,
               bounds, zBounds
             });
@@ -37504,40 +37669,75 @@
                   const dOpen = frag.d;
                   const fragGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 
-                  if (this.style.fill && this.style.fill !== 'none') {
+                  const _effSF1 = getEffectiveStyle(this);
+                  const _fillOn1 = !!(this.style.fill && this.style.fill !== 'none');
+                  const _strokeOn1 = !!(this.style.stroke && this.style.stroke !== 'none');
+                  // Stroke styling follows the OBJECT (v20260809a, owner
+                  // decision). linecap/linejoin were hardcoded 'round' here, so
+                  // a miter-authored source rendered round — the mapped art is
+                  // the source path and must carry the source's own style.
+                  const _paintStroke1 = (el) => {
+                    el.setAttribute('stroke', _effSF1.stroke);
+                    el.setAttribute('stroke-width',
+                      getEffectiveStrokeWidth(_effSF1['stroke-width'] || (2 / FRAME_SIZE).toString()));
+                    el.setAttribute('stroke-linejoin', _effSF1['stroke-linejoin'] || 'round');
+                    el.setAttribute('stroke-linecap', _effSF1['stroke-linecap'] || 'round');
+                    if (_effSF1['stroke-opacity'] !== undefined) {
+                      el.setAttribute('stroke-opacity', _effSF1['stroke-opacity']);
+                    }
+                  };
+                  // FILL styling follows the OBJECT too (v20260809c). This
+                  // consumer hardcoded fill-rule 'nonzero' and never wrote
+                  // fill-opacity at all, so a spline-flow mapped object ignored
+                  // both — an evenodd source filled as nonzero and a 50%-opaque
+                  // one rendered solid. `useNonzero` still wins where the
+                  // PACKAGER knows nonzero is required (a curved fold's
+                  // self-crossing outline, v20260803c; the seam-split compound),
+                  // because that is a correctness flag, not a style.
+                  const _paintFill1 = (el) => {
+                    el.setAttribute('fill', this.style.fill);
+                    el.setAttribute('fill-rule',
+                      frag.useNonzero ? 'nonzero' : (_effSF1['fill-rule'] || 'evenodd'));
+                    if (_effSF1['fill-opacity'] !== undefined) {
+                      el.setAttribute('fill-opacity', _effSF1['fill-opacity']);
+                    }
+                  };
+                  // ONE PATH CARRYING BOTH (v20260809a) — dMerged is present
+                  // only when the stroke covers the whole fill ring, so this is
+                  // the same ink and the same region as the two elements below.
+                  if (_fillOn1 && _strokeOn1 && frag.dMerged) {
                     const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                    pathEl.setAttribute('fill-rule', 'nonzero');
+                    pathEl.setAttribute('d', frag.dMerged);
+                    _paintFill1(pathEl);
+                    _paintStroke1(pathEl);
+                    fragGroup.appendChild(pathEl);
+                  } else {
+                  if (_fillOn1) {
+                    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                     pathEl.setAttribute('d', dClosed);
-                    pathEl.setAttribute('fill', this.style.fill);
+                    _paintFill1(pathEl);
                     pathEl.setAttribute('stroke', 'none');
                     fragGroup.appendChild(pathEl);
                   }
 
-                  const _effSF1 = getEffectiveStyle(this);
-                  if (this.style.stroke && this.style.stroke !== 'none') {
-                    const strokeWidth = getEffectiveStrokeWidth(_effSF1['stroke-width'] || (2 / FRAME_SIZE).toString());
+                  if (_strokeOn1) {
                     if (frag.strokes && frag.strokes.length > 0) {
                       frag.strokes.forEach(sD => {
                         if (!sD) return; // skip null sentinels
                         const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                         pathEl.setAttribute('fill', 'none');
                         pathEl.setAttribute('d', sD);
-                        pathEl.setAttribute('stroke', _effSF1.stroke);
-                        pathEl.setAttribute('stroke-width', strokeWidth);
-                        pathEl.setAttribute('stroke-linecap', 'round');
-                        pathEl.setAttribute('stroke-linejoin', 'round');
+                        _paintStroke1(pathEl);
                         fragGroup.appendChild(pathEl);
                       });
                     } else if (isSplit) {
                       const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                       pathEl.setAttribute('fill', 'none');
                       pathEl.setAttribute('d', dOpen);
-                      pathEl.setAttribute('stroke', _effSF1.stroke);
-                      pathEl.setAttribute('stroke-width', strokeWidth);
-                      pathEl.setAttribute('stroke-linecap', 'round');
-                      pathEl.setAttribute('stroke-linejoin', 'round');
+                      _paintStroke1(pathEl);
                       fragGroup.appendChild(pathEl);
                     }
+                  }
                   }
 
                   if (fragGroup.childNodes.length > 0) {
@@ -37655,26 +37855,60 @@
                   const fragGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
                   const _effSF2 = getEffectiveStyle(this);
 
+                  const _fillOn2 = !!(this.style.fill && this.style.fill !== 'none' && !frag.strokeOnly);
+                  const _strokeOn2 = !!(this.style.stroke && this.style.stroke !== 'none' && frag.strokes);
+                  // Stroke styling follows the OBJECT (v20260809a, owner
+                  // decision) — linecap/linejoin were hardcoded 'round'.
+                  const _paintStroke2 = (el) => {
+                    el.setAttribute('stroke', rgbToHex(_effSF2.stroke));
+                    el.setAttribute('stroke-width',
+                      getEffectiveStrokeWidth(_effSF2['stroke-width'] || (2 / FRAME_SIZE).toString()));
+                    el.setAttribute('stroke-linejoin', _effSF2['stroke-linejoin'] || 'round');
+                    el.setAttribute('stroke-linecap', _effSF2['stroke-linecap'] || 'round');
+                    if (_effSF2['stroke-opacity'] !== undefined) {
+                      el.setAttribute('stroke-opacity', _effSF2['stroke-opacity']);
+                    }
+                  };
+                  // FILL styling follows the OBJECT too (v20260809c). The
+                  // fill-rule was hardcoded 'evenodd' here — dim's default, so it
+                  // was right by coincidence for most scenes and wrong for any
+                  // source authored nonzero. `useNonzero` still wins: that is a
+                  // correctness flag from the PACKAGER (seam-split compounds
+                  // avoid Z-close overlap cancellation; a curved fold's outline
+                  // genuinely self-crosses, v20260803c), not a style.
+                  const _paintFill2 = (el) => {
+                    el.setAttribute('fill', rgbToHex(this.style.fill));
+                    el.setAttribute('fill-rule',
+                      frag.useNonzero ? 'nonzero' : (_effSF2['fill-rule'] || 'evenodd'));
+                    if (_effSF2['fill-opacity'] !== undefined) {
+                      el.setAttribute('fill-opacity', _effSF2['fill-opacity']);
+                    }
+                  };
+                  // ONE PATH CARRYING BOTH (v20260809a) — dMerged is present
+                  // only when the stroke covers the whole fill ring, so this
+                  // emits the same region and the same ink as the pair below.
+                  if (_fillOn2 && _strokeOn2 && frag.dMerged) {
+                    const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    el.setAttribute('d', frag.dMerged);
+                    _paintFill2(el);
+                    _paintStroke2(el);
+                    fragGroup.appendChild(el);
+                  } else {
+
                   // Draw fill (skip stroke-only fragments — seam-boundary slivers
                   // whose Z-close creates artifacts at surface edges)
-                  if (this.style.fill && this.style.fill !== 'none' && !frag.strokeOnly) {
+                  if (_fillOn2) {
                     const fillEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                     // Split fragments already have Z closures from merge step
                     const fillD = frag.type === 'split' ? frag.d : frag.d + ' Z';
                     fillEl.setAttribute('d', fillD);
-                    fillEl.setAttribute('fill', rgbToHex(this.style.fill));
-                    // Use nonzero for seam-split compounds (avoids Z-close overlap cancellation),
-                    // evenodd for hole-based compounds (correct winding for holes like letter 'a').
-                    fillEl.setAttribute('fill-rule', frag.useNonzero ? 'nonzero' : 'evenodd');
+                    _paintFill2(fillEl);
                     fillEl.setAttribute('stroke', 'none');
-                    if (_effSF2['fill-opacity'] !== undefined) {
-                      fillEl.setAttribute('fill-opacity', _effSF2['fill-opacity']);
-                    }
                     fragGroup.appendChild(fillEl);
                   }
 
                   // Draw strokes (open paths for correct silhouette-edge visibility)
-                  if (this.style.stroke && this.style.stroke !== 'none' && frag.strokes) {
+                  if (_strokeOn2) {
                     const strokeWidth = getEffectiveStrokeWidth(_effSF2['stroke-width'] || (2 / FRAME_SIZE).toString());
                     // Merge consecutive stroke fragments into continuous paths to
                     // eliminate gaps at silhouette split boundaries.
@@ -37725,15 +37959,10 @@
                       const strokeEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                       strokeEl.setAttribute('fill', 'none');
                       strokeEl.setAttribute('d', sD);
-                      strokeEl.setAttribute('stroke', rgbToHex(_effSF2.stroke));
-                      strokeEl.setAttribute('stroke-width', strokeWidth);
-                      strokeEl.setAttribute('stroke-linecap', 'round');
-                      strokeEl.setAttribute('stroke-linejoin', 'round');
-                      if (_effSF2['stroke-opacity'] !== undefined) {
-                        strokeEl.setAttribute('stroke-opacity', _effSF2['stroke-opacity']);
-                      }
+                      _paintStroke2(strokeEl);
                       fragGroup.appendChild(strokeEl);
                     });
+                  }
                   }
 
                   // Only add to faceList if the group has children

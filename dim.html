@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260809e -->
+<!-- dim v20260809r -->
 
 <!--
   MIT License
@@ -3427,6 +3427,38 @@
     /* Stale bare-input rules removed — .num-spin-wrap overrides below handle all timeline inputs */
 
     /* Override global .num-spin-wrap styles for timeline header inputs */
+    /* Dropped-frame read-out (v20260809i). Muted while zero so it reads as a
+       status line rather than a warning; accented once frames are actually being
+       missed, which is the moment it is worth acting on (turn Cache Animation on). */
+    .tl-drop-stat {
+      font-size: var(--font-size-field);
+      color: var(--text-tertiary, #999);
+      margin-right: 6px;
+      font-variant-numeric: tabular-nums;
+      transition: color 120ms ease;
+    }
+
+    .tl-drop-stat.dropping {
+      color: #c0392b;
+      font-weight: 600;
+    }
+
+    /* Cache memory read-out (v20260809m). Same muted register as the drop stat so
+       the two read as one status line; accented only when the capture stopped at
+       the budget, which is the state worth noticing (the range is only partly
+       cached, and the ruler tint shows how much). */
+    .tl-cache-stat {
+      font-size: var(--font-size-field);
+      color: var(--text-tertiary, #999);
+      margin-right: 6px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .tl-cache-stat.at-budget {
+      color: #c0392b;
+      font-weight: 600;
+    }
+
     .tl-frame-display .num-spin-wrap {
       display: inline-flex;
       width: auto;
@@ -3452,6 +3484,17 @@
     .tl-frame-display .num-spin-wrap>input[type="number"]#tlPlaybackRange,
     .tl-frame-display .num-spin-wrap>input[type="number"]#tlFpsInput {
       width: 44px;
+    }
+
+    /* Range-is-unplayable pulse (v20260809j). Specificity has to beat
+       `.tl-frame-display .num-spin-wrap>input[type="number"]` and its :hover, which
+       both set background — the documented trap for state colours on these fields
+       (state report §11, v20260731d). */
+    .tl-frame-display .num-spin-wrap>input[type="number"]#tlPlaybackRange.range-alert,
+    .tl-frame-display .num-spin-wrap>input[type="number"]#tlPlaybackRange.range-alert:hover {
+      background: #c0392b;
+      color: #fff;
+      box-shadow: inset 0 0 0 1.5px #c0392b;
     }
 
     .tl-frame-display .num-spin-wrap>input[type="number"]:hover {
@@ -4425,6 +4468,19 @@
       <g id="gizmoGroup"></g>
       <g id="targetGizmoGroup"></g>
       <g id="pathGroup"></g>
+      <!-- ANIMATION RENDER CACHE (v20260809f): cached frames are presented HERE,
+           never by replacing #pathGroup's children — every Path holds persistent
+           refs to its svgElement/frontFace/backFace and frames update `d` in
+           place, so restoring a snapshot into #pathGroup would detach them and
+           the next live render would write into orphans. Sibling of #pathGroup so
+           it inherits the same #mainGroup transform (pan/zoom/resize for free).
+           Empty and display:none whenever the cache is not presenting. -->
+      <!-- pointer-events:none (v20260809q): the clones must never be interaction
+           targets. Selection resolves a click through obj.svgElement.contains(el),
+           and a clone belongs to no object, so a click landing here silently
+           selects nothing. Belt and braces beside the isPlaying gate in
+           RenderCache.active(). -->
+      <g id="renderCacheGroup" style="display: none; pointer-events: none;"></g>
       <g id="pathHighlightGroup"></g>
       <g id="selectionGizmoGroup"></g>
       <path id="penPreviewPath" fill="none" stroke="var(--accent-color)" stroke-opacity="0.4" stroke-width="1.5"
@@ -8123,6 +8179,20 @@
 
       <!-- Frame Display -->
       <div class="tl-frame-display">
+        <!-- Dropped-frame read-out (v20260809i). Counts clock ticks whose frame was
+             never committed to screen before the clock moved on — the honest measure
+             of "playback is not keeping up", and the number that says whether this
+             scene needs Cache Animation. -->
+        <!-- Cache memory read-out (v20260809m). Hidden unless Cache Animation is on,
+             because it is meaningless otherwise and the header is already busy. -->
+        <span id="tlCacheStat" class="tl-cache-stat" style="display: none;"
+          title="Memory held by the animation render cache (emitted SVG markup). Grows during the capture pass; if it reaches the budget the capture stops and the ruler tint shows how much of the range fits.">0.00 MB</span>
+        <!-- Playback speed (v20260809n). Was a dropped-frame count; this app almost
+             never drops a frame, it runs LONG — the clock starves and every frame is
+             still shown, just late. Achieved rate vs target is the number that
+             actually answers "did the render slow the playback down". -->
+        <span id="tlDropStat" class="tl-drop-stat"
+          title="Playback speed appears here once a run is under way.">realtime</span>
         <input type="number" id="tlFrameInput" value="0" min="0" max="359" step="1" title="Current Frame">
         / <input type="number" id="tlPlaybackRange" value="360" min="1" max="360" step="1" title="Playback Range">
         &nbsp;
@@ -8130,6 +8200,13 @@
         &nbsp;
         <label class="tl-checkbox-label" title="Play back and forth (ping-pong)">
           <input type="checkbox" id="tlPingPong" class="ui-checkbox"> Pingpong
+        </label>
+        <!-- ANIMATION RENDER CACHE (v20260809h). Session-only, never serialized —
+             an app preference like Show Raster Image, following the Auto-Key rule
+             that a behaviour-changing mode starts OFF and is not persisted. -->
+        <label class="tl-checkbox-label" id="tlCacheAnimLabel"
+          title="Cache each rendered frame on the first play, then replay from the cache at full speed. Cached frames are tinted on the ruler.">
+          <input type="checkbox" id="tlCacheAnim" class="ui-checkbox"> Cache Animation
         </label>
       </div>
     </div>
@@ -12022,6 +12099,22 @@
       });
     }
 
+    // ANIMATION RENDER CACHE — the invalidation EPOCH (v20260809h).
+    // Bumped by every scene / camera / animation mutation choke point below; the
+    // cache records the epoch it captured at and drops itself the moment the two
+    // disagree. A PLAIN COUNTER declared HERE rather than a call into RenderCache,
+    // for two reasons: RenderCache is declared ~46k lines later beside the render
+    // loop, and `typeof` on a const in its TDZ THROWS rather than returning
+    // 'undefined' (§11), so it cannot even be feature-detected around from up here.
+    // A number has no TDZ problem and costs one increment.
+    //
+    // This is the FAST path only, and it is assumed INCOMPLETE by design — the
+    // authoritative check is the periodic re-render audit in RenderCache.audit().
+    // "Every writer" is a set this codebase has repeatedly got wrong, so a missed
+    // bump degrades to "the audit drops the cache one pass later", never to
+    // "the animation shows stale artwork".
+    let renderCacheEpoch = 0;
+
     // --- UNDO / REDO HISTORY (Diff-Based, Separate Scene & Camera Stacks) ---
     let HISTORY_MAX = parseInt(getComputedStyle(document.documentElement)
       .getPropertyValue('--history-max-undo')) || 10;
@@ -12182,6 +12275,7 @@
 
     // --- Scene Undo Push (diff-based) ---
     const pushUndoState = (label) => {
+      renderCacheEpoch++;   // ANIMATION RENDER CACHE: undo:scene
       const current = captureSceneState();
       if (_lastSceneState) {
         const diffs = computeDiff(_lastSceneState, current);
@@ -12197,6 +12291,7 @@
     };
 
     const pushUndoStateCoalesced = (delay = 300) => {
+      renderCacheEpoch++;   // ANIMATION RENDER CACHE: undo:scene-coalesced
       if (!_sceneCoalesceBeforeState && !_sceneCoalesceTimer) {
         _sceneCoalesceBeforeState = deepClone(captureSceneState());
       }
@@ -12223,6 +12318,7 @@
 
     // --- Camera Undo Push (diff-based) ---
     const pushCameraUndoState = () => {
+      renderCacheEpoch++;   // ANIMATION RENDER CACHE: undo:camera
       const current = captureCameraState();
       if (_lastCameraState) {
         const diffs = computeDiff(_lastCameraState, current);
@@ -12237,6 +12333,7 @@
     };
 
     const pushCameraUndoStateCoalesced = (delay = 300) => {
+      renderCacheEpoch++;   // ANIMATION RENDER CACHE: undo:camera-coalesced
       if (!_cameraCoalesceBeforeState && !_cameraCoalesceTimer) {
         _cameraCoalesceBeforeState = deepClone(captureCameraState());
       }
@@ -12263,6 +12360,7 @@
 
     // --- Restore Helpers ---
     const restoreSceneFromState = (state) => {
+      renderCacheEpoch++;   // ANIMATION RENDER CACHE: undo:scene-restore
       // Destroy old objects and clear SVG DOM to prevent ghost renders
       const oldObjects = [...sceneObjects];
       oldObjects.forEach(obj => {
@@ -12631,6 +12729,7 @@
     };
 
     const restoreAnimationState = (state) => {
+      renderCacheEpoch++;   // ANIMATION RENDER CACHE: undo:anim-restore
       if (!state) return;
       // Restore tracks
       animationTimeline.tracks.clear();
@@ -12714,6 +12813,7 @@
 
     // --- Animation Undo Push (diff-based) ---
     const pushAnimUndoState = (label) => {
+      renderCacheEpoch++;   // ANIMATION RENDER CACHE: undo:anim
       const current = captureAnimationState();
       if (_lastAnimState) {
         const diffs = computeDiff(_lastAnimState, current);
@@ -12729,6 +12829,7 @@
     };
 
     const pushAnimUndoStateCoalesced = (delay = 300) => {
+      renderCacheEpoch++;   // ANIMATION RENDER CACHE: undo:anim-coalesced
       if (!_animCoalesceBeforeState && !_animCoalesceTimer) {
         _animCoalesceBeforeState = deepClone(captureAnimationState());
       }
@@ -58873,17 +58974,484 @@
     // --- /CORPUS FILL-HASH VERIFIER --------------------------------------------
 
     // --- Main Render Loop ---
-    let renderRequested = false;
+    // Pending-rAF HANDLE, not a boolean (v20260809g — see requestRender). 0 means
+    // nothing is scheduled. A handle is what makes "at most one pending callback"
+    // true even when two renders are in flight at once.
+    let renderRafId = 0;
     let renderInProgress = false;  // Guard against overlapping async renders
+
+    // DROPPED-FRAME COUNTER (v20260809i). Declared here because render() writes it
+    // and render() is defined just below; the timeline reads it far later.
+    //
+    // WHAT A "DROP" IS, precisely, because the obvious definition is wrong. Playback
+    // is a setInterval clock that does NOT await its render, so a tick can advance
+    // past a frame that was never committed to screen. That — a frame the clock
+    // visited and the compositor never saw — is a drop. It is NOT the same thing as
+    // the clock STARVING (v20260809f's finding, where the clock itself runs slow and
+    // every frame it reaches IS drawn); both feel like bad playback and they need
+    // different fixes, so this counter deliberately measures only the first.
+    let _tlAwaitingFrame = null;   // frame the last tick set, not yet confirmed drawn
+    let _tlFramesDropped = 0;
+    let _tlFramesShown = 0;
+    // PLAYBACK SPEED (v20260809n). Drops turned out to be the WRONG headline for this
+    // app: the clock starves rather than skipping, so playback runs LONG while showing
+    // every frame (owner: "mostly does not drop frames but just shows them, with
+    // delay"). The number that answers "did the render slow the playback down" is the
+    // rate the clock actually achieved against the rate that was asked for. Worst gap
+    // is kept alongside because a single long stall reads as a jump even when the
+    // average is fine — that is how the once-per-pass cache audit was caught.
+    let _tlPlayStartMs = 0;
+    let _tlLastTickMs = 0;
+    let _tlWorstGapMs = 0;
+    // TWO PLAYBACK SEMANTICS (v20260809o, owner design call):
+    //   UNCACHED = review. Completeness over timing — advance one frame per tick, so
+    //     every frame is seen and the run simply lasts longer. Reported as
+    //     "Slowing down": the multiplier does not change what you would do about it.
+    //   CACHED   = preview. Timing over completeness — the frame is a function of
+    //     elapsed WALL TIME, so the run lasts exactly as long as the animation says
+    //     and any frame that could not be reached in time is SKIPPED and counted.
+    //     Reported as a drop count, which is the number that means something there.
+    // The coupling to the checkbox is deliberate: real-time pacing is only honest
+    // when it is achievable, and uncached real time on a heavy scene would show 2
+    // frames of every 120.
+    let _tlLastAdvance = 0;        // monotonic frame index the wall clock has reached
+    let _tlLastAdvanceMs = 0;      // when the review clock last stepped a frame
+    // --- ANIMATION RENDER CACHE (v20260809f, PLAN-animation-render-cache.md P1) ---
+    // Caches the EMITTED SVG of each animation frame so a repeat play does not
+    // re-derive it. Phase 1 is flag-driven: no UI (Phase 3) and NO AUTOMATIC
+    // INVALIDATION (Phase 2) — edit the scene and you must clear() by hand.
+    //
+    // WHY IT IS WORTH CACHING AT ALL. Measured on ix_03_vase_blades (386 faces,
+    // 5,760 pairs): deriving one frame costs 137-405 ms, while cloning the
+    // finished frame costs 0.3 ms and putting a cached one back on screen costs
+    // under one 120 Hz refresh (8.3 ms, vsync-limited, 0.00 ms against an
+    // empty-swap baseline — and 52 masks measured the same as none).
+    //
+    // WHAT IT ACTUALLY FIXES, which is not what it looks like. Playback does NOT
+    // drop frames today: the setInterval clock STARVES under long synchronous
+    // renders, ticking at 1.9 Hz against a 24 Hz target on that scene while every
+    // frame it reaches is drawn ~6 times. So a 120-frame range that should take
+    // 5 s takes ~63 s. This is a SLOW-MOTION defect, not a stutter, and the cache
+    // fixes it by making the render cheap enough that the clock is not starved.
+    // (A light-scene control ticked 97 against 96 expected, which is what proves
+    // the starvation tracks render DURATION rather than the instrument.)
+    //
+    // CACHE OFF MUST BE TODAY'S BUILD, frame-dropping and all (owner instruction).
+    // `step()` is the only call the render loop makes, and with `enabled` false it
+    // is one boolean test. Nothing about the playback clock is reshaped here.
+    const RenderCache = {
+      // Safety cap only — the real budget policy (with the ruler showing what
+      // fits) is Phase 4. Corpus median is 192 KB/frame and the max 496 KB, so
+      // 360 frames of the heaviest scene would be ~174 MB; this stops a capture
+      // from taking the tab down while the feature has no UI to show a limit.
+      BUDGET_BYTES: 150 * 1024 * 1024,
+      enabled: false,          // the Cache Animation checkbox (session-only, never serialized)
+      _frames: new Map(),      // frame index -> detached <g>, ids already namespaced
+      _gen: 0,                 // id-namespace generation, bumped per capture
+      _presenting: false,      // a cached frame is currently on screen
+      _capturing: false,       // capture in flight: step() must stand down
+      _epoch: -1,              // renderCacheEpoch at capture time (v20260809h)
+      _cancel: false,          // capture cancel request (v20260809i)
+      _captureDeclined: false, // user cancelled: do not auto-recapture on next Play
+      _auditPending: true,     // audit once at the next Play (v20260809n)
+      _range: null,            // [from, to] the capture covered
+      _served: 0,              // frames served since the last audit
+      _auditFrame: null,       // a frame deliberately drawn LIVE so it can be audited
+      _audits: 0, _auditFails: 0,
+      stats: null,
+
+      _host() { return document.getElementById('renderCacheGroup'); },
+      _pg() { return document.getElementById('pathGroup'); },
+      has(f) { return this._frames.has(f); },
+      size() { return this._frames.size; },
+      frames() { return [...this._frames.keys()].sort((a, b) => a - b); },
+      // PRESENT ONLY WHILE PLAYING (v20260809q, owner report: "when render is cached
+      // I can't select objects in the canvas"). Confirmed by hit test: while a cached
+      // frame is up, a click lands on a CLONE inside #renderCacheGroup, which belongs
+      // to no scene object, and #pathGroup is display:none so the real faces cannot be
+      // hit at all — the resolver in onMouseDown tests obj.svgElement.contains(el) and
+      // returns null. The state also PERSISTED after playback stopped, so the canvas
+      // stayed dead until the checkbox was unticked.
+      //
+      // Requiring isPlaying is the fix and also the right rule: the cache exists to
+      // make PLAYBACK real-time, and everything else — selecting, editing, scrubbing
+      // — wants the live tree, which is the geometry those operations actually act on.
+      // Hit-testing the clones instead was considered and rejected: it would resolve
+      // clicks against a frame the scene no longer holds.
+      active() { return this.enabled && !this._capturing && animationTimeline.isPlaying; },
+      // Bytes currently held (v20260809m). Sums the per-frame markup length recorded
+      // at capture time — the same figure the budget is enforced against, so the
+      // read-out and the cap can never disagree. It measures MARKUP, not the DOM
+      // nodes' true heap cost, which is larger and not observable from script; the
+      // number is therefore a consistent lower bound, which is what makes it useful
+      // for comparing scenes and watching a capture grow.
+      bytes() { let n = 0; for (const g of this._frames.values()) n += (g.__rcBytes || 0); return n; },
+      stale() { return this._epoch !== renderCacheEpoch; },
+
+      // Does a play need a capture pass first? True when armed with no usable cache
+      // for the current playback range (owner decision: capture on the FIRST PLAY,
+      // not when the checkbox is ticked).
+      needsCapture() {
+        if (!this.enabled) return false;
+        // The user cancelled a capture — do not silently start it again on the next
+        // Play. Play with whatever was captured; re-ticking the checkbox re-arms.
+        if (this._captureDeclined && this._frames.size) return false;
+        if (this.stale() || !this._frames.size) return true;
+        const end = animationTimeline.playbackRange - 1;
+        return !(this._range && this._range[0] === 0 && this._range[1] >= end);
+      },
+
+      // Every id in a captured frame is rewritten into its own namespace.
+      // A clone carries the SAME mask/clipPath/use ids as the live tree it came
+      // from, and `url(#id)` resolves to the FIRST match in document order — so an
+      // un-namespaced cached frame would silently bind its masks to whatever the
+      // hidden live tree last rendered. Rewrites ids, url(#...) and href="#...".
+      _namespace(root, tag) {
+        const map = new Map();
+        for (const el of root.querySelectorAll('[id]')) {
+          const old = el.getAttribute('id');
+          map.set(old, tag + old);
+          el.setAttribute('id', tag + old);
+        }
+        if (!map.size) return 0;
+        for (const el of root.querySelectorAll('*')) {
+          for (const at of el.attributes) {
+            const v = at.value;
+            if (!v) continue;
+            if (v.indexOf('url(#') >= 0) {
+              const nv = v.replace(/url\(#([^)]+)\)/g, (m, id) => map.has(id) ? 'url(#' + map.get(id) + ')' : m);
+              if (nv !== v) at.value = nv;
+            } else if (v.charCodeAt(0) === 35 && map.has(v.slice(1))) {
+              at.value = '#' + map.get(v.slice(1));
+            }
+          }
+        }
+        return map.size;
+      },
+
+      clear() {
+        // NO-OP WHEN THERE IS NOTHING TO CLEAR (v20260809l). step() calls clear()
+        // on every render while the cache is enabled-but-stale, and clear() repaints
+        // the ruler — measured 5 full canvas repaints in 5 renders, i.e. once per
+        // frame, forever. Guarding on "did anything actually change" makes the
+        // repeated call free and keeps the repaint for the transition that needs it.
+        const had = this._frames.size > 0 || this._presenting || this._epoch !== -1;
+        this._frames.clear();
+        this.stats = null;
+        this._epoch = -1;
+        this._range = null;
+        this._served = 0;
+        this._auditFrame = null;
+        this._captureDeclined = false;   // clearing re-arms the capture-on-Play
+        this._auditPending = true;       // ...and re-arms the once-per-Play audit
+        this._restoreLive();
+        // Repaint the ruler so the cached-frame tint disappears with the cache —
+        // but only when something actually went away (see `had` above).
+        // try/catch, NOT `typeof tlDrawRuler` — that const is declared ~12k lines
+        // below this one and `typeof` on a const in its TDZ THROWS rather than
+        // returning 'undefined' (§11), so it cannot be feature-detected.
+        if (had) {
+          try { tlDrawRuler(); } catch (e) { /* declared later; nothing to repaint yet */ }
+          try { _tlUpdateCacheStat(); } catch (e) { }   // v20260809m — MB drops with it
+        }
+      },
+
+      _restoreLive() {
+        if (!this._presenting) return;          // the hot path when disabled
+        const h = this._host(), p = this._pg();
+        if (h) { h.replaceChildren(); h.style.display = 'none'; }
+        if (p) p.style.display = '';
+        this._presenting = false;
+      },
+
+      // The ONE call the render loop makes. true ⇒ this frame was served from
+      // cache and the caller must NOT draw. A partial cache is legal: uncached
+      // frames return false and fall through to the live draw, so a half-captured
+      // range plays with some fast frames and some slow ones.
+      step(f) {
+        if (!this.active()) { this._restoreLive(); return false; }
+        // FAST INVALIDATION (v20260809h): any scene / camera / animation mutation
+        // bumped the epoch, so everything captured under the old one is wrong.
+        if (this.stale()) { this.clear(); return false; }
+        const g = this._frames.get(f);
+        if (!g) { this._restoreLive(); return false; }
+        // THE AUDIT USED TO LIVE HERE AND IT HAS MOVED (v20260809n, owner report:
+        // "even when frames are cached, a frame jumps"). It ran once per full pass by
+        // declining to serve a frame it had, so the live draw could be compared —
+        // correct, and far more visible than its throughput share suggested.
+        // MEASURED on the owner's scene: served frames cost 0.2 ms, the audit frame
+        // 49.9 ms. A 250x spike in an otherwise flat stream is a visible hitch once
+        // per loop no matter how small its percentage. "0.8% overhead" was the wrong
+        // unit — smoothness is about the WORST frame, not the mean.
+        // It now runs ONCE per Play, before the clock starts (RenderCache.auditNow
+        // from tlStartPlayback), where a pause is expected and costs nothing visible.
+        const h = this._host(), p = this._pg();
+        if (!h || !p) return false;
+        if (h.firstChild !== g) h.replaceChildren(g);   // moves the stored node; no clone
+        if (!this._presenting) {
+          p.style.display = 'none';
+          h.style.display = '';
+          this._presenting = true;
+        }
+        return true;
+      },
+
+      // THE AUDIT, run ONCE per Play from tlStartPlayback and never during the loop
+      // (v20260809n). Draws one cached frame live and compares; a mismatch drops the
+      // whole cache. This is still the AUTHORITATIVE invalidation — the epoch is a
+      // fast path and is assumed incomplete — it just no longer pays for that
+      // guarantee with a visible hitch every loop.
+      //
+      // The trade, stated honestly: coverage drops from "once per pass, forever" to
+      // "once per Play". An edit that both changes the picture AND misses every epoch
+      // site would now survive until the next Play instead of one pass. That is
+      // acceptable because the epoch sites are the app's own disciplined choke points
+      // (all six undo pushes, both restores, importScene), and anything a user does
+      // to change a scene goes through them; the audit exists for the site nobody
+      // thought of, not for the common case.
+      //
+      // Picks the MIDDLE cached frame, not frame 0: a rest pose is the frame least
+      // likely to differ, so auditing it would be the weakest possible check.
+      async auditNow() {
+        const keys = this.frames();
+        if (!keys.length) return { checked: 0 };
+        const f = keys[keys.length >> 1];
+        const g = this._frames.get(f);
+        const wasFrame = animationTimeline.currentFrame;
+        this._restoreLive();
+        animationTimeline.currentFrame = f;
+        tlApplyFrame(f);
+        const vp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
+        await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp })));
+        const live = this._normalize(this._pg().innerHTML);
+        const cached = this._normalize(g.innerHTML);
+        this._audits++;
+        const ok = live === cached;
+        if (!ok) {
+          this._auditFails++;
+          console.warn('[RenderCache] audit failed at frame ' + f + ' — cache dropped (the scene changed without bumping the epoch).');
+          this.clear();
+        }
+        animationTimeline.currentFrame = wasFrame;
+        tlApplyFrame(wasFrame);
+        return { checked: 1, frame: f, ok };
+      },
+
+      // Capture is an AWAITED pass over the range, never opportunistic sampling —
+      // with the clock starved to 1.9 Hz, "cache whatever the loop happened to
+      // draw" would cache almost nothing, and the holes would be exactly the
+      // frames that need it.
+      //
+      // It calls obj.draw() directly instead of render(), deliberately: render()'s
+      // own rAF callback invokes render() DIRECTLY, bypassing requestRender()'s
+      // renderInProgress guard, and render()'s tail schedules a fresh chain — so N
+      // direct render() calls fork N permanent render loops (measured: ~4.6 chains
+      // at 567 renders/s on a 122 Hz display). The SVG sequence exporter already
+      // draws this way; same precedent, and it skips grid/gizmo/HUD work too.
+      async capture(from, to, opts = {}) {
+        const t0 = performance.now();
+        const pg = this._pg();
+        const start = (from === undefined) ? 0 : from;
+        const end = (to === undefined) ? animationTimeline.playbackRange - 1 : to;
+        const budget = (opts.budgetBytes === undefined) ? this.BUDGET_BYTES : opts.budgetBytes;
+        const wasFrame = animationTimeline.currentFrame;
+        this._capturing = true;
+        this._cancel = false;
+        this._restoreLive();
+        this._frames.clear();
+        // Show "rendering…" immediately, not after the first frame lands — on a heavy
+        // scene frame 0 alone can take half a second (v20260809q).
+        try { _tlUpdatePlaybackStat(); } catch (e) { }
+        const tag = 'rc' + (++this._gen) + '_';
+        let bytes = 0, stopped = null;
+        try {
+          for (let f = start; f <= end; f++) {
+            animationTimeline.currentFrame = f;
+            tlApplyFrame(f);
+            const vp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
+            await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp })));
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            for (const c of pg.children) g.appendChild(c.cloneNode(true));
+            this._namespace(g, tag + f + '_');
+            const b = g.innerHTML.length;
+            if (bytes && bytes + b > budget) { stopped = f; break; }
+            g.__rcBytes = b;
+            bytes += b;
+            this._frames.set(f, g);
+            // THE RULER TINT IS THE PROGRESS BAR (v20260809i) — repaint every frame
+            // so the capture visibly fills in left to right. The MB read-out grows
+            // with it (v20260809m), so the memory cost is visible while it is being
+            // paid rather than only afterwards.
+            try { tlDrawRuler(); } catch (e) { }
+            try { _tlUpdateCacheStat(); } catch (e) { }
+            try { _tlUpdatePlaybackStat(); } catch (e) { }   // v20260809q — "rendering…"
+            // AND YIELD TO THE EVENT LOOP, which is what actually fixes the freeze.
+            // `await`ing draw() only yields MICROTASKS, and microtasks do not give
+            // the browser a rendering opportunity — so the whole capture ran as one
+            // long task, every tlDrawRuler() call was overwritten before it could be
+            // composited, and the app looked hung until the pass finished (owner
+            // report). A macrotask boundary lets a paint happen between frames.
+            // setTimeout rather than rAF on purpose: rAF is PARKED in a hidden tab
+            // and the capture would never finish there.
+            await new Promise(r => setTimeout(r, 0));
+            if (this._cancel) { stopped = f + 1; break; }
+          }
+        } finally {
+          this._capturing = false;
+          animationTimeline.currentFrame = wasFrame;
+          tlApplyFrame(wasFrame);
+          requestRender();
+        }
+        // Stamp the epoch AFTER the pass: tlApplyFrame during capture must not be
+        // able to leave the cache born-stale, and any real mutation that happened
+        // mid-capture is caught by the audit instead.
+        this._epoch = renderCacheEpoch;
+        this._range = [start, stopped === null ? end : stopped - 1];
+        this._served = 0;
+        // Freshly captured IS the truth, so the very next Play has nothing to audit.
+        this._auditPending = false;
+        const wasCancelled = this._cancel;
+        this._cancel = false;
+        // A capture that stopped at the BUDGET must not be retried on the next Play
+        // (v20260809o). needsCapture() asks "does the cache cover the range", and a
+        // budget-truncated one never will — so without this, every Play re-runs a
+        // capture that is guaranteed to stop in the same place. Same treatment as a
+        // user cancel: keep what fits, play with it, let the ruler tint show the rest.
+        if (stopped !== null && !wasCancelled) this._captureDeclined = true;
+        this.stats = {
+          frames: this._frames.size, from: start, to: end,
+          cachedThrough: stopped === null ? end : stopped - 1,
+          budgetHit: stopped !== null && !wasCancelled, cancelled: wasCancelled,
+          bytes, mb: +(bytes / 1048576).toFixed(1),
+          ms: +(performance.now() - t0).toFixed(0),
+        };
+        try { tlDrawRuler(); } catch (e) { }
+        // Clear "rendering…" even when the capture was CANCELLED and no playback
+        // follows — otherwise the label would sit there indefinitely (v20260809q).
+        try { _tlUpdatePlaybackStat(); } catch (e) { }
+        return this.stats;
+      },
+
+      // Second press of Play during a capture means STOP, not "play twice". The
+      // partial cache is KEPT — those frames are valid and the ruler already shows
+      // exactly which ones, so the next Play captures nothing extra and simply plays
+      // with a fast head and a slow tail.
+      cancelCapture() { if (this._capturing) { this._cancel = true; this._captureDeclined = true; } },
+
+      // CAPTURE ON FIRST PLAY (owner decision). Called from tlStartPlayback when the
+      // box is ticked and there is nothing usable cached for the current range.
+      async captureForPlayback() {
+        return this.capture(0, animationTimeline.playbackRange - 1);
+      },
+
+      // Put the LIVE tree back on screen, freshly drawn for the current frame, and
+      // leave it there for this turn. Every export path is synchronous inside
+      // generateSVGString (it clones mainGroup), so anything that exports while a
+      // cached frame is presented would otherwise serialise the last LIVE frame
+      // rather than the one being shown. The cache stays armed; the next render
+      // re-presents from it.
+      async withLiveTree() {
+        if (!this._presenting) return false;
+        this._restoreLive();
+        const vp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
+        await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp })));
+        return true;
+      },
+
+      // Canonicalise every id token in order of first appearance, so a namespaced
+      // clone and a fresh live render compare equal iff everything ELSE (geometry,
+      // style, structure, order) matches. Ids differ BY CONSTRUCTION here — the
+      // clone is namespaced on purpose and MaskRender._seq advances every render —
+      // so a raw string compare would fail for the one reason that does not matter.
+      _normalize(s) {
+        const seen = new Map();
+        const canon = (id) => {
+          let v = seen.get(id);
+          if (!v) { v = 'ID' + (seen.size + 1); seen.set(id, v); }
+          return v;
+        };
+        return s.replace(/id="([^"]+)"/g, (m, id) => 'id="' + canon(id) + '"')
+          .replace(/url\(#([^)]+)\)/g, (m, id) => 'url(#' + canon(id) + ')')
+          .replace(/href="#([^"]+)"/g, (m, id) => 'href="#' + canon(id) + '"');
+      },
+
+      // PHASE 1 GATE: a cached frame must describe the same picture as a live
+      // render of that frame. Draws each cached frame afresh and compares.
+      async verify(from, to) {
+        const pg = this._pg();
+        const keys = this.frames();
+        if (!keys.length) return { checked: 0, verdict: 'NOTHING CACHED' };
+        const start = (from === undefined) ? keys[0] : from;
+        const end = (to === undefined) ? keys[keys.length - 1] : to;
+        const wasEnabled = this.enabled, wasFrame = animationTimeline.currentFrame;
+        this.enabled = false;
+        this._restoreLive();
+        const bad = [];
+        let checked = 0;
+        try {
+          for (let f = start; f <= end; f++) {
+            const g = this._frames.get(f);
+            if (!g) continue;
+            animationTimeline.currentFrame = f;
+            tlApplyFrame(f);
+            const vp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
+            await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp })));
+            const live = this._normalize(pg.innerHTML);
+            const cached = this._normalize(g.innerHTML);
+            checked++;
+            if (live !== cached) {
+              let i = 0; while (i < live.length && live[i] === cached[i]) i++;
+              bad.push({ frame: f, liveLen: live.length, cachedLen: cached.length, firstDiffAt: i,
+                live: live.slice(Math.max(0, i - 40), i + 60), cached: cached.slice(Math.max(0, i - 40), i + 60) });
+            }
+          }
+        } finally {
+          this.enabled = wasEnabled;
+          animationTimeline.currentFrame = wasFrame;
+          tlApplyFrame(wasFrame);
+          requestRender();
+        }
+        return { checked, mismatches: bad.length, bad: bad.slice(0, 3),
+          verdict: bad.length === 0 ? 'PASS — every cached frame reproduces the live render' : 'FAIL' };
+      },
+    };
+    // --- END ANIMATION RENDER CACHE ---
+
     const requestRender = () => {
       if (renderInProgress) {
         // A render is already running (awaiting GPU). The continuous rAF loop at
         // the end of render() re-schedules the next frame, so just return.
         return;
       }
-      if (!renderRequested) {
-        renderRequested = true;
-        requestAnimationFrame(() => render().catch((err) => {
+      // THE PENDING STATE IS A HANDLE, AND ONLY THE rAF CALLBACK CLEARS IT
+      // (v20260809g). This used to be a boolean `renderRequested` cleared at the
+      // TOP OF render(), and that combination forked the render loop twice over:
+      //
+      //  (1) Cleared inside render(), the flag LIED whenever render() was called
+      //      directly (every console harness, and dimCorpusHash twice per scene):
+      //      the rAF scheduled by the loop was still pending, but the flag said
+      //      "nothing scheduled", so render()'s own tail scheduled a SECOND one.
+      //      Measured on the unfixed build: 5 direct render() calls produced
+      //      exactly 5 extra rAF schedules — one new self-perpetuating chain each.
+      //  (2) Moving the clear into this callback fixed (1) and was still not
+      //      enough, which is why the boolean had to go. render() is async, so two
+      //      renders can be in flight at once (the loop's, plus a harness's
+      //      `await render()`); both reach their tail, and with a boolean the
+      //      first one to find it clear schedules while the second finds it set —
+      //      but if the ORDER puts a clear between them, both schedule. Measured
+      //      from a fresh page load: chains went 1 -> 2 after four direct calls
+      //      and stayed at 2.
+      //
+      // A HANDLE closes both. `renderRafId` is non-zero for exactly as long as a
+      // callback is pending, is cleared by the callback itself the instant it
+      // runs, and is never touched by render(). So no number of concurrent renders
+      // or direct calls can produce a second pending callback. Users never saw any
+      // of this — nothing in the app calls render() directly — but every harness
+      // measurement did, which is what made timings session-dependent.
+      if (renderRafId) return;              // a callback is already pending
+      renderRafId = requestAnimationFrame(() => {
+        renderRafId = 0;                    // cleared BEFORE the call, so a throw cannot strand it
+        render().catch((err) => {
           // A crashed render must release the async guards, otherwise every
           // future requestRender() becomes a silent no-op (frozen canvas until
           // reload) and the failure is invisible. Log loudly, release, and let
@@ -58891,12 +59459,14 @@
           // persistent crash can't hot-loop at 60fps).
           console.error('[render] Render crashed:', err);
           renderInProgress = false;
-        }));
-      }
+        });
+      });
     };
 
     const render = async () => {
-      renderRequested = false;
+      // NOTE: the pending-rAF state is deliberately NOT touched here — see
+      // requestRender() above. Clearing it here forked a render chain on every
+      // direct call (v20260809g).
       renderInProgress = true;
       const viewMatrix = activeCamera.createViewMatrix();
       const projectionMatrix = activeCamera.createProjectionMatrix();
@@ -59377,7 +59947,19 @@
         pathHighlightGroup.style.display = 'none';
       }
 
-      await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix })));
+      // ANIMATION RENDER CACHE (v20260809f): the ONE place the cache touches the
+      // render loop. It replaces only the SCENE DRAW — grid, gizmos, HUD, camera
+      // panel and the frame rect all keep running below, which is what keeps the
+      // guides responsive during cached playback. With the cache disabled step()
+      // is a single boolean test and this is today's build exactly.
+      // The frame whose STATE this pass is about to draw. Read before the draw,
+      // because the clock can advance underneath a long render (v20260809i).
+      const _drawnFrame = animationTimeline.currentFrame;
+      if (!RenderCache.step(_drawnFrame)) {
+        await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix })));
+      }
+      // This frame reached the screen, so the tick that asked for it is satisfied.
+      if (_tlAwaitingFrame === _drawnFrame) _tlAwaitingFrame = null;
 
       const frameX = (width - FRAME_SIZE * scale) / 2 + CANVAS_OFFSET_X;
       const frameY = (height - FRAME_SIZE * scale) / 2;
@@ -64748,6 +65330,23 @@
       const clonedGroup = mainGroup.cloneNode(true);
       clonedGroup.removeAttribute('transform');
 
+      // ANIMATION RENDER CACHE (v20260809f): the export is always taken from the
+      // LIVE tree. #renderCacheGroup is a sibling of #pathGroup under mainGroup, so
+      // a naive clone would carry a cached frame's copy alongside the real one (and
+      // #pathGroup is display:none while a cached frame is presented, which the
+      // hidden-element pass below would then drop). Strip the cache group and put
+      // #pathGroup back on in the CLONE only — the live DOM is untouched.
+      // KNOWN GAP, Phase 1 only: during cached playback the live tree holds the last
+      // frame that was drawn live, so an export taken mid-playback is that frame,
+      // not the one on screen. Phase 3 closes it by forcing one live draw before
+      // export; harmless while this is a console flag with no UI.
+      {
+        const _rcClone = clonedGroup.querySelector('#renderCacheGroup');
+        if (_rcClone) _rcClone.remove();
+        const _pgClone = clonedGroup.querySelector('#pathGroup');
+        if (_pgClone) _pgClone.style.display = '';
+      }
+
 
 
       // 2. Clone attributes (Must happen BEFORE removing hidden elements from clonedGroup to maintain index sync with originalLines)
@@ -64997,6 +65596,14 @@
     };
 
     const copySVGToClipboard = async () => {
+      // ANIMATION RENDER CACHE (v20260809h): close the Phase-1 export gap. While a
+      // cached frame is on screen the LIVE tree still holds whatever frame was last
+      // drawn live, and generateSVGString always exports the live tree — so without
+      // this, a copy taken during cached playback silently exports the wrong frame.
+      // The scene STATE is already correct (tlApplyFrame runs every tick regardless),
+      // so one live draw is all it takes. generateSVGString is synchronous, which is
+      // why this belongs at the async entry points rather than inside it.
+      await RenderCache.withLiveTree();
       const svgString = generateSVGString();
       try {
         await navigator.clipboard.writeText(svgString);
@@ -67312,9 +67919,10 @@
     // SVG File Export
     const exportSVGFileBtn = document.getElementById('exportSVGFileBtn');
     if (exportSVGFileBtn) {
-      exportSVGFileBtn.addEventListener('click', (e) => {
+      exportSVGFileBtn.addEventListener('click', async (e) => {
         e.preventDefault();
         e.stopPropagation();
+        await RenderCache.withLiveTree();   // v20260809h — see copySVGToClipboard
         const svgString = generateSVGString();
         const blob = new Blob([svgString], { type: 'image/svg+xml' });
         const url = URL.createObjectURL(blob);
@@ -67828,6 +68436,7 @@
     };
 
     const importScene = (data, skipUndo = false) => {
+      renderCacheEpoch++;   // ANIMATION RENDER CACHE: a new scene invalidates everything
       if (!data || !data.objects) return;
       if (!skipUndo) {
         if (typeof pushUndoState === 'function') pushUndoState();
@@ -68218,6 +68827,9 @@
     const tlPlaybackRange = document.getElementById('tlPlaybackRange');
     const tlFpsInput = document.getElementById('tlFpsInput');
     const tlPingPong = document.getElementById('tlPingPong');
+    const tlCacheAnim = document.getElementById('tlCacheAnim');   // v20260809h
+    const tlDropStat = document.getElementById('tlDropStat');     // v20260809i
+    const tlCacheStat = document.getElementById('tlCacheStat');   // v20260809m
     const tlShowKeyframed = document.getElementById('tlShowKeyframed');
     let _tlShowKeyframedOnly = false;
     const tlAutoKeyframingCb = document.getElementById('tlAutoKeyframing');
@@ -70678,8 +71290,76 @@
     };
 
     // --- Playback Engine ---
+    // Which pacing is in force (v20260809o). Evaluated PER TICK rather than latched
+    // at Play, because a failed audit can drop the cache mid-run and the pacing must
+    // follow the cache, not a stale decision made before it went away.
+    const _tlRealtimeMode = () => RenderCache.enabled && RenderCache.size() > 0;
+
     const tlStartPlayback = () => {
       if (animationTimeline.isPlaying) return;
+      // A ONE-FRAME PLAYBACK RANGE CANNOT ADVANCE — say so instead of faking a play
+      // (v20260809j, owner report: "this scene freezes when play is clicked, both
+      // cache and non-cache mode"). It was not a freeze and not a performance
+      // problem: the scene arrived with playbackRange 1 while its keyframes run to
+      // frame 71, and with rangeEnd = 1 BOTH branches of the tick below pin the
+      // playhead at 0 forever — pingpong bounces between next=-1 and next=0, plain
+      // loop wraps 1 back to 0. Measured: 24 renders completed in 1.5 s (the app was
+      // fully responsive) and currentFrame never left 0. What made it read as a hang
+      // is that the button still flipped to Pause, so the UI claimed to be playing.
+      // Refuse, and put the eye on the field that is wrong.
+      if (animationTimeline.playbackRange < 2) {
+        console.warn('[timeline] Playback range is 1 frame — there is nothing to play. '
+          + 'Raise it with the number beside the frame counter, or the handle on the ruler.');
+        if (tlPlaybackRange) {
+          tlPlaybackRange.classList.add('range-alert');
+          setTimeout(() => tlPlaybackRange.classList.remove('range-alert'), 900);
+        }
+        return;
+      }
+      // ANIMATION RENDER CACHE (v20260809h) — CAPTURE ON THE FIRST PLAY, which is
+      // the owner's call and the only one that works: the playback clock STARVES
+      // under long renders (1.9 Hz against 24 on a heavy scene), so capturing
+      // "whatever the loop happens to draw" during a normal play would cache almost
+      // nothing, and the holes would be exactly the frames that need it. So the
+      // first Play is an awaited pass over the range — slower than realtime, as it
+      // already is today — and every later play runs from the cache at full speed.
+      // The ruler tint fills in as it goes, so the wait is legible.
+      // RESET THE DROP COUNTER HERE, BEFORE THE CAPTURE BRANCH (v20260809l, owner
+      // report). It used to be reset further down, after the capture branch had
+      // already returned — so pressing Play with the cache armed left the PREVIOUS
+      // run's number on screen for the entire capture pass (many seconds on a heavy
+      // scene), which reads as "the counter is still counting up from last time".
+      // The number must describe the run you are starting, from the instant you
+      // start it.
+      _tlFramesDropped = 0; _tlFramesShown = 0; _tlAwaitingFrame = null;
+      _tlPlayStartMs = 0; _tlLastTickMs = 0; _tlWorstGapMs = 0;
+      tlUpdateUI();
+      // A capture is already running and the user pressed Play again — treat that
+      // as CANCEL, not as "start a second playback". Without this the interval would
+      // start underneath the capture pass (v20260809i).
+      if (RenderCache._capturing) { RenderCache.cancelCapture(); return; }
+      if (RenderCache.needsCapture()) {
+        RenderCache.captureForPlayback()
+          .then((st) => { if (!st || !st.cancelled) tlStartPlayback(); })   // re-entry: needsCapture() is now false
+          .catch((err) => {
+            console.error('[RenderCache] capture failed, playing uncached:', err);
+            RenderCache.clear();
+            tlStartPlayback();
+          });
+        return;
+      }
+      // AUDIT ONCE, HERE, BEFORE THE CLOCK STARTS (v20260809n). One live frame, in
+      // the moment the user already expects Play to take a beat — instead of the old
+      // once-per-pass audit, which was a 50 ms stall in a 0.2 ms stream and read as
+      // "a frame jumps". _auditPending is cleared by the audit itself so the
+      // re-entrant call below plays instead of auditing again.
+      if (RenderCache.enabled && RenderCache.size() && RenderCache._auditPending) {
+        RenderCache._auditPending = false;
+        RenderCache.auditNow()
+          .then(() => tlStartPlayback())
+          .catch(() => tlStartPlayback());
+        return;
+      }
       animationTimeline.isPlaying = true;
       tlPlayIcon.style.display = 'none';
       tlPauseIcon.style.display = '';
@@ -70688,38 +71368,126 @@
       tlClearKfSelection();
 
       animationTimeline._playDirection = 1;
+      // Start the speed clock HERE, not at the top of this function: the capture and
+      // audit branches above can take seconds, and counting that as playback time
+      // would report a slowdown that never happened (v20260809n).
+      _tlPlayStartMs = performance.now();
+      _tlLastAdvance = 0; _tlLastAdvanceMs = 0;
+      const _framePeriod = 1000 / (animationTimeline.fps || 24);
+      // POLL FINER THAN A FRAME (v20260809p, owner report: "no-cache goes realtime
+      // but the cached one drops"). The preview clock reads a position off the wall
+      // clock, so if the timer is sampled only once per frame period, a tick that
+      // fires a millisecond late crosses a frame boundary and a frame is genuinely
+      // skipped — reported, correctly, as a drop. MEASURED on the owner's scene,
+      // which renders in 0.8 ms and cannot possibly be too slow: setInterval ran at
+      // 24.4 Hz and produced 1 drop in 2.5 s while the uncached run produced 0.
+      // The cache was never slower; the clock was being sampled too coarsely.
+      // Sampling at a quarter of a frame means a few ms of timer jitter no longer
+      // crosses a boundary. Polls where nothing changed cost one comparison.
+      const _pollMs = Math.max(4, Math.min(_framePeriod / 4, 16));
       animationTimeline._playInterval = setInterval(() => {
         const rangeEnd = animationTimeline.playbackRange;
-        let next = animationTimeline.currentFrame + animationTimeline._playDirection;
+        let next, skipped = 0;
+        const realtime = _tlRealtimeMode();
 
-        if (animationTimeline.pingPong) {
-          if (next >= rangeEnd) {
-            animationTimeline._playDirection = -1;
-            next = rangeEnd - 2;
-            if (next < 0) next = 0;
-          } else if (next < 0) {
-            animationTimeline._playDirection = 1;
-            next = 1;
-            if (next >= rangeEnd) next = 0;
+        if (realtime) {
+          // PREVIEW PACING (cached): the frame is a pure function of elapsed wall
+          // time, so the run lasts exactly as long as the animation says. A late
+          // tick lands on the frame the clock has actually reached and the frames
+          // in between are SKIPPED — which is the honest behaviour when the point
+          // is to see the real duration.
+          const advance = Math.max(0, Math.floor((performance.now() - _tlPlayStartMs) / _framePeriod));
+          const span = Math.max(1, rangeEnd - 1);
+          if (animationTimeline.pingPong) {
+            const cyc = advance % (2 * span);
+            next = cyc <= span ? cyc : (2 * span - cyc);
+          } else if (animationTimeline.loop) {
+            next = advance % rangeEnd;
+          } else {
+            if (advance >= rangeEnd) { tlStopPlayback(); return; }
+            next = advance;
           }
+          next = Math.max(0, Math.min(rangeEnd - 1, next));
+          // Skips are counted off the MONOTONIC advance, not off the frame index —
+          // a pingpong turnaround changes the index direction without skipping
+          // anything, and differencing indices would score that as a drop.
+          skipped = Math.max(0, (advance - _tlLastAdvance) - 1);
+          _tlLastAdvance = advance;
+          // Sub-frame poll: the wall clock has not reached a new frame yet, so there
+          // is nothing to show and nothing to count. This is the common case now that
+          // the poll runs at a quarter of a frame.
+          if (next === animationTimeline.currentFrame) return;
         } else {
-          if (next >= rangeEnd) {
-            if (animationTimeline.loop) {
-              next = 0;
-            } else {
-              tlStopPlayback();
-              return;
+          // REVIEW PACING (uncached): one frame per tick, every frame shown, the run
+          // simply takes longer than fps would suggest. The poll is finer than a
+          // frame, so the step is gated on elapsed time — otherwise the faster poll
+          // would run review playback 4x too fast.
+          // FIXED-STEP SCHEDULE, not "reset the timer to now". Resetting to now adds
+          // the poll granularity to every frame and the run drifts SLOW — measured
+          // 20.4 Hz against a 24 Hz target with a 10 ms poll, which would have traded
+          // the cached bug for an uncached one. Advancing the schedule by exact
+          // periods keeps the long-run rate exact.
+          const _now = performance.now();
+          if (!_tlLastAdvanceMs) _tlLastAdvanceMs = _now - _framePeriod;
+          if (_now - _tlLastAdvanceMs < _framePeriod) return;
+          _tlLastAdvanceMs += _framePeriod;
+          // Genuinely behind (a slow render, not poll granularity): resync rather
+          // than advancing several frames in a burst. Review mode must never skip —
+          // running late IS its contract.
+          if (_tlLastAdvanceMs < _now - _framePeriod) _tlLastAdvanceMs = _now;
+          next = animationTimeline.currentFrame + animationTimeline._playDirection;
+          if (animationTimeline.pingPong) {
+            if (next >= rangeEnd) {
+              animationTimeline._playDirection = -1;
+              next = rangeEnd - 2;
+              if (next < 0) next = 0;
+            } else if (next < 0) {
+              animationTimeline._playDirection = 1;
+              next = 1;
+              if (next >= rangeEnd) next = 0;
+            }
+          } else {
+            if (next >= rangeEnd) {
+              if (animationTimeline.loop) {
+                next = 0;
+              } else {
+                tlStopPlayback();
+                return;
+              }
             }
           }
+        }
+        // ACCOUNTING, and the two modes count different things because they FAIL
+        // differently. Preview: a drop is a frame the wall clock stepped over.
+        // Review: a drop is a frame that never reached the screen at all — the
+        // _tlAwaitingFrame measure, which render() clears when it commits one.
+        if (realtime) {
+          _tlFramesDropped += skipped;
+          _tlFramesShown++;
+        } else {
+          if (_tlAwaitingFrame !== null) _tlFramesDropped++; else _tlFramesShown++;
+        }
+        _tlAwaitingFrame = next;
+        // Tick pacing (v20260809n): the achieved rate is what "slow" means here, and
+        // the worst gap is what a visible jump looks like in numbers.
+        {
+          const _now = performance.now();
+          if (_tlLastTickMs) {
+            const gap = _now - _tlLastTickMs;
+            if (gap > _tlWorstGapMs) _tlWorstGapMs = gap;
+          }
+          _tlLastTickMs = _now;
         }
         animationTimeline.currentFrame = next;
         tlApplyFrame(next);
         tlUpdateUI();
-      }, 1000 / animationTimeline.fps);
+      }, _pollMs);
     };
 
     const tlStopPlayback = () => {
       if (!animationTimeline.isPlaying) return;
+      // Re-arm the once-per-Play cache audit (v20260809n): each Play gets exactly one.
+      RenderCache._auditPending = true;
       animationTimeline.isPlaying = false;
       clearInterval(animationTimeline._playInterval);
       animationTimeline._playInterval = null;
@@ -70747,6 +71515,95 @@
     };
 
     // --- UI Update ---
+    // Cache memory read-out (v20260809m). Declared ABOVE tlUpdateUI on purpose — it
+    // is called from inside it, and a const referenced before its declaration is
+    // evaluated throws from its TDZ rather than being undefined (§11). Also called
+    // from the capture loop (guarded, since RenderCache is declared ~12k lines above
+    // this) so the figure grows live alongside the ruler tint.
+    const _tlUpdateCacheStat = () => {
+      if (!tlCacheStat) return;
+      if (!RenderCache.enabled) { tlCacheStat.style.display = 'none'; return; }
+      tlCacheStat.style.display = '';
+      const mb = RenderCache.bytes() / 1048576;
+      // Two decimals below 1 MB. At one decimal a real cache of a few frames reads
+      // "0.0 MB cached", which is worse than a unit change: the read-out claims to
+      // hold nothing while the ruler is visibly tinted. Caught by capturing against
+      // a deliberately tiny budget.
+      // "0.51 MB", not "0.51 MB cached": the timeline header is a nowrap flex row
+      // and it was already within 2 px of overflowing at 1280 — measured, adding the
+      // longer label tipped it over (scrollWidth 1234 vs clientWidth 1232) and
+      // squeezed the neighbouring read-outs. The word costs ~45 px and buys nothing:
+      // this only appears when Cache Animation is ticked, immediately beside that
+      // checkbox, and the tooltip spells it out.
+      tlCacheStat.textContent = (mb >= 1 ? mb.toFixed(1) : mb.toFixed(2)) + ' MB';
+      // Accent only when the capture actually stopped at the budget — that is the
+      // state worth noticing, because the range is then only partly cached.
+      tlCacheStat.classList.toggle('at-budget', !!(RenderCache.stats && RenderCache.stats.budgetHit));
+    };
+
+    // PLAYBACK read-out (v20260809q — extracted from tlUpdateUI so the CAPTURE PASS
+    // can drive it too; tlUpdateUI is far too heavy to call per captured frame).
+    // Declared above tlUpdateUI for the same TDZ reason as _tlUpdateCacheStat.
+    // Survives the end of a run on purpose: the number is only useful once you have
+    // watched the run it describes.
+    const _tlUpdatePlaybackStat = () => {
+      if (!tlDropStat) return;
+      // BUILDING THE CACHE IS ITS OWN STATE (v20260809q, owner request). Saying
+      // "realtime" while a capture pass is grinding is the least informative thing
+      // the field could say — nothing is playing at all.
+      if (RenderCache._capturing) {
+        tlDropStat.textContent = 'rendering…';
+        tlDropStat.classList.remove('dropping');
+        tlDropStat.title = 'Building the frame cache. The ruler tint shows how far it has got; '
+          + 'press Play again to stop and keep what is already cached.';
+        return;
+      }
+      const ticks = _tlFramesShown + _tlFramesDropped;
+      const secs = _tlPlayStartMs ? (performance.now() - _tlPlayStartMs) / 1000 : 0;
+      // WAIT ON ELAPSED TIME, NOT ON A TICK COUNT. The first version required 4
+      // ticks before reporting, which inverts the reading exactly where it matters:
+      // a badly starved 120 fps scene fires only 2 ticks in a second, so it read
+      // "realtime" precisely when it was 60x slow. Few ticks over a long interval
+      // IS the signal, not a reason to withhold it.
+      if (secs < 0.5) {
+        tlDropStat.textContent = 'realtime';
+        tlDropStat.classList.remove('dropping');
+        tlDropStat.title = 'Playback speed appears here once a run is under way.';
+        return;
+      }
+      const actual = ticks / secs;
+      const target = animationTimeline.fps || 24;
+      const ratio = target / Math.max(actual, 0.001);
+      const gapNote = 'Longest gap between frames: ' + Math.round(_tlWorstGapMs) + ' ms'
+        + ' (a single long gap reads as a jump even when the average is fine).';
+      if (_tlRealtimeMode()) {
+        // PREVIEW: the run is real-time by construction, so the only thing that can
+        // go wrong is frames being skipped to stay on the clock. That count IS the
+        // quality of the preview.
+        const d = _tlFramesDropped;
+        tlDropStat.textContent = d === 0 ? 'realtime' : (d === 1 ? '1 dropped' : d + ' dropped');
+        tlDropStat.classList.toggle('dropping', d > 0);
+        tlDropStat.title = 'Cached preview — playing at true speed (' + target + ' fps).\n'
+          + (d === 0
+            ? 'No frames skipped: every frame of the animation is being shown at its real time.\n'
+            : d + ' frame(s) skipped to stay on the clock. Frames outside the cached range (see the ruler tint) cost a full render and are the usual cause.\n')
+          + gapNote;
+      } else {
+        // REVIEW: every frame is shown, so the run just takes longer. The multiplier
+        // is deliberately NOT in the label (owner call) — knowing it is 4x rather
+        // than 3x does not change what you would do about it.
+        const slow = ratio > 1.15;                   // under ~13% is pacing noise
+        tlDropStat.textContent = ticks === 0 ? 'stalled' : (slow ? 'Slowing down' : 'realtime');
+        tlDropStat.classList.toggle('dropping', slow || ticks === 0);
+        tlDropStat.title = 'Uncached review — every frame is shown, so playback runs longer than real time.\n'
+          + 'Ran at ' + actual.toFixed(1) + ' fps against a target of ' + target
+          + (slow ? ' — ' + (ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)) + '× longer than real time.\n'
+                    + 'Turn on Cache Animation to preview at true speed.\n'
+                  : ' — keeping up.\n')
+          + gapNote;
+      }
+    };
+
     const tlUpdateUI = () => {
       const f = animationTimeline.currentFrame;
       tlFrameInput.value = f;
@@ -70754,6 +71611,9 @@
       tlPlaybackRange.value = animationTimeline.playbackRange;
       tlFpsInput.value = animationTimeline.fps;
       tlPingPong.checked = animationTimeline.pingPong;
+      tlCacheAnim.checked = RenderCache.enabled;      // v20260809h (session-only state)
+      _tlUpdateCacheStat();                           // v20260809m
+      _tlUpdatePlaybackStat();                        // v20260809q
       // Playhead position
       tlUpdatePlayheadPosition();
       // Update inline track inputs
@@ -71520,6 +72380,38 @@
       ctx.clearRect(0, 0, w, h);
       const total = animationTimeline.totalFrames;
       const fps = animationTimeline.fps;
+      // ANIMATION RENDER CACHE (v20260809h): tint the frames that are CACHED, in
+      // the app accent at low opacity. Drawn FIRST so the ticks and labels stay
+      // readable on top, and deliberately a different hue from the out-of-range
+      // grey below — a frame can be both cached and out of the play range.
+      // This is not decoration: the cache is allowed to be PARTIAL (budget, or a
+      // capture still in progress), so this strip is what tells you which frames
+      // will play at speed. It fills in live while the capture pass runs.
+      try {
+        if (RenderCache.enabled && RenderCache.size()) {
+          const accent = getComputedStyle(document.documentElement)
+            .getPropertyValue('--accent-color').trim() || '#2645d2';
+          ctx.save();
+          ctx.globalAlpha = 0.18;
+          ctx.fillStyle = accent;
+          const px = (i) => (i / (total - 1)) * w;
+          // coalesce contiguous cached frames into runs so this is a few fillRects
+          const keys = RenderCache.frames();
+          let runStart = null, prev = null;
+          const flush = (a, b) => {
+            const x0 = px(a), x1 = px(b + 1 <= total - 1 ? b + 1 : b);
+            ctx.fillRect(x0, 0, Math.max(1, x1 - x0), h);
+          };
+          for (const k of keys) {
+            if (runStart === null) { runStart = k; prev = k; continue; }
+            if (k === prev + 1) { prev = k; continue; }
+            flush(runStart, prev); runStart = k; prev = k;
+          }
+          if (runStart !== null) flush(runStart, prev);
+          ctx.restore();
+        }
+      } catch (e) { /* never let a dev aid kill the ruler */ }
+
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
       ctx.strokeStyle = 'rgba(0,0,0,0.15)';
       ctx.font = '9px system-ui, sans-serif';
@@ -73702,7 +74594,15 @@
 
     // --- Playback range: shared setter (used by the number input and the drag handle) ---
     const tlSetPlaybackRange = (val) => {
-      val = Math.max(1, Math.min(360, val));
+      // Reject non-finite input (v20260809j). Math.max/min PROPAGATE NaN rather than
+      // clamping it, so without this a NaN reaches animationTimeline.playbackRange
+      // and playback dies silently — every comparison against it is false. Found by
+      // a probe that called the ruler drag while the timeline was COLLAPSED: the
+      // ruler is then zero-width and `x / rect.width` is 0/0. A collapsed panel is a
+      // real state, so this is reachable, not just a harness artifact.
+      val = Number(val);
+      if (!Number.isFinite(val)) return;
+      val = Math.max(1, Math.min(360, Math.round(val)));
       animationTimeline.playbackRange = val;
       tlPlaybackRange.value = val;
       // Clamp current frame if beyond the new range
@@ -73724,7 +74624,14 @@
       const rect = tlRuler.getBoundingClientRect();
       const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
       const frame = Math.round((x / rect.width) * (animationTimeline.totalFrames - 1));
-      tlSetPlaybackRange(frame + 1);
+      // FLOOR THE DRAG AT 2 (v20260809j). A one-frame range cannot play at all, and
+      // this is how a scene silently acquires one: `_tlRangeHandleX` pins the handle
+      // 1 px from the left edge, the grab tolerance is ±5 px, so the leftmost sliver
+      // of the ruler grabs the RANGE HANDLE rather than scrubbing — and dragging
+      // there lands on 1. The number input is deliberately NOT floored: a range of 1
+      // is meaningful for exporting a single frame (both export loops read
+      // playbackRange as their total), it is only meaningless for playback.
+      tlSetPlaybackRange(Math.max(2, frame + 1));
     };
 
     // --- Ruler Scrubbing ---
@@ -73910,6 +74817,15 @@
       val = Math.max(1, Math.min(120, val));
       animationTimeline.fps = val;
       tlFpsInput.value = val;
+      // REPAINT THE RULER (v20260809k, owner report). The ruler's tick spacing is
+      // DERIVED FROM fps — `i % fps === 0` is a major tick, i.e. one label per
+      // second — so fps is not just a playback speed, it is a display parameter of
+      // this canvas. Changing it here used to leave the old ticks on screen until
+      // something unrelated forced a redraw (a range drag, a window resize, a scene
+      // load), which read as "changing the fps does nothing". The other fps writer,
+      // tlDeserialize, already redraws at its tail; this was the only one that did
+      // not. Unconditional, matching its sibling setter tlSetPlaybackRange.
+      tlDrawRuler();
       // Restart playback with new interval if playing
       if (animationTimeline.isPlaying) {
         tlStopPlayback();
@@ -73924,6 +74840,36 @@
       animationTimeline.pingPong = tlPingPong.checked;
     });
     tlPingPong.addEventListener('click', (e) => e.stopPropagation());
+
+    // ANIMATION RENDER CACHE checkbox (v20260809h). Ticking only ARMS it — the
+    // capture happens on the first Play (see tlStartPlayback). Unticking drops the
+    // cache immediately, which is also the manual "recache" gesture: untick, tick,
+    // play. Session-only: never written to the scene or to dim-settings.
+    tlCacheAnim.addEventListener('change', () => {
+      RenderCache.enabled = tlCacheAnim.checked;
+      if (!RenderCache.enabled) RenderCache.clear();
+      // THE DROP COUNT BELONGS TO A CONFIGURATION (v20260809l, owner report). Cached
+      // and uncached playback are different runs; carrying the uncached total across
+      // the switch is what made it look like the counter "keeps stacking up".
+      // Reset the speed clock TOO, not just the counters (v20260809n): zero ticks
+      // measured against a still-running interval reads as "stalled", so a toggle
+      // that cleared one without the other made the read-out lie.
+      _tlFramesDropped = 0; _tlFramesShown = 0; _tlAwaitingFrame = null;
+      _tlPlayStartMs = 0; _tlLastTickMs = 0; _tlWorstGapMs = 0;
+      // TICKING IT WHILE PLAYING USED TO BE A DEAD STATE (same report). The capture
+      // only ever happens in tlStartPlayback, so enabling mid-playback left the cache
+      // ENABLED BUT EMPTY: every render found it stale, cleared it, and drew live, so
+      // playback stayed exactly as slow while the user believed caching was on —
+      // measured, 5 renders later the cache still held 0 frames. Restarting playback
+      // runs the capture and then plays, which is what ticking it plainly means.
+      if (RenderCache.enabled && animationTimeline.isPlaying) {
+        tlStopPlayback();
+        tlStartPlayback();
+      }
+      tlUpdateUI();
+      tlDrawRuler();
+    });
+    tlCacheAnim.addEventListener('click', (e) => e.stopPropagation());
 
     // Show Keyframed Only checkbox
     tlShowKeyframed.addEventListener('change', () => {

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260809r -->
+<!-- dim v20260812c -->
 
 <!--
   MIT License
@@ -245,6 +245,23 @@
       /* UI TEXT SELECTION (v20260807s) — see the block below. */
       user-select: none;
       -webkit-user-select: none;
+    }
+
+    /* FORM CONTROLS DO NOT INHERIT THE PAGE FONT (v20260810b).
+       The UA stylesheet gives button/input/select/textarea their own font, so the
+       `font-family` on body above stopped at every control in the app. Measured:
+       72 controls render glyphs in the browser's font rather than dim's — every
+       .ui-btn (Import Scene, Save Scene, Group, Ungroup, Cancel, Submit …) drew
+       in Arial. Most set their own font-SIZE, which is why this read as a subtle
+       wrongness for years instead of an obvious break; "Key Selected" (v20260810a)
+       was the one that also inherited the wrong SIZE and so became visible.
+       Deliberately font-family ONLY: inheriting size too would resize controls
+       that legitimately set their own. */
+    button,
+    input,
+    select,
+    textarea {
+      font-family: inherit;
     }
 
     /* --- UI TEXT SELECTION (v20260807s) ---------------------------------
@@ -1222,10 +1239,6 @@
       border-top: none;
     }
 
-    .feature-toggle-header .ui-label-switch {
-      flex-shrink: 0;
-    }
-
     .feature-toggle-header:first-of-type {
       border-top: none;
       margin-top: 0;
@@ -1299,8 +1312,7 @@
       flex: 0 0 68px;
     }
 
-    .prop-inline>.ui-checkbox,
-    .prop-inline>.ui-label-switch {
+    .prop-inline>.ui-checkbox {
       margin-left: auto;
     }
 
@@ -1316,10 +1328,6 @@
     .prop-inline>.ui-input-color {
       flex: 0 0 auto;
       width: 60px;
-    }
-
-    .prop-inline>.ui-label-switch {
-      flex-shrink: 0;
     }
 
     .prop-col {
@@ -1689,98 +1697,32 @@
       border-radius: 2px;
     }
 
-    /* SEGMENTED OFF/ON TOGGLE (DialKit-style) */
-    .ui-label-switch {
-      appearance: none;
-      width: 56px;
-      height: 26px;
-      border-radius: 0;
-      background-color: var(--row-bg);
-      position: relative;
-      cursor: pointer;
-      margin: 0;
-      vertical-align: middle;
-      outline: none;
-      border: 1px solid black;
-      font-family: var(--font-family-sans);
-      flex-shrink: 0;
-    }
-
-    /* "Off" label */
-    .ui-label-switch::before {
-      content: 'Off';
-      position: absolute;
-      left: 1px;
-      top: 1px;
-      width: calc(50% - 1px);
-      height: calc(100% - 2px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      font-weight: 600;
-      color: var(--text-main);
-      background-color: white;
-      border-radius: 0;
-      transition: background-color 0.2s cubic-bezier(0.25, 1, 0.5, 1),
-        color 0.2s cubic-bezier(0.25, 1, 0.5, 1),
-        box-shadow 0.2s cubic-bezier(0.25, 1, 0.5, 1);
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
-    }
-
-    /* "On" label */
-    .ui-label-switch::after {
-      content: 'On';
-      position: absolute;
-      right: 1px;
-      top: 1px;
-      width: calc(50% - 1px);
-      height: calc(100% - 2px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      font-weight: 500;
-      color: var(--text-muted);
-      background-color: transparent;
-      border-radius: 0;
-      transition: background-color 0.2s cubic-bezier(0.25, 1, 0.5, 1),
-        color 0.2s cubic-bezier(0.25, 1, 0.5, 1),
-        box-shadow 0.2s cubic-bezier(0.25, 1, 0.5, 1);
-    }
-
-    /* Checked state: highlight "On", dim "Off" */
-    .ui-label-switch:checked::before {
-      background-color: transparent;
-      color: var(--text-muted);
-      font-weight: 500;
-      box-shadow: none;
-    }
-
-    .ui-label-switch:checked::after {
-      background-color: white;
-      color: var(--text-main);
-      font-weight: 600;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
-    }
-
-    /* Gizmo Mode toggle: Local / World labels */
-    .gizmo-mode-toggle {
-      width: 72px;
-    }
-
-    .gizmo-mode-toggle::before {
-      content: 'Local';
-    }
-
-    .gizmo-mode-toggle::after {
-      content: 'World';
-    }
+    /* (The segmented Off/On switch `.ui-label-switch` and its `.gizmo-mode-toggle`
+       Local/World override are BOTH GONE — the override in v20260811e when the Gizmo
+       (W) control became a three-option <select>, the base class in v20260811f once
+       that left it with zero consumers. THERE IS NO SEGMENTED TWO-STATE CONTROL IN
+       THIS APP; do not reach for the class name. A boolean is `.ui-toggle` (feature
+       gate) or `.ui-checkbox` (option within a feature) per the convention below;
+       anything with three or more states is a <select>, as #gizmoModeSelect is.
+       The old rules are in _bkup/dim_20260811e.html if the segmented look is ever
+       wanted back — but it had not been rendered in the current layout since the
+       gizmo row moved off `.prop-inline`, so treat it as unverified, not as a
+       working pattern. */
 
     /* BUTTONS */
+    /* A BUTTON LABEL IS ONE LINE (v20260810b). Inheriting the app font made every
+       label ~10% wider (system-ui is wider than the UA's Arial at the same px),
+       and "Paste from Clipboard" — the one label in the app with under 3 px of
+       slack — tipped into a SECOND LINE beside its one-line sibling "Copy to
+       Clipboard". Measured across 38 buttons in 17 panel states: with nowrap none
+       wrap, none spill outside their border box, and exactly one (that button)
+       eats into its own padding, ending 6.3 px from each edge instead of 10.
+       Padding is the reserve a long label is allowed to spend; a second line is a
+       different-looking button. */
     .ui-btn {
       flex: 1;
       min-height: var(--row-height);
+      white-space: nowrap;
       padding: var(--row-padding-v) 12px;
       color: var(--btn-text);
       border: none;
@@ -1979,7 +1921,6 @@
     }
 
     /* Standardize toggle+label: label left, toggle right, inline */
-    .prop-col.flex-none:has(.ui-label-switch),
     .prop-col.flex-none:has(.ui-toggle) {
       display: flex;
       align-items: center;
@@ -1987,12 +1928,10 @@
       width: 100%;
     }
 
-    .prop-col.flex-none:has(.ui-label-switch) .ui-label-switch,
     .prop-col.flex-none:has(.ui-toggle) .ui-toggle {
       margin-left: auto;
     }
 
-    .prop-col.flex-none:has(.ui-label-switch) .ui-checkbox-label,
     .prop-col.flex-none:has(.ui-toggle) .ui-checkbox-label {
       margin-right: 0;
     }
@@ -3376,6 +3315,13 @@
       pointer-events: none;
     }
 
+    /* A <button> does NOT inherit the page font — the UA sheet gives it its own
+       (Arial 13.33px here). Every transport button was icon-only, so that never
+       showed until "Key Selected" grew a <span> and rendered two points larger,
+       in a different family and a darker colour than everything beside it in the
+       same bar (owner report). Declared on the BASE class rather than on the one
+       text button, so any future labelled transport button is right by
+       construction — icon-only buttons carry no text and are unaffected. */
     .tl-transport-btn {
       display: inline-flex;
       align-items: center;
@@ -3388,6 +3334,23 @@
       border-radius: var(--radius-btn);
       cursor: pointer;
       padding: 0;
+      font-family: var(--font-family-sans);
+      font-size: var(--font-size-field);
+      font-weight: 500;
+    }
+
+    /* A transport button that carries a LABEL beside its icon. The base class is
+       a 24x24 icon square; this grows to its text. Colour drops to the header's
+       own --text-secondary so the label sits in the same register as the checkbox
+       labels and read-outs it shares the bar with — the icon plus the hover
+       background are what still read it as a button. Placed ABOVE
+       .tl-key-shape-mode (same 0,2,0 specificity), so the armed accent colour
+       still wins on source order. */
+    .tl-transport-btn.tl-transport-btn-text {
+      width: auto;
+      padding: 0 8px;
+      gap: 5px;
+      color: var(--text-secondary);
     }
 
     .tl-transport-btn:hover {
@@ -3399,9 +3362,21 @@
       color: white;
     }
 
+    /* 14 → 12 with the v20260810e redraw. The header set moved onto the SAME 12
+       grid and 1 px stroke as the curve editor, so it renders 1:1 and its strokes
+       land on whole pixels; drawing 12-grid art at 14 px would reintroduce exactly
+       the 1.167 px half-pixel stroke that the curve-editor regrid removed. The
+       button box stays 24 × 24 — only the glyph inside it changed. */
     .tl-transport-btn svg {
-      width: 14px;
-      height: 14px;
+      width: 12px;
+      height: 12px;
+      /* AN ICON MUST NEVER SQUASH. "Key Selected" is the one transport button whose
+         svg sits beside a label, so the svg is a flex item — and the header has no
+         horizontal slack (§10), so at a narrow viewport it was shrinking to 8 × 12
+         and the diamond rendered as a lozenge. Measured: 12 × 12 at 1600 px, 8 × 12
+         at 800. Pre-existing (the old 14 px icon shrank the same way) and only
+         visible now that every glyph here is drawn geometry. */
+      flex-shrink: 0;
     }
 
     .tl-separator {
@@ -3818,11 +3793,23 @@
       background: none;
       cursor: pointer;
       padding: 0;
-      font-size: 10px;
-      line-height: 14px;
       color: var(--text-secondary);
       border-radius: 2px;
       flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* The key-all diamond became real artwork in v20260810d (it was a ◇ text
+       character). 12 px inside the 14 px button, matching the curve editor's grid.
+       DECLARED ABOVE `.tl-cut-btn svg`, which carries the same specificity and its
+       own 9 × 9.6 — the cut button wears BOTH classes, so source order is what
+       keeps it at its authored size. */
+    .tl-key-all-btn svg {
+      width: 12px;
+      height: 12px;
+      display: block;
     }
 
     .tl-key-all-btn:hover {
@@ -5271,6 +5258,25 @@
             </select>
           </div>
         </div>
+        <!-- RE-CAPTURE, WHICH THE DROPDOWN ABOVE STRUCTURALLY CANNOT DO (v20260811j).
+             Two of those five options are VERBS, not states: "Camera" freezes the
+             current view direction and "Selection" derives a basis from what is
+             selected. A <select> fires `change` only when the value CHANGES, so once
+             either has run, picking it again does nothing — you could capture from the
+             camera once and then never re-capture from the panel, only with Shift+G.
+             (XY/XZ/YZ are genuine states, where re-picking is harmlessly a no-op.)
+             These buttons are the verbs, and they call the SAME two functions the
+             keyboard shortcuts call, so panel and keyboard cannot drift. -->
+        <div class="flex-row-gap" style="padding: 0 var(--row-padding-h) var(--space-sm);">
+          <button id="wpFromCameraBtn" class="ui-btn ui-btn-small" style="flex: 1;"
+            title="Freeze the workplane to the current camera direction. Re-run any time to re-capture from a new view. Shortcut: Shift + G">
+            From Camera
+          </button>
+          <button id="wpFromSelectionBtn" class="ui-btn ui-btn-small" style="flex: 1;"
+            title="Derive the workplane from the current selection (vertex basis under Direct Select, otherwise the object's own plane). Shortcut: Alt + G">
+            From Selection
+          </button>
+        </div>
         <div class="xyz-row">
           <label for="custom-offset-z-field">Offset Z</label>
           <div class="xyz-inputs">
@@ -5464,9 +5470,28 @@
           </svg></div>
         <div class="collapsible-body" id="cb-tool">
           <div id="toolPanelLabel" class="tool-panel-label">Select Tool (V)</div>
-          <div class="prop-row prop-inline" id="gizmoModeRow">
-            <label for="gizmoModeCb" class="ui-checkbox-label">Gizmo (W)</label>
-            <input type="checkbox" id="gizmoModeCb" class="ui-label-switch gizmo-mode-toggle" />
+          <!-- GIZMO ORIENTATION (v20260811e). Was a segmented `.ui-label-switch`
+               checkbox (class itself deleted in v20260811f, since this row was its last
+               consumer), which is a TWO-state control: with Camera shipped it would have
+               read "Local" while the gizmo was camera-aligned. Workplane landed in
+               v20260811h and cost exactly what was predicted here: one <option> and one
+               entry in GIZMO_MODE_CYCLE. THE ORDER OF THESE OPTIONS IS THE `W` CYCLE
+               ORDER — keep it matching GIZMO_MODE_CYCLE.
+               Built on `.xyz-row`/`.xyz-inputs` rather than the `.prop-inline` it
+               replaces, deliberately: that is the pattern the two dropdown rows directly
+               below it (Rotate About / Scale About) already use, its label column is a
+               fixed 68px, and a bare <select> in a flexible-label row is exactly the
+               v20260725i zero-width-label trap. -->
+          <div class="xyz-row" id="gizmoModeRow">
+            <label for="gizmoModeSelect">Gizmo (W)</label>
+            <div class="xyz-inputs">
+              <select id="gizmoModeSelect">
+                <option value="world">World</option>
+                <option value="local" selected>Local</option>
+                <option value="workplane">Workplane</option>
+                <option value="camera">Camera</option>
+              </select>
+            </div>
           </div>
           <div class="xyz-row hidden" id="rotatePivotModeRow">
             <label for="rotatePivotModeSelect">Rotate About</label>
@@ -8103,54 +8128,78 @@
     <div class="tl-header" id="tlHeader">
       <span class="tl-header-title">Timeline</span>
       <!-- Go to Start -->
+      <!-- TIMELINE HEADER ICONS, owner-drawn v20260810e. The set moved from SOLID
+           FILL on a 14 grid to 1 px STROKE on a 12 grid, which is the same idiom
+           the curve editor adopted in v20260810c-d — one family, one grid, one
+           weight, and every stroke on a whole pixel because the render is 1:1. -->
       <button class="tl-transport-btn" id="tlGoStart" title="Go to Start">
-        <svg viewBox="0 0 14 14" fill="currentColor" stroke="none">
-          <rect x="2" y="3" width="1.5" height="8" />
-          <polygon points="12,3 5,7 12,11" />
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+          <path d="M9.25 9l-5.25-3 5.25-3v6Z" />
+          <path d="M2 2v8" />
         </svg>
       </button>
       <!-- Play / Pause -->
       <button class="tl-transport-btn" id="tlPlayPause" title="Play / Pause">
-        <svg id="tlPlayIcon" viewBox="0 0 14 14" fill="currentColor" stroke="none">
-          <polygon points="3,2 12,7 3,12" />
+        <!-- Play is deliberately the LARGEST triangle in the bar (7.25 × 8 against
+             go-start / go-end's 5.25 × 6): it is the primary action, and those two
+             give up width to their bars. Revised v20260810f. -->
+        <svg id="tlPlayIcon" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+          <path d="M2.375 2l7.25 4-7.25 4V2Z" />
         </svg>
-        <svg id="tlPauseIcon" viewBox="0 0 14 14" fill="currentColor" stroke="none" style="display:none">
-          <rect x="3" y="2" width="3" height="10" />
-          <rect x="8" y="2" width="3" height="10" />
+        <svg id="tlPauseIcon" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1"
+          style="display:none">
+          <path d="M7 9V3" />
+          <path d="M5 9V3" />
         </svg>
       </button>
       <!-- Go to End -->
       <button class="tl-transport-btn" id="tlGoEnd" title="Go to End">
-        <svg viewBox="0 0 14 14" fill="currentColor" stroke="none">
-          <polygon points="2,3 9,7 2,11" />
-          <rect x="10.5" y="3" width="1.5" height="8" />
+        <!-- Triangle x is 2.75, not the 2.76 shipped in e. That 0.01 was a
+             mis-derivation, not a design change: e read this icon off the 8-up sheet
+             where its cell sat under a rotate() whose translate values were themselves
+             rounded, so the recovered origin was off. The standalone re-export
+             resolves cleanly (2.875 − 0.125). Measured, the 0.01 is NOT free — 3 px
+             at 12 px, worst alpha 128 — because a sharp apex amplifies it. -->
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+          <path d="M2.75 3l5.25 3-5.25 3V3Z" />
+          <path d="M10 10V2" />
         </svg>
       </button>
       <div class="tl-separator"></div>
       <!-- Clear Animation -->
       <button class="tl-transport-btn" id="tlClearAnimation" title="Clear Animation">
-        <svg viewBox="0 0 14 14" fill="currentColor" stroke="none">
-          <rect x="3" y="3.5" width="8" height="8.5" rx="1" />
-          <rect x="2" y="2" width="10" height="1.5" rx="0.5" />
-          <rect x="5.5" y="1" width="3" height="1.5" rx="0.5" />
-          <rect x="5" y="5.5" width="1" height="4.5" rx="0.3" fill="var(--tl-bg, #2a2a2a)" />
-          <rect x="8" y="5.5" width="1" height="4.5" rx="0.3" fill="var(--tl-bg, #2a2a2a)" />
+        <!-- The two slots are REAL STROKES. They used to be rectangles painted in the
+             panel background colour, so they stayed dark while the button lightened
+             on hover — the defect flagged on the icon sheet. v20260810f added the lid
+             bar and handle and dropped the body to y=5, so it reads as a bin rather
+             than a bar chart. Primitives are kept as the artwork drew them (polyline
+             + line, not flattened to paths) — see the v20260810d rect-vs-path note. -->
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+          <polyline points="3 5 3 10 9 10 9 5" />
+          <line x1="2" y1="3" x2="10" y2="3" />
+          <line x1="6" y1="1" x2="6" y2="3" />
+          <line x1="7" y1="5" x2="7" y2="9" />
+          <line x1="5" y1="5" x2="5" y2="9" />
         </svg>
       </button>
       <!-- Export SVG Sequence -->
       <button class="tl-transport-btn" id="tlExportSVGBtn" title="Export SVG Sequence (1 file per frame)">
-        <svg viewBox="0 0 14 14" fill="currentColor" stroke="none">
-          <rect x="2" y="10" width="10" height="1.5" rx="0.5" />
-          <polygon points="7,2 11,7 9,7 9,9 5,9 5,7 3,7" />
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+          <path d="M6 9V4" />
+          <path d="M4 6.25l2-2.25 2 2.25" />
+          <path d="M2 10h8" />
+          <path d="M2 2h8" />
         </svg>
       </button>
-      <!-- Export Multi-Layer SVG -->
+      <!-- Export Multi-Layer SVG. Same arrow, one extra rule — the layer stack is
+           what distinguishes it from the per-frame sequence above. -->
       <button class="tl-transport-btn" id="tlExportMLBtn" title="Export Multi-Layer SVG (all frames in one file)">
-        <svg viewBox="0 0 14 14" fill="currentColor" stroke="none">
-          <rect x="2" y="10" width="10" height="1.5" rx="0.5" />
-          <rect x="3" y="1.5" width="8" height="1.5" rx="0.4" opacity="0.5" />
-          <rect x="3" y="4" width="8" height="1.5" rx="0.4" opacity="0.75" />
-          <polygon points="7,6 11,8.5 9,8.5 9,9 5,9 5,8.5 3,8.5" />
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+          <path d="M6 9V6" />
+          <path d="M4 8.25l2-2.25 2 2.25" />
+          <path d="M2 10h8" />
+          <path d="M2 4h8" />
+          <path d="M2 2h8" />
         </svg>
       </button>
       <div class="tl-separator"></div>
@@ -8165,12 +8214,12 @@
         <input type="checkbox" id="tlAutoKeyframing" class="ui-checkbox"> Auto-Key
       </label>
       <!-- Key Selected: snapshot the full transform of ALL selected objects -->
-      <button class="tl-transport-btn" id="tlKeySelectedBtn"
-        title="Keyframe the full transform of all selected objects at the current frame"
-        style="width:auto;padding:0 8px;gap:4px;">
-        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"
-          stroke-linejoin="round">
-          <rect x="3.5" y="3.5" width="7" height="7" transform="rotate(45 7 7)" />
+      <button class="tl-transport-btn tl-transport-btn-text" id="tlKeySelectedBtn"
+        title="Keyframe the full transform of all selected objects at the current frame">
+        <!-- Kept as a rotated RECT rather than flattened to a path: measured at icon
+             size the two differ on every ink pixel (v20260810d). -->
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+          <rect x="3.525" y="3.525" width="4.95" height="4.95" transform="rotate(45 6 6)" />
         </svg>
         <span>Key Selected</span>
       </button>
@@ -8274,22 +8323,30 @@
             <option value="easeOutBounce">easeOutBounce</option>
             <option value="easeInOutBounce">easeInOutBounce</option>
           </select>
+          <!-- CURVE-EDITOR ICONS, owner-drawn v20260810c. Authored on a 12 grid
+               (viewBox 0 0 12 12) rather than the old 16, because these are only
+               ever rendered at 12 px: a 16 grid put every stroke on a half pixel.
+               stroke-width 1 at 1:1 = a 1 px stroke. -->
           <button id="tlCurveExport" type="button" class="tl-curve-pt-btn" style="margin-left:auto;"
-            title="Export curve to .json file"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"
-              stroke="currentColor" stroke-width="1.5">
-              <path d="M8 10V2" />
-              <path d="M5 5l3-3 3 3" />
-              <path d="M3 13h10" />
+            title="Export curve to .json file"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+              stroke="currentColor" stroke-width="1">
+              <path d="M6 8V2" />
+              <path d="M4 4.25l2-2.25 2 2.25" />
+              <path d="M2 10h8" />
             </svg></button>
           <button id="tlCurveImport" type="button" class="tl-curve-pt-btn" title="Import curve from .json file"><svg
-              width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M8 2v8" />
-              <path d="M5 7l3 3 3-3" />
-              <path d="M3 13h10" />
+              width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+              <path d="M6 8V2" />
+              <path d="M8 5.75l-2 2.25-2-2.25" />
+              <path d="M2 10h8" />
             </svg></button>
           <input class="hidden" type="file" id="tlCurveImportInput" accept=".json,application/json" />
           <button id="tlCurveClose" type="button" title="Close"
-            style="background:none; border:none; cursor:pointer; padding:2px 4px; font-size:16px; color:var(--text-muted); line-height:1;">&times;</button>
+            style="background:none; border:none; cursor:pointer; padding:2px 4px; color:var(--text-muted); display:inline-flex; align-items:center; justify-content:center;"><svg
+              width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+              <line x1="3.525" y1="3.525" x2="8.475" y2="8.475" />
+              <line x1="8.475" y1="3.525" x2="3.525" y2="8.475" />
+            </svg></button>
         </div>
         <div class="tl-curve-toolbar">
           <label>Curve</label>
@@ -8300,23 +8357,43 @@
             <option value="bspline2">B-Spline (Quad)</option>
           </select>
           <button id="tlCurveMirrorH" type="button" class="tl-curve-pt-btn"
-            title="Mirror horizontal (reverse)">↔</button>
-          <button id="tlCurveMirrorV" type="button" class="tl-curve-pt-btn" title="Mirror vertical (invert)">↕</button>
+            title="Mirror horizontal (reverse)"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+              stroke="currentColor" stroke-width="1">
+              <path d="M8 4.5l2 1.5-2 1.5" />
+              <line x1="6" y1="2.5" x2="6" y2="9.5" />
+              <path d="M4 7.5l-2-1.5 2-1.5" />
+            </svg></button>
+          <button id="tlCurveMirrorV" type="button" class="tl-curve-pt-btn" title="Mirror vertical (invert)"><svg
+              width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+              <path d="M7.5 8l-1.5 2-1.5-2" />
+              <line x1="9.5" y1="6" x2="2.5" y2="6" />
+              <path d="M4.5 4l1.5-2 1.5 2" />
+            </svg></button>
           <span style="width:1px; height:14px; background:var(--border-light); flex-shrink:0;"></span>
           <button id="tlCurveCopy" type="button" class="tl-curve-pt-btn" title="Copy curve"><svg width="12" height="12"
-              viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-              <rect x="5.5" y="5.5" width="8" height="8" rx="1" />
-              <path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" />
+              viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+              <rect x="4" y="3.65" width="6" height="6" />
+              <polyline points="4 7.65 2 7.65 2 1.65 8 1.65 8 3.65" />
+              <path d="M8.41 6.15c-.21-.58-.76-1-1.41-1-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5c.65 0 1.2-.42 1.41-1" />
             </svg></button>
           <button id="tlCurvePaste" type="button" class="tl-curve-pt-btn" title="Paste curve" disabled><svg width="12"
-              height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-              <rect x="3.5" y="4.5" width="9" height="9" rx="1" />
-              <path d="M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5" />
+              height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+              <polyline points="8 3.65 10 3.65 10 9.65 4 9.65 4 7.65" />
+              <rect x="2" y="1.65" width="6" height="6" />
+              <line x1="4" y1="3.15" x2="4" y2="6.65" />
+              <path d="M5.26 3.15h-1.25v2h1.25c.55 0 1-.45 1-1h0c0-.55-.45-1-1-1Z" />
             </svg></button>
           <span style="width:1px; height:14px; background:var(--border-light); flex-shrink:0;"></span>
-          <button id="tlCurveAddPt" type="button" class="tl-curve-pt-btn" title="Add point">+</button>
+          <button id="tlCurveAddPt" type="button" class="tl-curve-pt-btn" title="Add point"><svg width="12"
+              height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+              <line x1="6" y1="2.5" x2="6" y2="9.5" />
+              <line x1="9.5" y1="6" x2="2.5" y2="6" />
+            </svg></button>
           <button id="tlCurveRemovePt" type="button" class="tl-curve-pt-btn"
-            title="Remove selected point">&minus;</button>
+            title="Remove selected point"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+              stroke="currentColor" stroke-width="1">
+              <line x1="9.5" y1="6" x2="2.5" y2="6" />
+            </svg></button>
         </div>
         <!-- SVG Canvas -->
         <div class="tl-curve-svg-wrap">
@@ -9263,7 +9340,7 @@
         normal = [1, 0, 0];
         up = [0, 1, 0];
       } else if (mode === 'camera-target-origin') {
-        normal = frozenCameraNormal;
+        normal = activeWorkplane.frozenCameraNormal;
         let xAxis = vectorNormalize(vectorCross([0, 1, 0], normal));
         if (vectorLength(xAxis) < 0.001) xAxis = [1, 0, 0];
         up = vectorNormalize(vectorCross(normal, xAxis));
@@ -9395,15 +9472,17 @@
         setWorkplaneFromSelection();
         return;
       }
+      if (e.target.value === 'camera-target-origin') {
+        // Was a duplicated inline freeze; now the same function the button and Shift+G
+        // use (v20260811j). The undo wrapper this route used to carry moved INTO that
+        // function in v20260811k — keeping it here as well would double-push.
+        setWorkplaneFromCamera();
+        return;
+      }
       pushUndoState();
       activeWorkplane.mode = e.target.value;
       activeWorkplane.offset = 0;
       document.getElementById('custom-offset-z-field').value = "0.00";
-      if (activeWorkplane.mode === 'camera-target-origin') {
-        // Basic camera normal capture if selected from menu
-        frozenCameraNormal = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-        frozenCameraUp = [...activeCamera.up];
-      }
       updatePropertiesPanel();
       requestRender();
       pushUndoState('Change workplane mode');
@@ -9534,6 +9613,24 @@
       if (delBtn) delBtn.disabled = workplanes.length <= 1;
     };
 
+    // THE TWO VERB BUTTONS' ENABLED STATE, in one place (v20260811j).
+    //
+    // It has two INDEPENDENT conditions that arrive from two different sync points:
+    // the workplane LOCK (updateWorkplanePanel's job) and, for From Selection only,
+    // whether anything is selected (updatePropertiesPanel's job). Setting `disabled`
+    // from both would mean whichever ran last won and the other condition was silently
+    // dropped — so both callers route through this instead.
+    //
+    // From Camera has no selection precondition: the camera always has a direction.
+    const syncWorkplaneVerbButtons = () => {
+      const wp = selectedWorkplane || activeWorkplane;
+      const locked = !!(wp && wp.lock);
+      const camBtn = document.getElementById('wpFromCameraBtn');
+      const selBtn = document.getElementById('wpFromSelectionBtn');
+      if (camBtn) camBtn.disabled = locked;
+      if (selBtn) selBtn.disabled = locked || !selectedObject;
+    };
+
     const updateWorkplanePanel = () => {
       const wp = selectedWorkplane || activeWorkplane;
       if (!wp) return;
@@ -9553,6 +9650,7 @@
         const el = document.getElementById(id);
         if (el) el.disabled = wp.lock || false;
       });
+      syncWorkplaneVerbButtons();
     };
 
 
@@ -9647,6 +9745,21 @@
     document.getElementById('removeWorkplaneBtn').addEventListener('click', deleteWorkplane);
     document.getElementById('moveUpWorkplaneBtn').addEventListener('click', moveUpWorkplane);
     document.getElementById('moveDownWorkplaneBtn').addEventListener('click', moveDownWorkplane);
+
+    // THE TWO VERBS (v20260811j). Same functions the Shift+G / Alt+G shortcuts call —
+    // the buttons add no behaviour of their own, they add REPEATABILITY, which is the
+    // one thing the dropdown above cannot offer. No undo wrapper here since v20260811k:
+    // undo moved INTO the two functions, so every route gets it and no caller can
+    // forget. Wrapping again here would double-push.
+    //
+    // THE ARROWS ARE LOAD-BEARING — do not "simplify" them to a bare reference.
+    // Both functions are `const`s declared ~57,000 lines further down this same
+    // script, so passing the identifier here EVALUATES it at script-execution time
+    // and throws `Cannot access 'setWorkplaneFromCamera' before initialization`,
+    // which aborts the rest of the top-level script. The arrow defers the lookup to
+    // click time. (Tried and caught at load in v20260811k.)
+    document.getElementById('wpFromCameraBtn').addEventListener('click', () => setWorkplaneFromCamera());
+    document.getElementById('wpFromSelectionBtn').addEventListener('click', () => setWorkplaneFromSelection());
 
     // Initial list render
     setTimeout(updateWorkplaneList, 0);
@@ -10205,7 +10318,6 @@
 
     // Static Camera Workplane
 
-    let frozenCameraUp = [0, 1, 0]; // Default up
 
     let selectedObject = null;
     let selectedObjects = [];
@@ -11017,12 +11129,9 @@
         }
       }
 
-      // Hide Gizmo Mode Row for non-transform tools (pixel art, pen, polygon, star)
-      const gizmoModeRow = document.getElementById('gizmoModeRow');
-      if (gizmoModeRow) {
-        gizmoModeRow.style.display =
-          ['select', 'directSelect', 'rotate', 'scale', 'pivot'].includes(tool) ? 'flex' : 'none';
-      }
+      // Gizmo Mode row: visible only for the tools it orients (GIZMO_MODE_TOOLS).
+      // `scale` LEFT this list in v20260811e — see the constant.
+      syncGizmoModeUI(tool);
       // Rotate/Scale "about" pivot rows: shown per active tool + selection
       // (also refreshed on selection change — see updatePropertiesPanel).
       updateRotatePivotRowVisibility();
@@ -13285,10 +13394,10 @@
     });
 
     {
-      const gizmoModeCb = document.getElementById('gizmoModeCb');
-      if (gizmoModeCb) {
-        gizmoModeCb.addEventListener('change', () => {
-          gizmoMode = gizmoModeCb.checked ? 'world' : 'local';
+      const gizmoModeSelect = document.getElementById('gizmoModeSelect');
+      if (gizmoModeSelect) {
+        gizmoModeSelect.addEventListener('change', () => {
+          gizmoMode = gizmoModeSelect.value; // tool preference; not undo/serialized
           requestRender();
         });
       }
@@ -15440,6 +15549,227 @@
     // --- /TEXT TOOL ---------------------------------------------------------
 
     let gizmoMode = 'local';
+
+    // THE MODE LIST, in one place (v20260811e; Workplane added v20260811h). The
+    // <option>s in #gizmoModeSelect are the same four in the same order. `W` cycles
+    // this array, so order here IS the cycle order — World → Local → Workplane →
+    // Camera, as PLAN §1 specifies.
+    const GIZMO_MODE_CYCLE = ['world', 'local', 'workplane', 'camera'];
+
+    // The tools whose gizmo this control orients — and therefore both the rows'
+    // visibility rule and the `W` gate. `scale` is DELIBERATELY absent: Scale is
+    // Local-only (PLAN §1.1 — `scale:[sx,sy,sz]` is diagonal in local space, so a
+    // non-object basis would be a shear the transform model has nowhere to put).
+    // The other omitted tools (pen, polygon, pixelArt, …) draw no transform gizmo
+    // at all. Gating `W` on the SAME list is the point: a hidden control must not
+    // keep a live shortcut, or the mode changes with nothing on screen to say so.
+    const GIZMO_MODE_TOOLS = ['select', 'directSelect', 'rotate', 'pivot'];
+
+    // Row visibility + <select> value, from one place. Called by setTool (tool
+    // changed) and updatePropertiesPanel (selection changed), like its neighbour
+    // updateRotatePivotRowVisibility.
+    function syncGizmoModeUI(tool = currentTool) {
+      const row = document.getElementById('gizmoModeRow');
+      if (row) row.style.display = GIZMO_MODE_TOOLS.includes(tool) ? 'flex' : 'none';
+      const sel = document.getElementById('gizmoModeSelect');
+      if (sel && sel.value !== gizmoMode) sel.value = gizmoMode;
+    }
+
+    // --- GIZMO ORIENTATION BASIS (v20260811a) -------------------------------
+    // THE ONE PLACE THAT ANSWERS "which way do the gizmo's axes point".
+    //
+    // `gizmoMode` has only ever done one job: pick a rotation matrix. Identity for
+    // World, R x RPivot for Local. Gizmo DRAWING, every axis DRAG and the arrow-key
+    // NUDGE all consume that matrix — but each of the NINE sites spelled the choice
+    // out itself and rebuilt R x RPivot by hand. Two modes x nine copies was
+    // survivable; the Workplane and Camera modes (PLAN-gizmo-orientation-modes.md)
+    // would have made it four x nine, which is where the bugs would live.
+    //
+    // Extracted FIRST and proven inert, before any new mode exists — the wide-
+    // mechanical-change discipline of v20260726o.
+    //
+    // `subject` is the object whose local frame applies. It is NOT always
+    // selectedObject: the A tool orients to the vertex's OWNER
+    // (selectedVertexInfo.object), which is why this takes an argument rather than
+    // reading the global.
+    // SCREEN DIRECTION FOR A GIZMO AXIS THAT PROJECTS TO NOTHING (v20260811b).
+    // Camera mode's Z points at the eye, so its true projection is zero-length: the
+    // arrow would be a dot and every axis drag bails at `projectedAxisLength < 0.001`.
+    // It gets a synthetic screen direction instead — down-left, at the same on-screen
+    // length as X. ONE constant, read by BOTH the drawing and the drag, so the arrow
+    // documents the direction you drag it. Units: NDC / camera-up-positive (y up),
+    // which is the convention on both sides.
+    const GIZMO_VIEW_AXIS_SCREEN = [-Math.SQRT1_2, -Math.SQRT1_2];
+
+    // The camera basis: Z toward the eye, X camera-right, Y camera-up. Columns are
+    // the images of the canonical axes, matching how vectorApplyMatrix reads it.
+    // Deliberately the SAME formula the translate drags use to project a world axis
+    // to screen (up × z, then z × x) so the drawn axes and the screen projection
+    // cannot disagree. (Two other camera-basis derivations exist elsewhere with
+    // different sign conventions — `forward × up` at the rotate site and
+    // `getRightVector()` at the nudge site. Not unified here; recorded in the plan.)
+    const cameraGizmoBasis = () => {
+      const z = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
+      let x = vectorCross(activeCamera.up, z);
+      // up parallel to the view direction (straight-down camera): pick any right
+      if (vectorLength(x) < 1e-6) x = Math.abs(z[1]) > 0.9 ? [1, 0, 0] : vectorCross([0, 1, 0], z);
+      x = vectorNormalize(x);
+      const y = vectorNormalize(vectorCross(z, x));
+      return [
+        [x[0], y[0], z[0], 0],
+        [x[1], y[1], z[1], 0],
+        [x[2], y[2], z[2], 0],
+        [0, 0, 0, 1],
+      ];
+    };
+
+    // FROZEN FOR THE DURATION OF A GIZMO DRAG (plan §1.3). The camera basis is live
+    // every idle frame — that is the point, the gizmo faces you — but if it stayed
+    // live DURING a drag, anything that moves the camera mid-gesture (timeline
+    // playback, Keep-Size compensation) would rotate the drag axis under the cursor.
+    // Frozen lazily on the first read of a drag and released when the drag ends, so
+    // no mousedown/mouseup site has to know about it.
+    // Gated to GIZMO drags specifically: a camera orbit must keep the gizmo live.
+    let _dragFrozenBasis = null;
+    const _isGizmoDrag = (m) => !!m && /^(translate|scale|rotate|move-free|pivot-)/.test(m);
+
+    // GENERALISED FROM CAMERA TO ANY LIVE-DERIVED BASIS (v20260811h). Camera is not
+    // the only mode that moves on its own: the `camera-target` WORKPLANE takes its
+    // basis from the live camera too, so a Workplane gizmo on that plane had exactly
+    // the same §1.3 hazard — the drag axis rotating under the cursor if anything moves
+    // the camera mid-gesture. One freeze, both modes, rather than a second copy.
+    // (`camera-target-origin` uses frozenCameraNormal and never needed it; freezing it
+    // is a no-op, which is the right kind of harmless.)
+    const _frozenDuringDrag = (build) => {
+      if (!_isGizmoDrag(dragMode)) { _dragFrozenBasis = null; return build(); }
+      if (!_dragFrozenBasis) _dragFrozenBasis = build();
+      return _dragFrozenBasis;
+    };
+
+    // THE WORKPLANE BASIS — the rotation part of the matrix the GRID is drawn with.
+    //
+    // Not a fourth derivation: it reads workplaneModelMatrix(), the same call the
+    // render loop uses, so the plane you see and the gizmo drawn on it provably cannot
+    // drift (PLAN §5.1 rejected writing one that merely agrees).
+    //
+    // `side` IS THE EXCEPTION AND IT IS NOT COSMETIC. Six of the seven modes carry
+    // their orientation in the matrix; `side` is drawn by drawYZGrid, whose
+    // gridLinesYZ vertices are ALREADY [0, y, z], so its plane orientation lives in
+    // the vertex data and its model matrix is a pure X translation — rotation part
+    // IDENTITY, reporting normal world Z where the YZ plane's normal is world X.
+    // Taken raw, the gizmo would lie ACROSS the side grid instead of in it. The swap
+    // that fixes it is the same createRotationYMatrix(-π/2) the reference image
+    // already carries at its own call site: X → [0,0,1], Y → [0,1,0], Z → [-1,0,0],
+    // which is the YZ plane's own frame. POST-multiplied: the swap maps the gizmo's
+    // canonical frame into the grid's, then the model rotation maps that into world.
+    // `grid` in the return value is what makes this decidable here rather than
+    // guessable — that is why v20260811g returned it.
+    const workplaneGizmoBasis = () => {
+      // No plane to follow: `object-local` with nothing selected. Falls back to World
+      // rather than to getGridBasis's generic horizontal default — that function ALWAYS
+      // returns a frame, so this guard has to be explicit. It mirrors the null case in
+      // workplaneModelMatrix; kept as a direct test rather than a call so the per-frame
+      // gizmo path does not rebuild a matrix just to throw it away.
+      if (activeWorkplane.mode === 'object-local' && !selectedObject) return createIdentityMatrix();
+
+      // BUILT FROM getGridBasis, NOT FROM THE GRID'S MODEL MATRIX (v20260812c).
+      //
+      // v20260811h took the rotation part of workplaneModelMatrix, which meant the gizmo
+      // inherited two problems the grid matrix has: `horizontal` reports its normal as
+      // -Y (rotationX(+90°)) and `side` carries no orientation at all, needing a
+      // hand-applied rotationY(-90°) swap. Both are gone. The frame is the RIGHT source
+      // because it is the one that decides where geometry actually lands when you paste
+      // or draw on the plane — the gizmo now describes the same plane the content does.
+      //
+      // Z IS cross(X, Y), NOT `b.n` — this matters. For the two camera modes `n` is
+      // deliberately the NEGATED normal (v20260812a: that negation is what makes pasted
+      // content face the viewer), so using it would point the gizmo's Z into the screen.
+      // cross(X, Y) is right-handed by construction and equals `n` on every mode whose
+      // frame is self-consistent.
+      //
+      // UP STAYS UP (owner's call): Y = -v, the frame's own "screen up". Where the fix
+      // has to flip something in-plane to keep the basis right-handed, X carries it —
+      // on `side` X goes from world +Z to -Z while Y remains world +Y.
+      const b = getGridBasis();
+      const X = b.u;
+      const Y = vectorScale(b.v, -1);          // v is documented "screen down"
+      const Z = vectorCross(X, Y);
+      // Columns are the images of the canonical axes, matching vectorApplyMatrix.
+      return [
+        [X[0], Y[0], Z[0], 0],
+        [X[1], Y[1], Z[1], 0],
+        [X[2], Y[2], Z[2], 0],
+        [0, 0, 0, 1]
+      ];
+    };
+
+    // THE S TOOL HAS NO BASIS CHOICE (v20260811e, PLAN §1.1). `scale: [sx,sy,sz]` is
+    // diagonal in LOCAL space; scaling along any other basis is a shear, and the
+    // transform model T·R·(RP·S·RPᵀ)·T(−pivot) has nowhere to put one. The scale drag
+    // has always written obj.scale[axis] directly and never read `gizmoMode`, while
+    // drawSelectionGizmo oriented by `gizmoMode` for every tool — so the handles
+    // pointed one way and the scaling happened another. Measured on an object at
+    // 25/40/15, the angle between the drawn S handle and the axis it really scales:
+    //     World   X 42.3°   Y 19.0°   Z 46.0°
+    //     Camera  X 12.0°   Y 57.2°   Z 56.5°
+    //     Local   X  0.0°   Y  0.0°   Z  0.0°
+    // The Gizmo (W) row is hidden for S; this is the other half of that decision.
+    // Hiding the control alone would have been worse than leaving it: the mode set by
+    // the last transform tool would still apply, with nothing on screen to say so or
+    // to change it.
+    //
+    // Pinned HERE, not in drawSelectionGizmo, so the drawing and the arrow-key nudge
+    // cannot disagree — the v20260811d lesson: a rule that belongs to the basis goes
+    // in the basis, not in the first consumer where you notice it. Everything that
+    // asks "which way do the gizmo's axes point" reads this, including the
+    // `_camGz` test in drawSelectionGizmo (a synthetic screen displacement for a
+    // degenerate camera Z must not be applied to a non-degenerate LOCAL z).
+    // `gizmoMode` itself is untouched — it is the user's stored preference and the S
+    // tool must not silently rewrite it.
+    //
+    // 2D MODE FALLS BACK TO WORLD, for BOTH camera-derived modes (v20260811i).
+    // PLAN §4 said this about Camera from the start and it was never implemented —
+    // Camera mode shipped in v20260811b returning the live camera basis in 2D too,
+    // and Workplane inherited the same gap in v20260811h. A 2D layer is drawn through
+    // the FIXED frame matrix VP_2D with the camera deliberately ignored, so orienting
+    // its gizmo by the camera (or by a workplane grid that is not drawn in 2D at all)
+    // points the handles somewhere the object cannot move. World is the only basis 2D
+    // has. Local still works and is untouched — an object's own rotation is
+    // meaningful in 2D.
+    //
+    // The subject matters: the A tool orients to the vertex's OWNER, so the same
+    // argument gizmoBasis resolves its subject from resolves the 2D test. Callers
+    // that already know the reference object pass it; the rest fall back to
+    // selectedObject exactly as before.
+    const _subjectIn2D = (subject) => {
+      const o = subject || selectedObject;
+      return !!o && isIn2DMode(o);
+    };
+    const gizmoEffectiveMode = (subject) => {
+      if (currentTool === 'scale') return 'local';
+      if ((gizmoMode === 'camera' || gizmoMode === 'workplane') && _subjectIn2D(subject)) return 'world';
+      return gizmoMode;
+    };
+
+    const gizmoBasis = (subject) => {
+      const mode = gizmoEffectiveMode(subject);
+      if (mode === 'camera') return _frozenDuringDrag(cameraGizmoBasis);
+      if (mode === 'workplane') return _frozenDuringDrag(workplaneGizmoBasis);
+      if (mode === 'local') {
+        const o = subject || selectedObject;
+        if (!o) return createIdentityMatrix();
+        const RPivot = matrixFromEuler(o.pivotRotation || [0, 0, 0]);
+        return matrixMultiply(o.rotationMatrix, RPivot);
+      }
+      return createIdentityMatrix();
+    };
+
+    // Map a canonical gizmo axis ([1,0,0] / [0,1,0] / [0,0,1]) into world space.
+    // Applied UNCONDITIONALLY, including in World mode: vectorApplyMatrix against the
+    // identity is bit-exact for a canonical axis (1*1 + 0*0 + 0*0), so dropping the
+    // old `gizmoMode === 'local' ? ... : axis` ternary cannot move a World-mode value.
+    const gizmoAxisToWorld = (axis, subject) => vectorApplyMatrix(axis, gizmoBasis(subject));
+
     // Multi-select / group rotation pivot (independent of gizmoMode, which
     // only picks the AXIS). 'inPlace' = each object spins about its own
     // anchor (default, = the historical Local-mode multi behavior);
@@ -15572,8 +15902,6 @@
     // Format for display (respects current unit, rounds appropriately)
     const fmtDisplay = (v, decimals = 2) => toDisplay(v).toFixed(decimals);
 
-    let frozenCameraNormal = [0, 0, 1];
-
     // --- Workplane Class ---
     class Workplane {
       constructor(name, mode, opts = {}) {
@@ -15586,6 +15914,18 @@
         this.origin = opts.origin ? [...opts.origin] : [0, 0, 0];
         this.right = opts.right ? [...opts.right] : [1, 0, 0];
         this.normal = opts.normal ? [...opts.normal] : [0, 0, 1];
+        // THE CAMERA CAPTURE, WHICH USED TO BE TWO MODULE-SCOPE GLOBALS (v20260811l).
+        // `camera-target-origin` reads these, never the live camera — that is the mode's
+        // whole point. As globals they were outside captureSceneState() AND outside
+        // serialize(), so a RE-capture (mode already camera-target-origin, only the
+        // normal moving) produced a zero-length diff and NO undo entry: the very
+        // repeatability v20260811j shipped was the one operation undo could not see.
+        // They describe a workplane, not the app, so this is where they belong.
+        // Names kept verbatim so the changelog history stays greppable.
+        // Defaults match the old globals exactly, which is also the backward-compat
+        // story: a scene saved before this release simply has no keys here.
+        this.frozenCameraNormal = opts.frozenCameraNormal ? [...opts.frozenCameraNormal] : [0, 0, 1];
+        this.frozenCameraUp = opts.frozenCameraUp ? [...opts.frozenCameraUp] : [0, 1, 0];
       }
 
       /** Deep-copy this workplane with an optional new name. */
@@ -15598,6 +15938,8 @@
           origin: [...this.origin],
           right: [...this.right],
           normal: [...this.normal],
+          frozenCameraNormal: [...this.frozenCameraNormal],
+          frozenCameraUp: [...this.frozenCameraUp],
         });
       }
 
@@ -15610,6 +15952,10 @@
         this.origin = [...other.origin];
         this.right = [...other.right];
         this.normal = [...other.normal];
+        // Load must bring the capture with the mode, or loading a camera-facing
+        // workplane would adopt its mode and the OTHER plane's orientation.
+        this.frozenCameraNormal = [...other.frozenCameraNormal];
+        this.frozenCameraUp = [...other.frozenCameraUp];
       }
 
       /** Serialize to a plain object for JSON export / undo snapshots. */
@@ -15624,6 +15970,10 @@
           origin: [...this.origin],
           right: [...this.right],
           normal: [...this.normal],
+          // v20260811l — this is what puts the camera capture into BOTH the scene file
+          // and the undo diff. `captureSceneState()` reaches it through here.
+          frozenCameraNormal: [...this.frozenCameraNormal],
+          frozenCameraUp: [...this.frozenCameraUp],
         };
       }
 
@@ -46909,13 +47259,8 @@
 
       if (currentTool === 'directSelect' && selectedVertexInfo) {
         gizmoPosition = selectedVertexInfo.worldPosition;
-        if (gizmoMode === 'local') {
-          const obj = selectedVertexInfo.object;
-          const RPivot = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
-          R = matrixMultiply(obj.rotationMatrix, RPivot);
-        } else {
-          R = createIdentityMatrix();
-        }
+        // Orients to the vertex's OWNER, not to selectedObject — hence the argument.
+        R = gizmoBasis(selectedVertexInfo.object);
       } else if (currentTool === 'pivot') {
         // Place gizmo at the pivot's world position.
         // The rendering model is T(pos + pivotShift) * R * S * T(-pivot), so local point
@@ -46923,22 +47268,12 @@
         // setObjectPivot writes its compensation into pivotShift, so the anchor
         // (pos + pivotShift) IS the pivot's world position.
         gizmoPosition = getPivotAnchor(obj);
-        if (gizmoMode === 'local') {
-          const RPivot = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
-          R = matrixMultiply(obj.rotationMatrix, RPivot);
-        } else {
-          R = createIdentityMatrix();
-        }
+        R = gizmoBasis(obj);
       } else {
         // Always place gizmo at the PRIMARY (last selected) object's anchor
         // (position + pivotShift — the visual rotation/scale center)
         gizmoPosition = getPivotAnchor(obj);
-        if (gizmoMode === 'local') {
-          const RPivot = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
-          R = matrixMultiply(obj.rotationMatrix, RPivot); // Use R * RP for visual orientation
-        } else {
-          R = createIdentityMatrix(); // World-aligned
-        }
+        R = gizmoBasis(obj);
       }
       const T = createTranslationMatrix(gizmoPosition[0], gizmoPosition[1], gizmoPosition[2]);
 
@@ -46984,6 +47319,41 @@
         }
         return;
       }
+
+      // CAMERA MODE: ONE PROJECTION THAT KNOWS ABOUT THE DEGENERATE AXIS (v20260811d).
+      //
+      // Camera Z points at the eye, so `transformVertex` maps ANY gizmo-local point to
+      // the same screen place regardless of its z. Patching individual consumers was
+      // tried twice and was wrong twice: v20260811b moved the arrow and left the label
+      // stacked on the origin, v20260811c fixed the label and left the XZ and YZ planar
+      // handles collapsed (owner reports both times). The XY handle survived precisely
+      // because it is the one with no z component — which is the tell.
+      //
+      // So the substitution belongs in the PROJECTION, not at its call sites: project
+      // with z dropped, then displace along the synthetic screen direction in
+      // proportion to the z that was dropped. Every element built from gizmo-local
+      // points — arrows, labels, planar bars, L-handles — is then consistent by
+      // construction, and anything added later inherits it for free.
+      // The `&& !gizmo2D` that used to be here is GONE (v20260811i), not lost: the 2D
+      // fallback moved into gizmoEffectiveMode, and this call passes the same
+      // `_gzRefObj` that `gizmo2D` was computed from — so the mode can no longer read
+      // 'camera' when gizmo2D is true, and repeating the test here would be the rule
+      // living in two places again.
+      const _camGz = (gizmoEffectiveMode(_gzRefObj) === 'camera');
+      let _synthUnit = 0;
+      if (_camGz) {
+        const _tX = transformVertex([GIZMO_SCALE, 0, 0], gizmoMVPMatrix);
+        if (_tX) _synthUnit = Math.hypot(_tX[0] - tOrigin[0], _tX[1] - tOrigin[1]);
+      }
+      const projGizmo = (v) => {
+        if (!_camGz || !_synthUnit || !v[2]) return transformVertex(v, gizmoMVPMatrix);
+        const t = transformVertex([v[0], v[1], 0], gizmoMVPMatrix);
+        if (!t) return null;
+        const k = (v[2] / GIZMO_SCALE) * _synthUnit;   // z in axis-lengths → NDC
+        return [t[0] + GIZMO_VIEW_AXIS_SCREEN[0] * k,
+                t[1] + GIZMO_VIEW_AXIS_SCREEN[1] * k,
+                t[2]];
+      };
 
       // Initialize planar bars if not present
       if (!selectionGizmoElements.planarBars) {
@@ -47098,8 +47468,9 @@
         // a handle that does nothing is a lie); rotate keeps all three
         // (X/Y rotation = flat foreshortening, deliberate).
         const _gz2DHideZ = gizmo2D && i === 2 && !showRotateGizmo;
+
         if (!_gz2DHideZ && (showMoveGizmo || showScaleGizmo || showRotateGizmo || showPivotGizmo) && !(activeRotateAxis && activeRotateAxis !== axisKey)) {
-          const tEnd = transformVertex(axes[i].v, gizmoMVPMatrix);
+          const tEnd = projGizmo(axes[i].v);
           if (tEnd) {
             line.setAttribute('x1', originX);
             line.setAttribute('y1', originY);
@@ -47125,7 +47496,7 @@
 
         // Labels: Filled circle with white letter inside
         if (!_gz2DHideZ && (showMoveGizmo || showRotateGizmo || showScaleGizmo || showPivotGizmo) && !(activeRotateAxis && activeRotateAxis !== axisKey)) {
-          const tText = transformVertex(textPositions[i].v, gizmoMVPMatrix);
+          const tText = projGizmo(textPositions[i].v);
           if (tText) {
             const screenX = (tText[0] * FRAME_SIZE) / 2;
             const screenY = (-tText[1] * FRAME_SIZE) / 2;
@@ -47284,8 +47655,8 @@
           const bar = selectionGizmoElements.planarBars[h.idx];
           // 2D MODE: only the XY plane exists
           if (gizmo2D && h.axis !== 'xy') { bar.style.display = 'none'; return; }
-          const t1 = transformVertex(h.v1, gizmoMVPMatrix);
-          const t2 = transformVertex(h.v2, gizmoMVPMatrix);
+          const t1 = projGizmo(h.v1);
+          const t2 = projGizmo(h.v2);
           const isPlanarHighlighted = highlightedAxis === h.axis;
 
           if (t1 && t2) {
@@ -47322,9 +47693,9 @@
           const polyline = selectionGizmoElements.movePlanarHandles[h.idx];
           // 2D MODE: only the XY plane exists
           if (gizmo2D && h.axis !== 'xy') { polyline.style.display = 'none'; return; }
-          const tA = transformVertex(h.pA, gizmoMVPMatrix);
-          const tCorner = transformVertex(h.corner, gizmoMVPMatrix);
-          const tB = transformVertex(h.pB, gizmoMVPMatrix);
+          const tA = projGizmo(h.pA);
+          const tCorner = projGizmo(h.corner);
+          const tB = projGizmo(h.pB);
           const isMovePlanarHighlighted = highlightedAxis === h.axis;
 
           if (tA && tCorner && tB) {
@@ -52857,6 +53228,7 @@
 
     const updatePropertiesPanel = () => {
       updateRotatePivotRowVisibility(); // Multi Rotate Pivot depends on selection count
+      syncGizmoModeUI();                // Gizmo (W) <select> ← gizmoMode (v20260811e)
 
       const wpSelect = document.getElementById('workplaneSelect');
       if (wpSelect) {
@@ -52867,6 +53239,12 @@
           wpSelect.value = mode;
         }
       }
+      // From Selection needs a selection — setWorkplaneFromSelection is a silent
+      // no-op without one, and a button that does nothing and says nothing is worse
+      // than no button. Called from HERE because this is the function selection
+      // changes already run (v20260811j); the lock half arrives from
+      // updateWorkplanePanel, which is why both go through one function.
+      syncWorkplaneVerbButtons();
       const propertiesPanel = document.getElementById('propertiesPanel');
       const selectedObjectContent = document.getElementById('selectedObjectContent');
 
@@ -59634,173 +60012,31 @@
       };
 
       if (showGrid) {
-        const wpMode = activeWorkplane.mode;
-        const wpOffset = activeWorkplane.offset;
-        if (wpMode === 'horizontal') {
-          gridGroupXY.style.display = 'block';
-          // XZ Plane: Rotate 90 deg around X to make XY grid lie on XZ
-          // And apply offset along Y (which is local Z after rotation? No, local Z of grid is normal)
-          // XY Grid is on Z=0. Normal is Z.
-          // To make it XZ, we rotate X by 90.
-          // The normal of XZ plane is Y.
-          // So we want to translate by offset along Y.
-
-          const rotMat = createRotationXMatrix(Math.PI / 2);
-          const transMat = createTranslationMatrix(0, wpOffset, 0);
-          const modelMat = matrixMultiply(transMat, rotMat);
-          const mvp = matrixMultiply(vpMatrix, modelMat);
-          drawXYGrid(mvp);
-          drawReferenceImage(mvp); // Draw Image
-        } else if (wpMode === 'vertical') {
-          gridGroupXY.style.display = 'block';
-          // XY Plane: Normal is Z.
-          // Translate by offset along Z.
-          const transMat = createTranslationMatrix(0, 0, wpOffset);
-          const mvp = matrixMultiply(vpMatrix, transMat);
-          drawXYGrid(mvp);
-          drawReferenceImage(mvp); // Draw Image
-        } else if (wpMode === 'side') {
-          gridGroupYZ.style.display = 'block';
-          // YZ Plane: Normal is X.
-          // Translate by offset along X.
-          const transMat = createTranslationMatrix(wpOffset, 0, 0);
-          const mvp = matrixMultiply(vpMatrix, transMat);
-          drawYZGrid(mvp);
-          // Note: drawReferenceImage expects XY plane input. For YZ plane, we need to adapt?
-          // The current `drawReferenceImage` logic assumes P0(0,0), P1(1,0), P2(0,1) in the *local space* of mvp.
-          // drawYZGrid draws a grid on its own YZ plane?
-          // Wait, drawYZGrid implementation (I assume) expects MVP to map YZ to screen.
-          // Actually, let's check drawYZGrid logic if we can.
-          // Assuming drawYZGrid works similarly to XYGrid but iterating differently?
-          // If so, we need to pass a matrix that puts our "Image Plane" onto the YZ plane.
-          //
-          // Actually, our `drawReferenceImage` takes `mvp` and projects (0,0,0), (1,0,0), (0,1,0).
-          // If we pass the same `mvp` as `drawYZGrid`, then (0,0,0) is origin.
-          // But YZ grid iterates Y and Z. X is constant.
-          // Our image logic assumes image lies on X and Y of the input space?
-          // If drawYZGrid works on Y and Z, then we might need to rotate the image?
-          // Let's assume for now that Reference Image Logic assumes "Horizontal" alignment in local space (X, Y).
-
-          // If wpMode is 'side' (YZ), we want the image to be on YZ plane.
-          // The `transMat` above just shifts X. It doesn't rotate.
-          // So the "Local Space" is still World (just shifted).
-          // World Y is Up. World Z is Depth. World X is Normal.
-          // We want Image to be on Y-Z plane.
-          // Image X -> World Z? Image Y -> World Y?
-
-          // Let's modify the matrix passed to drawReferenceImage to rotate the image plane (XY) to YZ.
-          // Rotate Y around Y by -90? -> Z becomes X.
-          // We want Local X -> World Z.
-          // We want Local Y -> World Y.
-          // Rotate 90 deg around Y axis?
-          // RotY(90) * [1,0,0] = [0,0,-1] (or similar).
-
-          // Let's create a specific model matrix for the image in Side view.
-          // Rotate 90 around Y.
-          const rotImg = createRotationYMatrix(-Math.PI / 2);
-          const mvpImg = matrixMultiply(mvp, rotImg);
-          drawReferenceImage(mvpImg);
-        } else if (wpMode === 'camera-target') {
-          // Camera Facing (Object Center)
-          gridGroupXY.style.display = 'block';
-
-          const target = selectedObject ? selectedObject.position : [0, 0, 0];
-          const camDir = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-
-          const zAxis = camDir;
-          let xAxis = vectorNormalize(vectorCross([0, 1, 0], zAxis));
-          if (vectorLength(xAxis) < 0.001) xAxis = [1, 0, 0];
-          const yAxis = vectorNormalize(vectorCross(zAxis, xAxis));
-
-          const rotMat = [
-            [xAxis[0], yAxis[0], zAxis[0], 0],
-            [xAxis[1], yAxis[1], zAxis[1], 0],
-            [xAxis[2], yAxis[2], zAxis[2], 0],
-            [0, 0, 0, 1]
-          ];
-
-          // Apply offset along normal (zAxis)
-          const offsetVec = vectorScale(zAxis, wpOffset);
-          const finalPos = vectorAdd(target, offsetVec);
-
-          const transMat = createTranslationMatrix(finalPos[0], finalPos[1], finalPos[2]);
-          const modelMat = matrixMultiply(transMat, rotMat);
-          const mvp = matrixMultiply(vpMatrix, modelMat);
-
-          drawXYGrid(mvp);
-          drawReferenceImage(mvp);
-
-        } else if (wpMode === 'camera-target-origin') {
-          // Camera Facing (World Origin) - Static
-          gridGroupXY.style.display = 'block';
-
-          const target = [0, 0, 0];
-          // Use frozen normal instead of current camera direction
-          const zAxis = frozenCameraNormal;
-          let xAxis = vectorNormalize(vectorCross([0, 1, 0], zAxis));
-          if (vectorLength(xAxis) < 0.001) xAxis = [1, 0, 0];
-          const yAxis = vectorNormalize(vectorCross(zAxis, xAxis));
-
-          const rotMat = [
-            [xAxis[0], yAxis[0], zAxis[0], 0],
-            [xAxis[1], yAxis[1], zAxis[1], 0],
-            [xAxis[2], yAxis[2], zAxis[2], 0],
-            [0, 0, 0, 1]
-          ];
-
-          // Apply offset along normal (zAxis)
-          const offsetVec = vectorScale(zAxis, wpOffset);
-          const finalPos = vectorAdd(target, offsetVec);
-
-          const transMat = createTranslationMatrix(finalPos[0], finalPos[1], finalPos[2]);
-          const modelMat = matrixMultiply(transMat, rotMat);
-          const mvp = matrixMultiply(vpMatrix, modelMat);
-
-          drawXYGrid(mvp);
-          drawReferenceImage(mvp); // Same frozen camera-facing plane as the grid
-        } else if (wpMode === 'object-local') {
-          if (selectedObject) {
+        // THE SEVEN PER-MODE BRANCHES ARE GONE (v20260811g). Each one built its own
+        // `modelMat`, multiplied it into vpMatrix and then drew; the matrix half now
+        // lives in workplaneModelMatrix() so the Workplane GIZMO can take its rotation
+        // from THE SAME construction the grid is drawn with, rather than from a fourth
+        // copy that merely agrees (plan §5.1). What is left here is display toggles
+        // and draw calls — the part that was never shared.
+        const _wp = workplaneModelMatrix();
+        if (_wp) {
+          const mvp = matrixMultiply(vpMatrix, _wp.modelMat);
+          if (_wp.grid === 'yz') {
+            gridGroupYZ.style.display = 'block';
+            drawYZGrid(mvp);
+            // THE `side` TRAP, KEPT AT THE CALL SITE ON PURPOSE. This is the one mode
+            // where the grid and its reference image use different matrices.
+            // drawReferenceImage projects (0,0,0)/(1,0,0)/(0,1,0) — it wants an XY
+            // plane — while gridLinesYZ's vertices are already [0,y,z]. So the image
+            // needs the XY→YZ rotation and the grid must NOT have it. Folding it into
+            // the returned matrix would tilt the grid; that is why the extraction
+            // returns `grid` and leaves this rotation here.
+            drawReferenceImage(matrixMultiply(mvp, createRotationYMatrix(-Math.PI / 2)));
+          } else {
             gridGroupXY.style.display = 'block';
-            // Apply offset along local Z
-
-            const _wpAnchor = getPivotAnchor(selectedObject);
-            const T = createTranslationMatrix(_wpAnchor[0], _wpAnchor[1], _wpAnchor[2]);
-            const T_offset = createTranslationMatrix(0, 0, wpOffset);
-
-            let modelMatrix = matrixMultiply(T, selectedObject.rotationMatrix);
-            modelMatrix = matrixMultiply(modelMatrix, T_offset);
-
-            const mvp = matrixMultiply(vpMatrix, modelMatrix);
             drawXYGrid(mvp);
-            drawReferenceImage(mvp); // Rides the selected object's local plane
+            drawReferenceImage(mvp);
           }
-        } else if (wpMode === 'custom') {
-          gridGroupXY.style.display = 'block';
-
-          // Construct Basis from activeWorkplane
-          const xAxis = activeWorkplane.right; // u
-          const zAxis = activeWorkplane.normal; // n
-          // Ensure yAxis is orthogonal
-          const yAxis = vectorNormalize(vectorCross(zAxis, xAxis));
-
-          // Rotation Matrix (Column vectors)
-          const rotMat = [
-            [xAxis[0], yAxis[0], zAxis[0], 0],
-            [xAxis[1], yAxis[1], zAxis[1], 0],
-            [xAxis[2], yAxis[2], zAxis[2], 0],
-            [0, 0, 0, 1]
-          ];
-
-          // Offset
-          const offsetVec = vectorScale(zAxis, wpOffset);
-          const finalPos = vectorAdd(activeWorkplane.origin, offsetVec);
-
-          const transMat = createTranslationMatrix(finalPos[0], finalPos[1], finalPos[2]);
-          const modelMat = matrixMultiply(transMat, rotMat);
-          const mvp = matrixMultiply(vpMatrix, modelMat);
-
-          drawXYGrid(mvp);
-          drawReferenceImage(mvp); // Same custom right/normal basis as the grid
         }
         // Axis + target gizmos are annotations, not grid — hide them on Tab even
         // when the grid is kept (keepGridOnHide).
@@ -60713,8 +60949,115 @@
       };
     };
 
+    // --- THE WORKPLANE'S MODEL MATRIX (v20260811g) --------------------------
+    // THE ONE PLACE THAT BUILDS THE MATRIX THE GRID IS DRAWN WITH.
+    //
+    // Lifted verbatim out of the seven `wpMode === …` branches in the render loop,
+    // which each built a `modelMat`, multiplied it into `vpMatrix` and then called
+    // drawXYGrid / drawYZGrid / drawReferenceImage. Those branches now do only the
+    // last part. The point is Phase 2 of PLAN-gizmo-orientation-modes.md: the
+    // Workplane GIZMO basis must be the rotation part of THIS matrix, so the grid the
+    // user sees and the gizmo drawn on it provably cannot drift.
+    //
+    // THIS IS THE THIRD OF THREE WORKPLANE DERIVATIONS and they do not agree — see
+    // §5.1 of the plan. `faceWorkplane()` gives normal+up and is choosing which SIDE
+    // to put the camera on (for `horizontal` it reports normal +Y / up −Z, where this
+    // one builds rotationX(90°), normal −Y / up +Z: a 180° flip). `getWorkingPlane()`,
+    // immediately below, gives point+normal and has no `custom`. Neither is wrong,
+    // and neither is this one — but the GIZMO follows THIS one, because this is the
+    // workplane that is actually on screen.
+    //
+    // Returns { modelMat, grid } — or null when the mode has no plane to draw
+    // (`object-local` with nothing selected; an unrecognised mode).
+    //
+    // `grid` IS LOAD-BEARING, not a convenience. `side` is the one mode whose plane
+    // orientation is NOT in the matrix: its modelMat is a pure X translation, and the
+    // YZ-ness lives in `gridLinesYZ`'s vertex data ([0, y, z]) instead. So the
+    // rotation part of a `side` matrix is the IDENTITY, and anything that wants the
+    // plane's BASIS — the gizmo, and the reference image, which already carries its
+    // own createRotationYMatrix(-π/2) at the call site — has to compose the XY→YZ
+    // mapping itself. Returning which grid the mode draws is what makes that
+    // knowable from here instead of guessable.
+    const workplaneModelMatrix = (mode = activeWorkplane.mode, offset = activeWorkplane.offset) => {
+      // Camera-facing basis: Z along the supplied normal, X world-horizontal,
+      // Y = Z × X. Verbatim from the two camera branches, which were identical.
+      const _faceBasis = (zAxis) => {
+        let xAxis = vectorNormalize(vectorCross([0, 1, 0], zAxis));
+        if (vectorLength(xAxis) < 0.001) xAxis = [1, 0, 0];
+        const yAxis = vectorNormalize(vectorCross(zAxis, xAxis));
+        return [
+          [xAxis[0], yAxis[0], zAxis[0], 0],
+          [xAxis[1], yAxis[1], zAxis[1], 0],
+          [xAxis[2], yAxis[2], zAxis[2], 0],
+          [0, 0, 0, 1]
+        ];
+      };
+      // Anchor + offset ALONG THE PLANE NORMAL, then rotate. The shared shape of the
+      // three basis-carrying modes.
+      const _atNormalOffset = (origin, zAxis, rotMat) => {
+        const finalPos = vectorAdd(origin, vectorScale(zAxis, offset));
+        const transMat = createTranslationMatrix(finalPos[0], finalPos[1], finalPos[2]);
+        return matrixMultiply(transMat, rotMat);
+      };
+
+      if (mode === 'horizontal') {
+        // XZ plane: rotate the XY grid 90° about X. Offset rides world Y.
+        const rotMat = createRotationXMatrix(Math.PI / 2);
+        const transMat = createTranslationMatrix(0, offset, 0);
+        return { modelMat: matrixMultiply(transMat, rotMat), grid: 'xy' };
+      }
+      if (mode === 'vertical') {
+        // XY plane, no rotation. Offset rides world Z.
+        return { modelMat: createTranslationMatrix(0, 0, offset), grid: 'xy' };
+      }
+      if (mode === 'side') {
+        // YZ plane. NO rotation — the orientation is in gridLinesYZ's vertices,
+        // not here (see the note above). Offset rides world X.
+        return { modelMat: createTranslationMatrix(offset, 0, 0), grid: 'yz' };
+      }
+      if (mode === 'camera-target') {
+        // Camera-facing, anchored at the selected object. Tracks the LIVE camera.
+        const zAxis = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
+        const target = selectedObject ? selectedObject.position : [0, 0, 0];
+        return { modelMat: _atNormalOffset(target, zAxis, _faceBasis(zAxis)), grid: 'xy' };
+      }
+      if (mode === 'camera-target-origin') {
+        // Camera-facing, anchored at the origin, FROZEN — does not track the camera.
+        const zAxis = activeWorkplane.frozenCameraNormal;
+        return { modelMat: _atNormalOffset([0, 0, 0], zAxis, _faceBasis(zAxis)), grid: 'xy' };
+      }
+      if (mode === 'object-local') {
+        if (!selectedObject) return null;
+        // The one mode whose offset is applied in LOCAL space, post-multiplied —
+        // T(anchor) × R × T(0,0,offset), not T(anchor + n·offset) × R. Same plane
+        // either way; the operand ORDER is preserved so the product is bit-identical.
+        const _wpAnchor = getPivotAnchor(selectedObject);
+        const T = createTranslationMatrix(_wpAnchor[0], _wpAnchor[1], _wpAnchor[2]);
+        const T_offset = createTranslationMatrix(0, 0, offset);
+        let modelMatrix = matrixMultiply(T, selectedObject.rotationMatrix);
+        modelMatrix = matrixMultiply(modelMatrix, T_offset);
+        return { modelMat: modelMatrix, grid: 'xy' };
+      }
+      if (mode === 'custom') {
+        // NOT _faceBasis: x comes straight from activeWorkplane.right (taken on
+        // trust, not re-normalised or re-crossed) and only y is derived.
+        const xAxis = activeWorkplane.right;   // u
+        const zAxis = activeWorkplane.normal;  // n
+        const yAxis = vectorNormalize(vectorCross(zAxis, xAxis));
+        const rotMat = [
+          [xAxis[0], yAxis[0], zAxis[0], 0],
+          [xAxis[1], yAxis[1], zAxis[1], 0],
+          [xAxis[2], yAxis[2], zAxis[2], 0],
+          [0, 0, 0, 1]
+        ];
+        return { modelMat: _atNormalOffset(activeWorkplane.origin, zAxis, rotMat), grid: 'xy' };
+      }
+      return null;
+    };
+
     const getWorkingPlane = () => {
       // Returns { point: [x,y,z], normal: [x,y,z] }
+      // DERIVATION #3 OF THREE — see the note on workplaneModelMatrix() above.
       const mode = activeWorkplane.mode;
       let point = [0, 0, 0];
       let normal = [0, 1, 0];
@@ -60733,7 +61076,7 @@
         normal = [1, 0, 0];
       } else if (mode === 'camera-target-origin') {
         // Camera Facing (Origin) - Static
-        normal = frozenCameraNormal;
+        normal = activeWorkplane.frozenCameraNormal;
         point = [0, 0, 0];
       } else if (mode === 'camera-target') {
         // Camera Facing (Object)
@@ -60790,11 +61133,44 @@
       // Return u (Right), v (Down for Screen, or just Grid Y), n (Normal/Up)
       if (m === 'horizontal') return { u: [1, 0, 0], v: [0, 0, 1], n: [0, 1, 0] }; // XZ plane, Normal Y
       if (m === 'vertical') return { u: [1, 0, 0], v: [0, -1, 0], n: [0, 0, 1] }; // XY plane, Normal Z
-      if (m === 'side') return { u: [0, 0, 1], v: [0, -1, 0], n: [1, 0, 0] };     // YZ plane, Normal X
+      // YZ plane, Normal X. `u` IS -Z, NOT +Z (fixed v20260812a) — this is the one mode
+      // whose frame used to be mirrored. Viewed from the plane's own normal (+X) with +Y
+      // up, world +Z points LEFT, so 2D +x must map to world -Z for pasted or drawn
+      // content to read left-to-right. With u = +Z it read right-to-left: every consumer
+      // maps plane->world as `u*x + v*y`, so the whole frame was flipped, not just paste.
+      // The old value also made this the ONLY axis-aligned mode whose declared `n`
+      // disagreed with its own `u x (-v)` — a frame cannot contradict itself, which is
+      // what proved this a bug rather than a convention.
+      if (m === 'side') return { u: [0, 0, -1], v: [0, -1, 0], n: [1, 0, 0] };
 
       if (m === 'camera-target-origin' || m === 'camera-target') {
-        const normal = frozenCameraNormal;
-        const up = frozenCameraUp;
+        // `camera-target` TRACKS THE LIVE CAMERA; `camera-target-origin` is FROZEN.
+        // That difference is the entire distinction between the two modes, and the GRID
+        // has always honoured it — workplaneModelMatrix's camera-target branch derives
+        // from `activeCamera` every frame. This function did NOT: it read the frozen
+        // pair for both, so the instant the camera moved, content pasted onto a
+        // camera-target plane landed on a stale orientation while the grid displayed the
+        // live one. Measured before the fix (v20260812b): camera at the frozen position,
+        // pasted plane normal matched gridZ; camera moved to [600,300,-200], gridZ was
+        // [0.857,0.429,-0.286] and the pasted content still sat on [0,0,-1].
+        const live = (m === 'camera-target');
+        const normal = live
+          ? vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target))
+          : activeWorkplane.frozenCameraNormal;
+        const up = live ? activeCamera.up : activeWorkplane.frozenCameraUp;
+        //
+        // `n` IS DELIBERATELY THE NEGATED NORMAL — do not "correct" it to match
+        // `u x (-v)` the way `side` above was corrected. Measured 2026-08-12: both camera
+        // modes are self-contradictory on paper yet paste CORRECTLY on screen, because
+        // the negation is what makes content face the VIEWER, which is the point of a
+        // camera-facing plane. Flipping `u` here would mirror content that is right today.
+        //
+        // `cross(up, normal)` and NOT the grid's `cross([0,1,0], normal)`, deliberately:
+        // the two are parallel in normal use (the camera's up lies in the span of world-up
+        // and the view direction, so both crosses are perpendicular to the same plane), but
+        // world-up DEGENERATES looking straight down — measured true — where the camera's
+        // own up stays perpendicular to the view direction and does not. This form needs no
+        // fallback; the grid's does, and has one.
         const xAxis = vectorNormalize(vectorCross(up, normal));
         const yAxis = vectorNormalize(vectorCross(normal, xAxis));
         // yAxis is Real Up. We want Screen Down, so Invert.
@@ -62972,7 +63348,7 @@
         // declaration near `let rotatePivotMode`) — also reused by the
         // numeric Rotation/Delta field handlers so field-driven multi
         // rotation composes and orbits exactly like a drag.
-        if (gizmoMode === 'local' && dragMode !== 'rotate-screen') {
+        if (gizmoEffectiveMode() === 'local' && dragMode !== 'rotate-screen') {
           // True Local Rotation
           // Rotate around the object's current local axes.
           // This means we apply the rotation relative to the object's current orientation.
@@ -63042,6 +63418,17 @@
             axis = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
             deltaAngle = deltaMove.x * ROTATION_SPEED;
             gizmoScreenRotationAngle += deltaAngle; // Track for visual dash offset
+          }
+
+          // CAMERA MODE (v20260811b): the x/y/z above are GIZMO axes, and this branch
+          // wants a WORLD one. Map through the basis — the pre-multiply form below is
+          // already the right shape for an arbitrary world axis, which is why the new
+          // modes route here rather than through the local post-multiply branch.
+          // 'view' is excluded: it is already a world vector and would be mapped twice.
+          // Note camera-Z and 'view' are the same axis up to sign, so rotate-Z in
+          // camera mode and the outer screen-rotate ring agree by construction (§2).
+          if (gizmoEffectiveMode() === 'camera' && lockedAxis !== 'view') {
+            axis = gizmoAxisToWorld(axis, selectedObject);
           }
 
           if (vectorLength(axis) > 0.001) {
@@ -63291,17 +63678,17 @@
         const subject = selectedVertexInfo || selectedObject;
         if (!subject) return;
 
-        let R_obj = createIdentityMatrix();
-        if (gizmoMode === 'local') {
-          const R_main = selectedObject.rotationMatrix;
-          const RPivot = matrixFromEuler(selectedObject.pivotRotation || [0, 0, 0]);
-          R_obj = matrixMultiply(R_main, RPivot);
-        }
         let localAxis = [0, 0, 0];
         if (lockedAxis === 'x') localAxis = [1, 0, 0];
         if (lockedAxis === 'y') localAxis = [0, 1, 0];
         if (lockedAxis === 'z') localAxis = [0, 0, 1];
-        const worldAxis = gizmoMode === 'local' ? vectorApplyMatrix(localAxis, R_obj) : localAxis;
+        // BASIS SUBJECT IS selectedObject, NOT `subject` — preserved verbatim from
+        // the pre-extraction code. Worth knowing: drawSelectionGizmo orients an
+        // A-tool gizmo to the VERTEX'S OWNER (selectedVertexInfo.object) while this
+        // drag orients to selectedObject, so the two disagree whenever those differ
+        // (reachable via Select Child). Left alone because Phase 0 must be inert;
+        // recorded in PLAN-gizmo-orientation-modes.md.
+        const worldAxis = gizmoAxisToWorld(localAxis, selectedObject);
 
         // 2D MODE (v20260727c): no camera — the axis's screen direction is
         // the axis itself (VP_2D maps +x right, +y up) and pixel→world is
@@ -63317,6 +63704,22 @@
           const camYAxis = vectorNormalize(vectorCross(camZAxis, camXAxis));
           screenAxisX = worldAxis[0] * camXAxis[0] + worldAxis[1] * camXAxis[1] + worldAxis[2] * camXAxis[2];
           screenAxisY = worldAxis[0] * camYAxis[0] + worldAxis[1] * camYAxis[1] + worldAxis[2] * camYAxis[2];
+        }
+        // CAMERA MODE'S Z: the world axis points at the eye, so the projection above
+        // is zero and the guard below would swallow the drag. Drive it from the
+        // SAME synthetic direction the gizmo drew its arrow in — the world delta
+        // stays along the true view axis (push/pull toward the camera), only the
+        // input direction is substituted, so dragging along the visible arrow moves
+        // the object toward you. Ortho cameras show no size change: expected (§1.2).
+        // `!subj2D` STAYS after v20260811i (unlike the one in drawSelectionGizmo, which
+        // became provably redundant): gizmoEffectiveMode() here resolves its subject to
+        // selectedObject — matching gizmoAxisToWorld(..., selectedObject) above, per the
+        // Phase-0 preservation note — while `subj2D` reads the VERTEX'S OWNER when there
+        // is one. The two can differ (reachable via Select Child), so this is a real
+        // second condition, not a repeat of the first.
+        if (gizmoEffectiveMode() === 'camera' && lockedAxis === 'z' && !subj2D) {
+          screenAxisX = GIZMO_VIEW_AXIS_SCREEN[0];
+          screenAxisY = GIZMO_VIEW_AXIS_SCREEN[1];
         }
         const projectedAxisLength = Math.sqrt(screenAxisX * screenAxisX + screenAxisY * screenAxisY);
         if (projectedAxisLength < 0.001) return;
@@ -63410,19 +63813,12 @@
         const subject = selectedVertexInfo || selectedObject;
         if (!subject) return;
 
-        let R_obj = createIdentityMatrix();
-        if (gizmoMode === 'local') {
-          const R_main = selectedObject.rotationMatrix;
-          const RPivot = matrixFromEuler(selectedObject.pivotRotation || [0, 0, 0]);
-          R_obj = matrixMultiply(R_main, RPivot);
-        }
-
         // Determine the two axes from lockedAxis ('xy', 'yz', 'xz')
         const axisMap = { 'xy': [[1, 0, 0], [0, 1, 0]], 'yz': [[0, 1, 0], [0, 0, 1]], 'xz': [[1, 0, 0], [0, 0, 1]] };
         const [localAxis1, localAxis2] = axisMap[lockedAxis] || [[1, 0, 0], [0, 1, 0]];
 
-        const worldAxis1 = gizmoMode === 'local' ? vectorApplyMatrix(localAxis1, R_obj) : localAxis1;
-        const worldAxis2 = gizmoMode === 'local' ? vectorApplyMatrix(localAxis2, R_obj) : localAxis2;
+        const worldAxis1 = gizmoAxisToWorld(localAxis1, selectedObject);
+        const worldAxis2 = gizmoAxisToWorld(localAxis2, selectedObject);
 
         // Plane normal = cross(axis1, axis2), plane passes through dragStartWorldPosition
         let planeNormal = vectorNormalize(vectorCross(worldAxis1, worldAxis2));
@@ -63614,17 +64010,11 @@
         // --- Pivot single-axis translate ---
         if (!selectedObject) return;
 
-        let R_obj = createIdentityMatrix();
-        if (gizmoMode === 'local') {
-          const R_main = selectedObject.rotationMatrix;
-          const RPivot = matrixFromEuler(selectedObject.pivotRotation || [0, 0, 0]);
-          R_obj = matrixMultiply(R_main, RPivot);
-        }
         let localAxis = [0, 0, 0];
         if (lockedAxis === 'x') localAxis = [1, 0, 0];
         if (lockedAxis === 'y') localAxis = [0, 1, 0];
         if (lockedAxis === 'z') localAxis = [0, 0, 1];
-        const worldAxis = gizmoMode === 'local' ? vectorApplyMatrix(localAxis, R_obj) : localAxis;
+        const worldAxis = gizmoAxisToWorld(localAxis, selectedObject);
 
         // 2D MODE (v20260727c): axis screen direction = the axis itself,
         // pixel→world = fixed frame scale (same treatment as translate-local)
@@ -63639,6 +64029,22 @@
           const camYAxis = vectorNormalize(vectorCross(camZAxis, camXAxis));
           screenAxisX = worldAxis[0] * camXAxis[0] + worldAxis[1] * camXAxis[1] + worldAxis[2] * camXAxis[2];
           screenAxisY = worldAxis[0] * camYAxis[0] + worldAxis[1] * camYAxis[1] + worldAxis[2] * camYAxis[2];
+        }
+        // CAMERA MODE'S Z: the world axis points at the eye, so the projection above
+        // is zero and the guard below would swallow the drag. Drive it from the
+        // SAME synthetic direction the gizmo drew its arrow in — the world delta
+        // stays along the true view axis (push/pull toward the camera), only the
+        // input direction is substituted, so dragging along the visible arrow moves
+        // the object toward you. Ortho cameras show no size change: expected (§1.2).
+        // `!subj2D` STAYS after v20260811i (unlike the one in drawSelectionGizmo, which
+        // became provably redundant): gizmoEffectiveMode() here resolves its subject to
+        // selectedObject — matching gizmoAxisToWorld(..., selectedObject) above, per the
+        // Phase-0 preservation note — while `subj2D` reads the VERTEX'S OWNER when there
+        // is one. The two can differ (reachable via Select Child), so this is a real
+        // second condition, not a repeat of the first.
+        if (gizmoEffectiveMode() === 'camera' && lockedAxis === 'z' && !subj2D) {
+          screenAxisX = GIZMO_VIEW_AXIS_SCREEN[0];
+          screenAxisY = GIZMO_VIEW_AXIS_SCREEN[1];
         }
         const projectedAxisLength = Math.sqrt(screenAxisX * screenAxisX + screenAxisY * screenAxisY);
         if (projectedAxisLength < 0.001) return;
@@ -63700,17 +64106,10 @@
         // --- Pivot planar translate ---
         if (!selectedObject) return;
 
-        let R_obj = createIdentityMatrix();
-        if (gizmoMode === 'local') {
-          const R_main = selectedObject.rotationMatrix;
-          const RPivot = matrixFromEuler(selectedObject.pivotRotation || [0, 0, 0]);
-          R_obj = matrixMultiply(R_main, RPivot);
-        }
-
         const axisMap = { 'xy': [[1, 0, 0], [0, 1, 0]], 'yz': [[0, 1, 0], [0, 0, 1]], 'xz': [[1, 0, 0], [0, 0, 1]] };
         const [localAxis1, localAxis2] = axisMap[lockedAxis] || [[1, 0, 0], [0, 1, 0]];
-        const worldAxis1 = gizmoMode === 'local' ? vectorApplyMatrix(localAxis1, R_obj) : localAxis1;
-        const worldAxis2 = gizmoMode === 'local' ? vectorApplyMatrix(localAxis2, R_obj) : localAxis2;
+        const worldAxis1 = gizmoAxisToWorld(localAxis1, selectedObject);
+        const worldAxis2 = gizmoAxisToWorld(localAxis2, selectedObject);
         let planeNormal = vectorNormalize(vectorCross(worldAxis1, worldAxis2));
 
         const viewMatrix = activeCamera.createViewMatrix();
@@ -65684,15 +66083,9 @@
           setWorkplaneFromSelection();
           return;
         } else if (event.shiftKey) {
-          // Shift + G: Create Work Plane from Camera
-          activeWorkplane.mode = 'camera-target-origin';
-          frozenCameraNormal = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-          frozenCameraUp = [...activeCamera.up]; // Snapshot current up vector
-          activeWorkplane.offset = 0;
-          const wpInput = document.getElementById('custom-offset-z-field');
-          if (wpInput) wpInput.value = "0.00";
-          updatePropertiesPanel();
-          requestRender();
+          // Shift + G: Create Work Plane from Camera. Body extracted to
+          // setWorkplaneFromCamera in v20260811j — the panel button calls the same one.
+          setWorkplaneFromCamera();
           return; // Stop processing
         } else if (!event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
           // G: Cycle Standard Modes (XY -> XZ -> YZ)
@@ -65819,13 +66212,11 @@
 
             // Only move if a valid direction was pressed for the locked axis
             if (direction !== 0) {
-              // In local gizmo mode, transform axis through object's rotation
-              if (gizmoMode === 'local' && selectedObject) {
-                const R_main = selectedObject.rotationMatrix;
-                const RPivot = matrixFromEuler(selectedObject.pivotRotation || [0, 0, 0]);
-                const R_obj = matrixMultiply(R_main, RPivot);
-                axis = vectorApplyMatrix(axis, R_obj);
-              }
+              // Map the canonical axis into world space through the gizmo basis.
+              // Guarded on selectedObject as before: with nothing selected the old
+              // code left `axis` untouched, and gizmoBasis(null) returns identity,
+              // so the guard is now belt-and-braces rather than load-bearing.
+              if (selectedObject) axis = gizmoAxisToWorld(axis, selectedObject);
               moveVector = vectorScale(axis, direction * nudgeAmount);
             }
           } else {
@@ -66026,10 +66417,15 @@
           case 'w':
           case 'W':
             event.preventDefault();
-            if (selectedObject) {
-              gizmoMode = gizmoMode === 'local' ? 'world' : 'local';
-              const gizmoModeCbKey = document.getElementById('gizmoModeCb');
-              if (gizmoModeCbKey) gizmoModeCbKey.checked = (gizmoMode === 'world');
+            // Inert with nothing selected (there is no gizmo to reorient) and inert
+            // whenever the row is HIDDEN — which now includes the S tool, per
+            // GIZMO_MODE_TOOLS. A shortcut that silently changes a mode the panel
+            // is not showing is how the S-tool basis mismatch stayed invisible.
+            if (selectedObject && GIZMO_MODE_TOOLS.includes(currentTool)) {
+              gizmoMode = GIZMO_MODE_CYCLE[
+                (GIZMO_MODE_CYCLE.indexOf(gizmoMode) + 1) % GIZMO_MODE_CYCLE.length];
+              syncGizmoModeUI();
+              requestRender();
             }
             break;
           case 'p':
@@ -66308,7 +66704,42 @@
       }
     };
 
+    // WORKPLANE FROM CAMERA (v20260811j: lifted verbatim out of the Shift+G keydown
+    // branch, where it was the only copy). Freezes the CURRENT view direction into
+    // `frozenCameraNormal` — `camera-target-origin` reads the frozen value, never the
+    // live camera, which is the whole point: the plane stays put while you orbit.
+    //
+    // Named and extracted because there are now THREE routes to it — Shift+G, the
+    // Workplane dropdown, and the From Camera button — and the button exists precisely
+    // because the dropdown cannot re-fire. Three call sites, one implementation.
+    //
+    // UNDO LIVES HERE, NOT IN THE CALLERS (v20260811k). It was the caller's business for
+    // one release and that was wrong: the two panel routes pushed while Shift+G did not,
+    // so whether a workplane capture was undoable depended on which control you used.
+    // Now every route is undoable by construction and no future caller can forget.
+    // Safe to do unconditionally because pushUndoState is DIFF-BASED and self-guarding
+    // (`if (diffs.length === 0) return`) — the leading call re-syncs the baseline, the
+    // trailing one commits only if something actually moved.
+    const setWorkplaneFromCamera = () => {
+      pushUndoState();
+      activeWorkplane.mode = 'camera-target-origin';
+      activeWorkplane.frozenCameraNormal = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
+      activeWorkplane.frozenCameraUp = [...activeCamera.up]; // Snapshot current up vector
+      activeWorkplane.offset = 0;
+      const wpInput = document.getElementById('custom-offset-z-field');
+      if (wpInput) wpInput.value = "0.00";
+      updatePropertiesPanel();
+      requestRender();
+      pushUndoState('Set workplane from camera');
+    };
+
+    // Same treatment as setWorkplaneFromCamera above (v20260811k) — Alt+G had never
+    // created an undo entry either, and the dropdown's `selection` branch is the one
+    // panel route that never wrapped it, so all three routes were unundoable. The
+    // NO-OP path (nothing selected) is safe to leave un-committed: pushUndoState
+    // diffs, so it records nothing when nothing moved.
     const setWorkplaneFromSelection = () => {
+      pushUndoState();
       // Direct Select Mode: Define Basis from Vertices
       if (currentTool === 'directSelect' && selectedVertices.length > 0) {
         const basis = calculateSelectionBasis(selectedVertices, selectedObject);
@@ -66332,6 +66763,7 @@
           if (wpInput) wpInput.value = "0.00";
           updatePropertiesPanel();
           requestRender();
+          pushUndoState('Set workplane from selection');
           return;
         }
       }
@@ -66344,6 +66776,7 @@
         if (wpInput) wpInput.value = "0.00";
         updatePropertiesPanel();
         requestRender();
+        pushUndoState('Set workplane from selection');
       }
     };
 
@@ -74083,7 +74516,20 @@
         if (onKeyAll) {
           const keyBtn = document.createElement('button');
           keyBtn.className = 'tl-key-all-btn';
-          keyBtn.textContent = '◇';
+          // Owner-drawn diamond (v20260810d), replacing the ◇ TEXT character this
+          // carried until now — a glyph follows the UI font and sits on a text
+          // baseline, so it could never line up with the drawn icons beside it.
+          // Same 12 grid and 1 px stroke as the curve-editor set.
+          // KEPT AS A ROTATED RECT, NOT FLATTENED TO A PATH. The obvious
+          // transcription is a 4-segment path through the same corners, and the
+          // browser confirms those corners match the artwork to 0.004 units — but
+          // MEASURED at 12 px against the source rect it differs on 28 of 28 ink
+          // pixels (worst alpha 38/255), while this form differs on none. Two
+          // shapes with identical vertices do not necessarily rasterise alike at
+          // icon size; keep the primitive the artwork used.
+          keyBtn.innerHTML = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">'
+            + '<rect x="3.525" y="3.525" width="4.95" height="4.95" transform="rotate(45 6 6)"/>'
+            + '<' + '/svg>';
           keyBtn.title = 'Keyframe all at current frame';
           keyBtn.addEventListener('click', (e) => {
             e.stopPropagation();

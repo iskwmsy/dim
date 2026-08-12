@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260812r -->
+<!-- dim v20260812s -->
 
 <!--
   MIT License
@@ -15868,6 +15868,66 @@
       if (!_isGizmoDrag(dragMode)) { _dragFrozenBasis = null; return build(); }
       if (!_dragFrozenBasis) _dragFrozenBasis = build();
       return _dragFrozenBasis;
+    };
+
+    // THE CAMERA-DEPTH AXIS (v20260812s) — the one direction a world point can be pushed
+    // or pulled along WITHOUT moving on screen. "Move toward / away from the camera" is
+    // only meaningful as this axis; anything else slides the point across the frame while
+    // claiming to change its depth.
+    //
+    // IT IS A PROPERTY OF THE POINT, NOT OF THE CAMERA. That is the whole correction.
+    // Three call sites used to answer it with a camera-wide constant, which is right only
+    // for a point sitting exactly on the optical axis:
+    //   - perspective   the answer is the point's own EYE RAY, different for every point
+    //   - orthographic  rays are parallel, so it IS the camera forward axis
+    //   - oblique       neither — the projection's shear tilts it off the forward axis
+    // Measured at v20260812s on an off-axis point, 3.0 world units of push: the old
+    // radial-only answer drifted 134.9 px in ortho and 304.8 px in oblique; the old
+    // parallel-only answer drifted 231.2 px in perspective and 196.4 px in oblique.
+    //
+    // DERIVED FROM THE PROJECTION ITSELF rather than cased on projectionType, so it
+    // cannot fall out of step with how the app actually draws (fov<5 flattening, the
+    // Cabinet shear, any future mode). Screen position is (qx/qw, qy/qw) with
+    // q = VP·[P,1]; differentiating wrt P gives two gradient rows
+    //     u = qw·VP.row0.xyz − qx·VP.row3.xyz
+    //     v = qw·VP.row1.xyz − qy·VP.row3.xyz
+    // (the common 1/qw² is dropped — it scales both and cannot change a direction), and
+    // the screen-invariant direction is the one killed by both: u × v. Under an ortho VP,
+    // row3.xyz is zero and this degenerates exactly as it should, to the null direction of
+    // the parallel projection. No finite differences — closed form, one cross product.
+    //
+    // ORIENTED TOWARD THE EYE, matching the camera gizmo's Z. `translate-radial` wants the
+    // opposite sense and negates it at its own site rather than taking a flag here.
+    const cameraDepthAxis = (worldPoint) => {
+      const camFwd = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
+      const VP = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
+      if (!VP) return camFwd;
+      const P = worldPoint;
+      const qx = VP[0][0] * P[0] + VP[0][1] * P[1] + VP[0][2] * P[2] + VP[0][3];
+      const qy = VP[1][0] * P[0] + VP[1][1] * P[1] + VP[1][2] * P[2] + VP[1][3];
+      const qw = VP[3][0] * P[0] + VP[3][1] * P[1] + VP[3][2] * P[2] + VP[3][3];
+      const u = [qw * VP[0][0] - qx * VP[3][0], qw * VP[0][1] - qx * VP[3][1], qw * VP[0][2] - qx * VP[3][2]];
+      const v = [qw * VP[1][0] - qy * VP[3][0], qw * VP[1][1] - qy * VP[3][1], qw * VP[1][2] - qy * VP[3][2]];
+      const d = vectorCross(u, v);
+      // Degenerate only if the two screen gradients are parallel — a collapsed projection.
+      // Fall back to the forward axis, which is what every site used before this existed.
+      if (vectorLength(d) < 1e-12) return camFwd;
+      const n = vectorNormalize(d);
+      return (n[0] * camFwd[0] + n[1] * camFwd[1] + n[2] * camFwd[2]) < 0 ? vectorScale(n, -1) : n;
+    };
+
+    // FROZEN FOR THE DURATION OF A GIZMO DRAG, for the §1.3 reason the basis above is:
+    // the axis is live every idle frame, but if it stayed live DURING a drag, anything
+    // moving the camera mid-gesture (playback, Keep-Size) would rotate it under the
+    // cursor. Its own slot, not `_dragFrozenBasis` — that one caches a matrix, and one
+    // shared slot would hand a basis back as an axis. The point argument is already
+    // constant for a drag (it is a drag-start position), so the camera is the only live
+    // input being pinned here.
+    let _dragFrozenDepthAxis = null;
+    const _frozenDepthAxisDuringDrag = (worldPoint) => {
+      if (!_isGizmoDrag(dragMode)) { _dragFrozenDepthAxis = null; return cameraDepthAxis(worldPoint); }
+      if (!_dragFrozenDepthAxis) _dragFrozenDepthAxis = cameraDepthAxis(worldPoint);
+      return _dragFrozenDepthAxis;
     };
 
     // THE WORKPLANE BASIS — the rotation part of the matrix the GRID is drawn with.
@@ -63835,7 +63895,22 @@
 
       isConstrainedDrag = event.shiftKey;
 
-      if (isDPressed && dragMode === 'translate') {
+      // D REACHES THE MOVE GIZMO'S CENTRE CIRCLE TOO (v20260812s). 'translate-free' is
+      // the free-move handle — the same "move it anywhere" gesture as a body drag, just
+      // grabbed by the circle — so the depth modifier has to mean the same thing on it.
+      // It did not: this test read `dragMode === 'translate'` only, the centre circle
+      // sets 'translate-free' (see its mousedown branch), and the other conversion site
+      // is inside the object-BODY path, so D on the circle was silently dropped and you
+      // got the plain camera-plane move. Owner report, v20260812s.
+      //
+      // The AXIS and PLANAR handles are deliberately NOT included: those name a specific
+      // direction, and a modifier that overrides the handle you deliberately grabbed
+      // would make the gizmo lie. Only the free handle is ambiguous enough to modify.
+      //
+      // Safe on multi-selection: every gizmo mousedown stamps `dragStartPos` on all of
+      // selectedObjects (the shared block after the axis branches), which is what
+      // translate-radial's multi-object path reads.
+      if (isDPressed && (dragMode === 'translate' || dragMode === 'translate-free')) {
         dragMode = 'translate-radial';
         lockedAxis = 'none';
       } else if (isZPressed && dragMode === 'translate') {
@@ -64279,7 +64354,12 @@
         // drag orients to selectedObject, so the two disagree whenever those differ
         // (reachable via Select Child). Left alone because Phase 0 must be inert;
         // recorded in PLAN-gizmo-orientation-modes.md.
-        const worldAxis = gizmoAxisToWorld(localAxis, selectedObject);
+        let worldAxis = gizmoAxisToWorld(localAxis, selectedObject);
+
+        // THE POINT BEING PUSHED. Hoisted above the camera-Z branch (v20260812s) because
+        // the depth axis is a property OF THIS POINT; it was already computed further
+        // down as the pixel→world reference, and that read now reuses this one.
+        const subjectPosition = selectedVertexInfo ? dragStartWorldPosition : (selectedObject.dragStartPos || dragStartWorldPosition || selectedObject.position);
 
         // 2D MODE (v20260727c): no camera — the axis's screen direction is
         // the axis itself (VP_2D maps +x right, +y up) and pixel→world is
@@ -64311,6 +64391,13 @@
         if (gizmoEffectiveMode() === 'camera' && lockedAxis === 'z' && !subj2D) {
           screenAxisX = GIZMO_VIEW_AXIS_SCREEN[0];
           screenAxisY = GIZMO_VIEW_AXIS_SCREEN[1];
+          // AND THE WORLD AXIS IS THE POINT'S OWN DEPTH AXIS (v20260812s), not the camera
+          // forward vector gizmoAxisToWorld returned. Those agree only on the optical
+          // axis: off it, `cameraGizmoBasis`'s Z is the SAME direction for every subject
+          // in the scene, so pushing a vertex along it slid the vertex across the frame
+          // (measured 237.6 px for a 3.0-unit push on an off-axis point). The screen
+          // direction above is untouched — the arrow still means what it draws.
+          worldAxis = _frozenDepthAxisDuringDrag(subjectPosition);
         }
         const projectedAxisLength = Math.sqrt(screenAxisX * screenAxisX + screenAxisY * screenAxisY);
         if (projectedAxisLength < 0.001) return;
@@ -64320,7 +64407,6 @@
         // Project mouse delta onto screen-space axis (un-normalized), then divide by |projected|² for correct world mapping
         const totalDotProduct = (totalMouseDeltaX * screenAxisX + totalMouseDeltaY * (-screenAxisY)) / projectedAxisLength;
 
-        const subjectPosition = selectedVertexInfo ? dragStartWorldPosition : (selectedObject.dragStartPos || dragStartWorldPosition || selectedObject.position);
         const distance = vectorLength(vectorSubtract(subjectPosition, activeCamera.position));
         const pixelToWorld = subj2D
           ? 1 / (BASE_DISPLAY_SCALE * (Math.min(width, height) / FRAME_SIZE))
@@ -64605,7 +64691,7 @@
         if (lockedAxis === 'x') localAxis = [1, 0, 0];
         if (lockedAxis === 'y') localAxis = [0, 1, 0];
         if (lockedAxis === 'z') localAxis = [0, 0, 1];
-        const worldAxis = gizmoAxisToWorld(localAxis, selectedObject);
+        let worldAxis = gizmoAxisToWorld(localAxis, selectedObject);
 
         // 2D MODE (v20260727c): axis screen direction = the axis itself,
         // pixel→world = fixed frame scale (same treatment as translate-local)
@@ -64636,6 +64722,9 @@
         if (gizmoEffectiveMode() === 'camera' && lockedAxis === 'z' && !subj2D) {
           screenAxisX = GIZMO_VIEW_AXIS_SCREEN[0];
           screenAxisY = GIZMO_VIEW_AXIS_SCREEN[1];
+          // Same substitution as translate-local (v20260812s). The pivot anchor is the
+          // point being pushed here, so it is the point the depth axis belongs to.
+          worldAxis = _frozenDepthAxisDuringDrag(dragStartWorldPosition);
         }
         const projectedAxisLength = Math.sqrt(screenAxisX * screenAxisX + screenAxisY * screenAxisY);
         if (projectedAxisLength < 0.001) return;
@@ -65642,7 +65731,17 @@
         const startPosition = dragStartWorldPosition;
         if (!startPosition) return;
 
-        const radialAxis = vectorNormalize(vectorSubtract(startPosition, activeCamera.position));
+        // THE POINT'S DEPTH AXIS, NEGATED (v20260812s). This site's sign convention is
+        // away-from-eye (drag down pulls toward you, via the -deltaY below), so it takes
+        // the negative of the toward-eye axis the helper returns.
+        //
+        // Under a PERSPECTIVE camera this is exactly the eye ray it always was — the
+        // helper derives that case. What changes is ortho and oblique, where the eye ray
+        // is the WRONG answer and this drag drifted by 134.9 px / 304.8 px on an off-axis
+        // point. Left deliberately UNFROZEN, unlike the two gizmo sites: this is not a
+        // gizmo drag, and freezing it would be a second behaviour change riding along on
+        // a bug fix. It reads the live camera exactly as it did before.
+        const radialAxis = vectorScale(cameraDepthAxis(startPosition), -1);
 
         const totalMouseDeltaY = event.clientY - dragStartMousePosition.y;
         const totalMoveAmount = -totalMouseDeltaY * DOLLY_SPEED;
@@ -65701,6 +65800,12 @@
     const onMouseUp = (event) => {
       // Capture drag mode before it gets cleared for auto-keying
       const _prevDragMode = dragMode;
+      // RELEASE THE FROZEN DEPTH AXIS EXPLICITLY (v20260812s). `_dragFrozenBasis` can get
+      // away with lazy release because the gizmo DRAWS through it every idle frame, so a
+      // frame with dragMode 'none' clears it. This one is only ever read mid-drag by the
+      // camera-Z branch, so nothing would clear it between drags — the next camera-Z drag
+      // would reuse the previous drag's axis, which is stale the moment the camera moves.
+      _dragFrozenDepthAxis = null;
       // Clear snap cache on drag end
       const _hadSnapIndicator = _snapIndicatorTarget !== null;
       _snapTargetCache = null;

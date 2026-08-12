@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260812s -->
+<!-- dim v20260812zj -->
 
 <!--
   MIT License
@@ -450,6 +450,170 @@
     .canvas-hud-bar-v .hud-value {
       transform: translate(-50%, -50%) rotate(-90deg);
       white-space: nowrap;
+    }
+
+    /* --- Camera Subwindow HUD (Phase 3) ---------------------------------
+       These bars reuse the .canvas-hud-bar family but live INSIDE #subWindow
+       and are positioned STATICALLY by this CSS, relative to the window.
+       updateHudBarPositions() must NEVER manage them: it positions the canvas
+       bars against the frame rect and toggles .hud-hidden over a hard-coded
+       `hudBars` array — adding these to that array would fling them onto the
+       canvas. The window is the frame here, so CSS is the whole layout. */
+    .canvas-hud-bar.subwin-hud {
+      position: absolute;
+      z-index: 6;
+      opacity: 0.85;
+    }
+
+    /* HUD LAYOUT (v20260812zb): mirrors updateHudBarPositions' arrangement of
+       the MAIN canvas exactly, at inset 12 instead of 40 — azimuth bottom
+       CENTRE; dist bottom-right with the FOV pair stacked above it; the hand
+       (truck-reset) in the top-right corner with truck X beside it and truck Y
+       below it; elevation on the right edge, pushed below the truck column via
+       max() when the window is short. All positions are relative to
+       #subViewWrap, i.e. ON the canvas. */
+    .canvas-hud-bar.subwin-hud-az {
+      width: 88px;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: var(--subwin-hud-inset, 12px);
+    }
+
+    .canvas-hud-bar.subwin-hud-el {
+      right: var(--subwin-hud-inset, 12px);
+      /* Main puts elevation at the vertical CENTRE; on short windows the
+         right-edge column above it (hand row + truck Y bar, ending at 146px)
+         would overlap a centred bar, so max() holds it below the column
+         instead. Below ~400px it closes on the FOV stack — recorded limit,
+         resizable. */
+      top: max(152px, calc(50% - 52px));
+    }
+
+    .canvas-hud-bar.subwin-hud-dist {
+      width: 72px;
+      right: var(--subwin-hud-inset, 12px);
+      bottom: var(--subwin-hud-inset, 12px);
+    }
+
+    .canvas-hud-bar.subwin-hud-fovzoom {
+      width: 72px;
+      right: var(--subwin-hud-inset, 12px);
+      bottom: calc(var(--subwin-hud-inset, 12px) + 32px);
+    }
+
+    .canvas-hud-bar.subwin-hud-fov {
+      width: 72px;
+      right: var(--subwin-hud-inset, 12px);
+      bottom: calc(var(--subwin-hud-inset, 12px) + 64px);
+    }
+
+    /* The hand is back at the TOP-RIGHT CORNER (v20260812zd), which is where
+       updateHudBarPositions puts #hudTruckResetBtn. It was moved down at zc only
+       because the truck pill's icon floated ABOVE the row and cleared the
+       canvas edge; the zc inline-left icons removed that cause, and the hand
+       itself carries no floating icon (it is a bare circle). */
+    .canvas-hud-bar.subwin-hud-hand {
+      right: var(--subwin-hud-inset, 12px);
+      top: var(--subwin-hud-inset, 12px);
+      background: var(--hud-bar-bg);
+    }
+
+    /* Left of the hand on the same row — the main window's arrangement. */
+    .canvas-hud-bar.subwin-hud-truckx {
+      width: 72px;
+      right: calc(var(--subwin-hud-inset, 12px) + 30px);
+      top: var(--subwin-hud-inset, 12px);
+    }
+
+    .canvas-hud-bar.subwin-hud-trucky {
+      right: var(--subwin-hud-inset, 12px);
+      top: calc(var(--subwin-hud-inset, 12px) + 30px);
+    }
+
+    /* PILL ICONS INLINE-LEFT (v20260812zc owner call). The stock
+       .hud-bar-icon floats ABOVE its pill (bottom:100%), which pushed the
+       top-row pill's icon past the canvas edge and stacked the bottom-right
+       trio's icons into the gaps between pills. In the subwindow every
+       horizontal pill's icon sits to the LEFT of the pill instead. */
+    .subwin-hud.canvas-hud-bar-br .hud-bar-icon,
+    .subwin-hud.canvas-hud-bar-h .hud-bar-icon {
+      bottom: auto;
+      left: auto;
+      right: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+      margin: 0 4px 0 0;
+      width: 16px;
+      height: 16px;
+    }
+
+    /* Axis indicator (v20260812zc): bottom-left of the canvas, the main
+       window's #axisIndicatorGroup look — lives INSIDE the sub svg in frame
+       units, toggled by the bar2 checkbox. */
+    #subAxisGroup {
+      pointer-events: none;
+    }
+
+    /* HUD checkbox off: chrome only — the orbit surface and wheel stay live. */
+    #subWindow.subwin-hud-off .subwin-hud {
+      display: none !important;
+    }
+
+    /* Locked sub camera: every control refuses, and says so.
+       .subwin-hud-disabled is the visual + pointer-events half; the handlers
+       ALSO check cam.lock, because a class is not a guard (v20260808a). */
+    .canvas-hud-bar.subwin-hud-disabled {
+      opacity: 0.3;
+      pointer-events: none;
+    }
+
+    /* THE RIGHT-HAND CLUSTER IS  [LOCKED] [reload] [close]  (owner call,
+       v20260812zg), flush against the header's right edge — the badge leads
+       the group rather than trailing it.
+       TWO THINGS MAKE THAT SAFE, and both are load-bearing:
+       (1) ONE auto margin on the flex line, and it lives HERE now (the badge
+           is the group's first item, so its auto margin is what pushes the
+           whole cluster right; the icon buttons must NOT keep one of their
+           own). Two auto margins make flexbox split the free space EQUALLY
+           between them — that re-split the bar and stranded the buttons
+           mid-header (the defect v20260812ze fixed).
+       (2) The badge is ALWAYS laid out and only its VISIBILITY toggles, so it
+           reserves its slot — and supplies the group's auto margin — even
+           while unlocked. That is what keeps the icon buttons at identical
+           coordinates in both states; `display: none` would give the space
+           back AND take the auto margin with it, collapsing the cluster to
+           the left. `pointer-events: none` keeps the reserved strip working
+           as header drag surface. */
+    #subWindowHeader::after {
+      content: 'LOCKED';
+      order: 1;
+      margin-left: auto;
+      visibility: hidden;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      color: var(--accent-color);
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    #subWindow.subwin-locked #subWindowHeader::after {
+      visibility: visible;
+    }
+
+    /* The content svg is the orbit surface. Its content group stays
+       pointer-events:none (Phase 2) — this rule is about the svg itself. */
+    #subViewSvg {
+      pointer-events: auto;
+      touch-action: none;
+      cursor: grab;
+    }
+
+    #subViewSvg.subwin-orbiting {
+      cursor: grabbing;
+    }
+
+    #subWindow.subwin-locked #subViewSvg {
+      cursor: not-allowed;
     }
 
 
@@ -1362,15 +1526,22 @@
       text-box: normal;
     }
 
+    /* background-COLOR, never the `background` shorthand (v20260812zd). The
+       shorthand resets background-image, and .ui-select's chevron IS a
+       background-image declared in a lower-specificity rule — so a shorthand
+       here beat it and the chevron vanished on hover/focus. Every other select
+       family in this file (.style-row, #quickStyleBar, .xyz-row, .tl-interp-*)
+       already used the longhand; this rule was the lone holdout. .ui-input is
+       unaffected either way — it carries no background-image. */
     .ui-input:hover,
     .ui-select:hover {
-      background: rgba(255, 255, 255, 0.95);
+      background-color: rgba(255, 255, 255, 0.95);
     }
 
     .ui-input:focus,
     .ui-select:focus {
       outline: none;
-      background: rgba(255, 255, 255, 1);
+      background-color: rgba(255, 255, 255, 1);
       position: relative;
       z-index: 1;
       box-shadow: inset 0 0 0 1.5px var(--accent-color);
@@ -3512,6 +3683,206 @@
       accent-color: #e05252;
     }
 
+    /* --- Camera Subwindow (PLAN-camera-subwindow Phase 2) --- */
+    /* Built on the #tlCurveEditor recipe below: popover="manual", fixed
+       position, transparent ::backdrop, panel background + light border.
+       z-index 502 — one above the curve editor, so the stacking order of the
+       two floating panels is defined rather than DOM-order luck. */
+    #subWindow {
+      position: fixed;
+      /* Default berth: clear of #rightPanelContainer (280px) plus a 16px
+         gutter, i.e. 280 + 280 + 16 = 576 back from the right edge.
+         SubView._clampPosition() pulls it into view on open and on
+         window.resize, so a narrow viewport can never strand it offscreen. */
+      top: 48px;
+      left: calc(100vw - 696px);
+      right: auto;
+      bottom: auto;
+      /* 400 (v20260812zc, was 360 at zb, 280 before): the right edge now
+         holds truck X + truck Y + the hand + elevation + the FOV/dist stack
+         in one column — 388px of content at the default height; below ~400
+         the verticals close in (known limit, resizable). */
+      width: 400px;
+      height: auto;
+      margin: 0;
+      padding: 0;
+      border: 1px solid var(--border-light);
+      border-radius: 0;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.14);
+      background: var(--bg-panel);
+      overflow: visible;
+      z-index: 502;
+    }
+
+    #subWindow::backdrop {
+      background: transparent;
+    }
+
+    /* Header = the .tl-curve-toolbar geometry, plus a move cursor: the whole
+       bar is the drag handle (the tool-drawer header pattern). */
+    #subWindowHeader {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border-light);
+      cursor: move;
+      user-select: none;
+    }
+
+    #subWindowHeader.dragging {
+      cursor: grabbing;
+    }
+
+    /* Compact, not full-width (v20260812za) — the freed header space is the
+       DRAG surface, which a flex:1 select was eating. 118px proved too short
+       for real camera names (v20260812zc owner report): 200px. */
+    #subWindowHeader .ui-select {
+      width: 200px;
+      min-width: 80px;
+      flex: 0 1 auto;
+    }
+
+    /* Push the icon buttons to the right edge; the gap between the select and
+       the buttons is bare header = draggable. */
+    /* order 2 keeps the buttons after the LOCKED badge (order 1). They carry
+       NO auto margin of their own — the badge's is the single one on this
+       line and it pushes the whole cluster right (see the ::after rule). A
+       second one here is precisely the v20260812ze defect. */
+    #subWindowHeader .subwin-icon-btn {
+      order: 2;
+    }
+
+    #subWindowBar2 .ui-select {
+      width: 64px;
+      min-width: 0;
+      flex: 0 0 auto;
+      margin-left: auto;
+    }
+
+    .subwin-icon-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 2px 4px;
+      color: var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .subwin-icon-btn:hover {
+      color: var(--text-main);
+    }
+
+    /* Second bar: view options (Auto Reload / Grid). The controls are stock
+       .ui-checkbox + .ui-checkbox-label — no local restyle, so they track the
+       app's checkbox look automatically. Only the LAYOUT is ours: the label's
+       own margin-right supplies the gap between the two pairs. */
+    #subWindowBar2 {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-bottom: 1px solid var(--border-light);
+      user-select: none;
+    }
+
+    /* Square content at ANY window width. createProjectionMatrix hardcodes
+       aspect = 1, so every camera's view is natively square (plan §1.9) —
+       deriving the height from the width is what keeps the 1000-unit frame
+       unletterboxed, and it means resize only ever drives one dimension. */
+    #subViewSvg {
+      display: block;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 1 / 1;
+    }
+
+    /* VIEW-ONLY, non-negotiable. Picking recomputes its own VP from
+       activeCamera and resolves a click with obj.svgElement.contains(el); a
+       clone under a second camera would answer that test for geometry the
+       main view never drew. This is the v20260809r render-cache
+       selection-death lesson, applied before it can happen. */
+    #subViewGroup {
+      pointer-events: none;
+    }
+
+    /* Corner resize grip — the .tl-resize-handle recipe (hit area larger than
+       the visible mark; accent hairline on hover / while dragging). */
+    /* The HUD bars' positioning context — wraps ONLY the canvas svg. */
+    #subViewWrap {
+      position: relative;
+      line-height: 0;
+    }
+
+    #subWinResize {
+      position: absolute;
+      right: -3px;
+      bottom: -3px;
+      width: 14px;
+      height: 14px;
+      cursor: nwse-resize;
+      touch-action: none;
+      z-index: 1;
+    }
+
+    /* Bottom-LEFT twin (v20260812zb): resizes with the RIGHT edge held, so the
+       window grows leftward under the pointer. */
+    #subWinResizeL {
+      position: absolute;
+      left: -3px;
+      bottom: -3px;
+      width: 14px;
+      height: 14px;
+      cursor: nesw-resize;
+      touch-action: none;
+      z-index: 1;
+    }
+
+    #subWinResizeL::after {
+      content: '';
+      position: absolute;
+      left: 3px;
+      bottom: 3px;
+      width: 8px;
+      height: 8px;
+      border-left: 1px solid var(--accent-color);
+      border-bottom: 1px solid var(--accent-color);
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+
+    #subWinResizeL:hover::after,
+    #subWindow.subwin-resizing #subWinResizeL::after {
+      opacity: 1;
+    }
+
+    #subWinResize::after {
+      content: '';
+      position: absolute;
+      right: 3px;
+      bottom: 3px;
+      width: 8px;
+      height: 8px;
+      border-right: 1px solid var(--accent-color);
+      border-bottom: 1px solid var(--accent-color);
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+
+    #subWinResize:hover::after,
+    #subWindow.subwin-resizing #subWinResize::after {
+      opacity: 1;
+    }
+
+    /* Kill transitions during a live resize (the #timelinePanel.tl-resizing
+       rule) — otherwise the window lags the pointer by the transition time. */
+    #subWindow.subwin-resizing,
+    #subWindow.subwin-resizing * {
+      transition: none !important;
+    }
+
     /* --- Curve Editor Popover --- */
     #tlCurveEditor {
       position: fixed;
@@ -4637,9 +5008,9 @@
     </button>
     <button data-tool="shear" title="Shear (H)">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-        <polygon points="10 2 2 2 10 18 18 18 10 2" />
-        <line x1="6.86" y1="9" x2="17" y2="9" />
-        <polyline stroke-width="1.14" points="10.39 12.54 6.86 9 10.39 5.46" />
+        <polygon points="16 18 8 18 2 2 10 2 16 18" />
+        <line x1="7" y1="10" x2="18" y2="10" />
+        <polyline stroke-width="1.14" points="10 13 7 10 10 7" />
       </svg>
     </button>
     <button data-tool="pivot" title="Pivot (J)">
@@ -5090,6 +5461,14 @@
         </div>
         <div class="prop-row prop-row-plain">
           <button id="resetZoomBtn" class="ui-btn" style="width: 100%;">Reset Zoom</button>
+        </div>
+        <!-- CAMERA SUBWINDOW toggle (Phase 2). Hosted here rather than on the
+             main toolbar because the feature is camera-scoped and this section
+             already carries full-width action buttons — a third row costs no
+             layout anywhere else in the app. -->
+        <div class="prop-row prop-row-plain">
+          <button id="subWindowToggleBtn" class="ui-btn" style="width: 100%;"
+            title="Open a floating window showing the scene from another camera">Camera Window</button>
         </div>
         <!-- Oblique Settings (Hidden by default) -->
         <div class="hidden" id="obliqueSettingsContainer">
@@ -8168,6 +8547,93 @@
         <button class="ui-btn ui-btn-primary" id="appModalOk">OK</button>
       </div>
     </div>
+  </div>
+  <!-- ═══════════════════════════════════════════
+       CAMERA SUBWINDOW (PLAN-camera-subwindow Phase 2)
+       A floating view of the scene from a SECOND camera. Deliberately at BODY
+       level, OUTSIDE #svgContainer:
+         · generateSVGString clones #mainGroup — it cannot see this subtree, so
+           export/copy are structurally unaffected;
+         · RenderCache.auditNow / verify compare #pathGroup.innerHTML — the sub
+           clone lives in #subViewGroup, outside #pathGroup, so the audit is
+           likewise blind to it (which is what we want: it audits the LIVE tree).
+       Content is view-only in this phase; HUD + in-window orbit are Phase 3.
+       ═══════════════════════════════════════════ -->
+  <div id="subWindow" popover="manual">
+    <div id="subWindowHeader">
+      <select id="subCamSelect" class="ui-select" title="Camera shown in this window"></select>
+      <!-- Owner-supplied artwork (2026-08-12), same treatment as the Shear icon
+           (v20260812t): Illustrator wrapper stripped — no prolog, no <style>
+           block (it painted strokes #000, which goes invisible on hover/active
+           states), no dashed artboard rects — strokes re-pointed at
+           currentColor. Geometry verbatim; the reload glyph is the sheet's
+           right cell translated x−27.84. The arrowhead keeps its authored
+           stroke-miterlimit. -->
+      <button id="subWinRefresh" type="button" class="subwin-icon-btn" title="Refresh view now"><svg width="12"
+          height="12" viewBox="0 0 12.25 12.25" fill="none" stroke="currentColor" stroke-width="1">
+          <path d="M6,9.12c-1.66,0-3-1.34-3-3s1.34-3,3-3,3,1.34,3,3" />
+          <path d="M10.07,3.31l-1.06,2.82-2.67-1.39" stroke-miterlimit="3" />
+        </svg></button>
+      <button id="subWinClose" type="button" class="subwin-icon-btn" title="Close"><svg width="12" height="12"
+          viewBox="0 0 12.25 12.25" fill="none" stroke="currentColor" stroke-width="1">
+          <line x1="3.65" y1="3.65" x2="8.6" y2="8.6" />
+          <line x1="8.6" y1="3.65" x2="3.65" y2="8.6" />
+        </svg></button>
+    </div>
+    <!-- Second bar: per-window view options. Auto governs SCENE-driven
+         refreshes only — the window's own controls (orbit/wheel/HUD, camera
+         pick) always update, or the window would lie about its own state.
+         Markup follows the app's checkbox convention: .ui-checkbox (the
+         custom square) wired by `for` to a .ui-checkbox-label — the label
+         text is NOT a hit area (v20260807t), only the box is. -->
+    <div id="subWindowBar2">
+      <input type="checkbox" id="subWinAutoCb" class="ui-checkbox" checked />
+      <label class="ui-checkbox-label" for="subWinAutoCb">Auto Reload</label>
+      <input type="checkbox" id="subWinGridCb" class="ui-checkbox" checked />
+      <label class="ui-checkbox-label" for="subWinGridCb">Grid</label>
+      <input type="checkbox" id="subWinHudCb" class="ui-checkbox" checked />
+      <label class="ui-checkbox-label" for="subWinHudCb">HUD</label>
+      <input type="checkbox" id="subWinAxisCb" class="ui-checkbox" checked />
+      <label class="ui-checkbox-label" for="subWinAxisCb">Axis</label>
+      <!-- Per-window frame guide. Values mirror #frameGuideSelect; the pick is
+           this window's own and never writes the scene's _currentFrameGuide —
+           open() seeds it FROM the scene value so the final-render window
+           opens showing the real crop. -->
+      <select id="subWinFrameGuide" class="ui-select" title="Frame guide (this window only)">
+        <option value="none">Guide</option>
+        <option value="16:9">16:9</option>
+        <option value="9:16">9:16</option>
+      </select>
+    </div>
+    <!-- viewBox matches the app's frame: FRAME_SIZE 1000, origin centred.
+         #subViewBg is the frame white — kept in sync with #frameRect's fill on
+         every refresh, so a custom background colour shows here too. -->
+    <!-- #subViewWrap (v20260812zb) is the HUD bars' positioning context: it
+         wraps ONLY the canvas svg, so bars anchored to it sit ON the canvas —
+         they cannot overlap the header/options bars or stick past the window
+         the way window-anchored bars did. SubViewControls appends the bars
+         here. -->
+    <div id="subViewWrap">
+      <svg id="subViewSvg" xmlns="http://www.w3.org/2000/svg" viewBox="-500 -500 1000 1000">
+        <rect id="subViewBg" x="-500" y="-500" width="1000" height="1000" fill="#ffffff" />
+        <g id="subViewGroup"></g>
+        <!-- Per-window frame guide, in FRAME units (the viewBox is the frame),
+             drawn over the scene like #frameGuideRect. non-scaling-stroke keeps
+             the 1.5 in SCREEN px at any window size — the main rect gets that by
+             being drawn in screen space. Sized by SubView._syncFrameGuide(). -->
+        <rect id="subFrameGuideRect" fill="none" stroke="var(--accent-color)" stroke-width="1.5"
+          vector-effect="non-scaling-stroke" style="display: none; pointer-events: none;" />
+        <!-- Axis indicator (v20260812zc): an AxisIndicator instance renders
+             here, bottom-left, updated per refresh with the SUB camera's view
+             matrix. The transform below is only a first-paint placeholder —
+             SubView._syncAxis() recomputes translate+scale from the canvas's
+             pixel width so the tripod is a FIXED SCREEN SIZE matching the main
+             window's (v20260812zh). -->
+        <g id="subAxisGroup" transform="translate(-390, 390) scale(2)"></g>
+      </svg>
+    </div>
+    <div id="subWinResizeL" title="Drag to resize"></div>
+    <div id="subWinResize" title="Drag to resize"></div>
   </div>
   <!-- ═══════════════════════════════════════════
        ANIMATION TIMELINE PANEL
@@ -16520,9 +16986,11 @@
     // cos(th-alpha) = (w*r*a' + r'*(Ca - w*a)) / (rho*a'), which at w=1 is
     // the shipped perspective formula bit-for-bit (1*x and x - 1*y are exact
     // in IEEE) - C0-validated in both projections (arch-C report section 6d).
-    const resolveEyeForObject = (obj) => {
+    // `cam` is the camera this pass is drawing FOR (PLAN-camera-subwindow
+    // Phase 1). It defaults to activeCamera, so an unparameterized call is
+    // today's behaviour bit-for-bit; a second-camera pass passes its own.
+    const resolveEyeForObject = (obj, cam = activeCamera) => {
       if (isIn2DMode(obj)) return { E: [0, 0, 1], w: 0 };
-      const cam = activeCamera;
       const fov = cam.fovDegrees !== undefined ? cam.fovDegrees : 60;
       const parallel = cam.projectionType === 'orthographic' || cam.projectionType === 'oblique' || fov < 5;
       if (!parallel) return { E: [cam.position[0], cam.position[1], cam.position[2]], w: 1 };
@@ -16546,8 +17014,8 @@
     // w=0 -> a point 1e6 along the direction (the drawExtrude idiom): every
     // (eye - P) is then parallel to the true parallel ray to ~|P|/1e6,
     // far below the facing-sign noise floor these consumers feed.
-    const resolveEyePointForObject = (obj) => {
-      const e = resolveEyeForObject(obj);
+    const resolveEyePointForObject = (obj, cam = activeCamera) => {
+      const e = resolveEyeForObject(obj, cam);
       return e.w === 1 ? e.E : [e.E[0] * 1e6, e.E[1] * 1e6, e.E[2] * 1e6];
     };
 
@@ -16871,6 +17339,19 @@
     let RC_DEBUG_CONTOURS = false;
     // Silhouette field grid resolution — the quality/cost dial.
     let RC_GRID_N = 96;
+    // Slot counts for the two camera-position-keyed region-clip caches
+    // (v20260812x). Both were single-slot / wholesale-clear; the camera
+    // subwindow renders two camera poses in alternation, so one slot means
+    // each pose evicts the other's entry every pass. These are slot COUNTS
+    // only — no key or entry content changed, so single-camera behaviour is
+    // unaffected (a static camera hit the one slot before and hits it now).
+    // Cap the field cache at 2 cameras + 1 spare; the fragment cache at two
+    // cameras' worth of the historical 8 option variants.
+    const RC_FIELD_SLOTS = 3;
+    const RC_FRAG_SLOTS = 16;
+    // Same story for Path._foldCache (wrap cuts / crease roles are
+    // camera-derived): 2 slots, one per camera in an alternating pass.
+    const FOLD_CACHE_SLOTS = 2;
     // Smooth (Curve Fit) emission in the region-clip builders:
     //   true  — anchor-fit: source (segment, t) parameters are threaded
     //           through the clipper and each clipped source interval is
@@ -22636,8 +23117,15 @@
 
       static _rcCacheStore(obj, key, probes, fragments) {
         if (!obj._rcFragCache) obj._rcFragCache = new Map();
-        if (obj._rcFragCache.size > 8) obj._rcFragCache.clear(); // bound memory across option variants
         obj._rcFragCache.set(key, { probes, fragments });
+        // Bound memory across option variants AND cameras (v20260812x). Was a
+        // WHOLESALE `clear()` at size > 8; the camera is part of the key, so
+        // under the subwindow's two-camera alternation one clear threw away
+        // both cameras' working sets at once. Now: insertion-order eviction of
+        // the OLDEST entries down to RC_FRAG_SLOTS. Key content is unchanged.
+        while (obj._rcFragCache.size > RC_FRAG_SLOTS) {
+          obj._rcFragCache.delete(obj._rcFragCache.keys().next().value);
+        }
         SurfaceMapper._rcCacheMisses = (SurfaceMapper._rcCacheMisses || 0) + 1;
       }
 
@@ -22855,8 +23343,19 @@
         ].join('|');
         const fieldKey = camPos.join(',') + '|' + domKey;
         let field = null, region = null;
-        const fc = surfacePath ? surfacePath._rcFieldCache : null;
-        if (fc && fc.key === fieldKey &&
+        // v20260812x: `_rcFieldCache` was a SINGLE `{key, field, …}` slot. It is
+        // now an insertion-order Map of at most RC_FIELD_SLOTS such entries,
+        // keyed by fieldKey and evicting the OLDEST on overflow. Key content and
+        // entry shape are unchanged — only the slot COUNT. Rationale: the camera
+        // subwindow alternates two camera poses within one rAF, and camPos is
+        // part of fieldKey, so a single slot makes each camera evict the other's
+        // field every pass. A static camera still hits on the first slot, and an
+        // orbit still misses every frame (each pose is a new key) exactly as
+        // before. `_rcFieldDom` below stays a single slot keyed on domKey ONLY —
+        // see the v20260803e block; camera state must never reach it.
+        const fcMap = surfacePath ? surfacePath._rcFieldCache : null;
+        const fc = fcMap ? fcMap.get(fieldKey) : null;
+        if (fc &&
           uMin >= fc.domain.uMin && uMax <= fc.domain.uMax &&
           vMin >= fc.domain.vMin && vMax <= fc.domain.vMax) {
           // Probe-validate (2 world-space samples) before trusting it.
@@ -22901,14 +23400,21 @@
             (u, v) => surfacePointN(u, v), camPos, uni.uMin, uni.uMax, uni.vMin, uni.vMax, RC_GRID_N);
           region = SilhouetteField.buildFrontRegion(field);
           if (surfacePath) {
+            // SINGLE slot, domKey-scoped, camera-free — do not touch (v20260803e).
             surfacePath._rcFieldDom = { key: domKey, domain: uni };
-            surfacePath._rcFieldCache = {
+            if (!surfacePath._rcFieldCache) surfacePath._rcFieldCache = new Map();
+            const fCache = surfacePath._rcFieldCache;
+            fCache.set(fieldKey, {
               key: fieldKey, domain: uni, field, region,
               probes: [
                 { u: (uni.uMin + uni.uMax) / 2, v: (uni.vMin + uni.vMax) / 2 },
                 { u: uni.uMin + 0.23 * (uni.uMax - uni.uMin), v: uni.vMin + 0.71 * (uni.vMax - uni.vMin) }
               ].map(p => ({ u: p.u, v: p.v, w: [...surfacePointN(p.u, p.v)] }))
-            };
+            });
+            // Oldest-first eviction. Map.set on an existing key keeps its
+            // original insertion position, so re-storing the same camera pose
+            // does not make a second pose look stale.
+            while (fCache.size > RC_FIELD_SLOTS) fCache.delete(fCache.keys().next().value);
           }
         }
 
@@ -34224,6 +34730,16 @@
           // 2D Mode ignores by design; the UI greys these checkboxes.
           // Ancestor check: a billboarding child inside a 2D group would
           // leak camera motion into the fixed frame.)
+          // PLAN-camera-subwindow Phase 1 deliberately leaves the billboard on
+          // activeCamera. getLocalMatrix is a TRANSFORM accessor, not a draw
+          // step: 18 call sites, and getWorldMatrix (61 sites) walks it up the
+          // parent chain from undo, serialization, picking, gizmos and bounds
+          // code that has no camera in scope. Parameterizing it would also make
+          // an object's transform depend on WHICH pass asked — the geometry
+          // would differ between the picking matrix and the drawn one. A
+          // billboard facing the MAIN camera inside a second-camera view is an
+          // owner-visible rendering decision, not an oversight; revisit only
+          // with the owner, and only by passing the camera down getWorldMatrix.
           const viewDir = this.faceCamera.plane
             ? vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target))
             : null;
@@ -34271,6 +34787,10 @@
           externalFaceList = null,
           deepZSort = false,
           cameraVP: cameraVPIn = null,
+          // The camera this pass draws FOR. Default keeps every existing
+          // caller bit-identical; forwarded to children on childOpts, never
+          // re-read from the global below this line.
+          camera: cam = activeCamera,
           mappingAnchorWM: anchorWMIn = null,
           collectIx = false,
           inheritedExtrude = null,
@@ -34352,7 +34872,7 @@
         if (this.foldSettings && this.foldSettings.enabled) {
           const frG = Path._foldGroupFrame(this);
           if (frG) {
-            const eyeL = Path._foldEyeFromWorld(this.getWorldMatrix());
+            const eyeL = Path._foldEyeFromWorld(this.getWorldMatrix(), cam);
             const wrapCuts = (frG.mode === 'wrap' || frG.mode === 'curl')
               ? Path._foldWrapCuts(frG, eyeL) : null;
             foldThread = {
@@ -34397,6 +34917,8 @@
           inheritedRelativeMatrix: relativeMatrix,
           inheritedBounds: activeBounds,
           cameraVP,
+          // Forwarded, not re-resolved: a subtree draws for ONE camera.
+          camera: cam,
           mappingAnchorWM,
           inheritedFold: foldThread,
           // Face entries carry intersection-split data (depth planes) only when
@@ -35021,6 +35543,8 @@
           const viewDir = this.faceCamera.plane
             ? vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target))
             : null;
+          // Billboards stay on activeCamera by decision, not omission — see the
+          // note in Group.getLocalMatrix (PLAN-camera-subwindow Phase 1).
           R = getBillboardRotation([_anch[0], _anch[1], _anch[2]], activeCamera.position, this.faceCamera.x, this.faceCamera.y, viewDir);
         }
 
@@ -35455,31 +35979,36 @@
           createTranslationMatrix(-A3[0], -A3[1], -A3[2]));
       }
 
-      _foldEyeLocal() {
+      _foldEyeLocal(cam = activeCamera) {
         // Effective eye in LOCAL space (ortho/oblique push it far along the
         // view direction — the spline-flow pattern). Null when the world
         // matrix is singular.
-        return Path._foldEyeFromWorld(this.getWorldMatrix());
+        return Path._foldEyeFromWorld(this.getWorldMatrix(), cam);
       }
 
       // Same push-out logic for an arbitrary world matrix (v20260721f G1) —
       // lets Group.draw compute the eye in GROUP space for inherited folds.
-      static _foldEyeFromWorld(worldMatrix) {
-        let eyeW = activeCamera.position;
-        const fov = activeCamera.fovDegrees !== undefined ? activeCamera.fovDegrees : 60;
-        if (projectionType === 'orthographic' || projectionType === 'oblique' || fov < 5) {
-          const backDir = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-          if (projectionType === 'oblique') {
-            const dx = -activeCamera.obliqueScale * Math.cos(activeCamera.obliqueAngle);
-            const dy = -activeCamera.obliqueScale * Math.sin(activeCamera.obliqueAngle);
+      static _foldEyeFromWorld(worldMatrix, cam = activeCamera) {
+        let eyeW = cam.position;
+        const fov = cam.fovDegrees !== undefined ? cam.fovDegrees : 60;
+        // Per-camera projection, not the global mirror: the global is only
+        // re-synced on activation, so a non-active camera would otherwise be
+        // read in the ACTIVE camera's mode. `|| projectionType` is the file's
+        // existing fallback idiom and is unreachable for a real camera.
+        const fePt = cam.projectionType || projectionType;
+        if (fePt === 'orthographic' || fePt === 'oblique' || fov < 5) {
+          const backDir = vectorNormalize(vectorSubtract(cam.position, cam.target));
+          if (fePt === 'oblique') {
+            const dx = -cam.obliqueScale * Math.cos(cam.obliqueAngle);
+            const dy = -cam.obliqueScale * Math.sin(cam.obliqueAngle);
             const zAxis = backDir;
-            const xAxis = vectorNormalize(vectorCross(activeCamera.up, zAxis));
+            const xAxis = vectorNormalize(vectorCross(cam.up, zAxis));
             const yAxis = vectorCross(zAxis, xAxis);
             const obliqueDir = vectorNormalize(vectorAdd(
               vectorAdd(vectorScale(xAxis, -dx), vectorScale(yAxis, -dy)), zAxis));
-            eyeW = vectorAdd(activeCamera.position, vectorScale(obliqueDir, 1e6));
+            eyeW = vectorAdd(cam.position, vectorScale(obliqueDir, 1e6));
           } else {
-            eyeW = vectorAdd(activeCamera.position, vectorScale(backDir, 1e6));
+            eyeW = vectorAdd(cam.position, vectorScale(backDir, 1e6));
           }
         }
         const invW = matrixInverse(worldMatrix);
@@ -36623,6 +37152,24 @@
         return { frame: fr, bands };
       }
 
+      // Bounded store for `_foldCache` (v20260812x). The cache was a single
+      // `{key, val}` slot; it is now an insertion-order Map of at most
+      // FOLD_CACHE_SLOTS entries, evicting the oldest on overflow. Key content
+      // and cached value are unchanged — only the slot count. `val` is
+      // legitimately null (an inert/segment-less fold), so hits are tested by
+      // ENTRY presence, never by truthiness of `val`. Motivation: wrap cuts and
+      // fold crease roles are CAMERA-derived, and the camera subwindow draws two
+      // poses per pass — one slot would rebuild the fold twice every time.
+      // A static camera still hits, an orbit still misses, exactly as before.
+      _foldCacheStore(key, val) {
+        if (!this._foldCache) this._foldCache = new Map();
+        this._foldCache.set(key, { key, val });
+        while (this._foldCache.size > FOLD_CACHE_SLOTS) {
+          this._foldCache.delete(this._foldCache.keys().next().value);
+        }
+        return val;
+      }
+
       _generateFoldPieces(wrapCuts, inh, eyeL) {
         // Returns { frame, bands: [{pieces, opens}, …] } in LOCAL space with
         // the flap transform APPLIED (the caller projects through the
@@ -36675,10 +37222,11 @@
           : null;
         const roleSig = roleInfo ? `|R:${roleInfo.roles.map(r => r[0]).join('')}|DC:${fs.drawCrease ? 1 : 0}${fs.creaseShowAt0 ? 1 : 0}` : '';
         const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.creases.map(c2 => [c2.position, c2.rotation, c2.angle, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}${inhSig}${roleSig}`;
-        if (this._foldCache && this._foldCache.key === key) return this._foldCache.val;
+        const fdHit = this._foldCache ? this._foldCache.get(key) : null;
+        if (fdHit) return fdHit.val;
 
         let segs = this.getBezierSegments();
-        if (!segs.length) { this._foldCache = { key, val: null }; return null; }
+        if (!segs.length) { this._foldCacheStore(key, null); return null; }
         // v20260720n: UV scale is baked into the control points BEFORE the
         // split, so the crease math, chords and both side outputs all see
         // the scaled geometry. S === null (1:1) keeps the original arrays.
@@ -36721,8 +37269,7 @@
             else openR.push(ens);
           }
           const val = this._foldChainCells(fr, closedR, openR, roleInfo, !!fs.drawCrease, !!fs.creaseShowAt0);
-          this._foldCache = { key, val };
-          return val;
+          return this._foldCacheStore(key, val);
         }
 
         // REGION DECOMPOSITION (v20260720t): each side divides into its TRUE
@@ -37123,8 +37670,7 @@
         }
 
         const val = { frame: fr, bands };
-        this._foldCache = { key, val };
-        return val;
+        return this._foldCacheStore(key, val);
       }
 
       // --- STROKE TRIM (v20260719c) -----------------------------------------
@@ -38011,6 +38557,9 @@
           externalFaceList = null,
           deepZSort = false,
           cameraVP = null,
+          // The camera this pass draws FOR. Default keeps every existing
+          // caller bit-identical.
+          camera: cam = activeCamera,
           mappingAnchorWM = null,
           inheritedFold = null,
           collectIx = false,
@@ -38020,6 +38569,11 @@
         // the collect flag from the instance rather than threading it
         // through every signature.
         this._collectIx = collectIx;
+        // Same channel, same reason, for the draw camera (PLAN-camera-subwindow
+        // Phase 1): drawSurface / drawLoft / drawSideRibbons and the mesh
+        // delegates read `this._drawCam || activeCamera`. Same-frame consumer
+        // only, never serialized — the _collectIx / _prismEye pattern.
+        this._drawCam = cam;
 
         // Guard: object may have been destroyed (e.g. scene import) while
         // a previous async render was still in progress.
@@ -38185,7 +38739,7 @@
               // Wrap/curl (v20260720v/x): pieces split ONLY at the camera-
               // facing horizon rulings (silhouette split) — camera-derived, so
               // the cache rebuilds on orbit and hits when the camera is still.
-              foldEye = this._foldEyeLocal();
+              foldEye = this._foldEyeLocal(cam);
               const foldCuts = (frF.mode === 'wrap' || frF.mode === 'curl') ? Path._foldWrapCuts(frF, foldEye) : null;
               foldPieces = this._generateFoldPieces(foldCuts, null, foldEye);
             }
@@ -38508,25 +39062,27 @@
             if (targetPath) {
               // Compute effective camera position for silhouette detection.
               // For ortho/oblique, push eye far along view direction (parallel rays).
-              let sfCamPos = activeCamera.position;
-              const sfFov = activeCamera.fovDegrees !== undefined ? activeCamera.fovDegrees : 60;
-              const sfIsOrtho = (projectionType === 'orthographic') || (projectionType === 'oblique') || (sfFov < 5);
+              let sfCamPos = cam.position;
+              const sfFov = cam.fovDegrees !== undefined ? cam.fovDegrees : 60;
+              // Per-camera projection, not the global mirror (see _foldEyeFromWorld).
+              const sfPt = cam.projectionType || projectionType;
+              const sfIsOrtho = (sfPt === 'orthographic') || (sfPt === 'oblique') || (sfFov < 5);
               if (sfIsOrtho) {
-                const backDir = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-                if (projectionType === 'oblique') {
+                const backDir = vectorNormalize(vectorSubtract(cam.position, cam.target));
+                if (sfPt === 'oblique') {
                   // Oblique shear tilts the effective view ray to (-dx, -dy, 1) in view space.
-                  const dx = -activeCamera.obliqueScale * Math.cos(activeCamera.obliqueAngle);
-                  const dy = -activeCamera.obliqueScale * Math.sin(activeCamera.obliqueAngle);
+                  const dx = -cam.obliqueScale * Math.cos(cam.obliqueAngle);
+                  const dy = -cam.obliqueScale * Math.sin(cam.obliqueAngle);
                   const zAxis = backDir;
-                  const xAxis = vectorNormalize(vectorCross(activeCamera.up, zAxis));
+                  const xAxis = vectorNormalize(vectorCross(cam.up, zAxis));
                   const yAxis = vectorCross(zAxis, xAxis);
                   const obliqueDir = vectorNormalize(vectorAdd(
                     vectorAdd(vectorScale(xAxis, -dx), vectorScale(yAxis, -dy)),
                     zAxis
                   ));
-                  sfCamPos = vectorAdd(activeCamera.position, vectorScale(obliqueDir, 1e6));
+                  sfCamPos = vectorAdd(cam.position, vectorScale(obliqueDir, 1e6));
                 } else {
-                  sfCamPos = vectorAdd(activeCamera.position, vectorScale(backDir, 1e6));
+                  sfCamPos = vectorAdd(cam.position, vectorScale(backDir, 1e6));
                 }
               }
 
@@ -38564,7 +39120,9 @@
                 rotationY: activeMapping.rotationY || 0,
                 bendAlong: activeMapping.bendAlong !== false,
                 cameraPos: sfCamPos,
-                camDist: activeCamera.dist
+                // Camera has no `dist` field — this is (and stays) undefined.
+                // Preserved verbatim, not fixed, mid-campaign.
+                camDist: cam.dist
               };
 
               // Clip & Warp offsets: render at hOffset-1, hOffset, hOffset+1
@@ -38719,24 +39277,28 @@
               const effectiveSourceMatrix = sourceMatrix || this.getWorldMatrix();
               // Compute effective camera position for silhouette detection.
               // For ortho/oblique, push eye far along view direction (parallel rays).
-              let smCamPos = activeCamera?.position || [0, 0, 10];
-              const smFov = activeCamera?.fovDegrees !== undefined ? activeCamera.fovDegrees : 60;
-              const smIsOrtho = (projectionType === 'orthographic') || (projectionType === 'oblique') || (smFov < 5);
-              if (smIsOrtho && activeCamera) {
-                const backDir = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-                if (projectionType === 'oblique') {
-                  const dx = -activeCamera.obliqueScale * Math.cos(activeCamera.obliqueAngle);
-                  const dy = -activeCamera.obliqueScale * Math.sin(activeCamera.obliqueAngle);
+              let smCamPos = cam?.position || [0, 0, 10];
+              const smFov = cam?.fovDegrees !== undefined ? cam.fovDegrees : 60;
+              // Per-camera projection, not the global mirror (see _foldEyeFromWorld).
+              // `cam?.` keeps this block's existing null tolerance — it is the
+              // only eye derivation that has any.
+              const smPt = cam?.projectionType || projectionType;
+              const smIsOrtho = (smPt === 'orthographic') || (smPt === 'oblique') || (smFov < 5);
+              if (smIsOrtho && cam) {
+                const backDir = vectorNormalize(vectorSubtract(cam.position, cam.target));
+                if (smPt === 'oblique') {
+                  const dx = -cam.obliqueScale * Math.cos(cam.obliqueAngle);
+                  const dy = -cam.obliqueScale * Math.sin(cam.obliqueAngle);
                   const zAxis = backDir;
-                  const xAxis = vectorNormalize(vectorCross(activeCamera.up, zAxis));
+                  const xAxis = vectorNormalize(vectorCross(cam.up, zAxis));
                   const yAxis = vectorCross(zAxis, xAxis);
                   const obliqueDir = vectorNormalize(vectorAdd(
                     vectorAdd(vectorScale(xAxis, -dx), vectorScale(yAxis, -dy)),
                     zAxis
                   ));
-                  smCamPos = vectorAdd(activeCamera.position, vectorScale(obliqueDir, 1e6));
+                  smCamPos = vectorAdd(cam.position, vectorScale(obliqueDir, 1e6));
                 } else {
-                  smCamPos = vectorAdd(activeCamera.position, vectorScale(backDir, 1e6));
+                  smCamPos = vectorAdd(cam.position, vectorScale(backDir, 1e6));
                 }
               }
               // Resolve effective overflow modes
@@ -40725,6 +41287,10 @@
       async drawSurface(faceList, vpMatrix, modelMatrix, ssOverride = null, railOverride = null) {
         if (!ssOverride && !this.sweepSettings.enabled) return;
 
+        // The camera this pass draws FOR, off Path.draw's instance channel
+        // (the _collectIx precedent). Falls back to activeCamera so a call
+        // made outside a draw pass is unchanged.
+        const cam = this._drawCam || activeCamera;
         const ss = ssOverride || this.sweepSettings;
         const railPath = railOverride || findObjectById(ss.railId);
         if (!railPath) return;
@@ -41190,7 +41756,7 @@
             // pushed to parallel-ray infinity under ortho / oblique / fov<5 /
             // mode2D, so V-splits, facing signs and the Silhouette classifier
             // solve for the projection that is actually drawing.
-            const camPos = resolveEyePointForObject(this);
+            const camPos = resolveEyePointForObject(this, cam);
             // --- C (PLAN-fill-silhouette-fidelity): ADAPTIVE AZIMUTH DENSITY ---
             // The fill's boundary is assembled from U-edges that each run at a
             // CONSTANT profile parameter, while the true silhouette's parameter
@@ -42584,7 +43150,7 @@
 
           // --- Silhouette Splitting: Insert extra U-rows at horizon crossings ---
           if (ss.silhouetteSplit && grid.length >= 3) {
-            const camPos = activeCamera.position;
+            const camPos = cam.position;
 
             // Compute surface normal at each grid point using cross product of neighbors
             const computeNormalAt = (i, j) => {
@@ -43023,7 +43589,7 @@
           // perspective point (w=1) or parallel direction (w=0, incl. mode2D).
           // (S6 deleted the fold tracer's hzViewAtU/nearestHorizon helpers that
           // used to live here - the analytic engine owns every revolve now.)
-          const _eyeH = resolveEyeForObject(this);
+          const _eyeH = resolveEyeForObject(this, cam);
           const profilePointAt = (profileSegs, p) => {
             let i = Math.floor(p);
             if (i < 0) i = 0; else if (i > profileSegs.length - 1) i = profileSegs.length - 1;
@@ -45699,7 +46265,9 @@
         // ========== END LAYER RENDER MODE ==========
 
         const simpleSides = ls.simpleSides || false;
-        const camPos = activeCamera.position;
+        // Draw camera off Path.draw's instance channel (the _collectIx
+        // precedent); activeCamera fallback for a call outside a draw pass.
+        const camPos = (this._drawCam || activeCamera).position;
         const isCurved = ls.curvedSurface || false;
 
         // RI/PathRender: fit a ribbon quad's depth plane through its projected
@@ -46139,28 +46707,33 @@
         // Transform Camera Position (World) to Local Space
         // For perspective: camera position is a point (w=1)
         // For ortho/oblique: simulate parallel rays by pushing eye far along view direction
-        const fovVal = activeCamera.fovDegrees !== undefined ? activeCamera.fovDegrees : 60;
-        const isOrtho = (projectionType === 'orthographic') || (projectionType === 'oblique') || (fovVal < 5);
+        // The camera this pass draws FOR, off Path.draw's instance channel
+        // (the _collectIx precedent); activeCamera fallback outside a draw.
+        const cam = this._drawCam || activeCamera;
+        const fovVal = cam.fovDegrees !== undefined ? cam.fovDegrees : 60;
+        // Per-camera projection, not the global mirror (see _foldEyeFromWorld).
+        const srPt = cam.projectionType || projectionType;
+        const isOrtho = (srPt === 'orthographic') || (srPt === 'oblique') || (fovVal < 5);
 
-        let eyeWorld = activeCamera.position;
+        let eyeWorld = cam.position;
         if (isOrtho) {
           // Push eye very far back along the effective view ray direction
           // to make (Eye - P) approximately constant (parallel rays).
-          const backDir = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
+          const backDir = vectorNormalize(vectorSubtract(cam.position, cam.target));
 
-          if (projectionType === 'oblique') {
+          if (srPt === 'oblique') {
             // Oblique shear tilts the effective view ray. In view space, the
             // oblique view ray direction is (-dx, -dy, 1) (unnormalized).
             // We transform this to world space using the camera's basis vectors.
-            const dx = -activeCamera.obliqueScale * Math.cos(activeCamera.obliqueAngle);
-            const dy = -activeCamera.obliqueScale * Math.sin(activeCamera.obliqueAngle);
+            const dx = -cam.obliqueScale * Math.cos(cam.obliqueAngle);
+            const dy = -cam.obliqueScale * Math.sin(cam.obliqueAngle);
 
             // Camera basis vectors (same convention as createLookAtMatrix):
             //   zAxis (backDir) = normalize(position - target)
             //   xAxis (right)   = normalize(up × zAxis)
             //   yAxis (camUp)   = zAxis × xAxis
             const zAxis = backDir;
-            const xAxis = vectorNormalize(vectorCross(activeCamera.up, zAxis));
+            const xAxis = vectorNormalize(vectorCross(cam.up, zAxis));
             const yAxis = vectorCross(zAxis, xAxis);
 
             // Oblique view ray in world space: (-dx)*right + (-dy)*camUp + (1)*back
@@ -46168,10 +46741,10 @@
               vectorAdd(vectorScale(xAxis, -dx), vectorScale(yAxis, -dy)),
               zAxis
             ));
-            eyeWorld = vectorAdd(activeCamera.position, vectorScale(obliqueDir, 1e6));
+            eyeWorld = vectorAdd(cam.position, vectorScale(obliqueDir, 1e6));
           } else {
             // Pure orthographic: view ray is along the back direction
-            eyeWorld = vectorAdd(activeCamera.position, vectorScale(backDir, 1e6));
+            eyeWorld = vectorAdd(cam.position, vectorScale(backDir, 1e6));
           }
         }
 
@@ -47180,6 +47753,16 @@
       // Update Delete Button State
       const delBtn = document.getElementById('removeCameraBtn');
       if (delBtn) delBtn.disabled = cameras.length <= 1;
+      // CAMERA SUBWINDOW: this is the app's one choke point for "the camera
+      // list changed" (activate / load / add / remove / rename / lock /
+      // reorder / preset restore / scene load / boot), so the subwindow's
+      // dropdown is rebuilt from here rather than from nine call sites.
+      // try/catch, NOT `typeof SubView` — SubView is a const declared ~13k
+      // lines below and `typeof` on a const in its TDZ THROWS rather than
+      // returning 'undefined' (§11), so it cannot be feature-detected. The
+      // boot call at `setTimeout(updateCameraList, 0)` runs after the script
+      // completes, so in practice only a pre-script call could land here.
+      try { SubView.syncCameraOptions(); } catch (e) { /* declared later */ }
     };
 
     document.getElementById('activateCameraBtn').addEventListener('click', () => {
@@ -59973,6 +60556,41 @@
     // CACHE OFF MUST BE TODAY'S BUILD, frame-dropping and all (owner instruction).
     // `step()` is the only call the render loop makes, and with `enabled` false it
     // is one boolean test. Nothing about the playback clock is reshaped here.
+    // ID NAMESPACING — one owner, two callers (RenderCache._namespace and
+    // SubView.refresh). Any detached SVG subtree cloned from the live tree
+    // carries the SAME mask/clipPath/use ids as its source, and `url(#id)`
+    // resolves to the FIRST match in document order — so an un-namespaced
+    // clone silently binds its masks to whatever the live tree last rendered.
+    // Rewrites ids, url(#...) occurrences, and bare `#id` attribute values.
+    // Returns the number of ids rewritten.
+    //
+    // PREFIXES MUST BE DISJOINT ACROSS CALLERS AND FROM THE LIVE TREE:
+    // RenderCache uses 'rc<gen>_<frame>_', SubView 'sub<gen>_'. Live ids are
+    // unprefixed ('mrm123', 'mrg124', 'mrc…', object ids), which is what makes
+    // the end-of-render dangling-mask sweep safe (see SubView's note).
+    const svgNamespaceIds = (root, tag) => {
+      const map = new Map();
+      for (const el of root.querySelectorAll('[id]')) {
+        const old = el.getAttribute('id');
+        map.set(old, tag + old);
+        el.setAttribute('id', tag + old);
+      }
+      if (!map.size) return 0;
+      for (const el of root.querySelectorAll('*')) {
+        for (const at of el.attributes) {
+          const v = at.value;
+          if (!v) continue;
+          if (v.indexOf('url(#') >= 0) {
+            const nv = v.replace(/url\(#([^)]+)\)/g, (m, id) => map.has(id) ? 'url(#' + map.get(id) + ')' : m);
+            if (nv !== v) at.value = nv;
+          } else if (v.charCodeAt(0) === 35 && map.has(v.slice(1))) {
+            at.value = '#' + map.get(v.slice(1));
+          }
+        }
+      }
+      return map.size;
+    };
+
     const RenderCache = {
       // Safety cap only — the real budget policy (with the ruler showing what
       // fits) is Phase 4. Corpus median is 192 KB/frame and the max 496 KB, so
@@ -60040,28 +60658,11 @@
       // from, and `url(#id)` resolves to the FIRST match in document order — so an
       // un-namespaced cached frame would silently bind its masks to whatever the
       // hidden live tree last rendered. Rewrites ids, url(#...) and href="#...".
-      _namespace(root, tag) {
-        const map = new Map();
-        for (const el of root.querySelectorAll('[id]')) {
-          const old = el.getAttribute('id');
-          map.set(old, tag + old);
-          el.setAttribute('id', tag + old);
-        }
-        if (!map.size) return 0;
-        for (const el of root.querySelectorAll('*')) {
-          for (const at of el.attributes) {
-            const v = at.value;
-            if (!v) continue;
-            if (v.indexOf('url(#') >= 0) {
-              const nv = v.replace(/url\(#([^)]+)\)/g, (m, id) => map.has(id) ? 'url(#' + map.get(id) + ')' : m);
-              if (nv !== v) at.value = nv;
-            } else if (v.charCodeAt(0) === 35 && map.has(v.slice(1))) {
-              at.value = '#' + map.get(v.slice(1));
-            }
-          }
-        }
-        return map.size;
-      },
+      // Delegates to the shared svgNamespaceIds (promoted v20260812-subwin, so
+      // the cached-frame and subwindow clones can never drift apart on the one
+      // rule that keeps `url(#…)` honest). Kept as a method because the whole
+      // capture path and the console harnesses call it by this name.
+      _namespace(root, tag) { return svgNamespaceIds(root, tag); },
 
       clear() {
         // NO-OP WHEN THERE IS NOTHING TO CLEAR (v20260809l). step() calls clear()
@@ -60156,7 +60757,7 @@
         animationTimeline.currentFrame = f;
         tlApplyFrame(f);
         const vp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
-        await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp })));
+        await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp, camera: activeCamera })));
         const live = this._normalize(this._pg().innerHTML);
         const cached = this._normalize(g.innerHTML);
         this._audits++;
@@ -60203,7 +60804,7 @@
             animationTimeline.currentFrame = f;
             tlApplyFrame(f);
             const vp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
-            await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp })));
+            await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp, camera: activeCamera })));
             const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             for (const c of pg.children) g.appendChild(c.cloneNode(true));
             this._namespace(g, tag + f + '_');
@@ -60288,7 +60889,7 @@
         if (!this._presenting) return false;
         this._restoreLive();
         const vp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
-        await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp })));
+        await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp, camera: activeCamera })));
         return true;
       },
 
@@ -60329,7 +60930,7 @@
             animationTimeline.currentFrame = f;
             tlApplyFrame(f);
             const vp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
-            await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp })));
+            await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp, camera: activeCamera })));
             const live = this._normalize(pg.innerHTML);
             const cached = this._normalize(g.innerHTML);
             checked++;
@@ -60350,6 +60951,1341 @@
       },
     };
     // --- END ANIMATION RENDER CACHE ---
+
+    // ======================= CAMERA SUBWINDOW (Phase 2) =======================
+    // PLAN-camera-subwindow.md. A floating window showing the scene from a
+    // SECOND camera, so the final render angle and the editing angle are
+    // visible at once. View-only here; HUD + in-window orbit are Phase 3.
+    //
+    // THE MECHANISM is swap → draw → clone+namespace → restore, run from ONE
+    // seam near the top of render():
+    //   1. point activeCamera + the projectionType mirror at the sub camera,
+    //   2. draw the scene into the LIVE persistent nodes,
+    //   3. deep-clone #pathGroup's children into a detached <g> and namespace
+    //      every id,
+    //   4. restore the globals — and let render()'s own scene draw, later in
+    //      the SAME rAF callback, put camera A back on screen.
+    // Because both passes happen before the callback returns, the browser
+    // never composites camera B in the main view. Phase 0 measured 12/12
+    // corpus scenes bit-identical across this pass (dimFillHash before ==
+    // after), i.e. the swap leaves the live tree inert.
+    //
+    // WHY A CLONE AND NOT A SECOND DRAW TARGET: every object owns exactly ONE
+    // persistent svgElement, single-homed in #pathGroup, and draw() mutates
+    // `d` in place. Two views can never share the object DOM — the second pass
+    // would overwrite the first. Same invariant that forced #renderCacheGroup.
+    //
+    // WHY THE GLOBALS ARE SWAPPED AT ALL: ~48 draw-time sites in 9 Path/Group
+    // methods still read the eye point (and the projectionType MIRROR) from
+    // globals. Phase 1 parameterises those; until it lands, the swap is the
+    // only way the sub pass sees camera B everywhere. `camera: cam` is passed
+    // on drawOptions as well, so this code is correct both before and after
+    // Phase 1 lands — the two channels can only ever agree.
+    //
+    // ON-CHANGE, NEVER PER FRAME (plan D1): one refresh is one full extra
+    // scene derivation. Dirty triggers are renderCacheEpoch changes, a
+    // sub-camera pose change, the dropdown, opening, and the end of a resize.
+    // During a main-camera orbit the subwindow does nothing at all.
+    const SubView = {
+      _gen: 0,               // id-namespace generation, bumped per refresh
+      _dirty: true,
+      _busy: false,          // reentrancy guard: a direct render() call must not nest a sub pass
+      _epoch: -1,            // renderCacheEpoch at last refresh
+      _pose: '',             // sub-camera pose hash at last refresh
+      _camRef: null,         // chosen camera by IDENTITY
+      _camIdx: -1,           // ...and by INDEX, the fallback when the list is rebuilt
+      _lastRefreshMs: 0,
+      _lastPassMs: 0,        // duration of the last sub pass — the pacing input
+      // SELF-PACED CADENCE (2026-08-12, replacing the fixed 500 ms playing
+      // cap). One rule decides how live the window is, for drags AND playback:
+      // the next pass may run once PACE_K × the LAST pass's cost has elapsed.
+      // A 3 ms scene refreshes effectively every frame (realtime); a 50 ms
+      // scene sits at ~6 Hz and the main view keeps ~3/4 of its frame budget.
+      // MAX_INTERVAL_MS is the ceiling so a pathological pass cannot freeze
+      // the window below plan D4's original cadence.
+      PACE_K: 3,
+      MAX_INTERVAL_MS: 500,
+      MIN_SIZE: 180,         // px, window width
+      // View options (2026-08-12 polish). Session-only, like every other piece
+      // of this window's chrome. `auto` governs SCENE-driven refreshes only —
+      // pose changes from the window's own controls and the camera pick always
+      // refresh, or the window would lie about its own state.
+      auto: true,
+      showGrid: true,
+      showHud: true,         // bar2 HUD checkbox — pure CSS class toggle, no refresh
+      showAxis: true,        // bar2 Axis checkbox — display toggle on #subAxisGroup
+      _axisInd: null,        // lazy AxisIndicator instance on #subAxisGroup
+      frameGuide: 'none',    // per-window; seeded from the scene's value on open()
+      _manualPending: false, // the reload button's one-shot override of auto=off
+      _exportHold: false,    // both async SVG exporters raise this: a sub pass
+                             // interleaving between an export's draw and its
+                             // serialize could hand the file camera-B geometry
+
+      _win() { return document.getElementById('subWindow'); },
+      _hdr() { return document.getElementById('subWindowHeader'); },
+      _group() { return document.getElementById('subViewGroup'); },
+      _select() { return document.getElementById('subCamSelect'); },
+      isOpen() { const w = this._win(); return !!w && w.matches(':popover-open'); },
+
+      // --- camera resolution -------------------------------------------------
+      // IDENTITY FIRST, INDEX AS FALLBACK. restoreCameraFromState and
+      // resetCamerasToDefault MUTATE the shared `cameras` array in place
+      // (cameras.length = 0; push fresh instances), so a held reference can
+      // survive a rename/reorder but NOT a scene load. Index keeps the pick
+      // meaningful across a rebuild; when even that is out of range we fall
+      // back to the first non-active camera (plan D5).
+      camera() {
+        if (!cameras.length) return null;
+        if (this._camRef && cameras.indexOf(this._camRef) >= 0) {
+          this._camIdx = cameras.indexOf(this._camRef);
+          return this._camRef;
+        }
+        if (this._camIdx >= 0 && this._camIdx < cameras.length) {
+          this._camRef = cameras[this._camIdx];
+          return this._camRef;
+        }
+        const fallback = cameras.find(c => c !== activeCamera) || cameras[0];
+        this._camRef = fallback;
+        this._camIdx = cameras.indexOf(fallback);
+        return fallback;
+      },
+
+      // Cheap pose hash — everything createViewMatrix / createProjectionMatrix
+      // read. Comparing THIS is what makes "dirty on sub-camera pose change"
+      // a single string compare per frame instead of a hook at every writer.
+      _poseHash(cam) {
+        if (!cam) return '';
+        return [cam.position.join(','), cam.target.join(','), cam.up.join(','),
+          cam.fovDegrees, cam.orthoZoom, cam.projectionType,
+          cam.obliqueAngle, cam.obliqueScale].join('|');
+      },
+
+      markDirty() { this._dirty = true; },
+
+      // Frame-guide rect update. FRAME units — the sub svg's viewBox IS the
+      // 1000-unit frame, so no screen-space math: centre the ratio box.
+      // The rect lives OUTSIDE #subViewGroup and survives every refresh, so
+      // this runs on dropdown change and open() only, never per pass.
+      _syncFrameGuide() {
+        const r = document.getElementById('subFrameGuideRect');
+        if (!r) return;
+        const ratio = FRAME_GUIDE_RATIOS[this.frameGuide];
+        if (!ratio) { r.style.display = 'none'; return; }
+        const [w, h] = ratio;
+        r.setAttribute('x', -w / 2);
+        r.setAttribute('y', -h / 2);
+        r.setAttribute('width', w);
+        r.setAttribute('height', h);
+        r.style.display = 'block';
+      },
+
+      // THE AXIS INDICATOR IS A FIXED SCREEN SIZE, matching the main window's
+      // (v20260812zh). AxisIndicator draws at a 40-unit reach, and in the MAIN
+      // window that IS 40 screen px, because the root svg's viewBox is in
+      // screen pixels (`0 0 width height`) and #axisIndicatorGroup carries a
+      // translate and no scale. This svg's viewBox is the 1000-unit FRAME
+      // instead, so the group has to UNDO the canvas scale: with
+      // s = FRAME_SIZE / canvasWidthPx, a 40-unit reach renders as exactly
+      // 40 px at any window size — which is why a constant scale() could
+      // never match (it tracked the window instead of the screen).
+      // The inset is applied in px for the same reason. Main uses 80 from the
+      // frame's bottom-left corner; 60 here, because this canvas is a fraction
+      // of the main frame's size and the labels already reach 48 px.
+      _syncAxis(cam) {
+        const axg = document.getElementById('subAxisGroup');
+        const svgEl = document.getElementById('subViewSvg');
+        if (!axg || !svgEl) return;
+        if (!this._axisInd) this._axisInd = new AxisIndicator(axg);
+        const wpx = svgEl.getBoundingClientRect().width || FRAME_SIZE;
+        const s = FRAME_SIZE / wpx;
+        const inset = 60 * s;
+        axg.setAttribute('transform',
+          `translate(${-FRAME_SIZE / 2 + inset}, ${FRAME_SIZE / 2 - inset}) scale(${s})`);
+        if (cam) this._axisInd.update(cam.createViewMatrix());
+        axg.style.display = this.showAxis ? '' : 'none';
+      },
+
+      // Rebuild the dropdown, preserving the pick by identity. Called from the
+      // END of updateCameraList — the app's single choke point for "the camera
+      // list changed" (add / remove / rename / reorder / activate / restore).
+      syncCameraOptions() {
+        const sel = this._select();
+        if (!sel) return;
+        const keep = this.camera();
+        sel.replaceChildren();
+        cameras.forEach((cam, i) => {
+          const o = document.createElement('option');
+          o.value = String(i);
+          // The active camera is MARKED, not excluded — picking it is allowed
+          // and merely pointless (plan D5); a modal refusal would be worse.
+          o.textContent = cam.name + (cam === activeCamera ? '  • active' : '');
+          sel.appendChild(o);
+        });
+        const idx = cameras.indexOf(keep);
+        if (idx >= 0) {
+          this._camRef = keep;
+          this._camIdx = idx;
+          sel.value = String(idx);
+        }
+      },
+
+      // --- the render pass ---------------------------------------------------
+      // Called from ONE seam near the top of render(), before the main scene
+      // draw. Returns true iff a sub pass actually ran.
+      async refreshIfNeeded() {
+        if (this._busy) return false;
+        if (!this.isOpen()) return false;
+        // RENDER-CACHE INTERLOCKS (plan §1.7 / D4). capture() drives
+        // tlApplyFrame and owns the live tree; while a cached frame is
+        // PRESENTED, #pathGroup is display:none and render()'s scene draw is
+        // skipped — so a sub pass would leave the live tree drawn from camera
+        // B with nothing to put it back. Hold the last picture instead.
+        if (RenderCache._capturing || RenderCache._presenting || RenderCache.active()) return false;
+        if (this._exportHold) return false;
+        const cam = this.camera();
+        if (!cam) return false;
+        // COMPARE the epoch, never hook its ~9 bump sites. (The epoch alone is
+        // NOT sufficient for gestures — a drag's coalesced push bumps it once
+        // at gesture START, so the picture would hold the pre-drag scene; the
+        // end-of-drag markDirty in onMouseUp is the other half.)
+        if (renderCacheEpoch !== this._epoch) this._dirty = true;
+        const pose = this._poseHash(cam);
+        const poseMoved = pose !== this._pose;
+        if (poseMoved) this._dirty = true;
+        // Auto Reload OFF freezes SCENE-driven refreshes only: the window's own
+        // pose edits and the reload button still get through.
+        if (!this.auto && !poseMoved && !this._manualPending) return false;
+        if (!this._dirty) return false;
+        const now = performance.now();
+        // Self-paced gate — applies to EVERY refresh source (drag, playback,
+        // scrub, one-shot edits alike). A one-shot after idle passes at once,
+        // because _lastRefreshMs is long gone by then.
+        const gap = Math.min(this.MAX_INTERVAL_MS, this._lastPassMs * this.PACE_K);
+        if ((now - this._lastRefreshMs) < gap) {
+          return false;   // stays dirty; the next eligible frame picks it up
+        }
+        this._epoch = renderCacheEpoch;
+        this._pose = pose;
+        this._dirty = false;
+        this._manualPending = false;
+        this._lastRefreshMs = now;
+        const _passT0 = performance.now();
+        await this.refresh(cam);
+        this._lastPassMs = performance.now() - _passT0;
+        // Phase 3: keep the in-window readouts honest when the pose changed from
+        // outside this module (sidebar, undo, scene load).
+        if (typeof SubViewControls !== 'undefined') SubViewControls.syncUI();
+        return true;
+      },
+
+      // THE PASS ITSELF. Do NOT call this outside render()'s callback: it
+      // leaves the live tree drawn from `cam`, and only render()'s own scene
+      // draw (later in the same callback) puts camera A back before a paint.
+      // The manual refresh button therefore does markDirty() + requestRender().
+      async refresh(cam) {
+        cam = cam || this.camera();
+        const host = this._group();
+        if (!cam || !host || !pathGroup) return;
+        // SAVE/RESTORE THE GLOBALS IN try/finally — the Mode2D.selfTest
+        // pattern. A throw mid-draw must not strand the app on camera B.
+        // projectionType is a MIRROR of activeCamera.projectionType, read at 8
+        // draw sites; both must move in lockstep or a perspective-main /
+        // ortho-sub pair computes its eyes in the wrong mode (plan §1.3).
+        const savedCam = activeCamera, savedProj = projectionType;
+        this._busy = true;
+        try {
+          activeCamera = cam;
+          projectionType = cam.projectionType || 'perspective';
+          const vp = matrixMultiply(cam.createProjectionMatrix(), cam.createViewMatrix());
+          // `camera: cam` rides the drawOptions rail beside cameraVP: inert
+          // before Phase 1 lands, load-bearing after — and it can never
+          // disagree with the swapped globals, because it IS them.
+          await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp, camera: cam })));
+          const g = document.createElementNS(svgNS, 'g');
+          for (const c of pathGroup.children) g.appendChild(c.cloneNode(true));
+          // 'sub<gen>_' is DISJOINT from the live tree's bare ids and from
+          // RenderCache's 'rc<gen>_' — see the sweep note below.
+          svgNamespaceIds(g, 'sub' + (++this._gen) + '_');
+          // WORKPLANE GRID (2026-08-12 polish, optional). Same trick as the
+          // scene: drive the LIVE grid lines through the sub MVP, clone them,
+          // and let render()'s own grid pass (later in this same callback)
+          // rewrite the live coordinates for camera A before any paint. The
+          // line elements carry no ids and no url(#) refs, so the clone needs
+          // no namespacing. workplaneModelMatrix() is evaluated while the
+          // globals are SWAPPED, so a 'camera-target' workplane follows the
+          // SUB camera here — the grid shows what that camera sees.
+          if (this.showGrid) {
+            const _wp = workplaneModelMatrix();
+            if (_wp) {
+              const gridMvp = matrixMultiply(vp, _wp.modelMat);
+              const src = (_wp.grid === 'yz') ? gridGroupYZ : gridGroupXY;
+              ((_wp.grid === 'yz') ? drawYZGrid : drawXYGrid)(gridMvp);
+              const gridClone = src.cloneNode(true);
+              gridClone.removeAttribute('id');
+              gridClone.style.display = 'block';
+              g.insertBefore(gridClone, g.firstChild);   // under the scene
+            }
+          }
+          host.replaceChildren(g);
+          const bg = document.getElementById('subViewBg');
+          if (bg && frameRect) bg.setAttribute('fill', frameRect.getAttribute('fill') || '#ffffff');
+          // Axis indicator (v20260812zc): the main window's own class, second
+          // instance, driven by the SUB camera's view matrix. Lives outside
+          // #subViewGroup, so it survives the replaceChildren above; updated
+          // here because a refresh is exactly when the pose could have moved.
+          this._syncAxis(cam);
+        } finally {
+          activeCamera = savedCam;
+          projectionType = savedProj;
+          this._busy = false;
+        }
+      },
+      // THE END-OF-RENDER DANGLING-MASK SWEEP IS SAFE, and here is why it is
+      // not an accident. The sweep enumerates `pathGroup.querySelectorAll(
+      // '[mask]')` — it never walks #subViewGroup, which is outside #pathGroup
+      // and outside #svgContainer entirely — and for each LIVE element it does
+      // a document-wide getElementById on the bare id it finds ('mrm123').
+      // Every id inside the sub clone carries the 'sub<gen>_' prefix, so a sub
+      // id can never equal a bare live id and can never be the thing a live
+      // `mask="url(#mrm123)"` resolves to. The converse is equally closed: the
+      // clone's own references were rewritten to 'sub<gen>_mrm123' by the same
+      // pass that renamed the targets, and replaceChildren() means at most one
+      // generation is ever in the document. Disjoint prefixes, disjoint scopes.
+
+      // --- open / close ------------------------------------------------------
+      open() {
+        const w = this._win();
+        if (!w || w.matches(':popover-open')) return;
+        // SYNC EVERY VALUE IN THE OPENER, not on a show event (the curve
+        // editor's lesson): re-opening onto a list that changed while the
+        // window was closed fires no event that could have caught up.
+        this.syncCameraOptions();
+        // Seed the per-window frame guide FROM the scene's value, so the
+        // final-render window opens showing the real crop; the user can then
+        // change it per-window without touching the scene setting.
+        this.frameGuide = (typeof _currentFrameGuide !== 'undefined' && _currentFrameGuide) || 'none';
+        const fgSel = document.getElementById('subWinFrameGuide');
+        if (fgSel) fgSel.value = FRAME_GUIDE_RATIOS[this.frameGuide] ? this.frameGuide : 'none';
+        this._syncFrameGuide();
+        this._dirty = true;
+        this._epoch = -1;
+        this._pose = '';
+        w.showPopover();
+        this._clampSize();
+        this._clampPosition();
+        this._syncToggleBtn();
+        requestRender();
+        // Phase 3: wire/refresh the in-window controls. Idempotent; a no-op if
+        // they are already wired. Needed only when the window DOM is built lazily.
+        if (typeof SubViewControls !== 'undefined') { SubViewControls.init(); SubViewControls.syncUI(); }
+      },
+      close() {
+        const w = this._win();
+        if (!w || !w.matches(':popover-open')) return;
+        w.hidePopover();   // the toggle listener does the teardown
+      },
+      toggle() { this.isOpen() ? this.close() : this.open(); },
+
+      _syncToggleBtn() {
+        const b = document.getElementById('subWindowToggleBtn');
+        if (b) b.classList.toggle('ui-btn-primary', this.isOpen());
+      },
+
+      // --- geometry ----------------------------------------------------------
+      // Session-only, never persisted (plan D3).
+      _maxSize() {
+        const hdr = this._hdr();
+        const hh = hdr ? hdr.offsetHeight : 30;
+        // Width drives; the square content adds `width` px of height under the
+        // header, so the vertical cap has to account for the header.
+        return Math.max(this.MIN_SIZE,
+          Math.min(window.innerWidth * 0.6, window.innerHeight * 0.6 - hh));
+      },
+      _clampSize() {
+        const w = this._win();
+        if (!w) return;
+        const cur = w.getBoundingClientRect().width || this.MIN_SIZE;
+        const nw = Math.max(this.MIN_SIZE, Math.min(this._maxSize(), cur));
+        w.style.width = nw + 'px';
+      },
+      _clampPosition() {
+        const w = this._win();
+        if (!w) return;
+        const r = w.getBoundingClientRect();
+        const maxL = Math.max(0, window.innerWidth - r.width);
+        const maxT = Math.max(0, window.innerHeight - r.height);
+        w.style.left = Math.max(0, Math.min(maxL, r.left)) + 'px';
+        w.style.top = Math.max(0, Math.min(maxT, r.top)) + 'px';
+      },
+
+      // --- wiring ------------------------------------------------------------
+      // Arrow wrappers on EVERY listener: a bare function reference bound to a
+      // const declared thousands of lines below is a TDZ landmine that aborts
+      // the rest of the top-level script (§11).
+      _init() {
+        const w = this._win(), hdr = this._hdr(), sel = this._select();
+        if (!w || !hdr || !sel) return;
+
+        // The chrome must not leak into the canvas. onMouseDown is bound on
+        // #svgContainer so pointer events cannot reach it from here, but
+        // onKeyDown is bound on WINDOW and only guards INPUT/TEXTAREA — a
+        // focused <select> is neither, so Delete/Backspace inside the dropdown
+        // would reach the scene shortcuts. Stop both at the window edge.
+        w.addEventListener('mousedown', (e) => e.stopPropagation());
+        w.addEventListener('keydown', (e) => e.stopPropagation());
+        w.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+
+        const toggleBtn = document.getElementById('subWindowToggleBtn');
+        if (toggleBtn) toggleBtn.addEventListener('click', () => SubView.toggle());
+        document.getElementById('subWinClose').addEventListener('click', () => SubView.close());
+        // Manual refresh MARKS DIRTY and lets the render seam do the pass —
+        // drawing here would leave camera B on the live tree until the next
+        // frame, which is the one thing the ordering rule exists to prevent.
+        document.getElementById('subWinRefresh').addEventListener('click', () => {
+          SubView._manualPending = true;   // one-shot override of Auto Reload OFF
+          SubView.markDirty();
+          requestRender();
+        });
+        sel.addEventListener('change', () => {
+          const i = parseInt(sel.value, 10);
+          if (!(i >= 0 && i < cameras.length)) return;
+          SubView._camIdx = i;
+          SubView._camRef = cameras[i];
+          SubView._manualPending = true;   // a camera PICK always refreshes, auto or not
+          SubView.markDirty();
+          requestRender();
+        });
+        // View options (2026-08-12 polish). Both trigger through the seam so
+        // the ordering rule holds; Grid marks manual too, so toggling it works
+        // with Auto Reload off.
+        const autoCb = document.getElementById('subWinAutoCb');
+        if (autoCb) autoCb.addEventListener('change', () => { SubView.auto = autoCb.checked; });
+        const gridCb = document.getElementById('subWinGridCb');
+        if (gridCb) gridCb.addEventListener('change', () => {
+          SubView.showGrid = gridCb.checked;
+          SubView._manualPending = true;
+          SubView.markDirty();
+          requestRender();
+        });
+        // HUD visibility is a class toggle on the window — no sub pass needed,
+        // the bars are chrome, not scene content.
+        const hudCb = document.getElementById('subWinHudCb');
+        if (hudCb) hudCb.addEventListener('change', () => {
+          SubView.showHud = hudCb.checked;
+          w.classList.toggle('subwin-hud-off', !hudCb.checked);
+        });
+        // Axis: display toggle only — the indicator updates on every refresh
+        // whether visible or not (three lines, effectively free).
+        const axisCb = document.getElementById('subWinAxisCb');
+        if (axisCb) axisCb.addEventListener('change', () => {
+          SubView.showAxis = axisCb.checked;
+          SubView._syncAxis();   // re-place too, in case the window resized while hidden
+        });
+        // Frame guide: per-window value, drawn outside the clone — sync the
+        // rect directly, no refresh.
+        const fgSel = document.getElementById('subWinFrameGuide');
+        if (fgSel) fgSel.addEventListener('change', () => {
+          SubView.frameGuide = fgSel.value;
+          SubView._syncFrameGuide();
+        });
+
+        // TEARDOWN on close (the tlCurveEditor toggle pattern). Also fires for
+        // a hidePopover() the app did not initiate, which is exactly why the
+        // teardown lives here and not in close().
+        w.addEventListener('toggle', (e) => {
+          if (e.newState !== 'closed') return;
+          const g = SubView._group();
+          if (g) g.replaceChildren();     // drop the clone; it is pure memory when hidden
+          SubView._dirty = true;
+          SubView._epoch = -1;
+          SubView._pose = '';
+          SubView._syncToggleBtn();
+        });
+
+        // --- DRAG TO MOVE (tool-drawer header drag, both axes) ---------------
+        // TD_DRAG_THRESHOLD dead zone so a click on the dropdown/buttons is
+        // never swallowed by a one-pixel jitter.
+        const SUBWIN_DRAG_THRESHOLD = 4;
+        hdr.addEventListener('mousedown', (e) => {
+          if (e.button !== 0) return;
+          if (e.target.closest('button, select, input')) return;
+          let dragging = false;
+          const startX = e.clientX, startY = e.clientY;
+          const r = w.getBoundingClientRect();
+          const startLeft = r.left, startTop = r.top, ww = r.width, wh = r.height;
+          const onMove = (mv) => {
+            const dx = mv.clientX - startX, dy = mv.clientY - startY;
+            if (!dragging && Math.hypot(dx, dy) < SUBWIN_DRAG_THRESHOLD) return;
+            dragging = true;
+            hdr.classList.add('dragging');
+            const maxL = Math.max(0, window.innerWidth - ww);
+            const maxT = Math.max(0, window.innerHeight - wh);
+            w.style.left = Math.max(0, Math.min(maxL, startLeft + dx)) + 'px';
+            w.style.top = Math.max(0, Math.min(maxT, startTop + dy)) + 'px';
+          };
+          const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            hdr.classList.remove('dragging');
+          };
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
+        });
+
+        // --- RESIZE (tlResizeHandle recipe: pointer capture + -resizing) -----
+        // Width only; the square content derives the height (see the CSS).
+        const grip = document.getElementById('subWinResize');
+        let resizing = false, rsStartX = 0, rsStartW = 0;
+        grip.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          resizing = true;
+          rsStartX = e.clientX;
+          rsStartW = w.getBoundingClientRect().width;
+          w.classList.add('subwin-resizing');
+          document.body.style.cursor = 'nwse-resize';
+          grip.setPointerCapture(e.pointerId);
+        });
+        grip.addEventListener('pointermove', (e) => {
+          if (!resizing) return;
+          const nw = Math.max(SubView.MIN_SIZE,
+            Math.min(SubView._maxSize(), rsStartW + (e.clientX - rsStartX)));
+          w.style.width = nw + 'px';
+          // The axis is a fixed SCREEN size, so its transform depends on the
+          // canvas width — re-derive it live or it rubber-bands until the
+          // drag ends and the refresh catches up.
+          SubView._syncAxis();
+        });
+        const endResize = (e) => {
+          if (!resizing) return;
+          resizing = false;
+          w.classList.remove('subwin-resizing');
+          document.body.style.cursor = '';
+          if (e && e.pointerId != null && grip.hasPointerCapture(e.pointerId)) {
+            grip.releasePointerCapture(e.pointerId);
+          }
+          SubView._clampPosition();
+          // Resize end is a dirty trigger: the clone is resolution-independent
+          // vector, so this is belt-and-braces rather than strictly required —
+          // but it also re-runs after a size change that revealed clipping.
+          SubView.markDirty();
+          requestRender();
+        };
+        grip.addEventListener('pointerup', (e) => endResize(e));
+        grip.addEventListener('pointercancel', (e) => endResize(e));
+
+        // Bottom-LEFT grip (v20260812zb): same recipe, opposite anchor — the
+        // RIGHT edge stays fixed, so left/width move together and the corner
+        // tracks the pointer. Clamps mirror the right grip's.
+        const gripL = document.getElementById('subWinResizeL');
+        let resizingL = false, rsLStartX = 0, rsLStartW = 0, rsLRight = 0;
+        if (gripL) {
+          gripL.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            resizingL = true;
+            rsLStartX = e.clientX;
+            const r = w.getBoundingClientRect();
+            rsLStartW = r.width;
+            rsLRight = r.right;
+            w.classList.add('subwin-resizing');
+            document.body.style.cursor = 'nesw-resize';
+            gripL.setPointerCapture(e.pointerId);
+          });
+          gripL.addEventListener('pointermove', (e) => {
+            if (!resizingL) return;
+            const nw = Math.max(SubView.MIN_SIZE,
+              Math.min(SubView._maxSize(), rsLStartW - (e.clientX - rsLStartX)));
+            w.style.width = nw + 'px';
+            w.style.left = (rsLRight - nw) + 'px';
+            SubView._syncAxis();   // fixed screen size — see the right grip
+          });
+          const endResizeL = (e) => {
+            if (!resizingL) return;
+            resizingL = false;
+            w.classList.remove('subwin-resizing');
+            document.body.style.cursor = '';
+            if (e && e.pointerId != null && gripL.hasPointerCapture(e.pointerId)) {
+              gripL.releasePointerCapture(e.pointerId);
+            }
+            SubView._clampPosition();
+            SubView.markDirty();
+            requestRender();
+          };
+          gripL.addEventListener('pointerup', (e) => endResizeL(e));
+          gripL.addEventListener('pointercancel', (e) => endResizeL(e));
+        }
+
+        window.addEventListener('resize', () => {
+          if (!SubView.isOpen()) return;
+          SubView._clampSize();
+          SubView._clampPosition();
+        });
+      },
+    };
+    SubView._init();
+    // ===================== END CAMERA SUBWINDOW (Phase 2) =====================
+
+    // --- CAMERA SUBWINDOW — Phase 3: in-window orbit + HUD bars -------------
+    // PLAN-camera-subwindow.md §Phase 3, decision D2.
+    //
+    // WHY A SEPARATE MODULE: SubView owns the window and the swap-draw-clone
+    // pass; this owns pointer gestures on it. The only coupling is the Phase 2
+    // public contract (SubView.camera(), SubView.markDirty()) plus element ids,
+    // so the two can be edited independently.
+    //
+    // CAMERA-WRITE RULES (all four are load-bearing — read before editing):
+    //  1. Pose writes go DIRECTLY to the sub camera object + SubView.markDirty().
+    //     NOT through updateCameraFromInput — that reads the sidebar inputs and
+    //     drives `selectedCamera || activeCamera`, which the sub camera is not.
+    //  2. A locked camera refuses every write (cam.lock checked in every handler,
+    //     not just via the disabled class), and the window shows it.
+    //  3. Undo: pushCameraUndoStateCoalesced() on gesture start. captureCameraState()
+    //     snapshots the WHOLE cameras list and restoreCameraFromState rebuilds every
+    //     camera from it, so sub-camera pose edits genuinely undo.
+    //  4. Auto-key: NEVER. The `__camera__` track is ALWAYS the ACTIVE camera
+    //     (tlApplyFrame writes into activeCamera), so keying a sub-camera edit
+    //     would key the wrong camera's track. Even when the sub camera IS the
+    //     active camera we stay out — one rule, not a rule that silently starts
+    //     keying when a dropdown matches. Revisit on owner demand.
+    //  5. No FOV control in this phase, and #camFovCompensateCheckbox (Keep Size)
+    //     is never read or written here. If the subwindow ever gets an FOV bar it
+    //     needs its OWN keep-size state (the "two things, two controls, two
+    //     names" rule, ~16639).
+    const SubViewControls = (() => {
+
+      // -- Feel constants -----------------------------------------------------
+      // The free drag calls Camera.rotate(dx, dy) DIRECTLY: that IS the app's
+      // Alt+drag orbit (onMouseMove's `dragMode === 'orbit'` branch does
+      // `activeCamera.rotate(deltaMove.x, deltaMove.y)`), so the deg-per-pixel
+      // feel is identical BY CONSTRUCTION (rotationSpeed 0.005 rad/px ≈
+      // 0.286°/px) and we inherit its up-vector carry and pole handling for
+      // free. Do not re-derive that math here.
+      //
+      // The HUD BARS are absolute-value drags at the main bars' rate:
+      const HUD_DEG_PER_PX = 0.5;         // matches `deltaDeg = dx * 0.5`
+      const HUD_DIST_PER_PX = 0.05;       // matches the main Dist bar's dx * 0.05
+
+      // Wheel zoom. Camera.zoom() is NOT reusable: it reads
+      // #camFovCompensateCheckbox (Keep Size) — forbidden here — and is additive
+      // with a 5..50 clamp (~0.1 unit per notch at dist 10, far too slow for a
+      // small preview). This is a local multiplicative step instead; one named
+      // constant so the feel is retunable in one place.
+      const WHEEL_ZOOM_PER_PX = 0.0015;   // e^(dy·k): ≈16% per 100px notch
+      const DIST_MIN = 0.1, DIST_MAX = 500;
+      const ZOOM_MIN = 0.1, ZOOM_MAX = 500;
+
+      let _els = null;
+      let _initialized = false;
+
+      const _q = (id) => document.getElementById(id);
+
+      // RE-RESOLVE THE CAMERA ON EVERY EVENT — never cache it across a gesture.
+      // A camera undo (restoreCameraFromState) REBUILDS cameras[] with brand new
+      // Camera objects, so a held reference silently edits a detached camera that
+      // nothing renders.
+      const _cam = () => {
+        try { return (SubView && SubView.camera) ? SubView.camera() : null; }
+        catch (e) { return null; }        // module not up yet
+      };
+      const _editable = (cam) => !!cam && !cam.lock;
+
+      // The `projectionType` GLOBAL mirrors activeCamera only (plan §1.3), so a
+      // sub camera must be asked for its own mode first — same precedence as
+      // Camera.createProjectionMatrix and Camera.truck.
+      const _projOf = (cam) => (cam && cam.projectionType) || projectionType;
+
+      // Playback interlock: tlApplyFrame writes into activeCamera, so only a sub
+      // camera that IS the active camera would fight the animation.
+      const _animatedNow = (cam) =>
+        (typeof animationTimeline !== 'undefined') && animationTimeline.isPlaying && cam === activeCamera;
+
+      // -- Undo -------------------------------------------------------------
+      // See rule 3 above. Coalesced, exactly like every main HUD bar's pointerdown.
+      const _beginPoseGesture = () => {
+        if (typeof pushCameraUndoStateCoalesced === 'function') pushCameraUndoStateCoalesced();
+      };
+
+      // -- Pose-edit epilogue -------------------------------------------------
+      const _afterPoseEdit = (cam) => {
+        // Refresh policy stays ON-CHANGE (D1). During a drag this fires on every
+        // pointermove, and refreshIfNeeded() runs once per rAF from render()'s
+        // tail — so at most ONE sub pass per frame: the sub view is effectively
+        // LIVE-PER-FRAME while you drag it, then idle again the moment you stop.
+        // That is the same per-frame derivation the app already pays for a normal
+        // main-camera orbit (plan §0b/§1.5), and it is FINE: a preview you are
+        // actively steering has to be live to be steerable. If Phase 2 rate-limits
+        // markDirty, this only gets cheaper — the seam decides, not us.
+        if (SubView && SubView.markDirty) SubView.markDirty();
+
+        // Sidebar honesty. render() already calls updateCameraPanel() EVERY frame
+        // (v20260802f), and updateCameraList() shows no pose at all, so nothing can
+        // go stale while the loop runs; this call only covers a parked loop
+        // (console harness / debugging).
+        if ((cam === selectedCamera || cam === activeCamera) && typeof updateCameraPanel === 'function') {
+          updateCameraPanel();
+        }
+
+        // If the sub camera IS the active camera, this edit moves the MAIN view
+        // too. That is correct and expected — the main view updates through the
+        // normal continuous loop, no special casing.
+        requestRender();
+
+        // NO tlAutoKeyCamera() HERE. See rule 4 in the header comment.
+      };
+
+      // -- Absolute azimuth/elevation apply -----------------------------------
+      // Copied verbatim from updateCameraFromInput's
+      // ['camAzimuthInput','camElevationInput'] branch — same spherical
+      // construction, same pole-crossing `up` derivation. COPIED, not called,
+      // because that function drives `selectedCamera || activeCamera` from the
+      // sidebar inputs; the sub camera is neither. If that branch is ever fixed,
+      // fix it here too (grep: "Spherical theta").
+      const _applyAzEl = (cam, azDeg, elDeg) => {
+        const dist = vectorLength(vectorSubtract(cam.position, cam.target)) || 10;
+        const radAz = (azDeg * Math.PI) / 180;
+        const radEl = ((90 - elDeg) * Math.PI) / 180;   // Spherical theta (0=up)
+
+        const y = dist * Math.cos(radEl);
+        const h = dist * Math.sin(radEl);               // signed horizontal radius
+        const x = h * Math.sin(radAz);
+        const z = h * Math.cos(radAz);
+        cam.position = vectorAdd(cam.target, [x, y, z]);
+
+        const worldUp = Math.sin(radEl) >= 0 ? [0, 1, 0] : [0, -1, 0];
+        cam.up = [...worldUp];
+        const viewDir = vectorNormalize(vectorSubtract(cam.target, cam.position));
+        const right = vectorNormalize(vectorCross(worldUp, viewDir));
+        if (vectorLength(right) > 0.001) {
+          cam.up = vectorNormalize(vectorCross(viewDir, right));
+        } else {
+          const s = Math.sin(radEl) >= 0 ? 1 : -1;
+          cam.up = [-s * Math.sin(radAz), 0, s * Math.cos(radAz)];
+        }
+      };
+
+      // -- UI sync ------------------------------------------------------------
+      const _syncLockUI = () => {
+        if (!_els) return;
+        const cam = _cam();
+        const locked = !!(cam && cam.lock);
+        if (_els.win) _els.win.classList.toggle('subwin-locked', locked);
+        [_els.azBar, _els.elBar, _els.distBar,
+         _els.fovBar, _els.fovZoomBar, _els.truckXBar, _els.truckYBar, _els.handBtn].forEach(b => {
+          if (b) b.classList.toggle('subwin-hud-disabled', locked);
+        });
+        if (_els.svg) {
+          _els.svg.title = locked
+            ? 'Camera is locked — unlock it in the Camera list to orbit'
+            : 'Drag to orbit · Wheel to zoom';
+        }
+      };
+
+      const _syncReadouts = () => {
+        if (!_els) return;
+        const cam = _cam();
+        if (!cam) return;
+        // getCameraOrbitalState is a LATE top-level const (~72231). Only ever
+        // called from a handler or an rAF callback — never at script-execution
+        // time (TDZ: `typeof` would throw too). See init()'s deferred first sync.
+        const st = getCameraOrbitalState(cam);
+        if (_els.azValue) _els.azValue.textContent = st.azimuth.toFixed(1) + '°';
+        if (_els.elValue) _els.elValue.textContent = st.elevation.toFixed(1) + '°';
+        const persp = _projOf(cam) === 'perspective';
+        if (_els.distValue) {
+          _els.distValue.textContent = persp ? st.distance.toFixed(1) : (cam.orthoZoom || 10).toFixed(1);
+        }
+        if (_els.distIcon) _els.distIcon.style.display = persp ? '' : 'none';
+        if (_els.sizeIcon) _els.sizeIcon.style.display = persp ? 'none' : '';
+        if (_els.distBar) {
+          _els.distBar.title = persp
+            ? 'Drag left/right to adjust Distance'
+            : 'Drag left/right to adjust Size';
+        }
+        // FOV pair: perspective only, same rule as the canvas HUD (fov means
+        // nothing to an ortho/oblique projection). display, not visibility —
+        // the bars stack by fixed offsets and must not leave a hole.
+        const fovDisp = persp ? '' : 'none';
+        if (_els.fovBar) _els.fovBar.style.display = fovDisp;
+        if (_els.fovZoomBar) _els.fovZoomBar.style.display = fovDisp;
+        const fovTxt = (cam.fovDegrees || 0).toFixed(0) + '°';
+        if (_els.fovValue) _els.fovValue.textContent = fovTxt;
+        if (_els.fovZoomValue) _els.fovZoomValue.textContent = fovTxt;
+      };
+
+      // -- Bar markup ---------------------------------------------------------
+      // Built in JS rather than authored in the body so this phase does not have
+      // to edit Phase 2's markup (two agents, one file). Same class family, same
+      // icon geometry as the canvas HUD bars (#hudAzimuthBar / #hudElevationBar /
+      // #hudDistBar) — only the ids and the .subwin-hud positioning differ.
+      const _BARS_HTML = `
+  <div id="subHudAzBar" class="canvas-hud-bar canvas-hud-bar-h subwin-hud subwin-hud-az"
+    title="Drag left/right to orbit the sub camera (Azimuth)">
+    <svg class="hud-bar-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="10" y1="2" x2="10" y2="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+      <ellipse cx="10" cy="10" rx="8" ry="3" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    </svg>
+    <svg class="hud-bar-svg" viewBox="0 0 88 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="22 16 16 12 22 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="66 8 72 12 66 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    <span class="hud-value" id="subHudAzValue">0.0°</span>
+  </div>
+  <div id="subHudElBar" class="canvas-hud-bar canvas-hud-bar-v subwin-hud subwin-hud-el"
+    title="Drag up/down to orbit the sub camera (Elevation)">
+    <svg class="hud-bar-icon-v" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="2" y1="10" x2="18" y2="10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+      <ellipse cx="10" cy="10" rx="3" ry="8" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    </svg>
+    <svg class="hud-bar-svg" viewBox="0 0 24 104" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="8 26 12 20 16 26" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="16 78 12 84 8 78" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    <span class="hud-value" id="subHudElValue">0.0°</span>
+  </div>
+  <div id="subHudDistBar" class="canvas-hud-bar canvas-hud-bar-br subwin-hud subwin-hud-dist"
+    title="Drag left/right to adjust Distance">
+    <svg id="subHudDistIcon" class="hud-bar-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="10" y1="5" x2="10" y2="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="8 6 10 5 12 6" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+      <polyline points="6 14 10 16 14 14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+      <line x1="6" y1="6" x2="2" y2="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+      <line x1="14" y1="6" x2="18" y2="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    <svg id="subHudSizeIcon" class="hud-bar-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:none">
+      <line x1="15" y1="5" x2="5" y2="15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="11 4 16 4 16 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="1.14" />
+      <polyline points="9.03 15.97 4.03 15.97 4.03 10.97" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="1.14" />
+    </svg>
+    <svg class="hud-bar-svg" viewBox="0 0 72 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="18 16 12 12 18 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="54 8 60 12 54 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    <span class="hud-value" id="subHudDistValue">10.0</span>
+  </div>
+  <div id="subHudFovZoomBar" class="canvas-hud-bar canvas-hud-bar-br subwin-hud subwin-hud-fovzoom"
+    title="Drag left/right to adjust FOV (zoom)">
+    <svg class="hud-bar-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="3 5 10 17 17 5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+      <path d="M6.98,11.82c.89-.52,1.92-.82,3.02-.82s2.14.3,3.02.82" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    </svg>
+    <svg class="hud-bar-svg" viewBox="0 0 72 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="18 16 12 12 18 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="54 8 60 12 54 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    <span class="hud-value" id="subHudFovZoomValue">60°</span>
+  </div>
+  <div id="subHudFovBar" class="canvas-hud-bar canvas-hud-bar-br subwin-hud subwin-hud-fov"
+    title="Drag left/right to adjust FOV (keeps size — dolly-zoom)">
+    <svg class="hud-bar-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="18 14 14 6 6 6 2 14 18 14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    </svg>
+    <svg class="hud-bar-svg" viewBox="0 0 72 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="18 16 12 12 18 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="54 8 60 12 54 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    <span class="hud-value" id="subHudFovValue">60°</span>
+  </div>
+  <div id="subHudTruckXBar" class="canvas-hud-bar canvas-hud-bar-br subwin-hud subwin-hud-truckx"
+    title="Drag left/right to truck the sub camera X">
+    <svg class="hud-bar-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="17" y1="10" x2="3" y2="10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="7 6 3 10 7 14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+      <polyline points="13 14 17 10 13 6" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    </svg>
+    <svg class="hud-bar-svg" viewBox="0 0 72 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="18 16 12 12 18 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="54 8 60 12 54 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    <span class="hud-value" id="subHudTruckXValue">0.0</span>
+  </div>
+  <div id="subHudTruckYBar" class="canvas-hud-bar canvas-hud-bar-v subwin-hud subwin-hud-trucky"
+    title="Drag up/down to pedestal the sub camera Y">
+    <svg class="hud-bar-icon-v" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="10" y1="3" x2="10" y2="17" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="6 13 10 17 14 13" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+      <polyline points="14 7 10 3 6 7" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    </svg>
+    <svg class="hud-bar-svg" viewBox="0 0 24 104" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="8 26 12 20 16 26" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="16 78 12 84 8 78" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    <span class="hud-value" id="subHudTruckYValue">0.0</span>
+  </div>
+  <div id="subHudTruckResetBtn" class="canvas-hud-bar canvas-hud-bar-circle subwin-hud subwin-hud-hand"
+    title="Drag to truck freely — Click to reset Truck / Pedestal">
+    <svg viewBox="0 0 20 20" fill="#fff" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M15.09,6.6c-.52-.21-1.09.07-1.25.58l-1.23,2.77.82-4.41c.1-.58-.25-1.17-.82-1.29-.61-.13-1.2.27-1.3.88l-.7,4.19v-5.28c-.01-.6-.49-1.08-1.09-1.08s-1.08.48-1.08,1.08v5.66s-.9-4.69-.9-4.69c-.1-.52-.54-.93-1.07-.93-.7,0-1.18.63-1.06,1.28l1.23,6.36c-.41-.62-1.2-1.15-1.76-1.47-.53-.31-1.64-.03-1.51.73.03.19.24.56.35.72l3.31,4.65c.33.45.85.71,1.41.71h3.69c.65,0,1.21-.44,1.37-1.07l2.12-8.22c.13-.47-.09-.99-.54-1.17Z" />
+    </svg>
+  </div>`;
+
+      // -- Wiring -------------------------------------------------------------
+      const _wireOrbit = (svg) => {
+        // Free drag inside the content svg = orbit the sub camera (D2).
+        let dragging = false, pid = -1, lastX = 0, lastY = 0;
+
+        svg.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();   // the canvas tools must never see this
+          const cam = _cam();
+          if (!_editable(cam)) { _syncLockUI(); return; }   // locked = no-op
+          dragging = true;
+          pid = e.pointerId;
+          lastX = e.clientX;
+          lastY = e.clientY;
+          svg.classList.add('subwin-orbiting');
+          svg.setPointerCapture(e.pointerId);
+          _beginPoseGesture();
+        });
+
+        svg.addEventListener('pointermove', (e) => {
+          if (!dragging || e.pointerId !== pid) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cam = _cam();                   // re-resolved every event (see _cam)
+          if (!_editable(cam) || _animatedNow(cam)) return;
+          const dx = e.clientX - lastX;
+          const dy = e.clientY - lastY;
+          lastX = e.clientX;
+          lastY = e.clientY;
+          // INCREMENTAL, like onMouseMove's orbit: Camera.rotate consumes per-move
+          // deltas, not a total. Same call, same constant, same feel.
+          cam.rotate(dx, dy);
+          _afterPoseEdit(cam);
+          _syncReadouts();
+        });
+
+        const end = (e) => {
+          if (!dragging) return;
+          dragging = false;
+          pid = -1;
+          svg.classList.remove('subwin-orbiting');
+          if (SubView && SubView.markDirty) SubView.markDirty();   // final settled pose
+          _syncReadouts();
+          // No auto-key on up — see rule 4.
+        };
+        svg.addEventListener('pointerup', end);
+        svg.addEventListener('pointercancel', end);
+
+        // Wheel: dist (perspective) / orthoZoom (ortho + oblique).
+        svg.addEventListener('wheel', (e) => {
+          e.preventDefault();      // the page must not scroll under the window
+          e.stopPropagation();
+          const cam = _cam();
+          if (!_editable(cam) || _animatedNow(cam)) return;
+          _beginPoseGesture();
+          const f = Math.exp(e.deltaY * WHEEL_ZOOM_PER_PX);
+          if (_projOf(cam) === 'perspective') {
+            const rel = vectorSubtract(cam.position, cam.target);
+            const d = vectorLength(rel);
+            if (d < 1e-6) return;
+            const nd = Math.max(DIST_MIN, Math.min(DIST_MAX, d * f));
+            cam.position = vectorAdd(cam.target, vectorScale(vectorNormalize(rel), nd));
+          } else {
+            cam.orthoZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, (cam.orthoZoom || 10) * f));
+          }
+          _afterPoseEdit(cam);
+          _syncReadouts();
+        }, { passive: false });   // passive:false is what makes preventDefault bind
+      };
+
+      // Azimuth bar — absolute-value drag, 0.5°/px (the main bar's rate).
+      const _wireAzBar = (bar) => {
+        let dragging = false, startX = 0, startAz = 0;
+
+        bar.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cam = _cam();
+          if (!_editable(cam)) { _syncLockUI(); return; }
+          dragging = true;
+          startX = e.clientX;
+          const relative = vectorSubtract(cam.position, cam.target);
+          startAz = (Math.atan2(relative[0], relative[2]) * 180) / Math.PI;
+          bar.classList.add('dragging');
+          bar.setPointerCapture(e.pointerId);
+          _beginPoseGesture();
+        });
+
+        bar.addEventListener('pointermove', (e) => {
+          if (!dragging) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cam = _cam();
+          if (!_editable(cam) || _animatedNow(cam)) return;
+          const st = getCameraOrbitalState(cam);
+          // No clamping — continuous orbit past the poles, like the main bar.
+          _applyAzEl(cam, startAz + (e.clientX - startX) * HUD_DEG_PER_PX, st.elevation);
+          _afterPoseEdit(cam);
+          _syncReadouts();
+        });
+
+        const end = () => {
+          if (!dragging) return;
+          dragging = false;
+          bar.classList.remove('dragging');
+          if (SubView && SubView.markDirty) SubView.markDirty();
+        };
+        bar.addEventListener('pointerup', end);
+        bar.addEventListener('pointercancel', end);
+      };
+
+      // Elevation bar — drag up = positive elevation, 0.5°/px, no clamp.
+      const _wireElBar = (bar) => {
+        let dragging = false, startY = 0, startEl = 0;
+
+        bar.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cam = _cam();
+          if (!_editable(cam)) { _syncLockUI(); return; }
+          dragging = true;
+          startY = e.clientY;
+          startEl = getCameraOrbitalState(cam).elevation;
+          bar.classList.add('dragging');
+          bar.setPointerCapture(e.pointerId);
+          _beginPoseGesture();
+        });
+
+        bar.addEventListener('pointermove', (e) => {
+          if (!dragging) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cam = _cam();
+          if (!_editable(cam) || _animatedNow(cam)) return;
+          const st = getCameraOrbitalState(cam);
+          _applyAzEl(cam, st.azimuth, startEl + -(e.clientY - startY) * HUD_DEG_PER_PX);
+          _afterPoseEdit(cam);
+          _syncReadouts();
+        });
+
+        const end = () => {
+          if (!dragging) return;
+          dragging = false;
+          bar.classList.remove('dragging');
+          if (SubView && SubView.markDirty) SubView.markDirty();
+        };
+        bar.addEventListener('pointerup', end);
+        bar.addEventListener('pointercancel', end);
+      };
+
+      // Dist / Size bar — additive, dx * 0.05, exactly the main Dist bar's rate.
+      // NOTE: unlike the main Dist bar this does NOT save/force/restore
+      // #camFovCompensateCheckbox — Phase 3 never touches Keep-Size state, and it
+      // does not have to: we write cam.position directly instead of going through
+      // updateCameraFromInput, so no compensation path can fire.
+      // No click-to-reset either (the main bar's reset uses REFERENCE_ORTHO_ZOOM
+      // + a fov-derived distance; a reset for the sub camera is a separate
+      // decision, not a side effect of a mis-click).
+      const _wireDistBar = (bar) => {
+        let dragging = false, startX = 0, startVal = 0, startPersp = true;
+
+        bar.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cam = _cam();
+          if (!_editable(cam)) { _syncLockUI(); return; }
+          dragging = true;
+          startX = e.clientX;
+          startPersp = _projOf(cam) === 'perspective';
+          startVal = startPersp
+            ? vectorLength(vectorSubtract(cam.position, cam.target))
+            : (cam.orthoZoom || 10);
+          bar.classList.add('dragging');
+          bar.setPointerCapture(e.pointerId);
+          _beginPoseGesture();
+        });
+
+        bar.addEventListener('pointermove', (e) => {
+          if (!dragging) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cam = _cam();
+          if (!_editable(cam) || _animatedNow(cam)) return;
+          const v = startVal + (e.clientX - startX) * HUD_DIST_PER_PX;
+          if (startPersp) {
+            const rel = vectorSubtract(cam.position, cam.target);
+            if (vectorLength(rel) < 1e-6) return;
+            const nd = Math.max(DIST_MIN, Math.min(DIST_MAX, v));
+            cam.position = vectorAdd(cam.target, vectorScale(vectorNormalize(rel), nd));
+          } else {
+            cam.orthoZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, v));
+          }
+          _afterPoseEdit(cam);
+          _syncReadouts();
+        });
+
+        const end = () => {
+          if (!dragging) return;
+          dragging = false;
+          bar.classList.remove('dragging');
+          if (SubView && SubView.markDirty) SubView.markDirty();
+        };
+        bar.addEventListener('pointerup', end);
+        bar.addEventListener('pointercancel', end);
+      };
+
+      // FOV bars — absolute drags, 0.5°/px, clamp 1..179 (the main bars' rate
+      // and the sidebar input's own min/max). Two bars, one function:
+      // `keepSize` is the dolly-zoom — hold K = dist·tan(fov/2) (the framing
+      // quantity Hold Framing keys, §6.4) by moving the camera along its own
+      // view ray as the FOV changes. LOCAL compensation, deliberately not the
+      // main path: the main FOV bar forces #camFovCompensateCheckbox mid-drag
+      // because updateCameraFromInput reads it; we write the camera directly,
+      // so no Keep-Size state is touched (rule 5) and the two HUDs cannot
+      // fight over the checkbox's save/restore. Perspective only — the bars
+      // are hidden otherwise (see _syncReadouts), same as the canvas pair.
+      const _wireFovBar = (bar, keepSize) => {
+        let dragging = false, startX = 0, startFov = 0, startDist = 0;
+
+        bar.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cam = _cam();
+          if (!_editable(cam) || _projOf(cam) !== 'perspective') { _syncLockUI(); return; }
+          dragging = true;
+          startX = e.clientX;
+          startFov = cam.fovDegrees;
+          startDist = vectorLength(vectorSubtract(cam.position, cam.target));
+          bar.classList.add('dragging');
+          bar.setPointerCapture(e.pointerId);
+          _beginPoseGesture();
+        });
+
+        bar.addEventListener('pointermove', (e) => {
+          if (!dragging) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cam = _cam();
+          if (!_editable(cam) || _animatedNow(cam)) return;
+          const newFov = Math.max(1, Math.min(179, startFov + (e.clientX - startX) * HUD_DEG_PER_PX));
+          if (keepSize) {
+            // K from the GESTURE-START pose, so the compensation cannot drift
+            // across moves of one drag (the Hold-Framing derivative lesson).
+            const K = startDist * Math.tan((startFov * Math.PI) / 360);
+            const nd = Math.max(DIST_MIN, Math.min(DIST_MAX, K / Math.tan((newFov * Math.PI) / 360)));
+            const rel = vectorSubtract(cam.position, cam.target);
+            if (vectorLength(rel) < 1e-6) return;
+            cam.position = vectorAdd(cam.target, vectorScale(vectorNormalize(rel), nd));
+          }
+          cam.fovDegrees = newFov;
+          _afterPoseEdit(cam);
+          _syncReadouts();
+        });
+
+        const end = () => {
+          if (!dragging) return;
+          dragging = false;
+          bar.classList.remove('dragging');
+          if (SubView && SubView.markDirty) SubView.markDirty();
+        };
+        bar.addEventListener('pointerup', end);
+        bar.addEventListener('pointercancel', end);
+      };
+
+      // Truck bars — INCREMENTAL per-move deltas into Camera.truck, the same
+      // call Space+drag makes (onMouseMove's 'truck' branch), so the feel and
+      // the per-camera fov/zoom scaling are inherited by construction — truck
+      // is self-scaling (TRUCK_SPEED × dist·tan(fov/2) per px), which is why
+      // these bars need no rate constant of their own. The readout is the
+      // GESTURE's accumulated world offset (resets to 0 per drag) — an
+      // absolute truck offset needs a baseline the sub camera does not carry.
+      const _wireTruckBar = (bar, valueEl, horizontal) => {
+        let dragging = false, lastX = 0, lastY = 0, worldAccum = 0;
+
+        bar.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cam = _cam();
+          if (!_editable(cam)) { _syncLockUI(); return; }
+          dragging = true;
+          lastX = e.clientX;
+          lastY = e.clientY;
+          worldAccum = 0;
+          bar.classList.add('dragging');
+          bar.setPointerCapture(e.pointerId);
+          _beginPoseGesture();
+        });
+
+        bar.addEventListener('pointermove', (e) => {
+          if (!dragging) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cam = _cam();
+          if (!_editable(cam) || _animatedNow(cam)) return;
+          const dx = e.clientX - lastX;
+          const dy = e.clientY - lastY;
+          lastX = e.clientX;
+          lastY = e.clientY;
+          if (horizontal) cam.truck(dx, 0); else cam.truck(0, dy);
+          // Mirror truck's own scaling for the readout (world units).
+          const persp = _projOf(cam) === 'perspective';
+          const sf = persp
+            ? vectorLength(vectorSubtract(cam.position, cam.target)) * Math.tan(cam.fovRadians / 2)
+            : (cam.orthoZoom || 10);
+          worldAccum += (horizontal ? -dx : -dy) * TRUCK_SPEED * sf;
+          if (valueEl) valueEl.textContent = worldAccum.toFixed(1);
+          _afterPoseEdit(cam);
+          _syncReadouts();
+        });
+
+        const end = () => {
+          if (!dragging) return;
+          dragging = false;
+          bar.classList.remove('dragging');
+          if (valueEl) valueEl.textContent = '0.0';
+          if (SubView && SubView.markDirty) SubView.markDirty();
+        };
+        bar.addEventListener('pointerup', end);
+        bar.addEventListener('pointercancel', end);
+      };
+
+      // The HAND (v20260812zb) — the main #hudTruckResetBtn's dual gesture,
+      // ported: DRAG = free two-axis truck (incremental Camera.truck, both
+      // axes at once), CLICK inside a 3px dead zone = reset truck/pedestal by
+      // the main button's own arithmetic (move position by the target's
+      // displacement from initialTarget, then restore the target — clone()
+      // copies initialTarget, so every sub camera carries the baseline).
+      // Differences from the main handler, both deliberate: no
+      // tlAutoKeyCamera on up (rule 4), and the click-reset uses the same
+      // coalesced push as every other gesture here rather than a fresh
+      // pushCameraUndoState — one undo step per gesture either way.
+      const _wireHandBtn = (btn) => {
+        let dragging = false, didMove = false, startX = 0, startY = 0, lastX = 0, lastY = 0;
+        const DEAD = 3;
+
+        btn.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cam = _cam();
+          if (!_editable(cam)) { _syncLockUI(); return; }
+          dragging = true;
+          didMove = false;
+          startX = lastX = e.clientX;
+          startY = lastY = e.clientY;
+          btn.classList.add('dragging');
+          btn.setPointerCapture(e.pointerId);
+          _beginPoseGesture();
+        });
+
+        btn.addEventListener('pointermove', (e) => {
+          if (!dragging) return;
+          e.preventDefault();
+          e.stopPropagation();
+          if (!didMove && Math.abs(e.clientX - startX) < DEAD && Math.abs(e.clientY - startY) < DEAD) return;
+          didMove = true;
+          const cam = _cam();
+          if (!_editable(cam) || _animatedNow(cam)) return;
+          const dx = e.clientX - lastX;
+          const dy = e.clientY - lastY;
+          lastX = e.clientX;
+          lastY = e.clientY;
+          cam.truck(dx, dy, false);
+          _afterPoseEdit(cam);
+          _syncReadouts();
+        });
+
+        const end = () => {
+          if (!dragging) return;
+          dragging = false;
+          btn.classList.remove('dragging');
+          if (!didMove) {
+            const cam = _cam();
+            if (_editable(cam) && !_animatedNow(cam) && cam.initialTarget) {
+              const displacement = vectorSubtract(cam.target, cam.initialTarget);
+              cam.position = vectorSubtract(cam.position, displacement);
+              cam.target = [...cam.initialTarget];
+              _afterPoseEdit(cam);
+              _syncReadouts();
+            }
+          }
+          if (SubView && SubView.markDirty) SubView.markDirty();
+        };
+        btn.addEventListener('pointerup', end);
+        btn.addEventListener('pointercancel', end);
+      };
+
+      // -- init (idempotent) --------------------------------------------------
+      const init = () => {
+        if (_initialized) return true;
+        const win = _q('subWindow');
+        const svg = _q('subViewSvg');
+        if (!win || !svg) return false;          // Phase 2 markup not present yet
+
+        // Bars anchor to the CANVAS wrapper (v20260812zb), not the window —
+        // that is what keeps them on the picture instead of over the header or
+        // past the frame. Fall back to the window if the wrap is absent.
+        (_q('subViewWrap') || win).insertAdjacentHTML('beforeend', _BARS_HTML);
+
+        _els = {
+          win,
+          svg,
+          header: _q('subWindowHeader'),
+          azBar: _q('subHudAzBar'), azValue: _q('subHudAzValue'),
+          elBar: _q('subHudElBar'), elValue: _q('subHudElValue'),
+          distBar: _q('subHudDistBar'), distValue: _q('subHudDistValue'),
+          distIcon: _q('subHudDistIcon'), sizeIcon: _q('subHudSizeIcon'),
+          fovBar: _q('subHudFovBar'), fovValue: _q('subHudFovValue'),
+          fovZoomBar: _q('subHudFovZoomBar'), fovZoomValue: _q('subHudFovZoomValue'),
+          truckXBar: _q('subHudTruckXBar'), truckXValue: _q('subHudTruckXValue'),
+          truckYBar: _q('subHudTruckYBar'), truckYValue: _q('subHudTruckYValue'),
+          handBtn: _q('subHudTruckResetBtn'),
+        };
+
+        _wireOrbit(svg);
+        _wireAzBar(_els.azBar);
+        _wireElBar(_els.elBar);
+        _wireDistBar(_els.distBar);
+        _wireFovBar(_els.fovZoomBar, false);
+        _wireFovBar(_els.fovBar, true);
+        _wireTruckBar(_els.truckXBar, _els.truckXValue, true);
+        _wireTruckBar(_els.truckYBar, _els.truckYValue, false);
+        _wireHandBtn(_els.handBtn);
+
+        // Lock/readout sync points: dropdown change and window open. (The
+        // curve-editor lesson — re-targeting while open fires no show event — is
+        // why the dropdown gets its own listener rather than relying on open.)
+        const sel = _q('subCamSelect');
+        if (sel) sel.addEventListener('change', () => { _syncLockUI(); _syncReadouts(); });
+        win.addEventListener('toggle', (e) => {
+          if (e.newState === 'open') { _syncLockUI(); _syncReadouts(); }
+        });
+
+        _initialized = true;
+        // FIRST SYNC IS DEFERRED ONE FRAME ON PURPOSE: _syncReadouts calls
+        // getCameraOrbitalState, a top-level const declared ~10k lines BELOW this
+        // module. Calling it during script execution is a TDZ ReferenceError that
+        // would abort the rest of the top-level script (blank canvas, green
+        // selfTests logged above the error). rAF runs after the script completes.
+        requestAnimationFrame(() => { _syncLockUI(); _syncReadouts(); });
+        return true;
+      };
+
+      // Wire as soon as the markup exists. If Phase 2's window is static markup,
+      // this call succeeds immediately; if it builds the DOM lazily, it returns
+      // false and SubView.open() calls init() (idempotent either way).
+      // Arrow wrapper, never a bare reference (the TDZ landmine rule).
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => init());
+      } else {
+        init();
+      }
+
+      return {
+        init,
+        // Called by SubView.refresh() (optional hook) so the readouts follow a
+        // pose change made from OUTSIDE this module — e.g. the sidebar editing a
+        // sub camera that is also the selected camera.
+        syncUI: () => { _syncLockUI(); _syncReadouts(); },
+      };
+    })();
+    // =================== END CAMERA SUBWINDOW (Phase 3) ======================
 
     const requestRender = () => {
       if (renderInProgress) {
@@ -60402,6 +62338,15 @@
       // requestRender() above. Clearing it here forked a render chain on every
       // direct call (v20260809g).
       renderInProgress = true;
+      // CAMERA SUBWINDOW (Phase 2): the ONE seam. It must run BEFORE the main
+      // scene draw and inside the same rAF callback — the sub pass draws the
+      // live tree from camera B, and the main draw below is what puts camera A
+      // back before the browser gets a paint opportunity. Moving this after the
+      // scene draw would flash B. It is a single boolean test (popover closed)
+      // when the window is not open, and a string compare when it is but
+      // nothing changed; it stands down entirely while RenderCache captures or
+      // presents, because that path skips the restoring main draw.
+      await SubView.refreshIfNeeded();
       const viewMatrix = activeCamera.createViewMatrix();
       const projectionMatrix = activeCamera.createProjectionMatrix();
       const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
@@ -60748,7 +62693,7 @@
       // because the clock can advance underneath a long render (v20260809i).
       const _drawnFrame = animationTimeline.currentFrame;
       if (!RenderCache.step(_drawnFrame)) {
-        await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix })));
+        await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix, camera: activeCamera })));
       }
       // This frame reached the screen, so the tick that asked for it is satisfied.
       if (_tlAwaitingFrame === _drawnFrame) _tlAwaitingFrame = null;
@@ -63127,6 +65072,17 @@
     };
 
     const onMouseMove = (event) => {
+      // SUBWINDOW REALTIME (owner request, 2026-08-12): a scene-mutating drag
+      // marks dirty PER MOVE, so the sub view follows the interaction live —
+      // the seam's self-paced cadence (SubView.PACE_K) decides how often a
+      // pass actually runs. The excluded modes move the MAIN camera or the
+      // selection only, which the sub view cannot see; marking for those
+      // would re-derive the whole scene per frame during every orbit for a
+      // picture that cannot change.
+      if (dragMode !== 'none' && dragMode !== 'orbit' && dragMode !== 'truck'
+        && dragMode !== 'zoom' && dragMode !== 'fov' && dragMode !== 'marquee-select') {
+        SubView.markDirty();
+      }
       if (currentTool === 'directSelect' && dragMode === 'none') {
         const viewMatrix = activeCamera.createViewMatrix();
         const projectionMatrix = activeCamera.createProjectionMatrix();
@@ -65800,6 +67756,12 @@
     const onMouseUp = (event) => {
       // Capture drag mode before it gets cleared for auto-keying
       const _prevDragMode = dragMode;
+      // SUBWINDOW: the end of ANY canvas gesture is a scene change the epoch
+      // cannot see — a drag's coalesced undo push (and its epoch bump) fires
+      // at gesture START, so the subwindow would refresh once with the
+      // pre-drag scene and then hold (owner report, 2026-08-12). One flag
+      // write; the render seam decides whether a pass actually runs.
+      if (_prevDragMode && _prevDragMode !== 'none') SubView.markDirty();
       // RELEASE THE FROZEN DEPTH AXIS EXPLICITLY (v20260812s). `_dragFrozenBasis` can get
       // away with lazy release because the gizmo DRAWS through it every idle frame, so a
       // frame with dragMode 'none' clears it. This one is only ever read mid-drag by the
@@ -72069,6 +74031,11 @@
       // Runs FIRST and unconditionally — it must not depend on the object having
       // tracks, and both SVG export loops call tlApplyFrame per frame, so the
       // exports inherit layer ranges with no extra wiring.
+      // SUBWINDOW: an applied frame is a scene change the epoch cannot see
+      // (scrub, playback, export drives). One boolean write per call; the
+      // seam's self-paced cadence (SubView.PACE_K) paces the actual passes,
+      // and RenderCache's capture/present interlocks keep the cache paths clean.
+      SubView.markDirty();
       _tlApplyLayerRanges(frame);
       for (const [objectName, objTracks] of animationTimeline.tracks) {
         // WORKPLANE track (v20260728w) — grid opacity / size. Both writers are
@@ -76565,6 +78532,10 @@
       }
 
       tlStopPlayback();
+      // A sub pass interleaving between this loop's draw and its serialize
+      // would hand the file camera-B geometry — hold the subwindow for the
+      // export's whole life (released in the finally).
+      SubView._exportHold = true;
       const total = animationTimeline.playbackRange;
       const originalFrame = animationTimeline.currentFrame;
 
@@ -76621,7 +78592,7 @@
 
           // Draw all scene objects with current camera — this is the same call as in render()
           const vpMatrix = _getVpMatrix();
-          await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix })));
+          await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix, camera: activeCamera })));
 
           // Capture clean SVG using the existing generateSVGString pipeline
           const svgString = generateSVGString();
@@ -76640,6 +78611,7 @@
         console.error('[dim] SVG export error:', err);
         alert(`Export failed: ${err.message}`);
       } finally {
+        SubView._exportHold = false;
         // Restore original frame
         animationTimeline.currentFrame = originalFrame;
         tlApplyFrame(originalFrame);
@@ -76676,6 +78648,8 @@
       const total = animationTimeline.playbackRange;
       const fps = animationTimeline.fps;
       const originalFrame = animationTimeline.currentFrame;
+      // Same subwindow hold as the sequence exporter (released in the finally).
+      SubView._exportHold = true;
 
       // --- Progress overlay ---
       const overlay = document.createElement('div');
@@ -76745,7 +78719,7 @@
           animationTimeline.currentFrame = i;
           tlApplyFrame(i);
           const vpMatrix = _getVpMatrix();
-          await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix })));
+          await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix, camera: activeCamera })));
 
           // Capture this frame as a clean SVG string, then parse it back into nodes
           const svgString = generateSVGString();
@@ -76793,6 +78767,7 @@
         console.error('[dim] Multi-layer SVG export error:', err);
         alert(`Export failed: ${err.message}`);
       } finally {
+        SubView._exportHold = false;
         // Restore
         animationTimeline.currentFrame = originalFrame;
         tlApplyFrame(originalFrame);

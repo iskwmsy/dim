@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260812c -->
+<!-- dim v20260813b -->
 
 <!--
   MIT License
@@ -3240,7 +3240,9 @@
       border-top: 1px solid var(--border-light);
       transition: height 0.2s ease;
       display: none;
-      /* Hidden by default; enabled via Settings > Animation */
+      /* Revealed at boot by setAnimationEnabled(ANIMATION_DEFAULT_ON), which is
+         true. Kept `none` here rather than `flex` so a build with the gate off
+         never flashes a timeline it is about to hide. */
       flex-direction: column;
       overflow: hidden;
     }
@@ -4685,6 +4687,13 @@
         <rect x="2" y="10" width="8" height="8" />
       </svg>
     </button>
+    <button data-tool="shear" title="Shear (H)">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="10 2 2 2 10 18 18 18 10 2" />
+        <line x1="6.86" y1="9" x2="17" y2="9" />
+        <polyline stroke-width="1.14" points="10.39 12.54 6.86 9 10.39 5.46" />
+      </svg>
+    </button>
     <button data-tool="pivot" title="Pivot (J)">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="10" cy="10" r="3" />
@@ -5423,20 +5432,10 @@
           <input type="checkbox" id="webgpuEnabledCb" class="ui-checkbox" disabled />
         </div>
 
-        <div class="prop-row prop-inline">
-          <label for="animationEnabledCb" class="ui-checkbox-label">Animation <span
-              style="font-size:10px; color:var(--text-muted);">(experimental)</span></label>
-          <input type="checkbox" id="animationEnabledCb" class="ui-checkbox" checked />
-        </div>
-
-        <!-- TEXT TOOL (experimental) -->
-        <div class="prop-row prop-inline">
-          <label for="textToolEnabledCb" class="ui-checkbox-label">Text Tool <span
-              style="font-size:10px; color:var(--text-muted);">(experimental)</span></label>
-          <input type="checkbox" id="textToolEnabledCb" class="ui-checkbox" checked />
-        </div>
-        <!-- /TEXT TOOL -->
-
+        <!-- Animation and the Text tool were Settings checkboxes marked
+             "(experimental)" until v20260813a. They are DEFAULT FEATURES now;
+             the switches live in code (ANIMATION_DEFAULT_ON /
+             TEXT_TOOL_DEFAULT_ON), not in this panel. -->
 
         <div class="prop-row prop-row-plain" style="margin-top: 8px;">
           <button id="resetSettingsBtn" class="ui-btn" style="width: 100%;">Reset Settings</button>
@@ -5498,6 +5497,17 @@
             <div class="xyz-inputs">
               <select id="rotatePivotModeSelect">
                 <option value="inPlace" selected>Spin in place</option>
+                <option value="keyObject">Around key object</option>
+                <option value="center">Around center</option>
+                <option value="origin">Around world origin</option>
+              </select>
+            </div>
+          </div>
+          <div class="xyz-row hidden" id="shearPivotModeRow">
+            <label for="shearPivotModeSelect">Shear About</label>
+            <div class="xyz-inputs">
+              <select id="shearPivotModeSelect">
+                <option value="inPlace" selected>Shear in place</option>
                 <option value="keyObject">Around key object</option>
                 <option value="center">Around center</option>
                 <option value="origin">Around world origin</option>
@@ -5691,6 +5701,69 @@
             <div class="prop-row mt-2">
               <button id="scaleCancelBtn" class="ui-btn mr-1">Cancel</button>
               <button id="scaleSubmitBtn" class="ui-btn ui-btn-primary">Submit</button>
+            </div>
+          </div>
+
+          <!-- SHEAR SETTINGS (Tool Panel) — v20260812h, mirroring the Scale panel.
+               Absolute entry on top, session delta below, Cancel / Submit at the foot. -->
+          <div class="hidden" id="shearSettingsContainer">
+            <!-- WHICH COMPONENT EACH AXIS HANDLE DRIVES (v20260812o). Not decoration: the
+                 reference axis is chosen by EXTENT, so on a flat path an axis has only one
+                 representable partner and the SHIFT alternate does not exist. Without this
+                 line that reads as a broken modifier - owner report, "pressing shift seems
+                 nothing different". Now the absence is visible instead of mysterious. -->
+            <div class="ui-hint" id="shearHandleMapRow"
+              title="Grab an axis handle to shear that axis. The reference axis is the partner with more extent; hold Shift for the other one, where one exists."></div>
+            <div class="ui-header-small">Shear (Absolute)</div>
+
+            <div class="xyz-row">
+              <label title="How far X moves per unit of Y (left) and Z (right). Local units: scale is applied after the shear.">Shear X</label>
+              <div class="xyz-inputs">
+                <input type="number" id="shearToolInputXY" value="0" step="0.05" title="Shear XY &mdash; X moves this far per unit of Y" />
+                <input type="number" id="shearToolInputXZ" value="0" step="0.05" title="Shear XZ &mdash; X moves this far per unit of Z" />
+              </div>
+            </div>
+            <div class="xyz-row">
+              <label title="How far Y moves per unit of X (left) and Z (right). Local units: scale is applied after the shear.">Shear Y</label>
+              <div class="xyz-inputs">
+                <input type="number" id="shearToolInputYX" value="0" step="0.05" title="Shear YX &mdash; Y moves this far per unit of X" />
+                <input type="number" id="shearToolInputYZ" value="0" step="0.05" title="Shear YZ &mdash; Y moves this far per unit of Z" />
+              </div>
+            </div>
+            <div class="xyz-row">
+              <label title="How far Z moves per unit of X (left) and Y (right). Local units: scale is applied after the shear.">Shear Z</label>
+              <div class="xyz-inputs">
+                <input type="number" id="shearToolInputZX" value="0" step="0.05" title="Shear ZX &mdash; Z moves this far per unit of X" />
+                <input type="number" id="shearToolInputZY" value="0" step="0.05" title="Shear ZY &mdash; Z moves this far per unit of Y" />
+              </div>
+            </div>
+
+            <div class="ui-header-small mt-2">Delta</div>
+            <div class="xyz-row">
+              <label title="How far X moves per unit of Y (left) and Z (right). Local units: scale is applied after the shear.">X</label>
+              <div class="xyz-inputs">
+                <input type="number" id="shearDeltaXY" value="0" step="0.05" title="Shear XY &mdash; X moves this far per unit of Y" />
+                <input type="number" id="shearDeltaXZ" value="0" step="0.05" title="Shear XZ &mdash; X moves this far per unit of Z" />
+              </div>
+            </div>
+            <div class="xyz-row">
+              <label title="How far Y moves per unit of X (left) and Z (right). Local units: scale is applied after the shear.">Y</label>
+              <div class="xyz-inputs">
+                <input type="number" id="shearDeltaYX" value="0" step="0.05" title="Shear YX &mdash; Y moves this far per unit of X" />
+                <input type="number" id="shearDeltaYZ" value="0" step="0.05" title="Shear YZ &mdash; Y moves this far per unit of Z" />
+              </div>
+            </div>
+            <div class="xyz-row">
+              <label title="How far Z moves per unit of X (left) and Y (right). Local units: scale is applied after the shear.">Z</label>
+              <div class="xyz-inputs">
+                <input type="number" id="shearDeltaZX" value="0" step="0.05" title="Shear ZX &mdash; Z moves this far per unit of X" />
+                <input type="number" id="shearDeltaZY" value="0" step="0.05" title="Shear ZY &mdash; Z moves this far per unit of Y" />
+              </div>
+            </div>
+
+            <div class="prop-row mt-2">
+              <button id="shearCancelBtn" class="ui-btn mr-1">Cancel</button>
+              <button id="shearSubmitBtn" class="ui-btn ui-btn-primary">Submit</button>
             </div>
           </div>
 
@@ -6592,8 +6665,38 @@
                       <input type="number" id="scaleZInput" step="0.1" />
                     </div>
                   </div>
+                  <!-- SHEAR (v20260812j, six components). One ROW PER MOVED AXIS, which
+                       is also the gizmo mapping: the row label names the handle you grab,
+                       the two fields name what it can lean against. Two fields per row also
+                       fixes v20260812f's measured squeeze - three `.xyz-col-label`s left
+                       each input 36.7px against 29.2px of text inside 24px of padding,
+                       because every number input is wrapped in `.num-spin-wrap`.
+                       The model is `S . Sh` (shear first), so these are LOCAL units - a
+                       non-uniform scale changes the visible slant angle. -->
+                  <div class="xyz-row">
+                    <label title="How far X moves per unit of Y (left) and Z (right). Local units: scale is applied after the shear.">Shear X</label>
+                    <div class="xyz-inputs">
+                      <input type="number" id="shearXYInput" step="0.05" title="Shear XY &mdash; X moves this far per unit of Y" />
+                      <input type="number" id="shearXZInput" step="0.05" title="Shear XZ &mdash; X moves this far per unit of Z" />
+                    </div>
+                  </div>
+                  <div class="xyz-row">
+                    <label title="How far Y moves per unit of X (left) and Z (right). Local units: scale is applied after the shear.">Shear Y</label>
+                    <div class="xyz-inputs">
+                      <input type="number" id="shearYXInput" step="0.05" title="Shear YX &mdash; Y moves this far per unit of X" />
+                      <input type="number" id="shearYZInput" step="0.05" title="Shear YZ &mdash; Y moves this far per unit of Z" />
+                    </div>
+                  </div>
+                  <div class="xyz-row">
+                    <label title="How far Z moves per unit of X (left) and Y (right). Local units: scale is applied after the shear.">Shear Z</label>
+                    <div class="xyz-inputs">
+                      <input type="number" id="shearZXInput" step="0.05" title="Shear ZX &mdash; Z moves this far per unit of X" />
+                      <input type="number" id="shearZYInput" step="0.05" title="Shear ZY &mdash; Z moves this far per unit of Y" />
+                    </div>
+                  </div>
                   <div class="prop-row prop-row-plain">
-                    <button id="bakeScaleBtn" class="ui-btn" style="width: 100%;">Bake Scale</button>
+                    <button id="bakeScaleBtn" class="ui-btn" style="width: 100%;"
+                      title="Fold the whole shape matrix - scale AND shear - into the vertices, leaving the object looking identical with scale 1 and shear 0.">Bake Scale / Shear</button>
                   </div>
                   <div class="prop-row prop-row-plain" id="bakeToPathRow" style="display: none;">
                     <button id="bakeToPathBtn" class="ui-btn" style="width: 100%;">Bake to Path</button>
@@ -10550,6 +10653,8 @@
       if (rotRow) rotRow.style.display = (currentTool === 'rotate' && hasSel) ? 'flex' : 'none';
       const sclRow = document.getElementById('scalePivotModeRow');
       if (sclRow) sclRow.style.display = (currentTool === 'scale' && hasSel) ? 'flex' : 'none';
+      const shrRow = document.getElementById('shearPivotModeRow');
+      if (shrRow) shrRow.style.display = (currentTool === 'shear' && hasSel) ? 'flex' : 'none';
     }
 
     // v20260725zd: THE rule for "which object does a path tool edit". It used
@@ -10726,6 +10831,7 @@
         directSelect: 'Tool Options (A)',
         rotate: 'Tool Options (R)',
         scale: 'Tool Options (S)',
+        shear: 'Tool Options (H)',
         pen: 'Tool Options (P)',
         polygon: 'Tool Options (M)',
         star: 'Tool Options (K)',
@@ -10748,6 +10854,7 @@
         directSelect: 'Direct Select Tool (A)',
         rotate: 'Rotate Tool (R)',
         scale: 'Scale Tool (S)',
+        shear: 'Shear Tool (H)',
         pen: 'Pen Tool (P)',
         polygon: 'Polygon Tool (M)',
         star: 'Star Tool (K)',
@@ -10771,6 +10878,7 @@
         select: '<polygon fill="currentColor" stroke="currentColor" points="10 3 16 17 10 12.86 4 17 10 3"/>',
         directSelect: '<polygon fill="none" stroke="currentColor" points="10 3 16 17 10 12.86 4 17 10 3"/>',
         rotate: '<path fill="none" stroke="currentColor" stroke-width="1.14" d="M7,3h3c2.76,0,5,2.24,5,5v3"/><polyline fill="none" stroke="currentColor" stroke-width="1.14" points="18.54 7.46 15 11 11.46 7.46"/><rect fill="none" stroke="currentColor" x="2" y="10" width="8" height="8"/>',
+        shear: '<polygon fill="none" stroke="currentColor" points="10 2 2 2 10 18 18 18 10 2"/><line fill="none" stroke="currentColor" x1="6.86" y1="9" x2="17" y2="9"/><polyline fill="none" stroke="currentColor" stroke-width="1.14" points="10.39 12.54 6.86 9 10.39 5.46"/>',
         scale: '<line fill="none" stroke="currentColor" x1="15" y1="5" x2="5" y2="15"/><polyline fill="none" stroke="currentColor" stroke-width="1.14" points="10 5 15 5 15 10"/><line fill="none" stroke="currentColor" x1="2" y1="10" x2="2" y2="9"/><line fill="none" stroke="currentColor" stroke-dasharray="2 2" x1="2" y1="7" x2="2" y2="4"/><polyline fill="none" stroke="currentColor" points="2 3 2 2 3 2"/><line fill="none" stroke="currentColor" stroke-dasharray="2 2" x1="5" y1="2" x2="16" y2="2"/><polyline fill="none" stroke="currentColor" points="17 2 18 2 18 3"/><line fill="none" stroke="currentColor" stroke-dasharray="2 2" x1="18" y1="5" x2="18" y2="16"/><polyline fill="none" stroke="currentColor" points="18 17 18 18 17 18"/><line fill="none" stroke="currentColor" stroke-dasharray="2 2" x1="15" y1="18" x2="12" y2="18"/><line fill="none" stroke="currentColor" x1="11" y1="18" x2="10" y2="18"/><rect fill="none" stroke="currentColor" x="2" y="10" width="8" height="8"/>',
         pen: '<polygon fill="none" stroke="currentColor" points="10 3 16 12 12 17.86 8 17.86 4 12 10 3"/><circle fill="none" stroke="currentColor" cx="10" cy="12.43" r="1.5"/>',
         polygon: '<polygon fill="none" stroke="currentColor" points="13.5 3.94 6.5 3.94 3 10 6.5 16.06 13.5 16.06 17 10 13.5 3.94"/>',
@@ -11119,6 +11227,16 @@
       }
 
       // Pivot Tool Settings Visibility
+      const shearSettings = document.getElementById('shearSettingsContainer');
+      if (shearSettings) {
+        if (tool === 'shear') {
+          shearSettings.style.display = 'block';
+          if (typeof resetShearToolSession === 'function') resetShearToolSession();
+        } else {
+          shearSettings.style.display = 'none';
+        }
+      }
+
       const pivotSettings = document.getElementById('pivotSettingsContainer');
       if (pivotSettings) {
         if (tool === 'pivot') {
@@ -11860,6 +11978,114 @@
     const scaleDeltaX = document.getElementById('scaleDeltaX');
     const scaleDeltaY = document.getElementById('scaleDeltaY');
     const scaleDeltaZ = document.getElementById('scaleDeltaZ');
+    // --- SHEAR TOOL PANEL (v20260812h) ---
+    // Mirrors the Scale tool's session: a start snapshot for the Delta read-out, Cancel
+    // restores it, Submit commits. Kept deliberately simple — no undo auto-commit yet, so
+    // it does exactly what the fields do plus a revert.
+    let shearToolSession = null;
+    const _shearToolIds = ['shearToolInputXY', 'shearToolInputXZ', 'shearToolInputYX', 'shearToolInputYZ', 'shearToolInputZX', 'shearToolInputZY'];
+    const _shearDeltaIds = ['shearDeltaXY', 'shearDeltaXZ', 'shearDeltaYX', 'shearDeltaYZ', 'shearDeltaZX', 'shearDeltaZY'];
+
+    const updateShearToolUI = () => {
+      const sh = (selectedObject && selectedObject.shear) || [0, 0, 0, 0, 0, 0];
+      const fmt = (v) => (Math.abs(v) < 1e-9 ? '0' : (+v.toFixed(3)).toString());
+      _shearToolIds.forEach((id, i) => {
+        const el = document.getElementById(id);
+        if (el && document.activeElement !== el) el.value = fmt(sh[i]);
+      });
+      const ss = shearToolSession && shearToolSession.startShear;
+      _shearDeltaIds.forEach((id, i) => {
+        const el = document.getElementById(id);
+        if (el) el.value = ss ? fmt(sh[i] - ss[i]) : '0';
+      });
+
+      // THE HANDLE MAP. Reads the same `shearIndexForAxis` the mousedown does - one
+      // source of truth, so the line cannot drift from the gesture it describes.
+      //
+      // ORDERING NOTE, load-bearing: `shearIndexForAxis` and `SHEAR_NAMES` are declared at
+      // ~18210, six thousand lines BELOW this function. That is safe only because nothing
+      // calls `updateShearToolUI` during the top-level run - boot does `setTool('select')`
+      // at the very end of the script, and the tool is not persisted, so the 'shear' branch
+      // that would reach here cannot fire at load. `typeof` is NOT a defence here: on a
+      // `const` in its temporal dead zone `typeof` THROWS rather than returning
+      // "undefined", and a throw at top level aborts the whole script - that is the
+      // v20260811 blank-canvas failure exactly. If a future change ever restores the last
+      // tool at boot, or moves that `setTool` earlier, move these two declarations up.
+      const mapEl = document.getElementById('shearHandleMapRow');
+      if (mapEl) {
+        if (!selectedObject) {
+          mapEl.textContent = 'Select an object to see which shear each handle drives.';
+        } else {
+          mapEl.innerHTML = ['x', 'y', 'z'].map(ax => {
+            const d = shearIndexForAxis(ax, selectedObject, false);
+            const a = shearIndexForAxis(ax, selectedObject, true);
+            const A = ax.toUpperCase();
+            // A handle with no live reference is genuinely inert - say so rather than
+            // naming a component that would displace nothing.
+            if (d === null) return `<span style="opacity:.45">${A} &rarr; &mdash;</span>`;
+            const alt = (a !== null && a !== d) ? ` <span style="opacity:.7">&#8679;${SHEAR_NAMES[a]}</span>` : '';
+            return `${A} &rarr; ${SHEAR_NAMES[d]}${alt}`;
+          }).join(' &nbsp; ');
+        }
+      }
+    };
+
+    const resetShearToolSession = () => {
+      shearToolSession = selectedObject
+        ? { startShear: [...(selectedObject.shear || [0, 0, 0, 0, 0, 0])] }
+        : null;
+      updateShearToolUI();
+    };
+
+    const applyShearToolInputs = () => {
+      if (!selectedObject) return;
+      const vals = _shearToolIds.map(id => {
+        const el = document.getElementById(id);
+        return el ? (parseFloat(el.value) || 0) : 0;
+      });
+      selectedObject.shear = _shearClamped(vals);
+      notifyPathUpdated(selectedObject);
+      updatePropertiesPanel();
+      updateShearToolUI();
+      requestRender();
+    };
+    _shearToolIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('input', applyShearToolInputs);
+        el.addEventListener('keydown', (e) => e.stopPropagation());
+      }
+    });
+    _shearDeltaIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('keydown', (e) => e.stopPropagation());
+    });
+
+    const shearCancelBtn = document.getElementById('shearCancelBtn');
+    if (shearCancelBtn) {
+      shearCancelBtn.addEventListener('click', () => {
+        if (!selectedObject || !shearToolSession) return;
+        selectedObject.shear = [...shearToolSession.startShear];
+        notifyPathUpdated(selectedObject);
+        updatePropertiesPanel();
+        updateShearToolUI();
+        requestRender();
+      });
+    }
+    const shearSubmitBtn = document.getElementById('shearSubmitBtn');
+    if (shearSubmitBtn) {
+      shearSubmitBtn.addEventListener('click', () => {
+        if (!selectedObject) return;
+        // ONE labelled push, no leading baseline: the field's `input` handler has already
+        // applied the value, so a leading pushUndoState() would capture the edit UNLABELLED
+        // and leave the labelled call with nothing to diff. `_lastSceneState` still holds
+        // the pre-edit scene, so a single labelled push records the whole edit correctly.
+        applyShearToolInputs();
+        pushUndoState('Shear');
+        resetShearToolSession();   // the committed value becomes the new baseline
+      });
+    }
+
     const scaleCancelBtn = document.getElementById('scaleCancelBtn');
     const scaleSubmitBtn = document.getElementById('scaleSubmitBtn');
 
@@ -13119,6 +13345,7 @@
             if (['position', 'tx', 'ty', 'tz'].includes(prop)) propTypes.add('move');
             else if (['rotation', 'rotationEuler', 'rotationMatrix'].includes(prop)) propTypes.add('rotate');
             else if (prop === 'scale') propTypes.add('scale');
+            else if (prop === 'shear') propTypes.add('shear');
             else if (prop === 'style') {
               // Nested style object — classify by sub-key
               if (p.length >= 4) {
@@ -13181,7 +13408,7 @@
       if (propTypes.size === 1) {
         const type = [...propTypes][0];
         const labels = {
-          move: 'Move', rotate: 'Rotate', scale: 'Scale',
+          move: 'Move', rotate: 'Rotate', scale: 'Scale', shear: 'Shear',
           fill: 'Fill', stroke: 'Stroke', style: 'Style', rename: 'Rename',
           vertices: 'Edit vertices', visibility: 'Visibility',
           lock: 'Lock', algorithm: 'Algorithm', primitive: 'Edit primitive',
@@ -13405,6 +13632,12 @@
       if (rotatePivotModeSelect) {
         rotatePivotModeSelect.addEventListener('change', () => {
           rotatePivotMode = rotatePivotModeSelect.value; // tool preference; not undo/serialized
+        });
+      }
+      const shearPivotModeSelect = document.getElementById('shearPivotModeSelect');
+      if (shearPivotModeSelect) {
+        shearPivotModeSelect.addEventListener('change', () => {
+          shearPivotMode = shearPivotModeSelect.value; // tool preference; not undo/serialized
         });
       }
       const scalePivotModeSelect = document.getElementById('scalePivotModeSelect');
@@ -15055,25 +15288,67 @@
       }
     })();
 
+    // --- ANIMATION FEATURE GATE (v20260813a) --------------------------------
+    // Animation shipped behind a Settings checkbox marked "(experimental)" and
+    // is a DEFAULT FEATURE from v20260813a: the checkbox is gone, the key is no
+    // longer read from localStorage, and the timeline panel is always present.
+    //
+    // THE SWITCH REMAINS, AND THAT IS THE POINT (owner's instruction): a future
+    // non-animation build flips ANIMATION_DEFAULT_ON to false and gets exactly
+    // the old hidden-timeline behaviour, with nothing in the app able to turn it
+    // back on behind the developer's back. That last clause is why the two
+    // auto-enable calls in importScene were removed with the checkbox — they
+    // existed only to rescue a user who had ticked the experiment OFF, a state
+    // that can no longer occur, and they would have re-enabled the feature the
+    // moment such a build opened an animated scene.
+    //
+    // WHY IT IS DECLARED AT TOP LEVEL, not inside init(). The previous setter
+    // lived in init's closure, which made `typeof setAnimationEnabled ===
+    // 'function'` in importScene evaluate FALSE — that auto-enable had been dead
+    // code, silently, for as long as it existed (`typeof` on a name that is not
+    // declared in scope at all returns 'undefined' rather than throwing, so
+    // nothing ever complained). A gate the rest of the app cannot reach is not a
+    // preserved capability. This follows the Text-tool template in section 11 of
+    // the state report for exactly that reason.
+    //
+    // Applied at boot from init(), NOT from CSS: #timelinePanel stays
+    // `display:none` in the stylesheet so an OFF build never flashes a timeline
+    // it is about to hide. Same idiom as the text toolbar button's inline
+    // display:none.
+    const ANIMATION_DEFAULT_ON = true;
+    let animationEnabled = ANIMATION_DEFAULT_ON;
+    const setAnimationEnabled = (enabled) => {
+      animationEnabled = !!enabled;
+      const panel = document.getElementById('timelinePanel');
+      if (panel) panel.style.display = animationEnabled ? 'flex' : 'none';
+      // Stop playback when disabling
+      if (!animationEnabled && typeof tlStopPlayback === 'function') {
+        try { tlStopPlayback(); } catch (_) { }
+      }
+      updateTimelineHeight();
+    };
+
     // --- TEXT TOOL (experimental): session font + live geometry ------------
     // The parsed font is SESSION-ONLY (never serialized). Scenes carry a
     // compact glyph cache inside primitiveData (built at confirm), so they
     // reload and rebuild with no font present.
     let _textSessionFont = null;
 
-    // Experimental gate (Settings panel checkbox, mirrors the Animation
-    // toggle). Default OFF: the toolbar button ships hidden, the shortcut
-    // and setTool('text') are no-ops. Top-level (not inside init) so
-    // importScene's auto-enable can always reach it. Existing text OBJECTS
-    // are unaffected by the gate — they render/animate as plain paths;
-    // only tool ACCESS is gated.
-    let textToolEnabled = true; // default ON (loadSettings reconciles with saved prefs)
+    // Feature gate, the sibling of ANIMATION_DEFAULT_ON above. The Text tool
+    // shipped behind a Settings checkbox marked "(experimental)" and is a
+    // DEFAULT FEATURE from v20260813a: the checkbox is gone, the key is no
+    // longer read from localStorage, and the toolbar button is always present.
+    // The switch itself stays so a future build can withdraw the tool in one
+    // line; the toolbar button ships `display:none` in the markup and this
+    // setter reveals it at boot, so an OFF build never flashes it.
+    // Existing text OBJECTS are unaffected by the gate — they render/animate as
+    // plain paths; only tool ACCESS is gated.
+    const TEXT_TOOL_DEFAULT_ON = true;
+    let textToolEnabled = TEXT_TOOL_DEFAULT_ON;
     const setTextToolEnabled = (enabled) => {
       textToolEnabled = !!enabled;
       const btn = document.querySelector('#toolToolbar button[data-tool="text"]');
       if (btn) btn.style.display = textToolEnabled ? '' : 'none';
-      const cb = document.getElementById('textToolEnabledCb');
-      if (cb) cb.checked = textToolEnabled;
       // Leaving the tool active while disabling would strand the UI
       if (!textToolEnabled && typeof currentTool !== 'undefined' && currentTool === 'text') {
         setTool(null);
@@ -15488,6 +15763,7 @@
       grp.rotationMatrix = obj.rotationMatrix.map(r => [...r]);
       grp.rotationEuler = obj.rotationEuler ? [...obj.rotationEuler] : matrixToEuler(obj.rotationMatrix);
       grp.scale = [...(obj.scale || [1, 1, 1])];
+      grp.shear = [...(obj.shear || [0, 0, 0, 0, 0, 0])];   // v20260812m — see duplicateObject
       grp.pivot = [...(obj.pivot || [0, 0, 0])];
       grp.pivotRotation = [...(obj.pivotRotation || [0, 0, 0])];
       grp.pivotShift = [...(obj.pivotShift || [0, 0, 0])];
@@ -15746,7 +16022,25 @@
       return !!o && isIn2DMode(o);
     };
     const gizmoEffectiveMode = (subject) => {
-      if (currentTool === 'scale') return 'local';
+      // Shear joins Scale in being pinned to Local (v20260812g). Same reasoning: the
+      // drag writes `obj.shear`, which is defined in the object's own frame, so a
+      // World/Camera/Workplane gizmo would draw handles it cannot honour.
+      //
+      // THIS PIN IS PERMANENT (v20260812n, owner's decision). Lifting it was Phase 5 of
+      // PLAN-shear-tool.md and is now CLOSED AS WON'T-BUILD — do not "fix" it. The
+      // reasoning, in full, is in that plan's §12; the two facts that decided it:
+      //   1. `pivotRotation` is ALREADY a shear-basis selector, because the shape term is
+      //      `RP . S . Sh . RP^T`. Measured: shXY = 0.5 displaces X at pivotRotation
+      //      [0,0,0], Z at [0,90,0] and Y at [0,0,90]. Align Pivot to Workplane writes
+      //      exactly that channel, so the workplane case is already reachable.
+      //   2. A non-local shear cannot be stored without RQ re-decomposition, and a QR
+      //      returns rotation + UPPER-triangular shear only — so every camera-frame drag
+      //      would rewrite `rotationMatrix` (keyframable, user-visible) and fold away half
+      //      of the six components. Group/ungroup already demonstrates the re-expression:
+      //      [0.4,0,0,0.3,0.55,0] comes back [0.307,0.422,0,0.126,0,0], world matrix exact.
+      // If camera-space shear is ever wanted, build a BAKED one-shot beside Flatten Path
+      // (`flattenSelection`), not a gizmo basis.
+      if (currentTool === 'scale' || currentTool === 'shear') return 'local';
       if ((gizmoMode === 'camera' || gizmoMode === 'workplane') && _subjectIn2D(subject)) return 'world';
       return gizmoMode;
     };
@@ -15777,6 +16071,13 @@
     // anchor; 'center' = each orbits the selection centroid (= the historical
     // World-mode multi behavior). Tool preference, not serialized.
     let rotatePivotMode = 'inPlace';
+    // Shear's equivalent (v20260812g). Same four options and the same session-only,
+    // never-serialized status as its two siblings.
+    let shearPivotMode = 'inPlace';
+    // Which of the six components the live drag is writing (index into `shear`).
+    // `lockedAxis` names the GRABBED AXIS instead, exactly like every other tool, which is
+    // why the gizmo highlight is correct by construction rather than by a special case.
+    let shearComponent = 0;
 
     // Apply a WORLD-space delta rotation R to the current selection. The
     // gizmo mode (Local/World) decides the AXIS that produced R; the caller
@@ -17889,6 +18190,195 @@
       [0, 0, sz, 0],
       [0, 0, 0, 1],
     ];
+
+    // THE OBJECT'S SHAPE MATRIX — `RP · S · RPᵀ`, the block the transform model calls
+    // `orientedS` (v20260812d).
+    //
+    // `M = T · R · (RP · S · RPᵀ) · T(−pivot)`. That middle block was spelled out by hand at
+    // EIGHT sites: positionFromMatrixTranslation, Group.getLocalMatrix, Path.getLocalMatrix,
+    // the pivot-edit compensation, THREE verbatim copies in the pivot drag (each carrying the
+    // same "Bug 3 fix" comment), and the animation pose sampler. Eight copies of one formula
+    // is where the bugs live — the same shape as the nine hand-rolled gizmo-basis copies that
+    // v20260811a collapsed, and collapsed here for the same reason.
+    //
+    // TAKES VALUES, NOT AN OBJECT, because the animation sampler builds its scale from
+    // FRAME-SAMPLED track values rather than from `obj.scale` — an object-taking signature
+    // would have left that one site out, which is exactly how the eighth copy survives.
+    //
+    // Association order is preserved verbatim — `RP · (S · RPᵀ)` — so the product is
+    // bit-identical to what every call site computed before.
+    //
+    // SHEAR (v20260812j, PLAN-shear-tool.md §11). SIX parameters — the full off-diagonal:
+    //   x' = x + shXY*y + shXZ*z
+    //   y' = y + shYX*x + shYZ*z
+    //   z' = z + shZX*x + shZY*y
+    // Stored as [shXY, shXZ, shYX, shYZ, shZX, shZY] — GROUPED BY MOVED AXIS, so the
+    // gizmo mapping falls out: handle X owns 0-1, Y owns 2-3, Z owns 4-5.
+    //
+    // WHY SIX, when v20260812e argued three was complete. Three IS complete as a MATRIX
+    // (RQ factors every invertible map as orthogonal x upper-triangular) and useless as a
+    // set of HANDLES, which is the difference that matters. Upper-triangular moves X, X
+    // and Y — Z is never a moved axis, so no handle can shear it. Measured on the owner's
+    // cube (`_tests/_repro_shear_3d_cube.json`, full [2,2,2] extent): Z displacement from
+    // all three old components was 0 / 0 / 0. Spanning the space as a product is not the
+    // same as offering every slant as a gesture.
+    //
+    // THE COST, stated where it will be found: six components are over-parameterized
+    // against the rotation channel, and `decomposeShapeMatrix` (a QR) can only return
+    // upper-triangular. So a lower-triangular shear does not survive group/ungroup — it
+    // comes back as rotation + upper shear. The WORLD MATRIX is preserved exactly; the
+    // numbers the user typed are not. Test round-trips on the matrix, never the params.
+    //
+    // AND A RISK THREE DID NOT HAVE: unit-TRIANGULAR matrices always have determinant 1,
+    // which was free safety. A general unit-DIAGONAL one does not — shXY = shYX = 1 gives
+    // det 0, a collapsed object and a throwing `matrixInverse` for the 40-odd callers that
+    // invert the local matrix. Hence `_shearClamped` below, applied at the WRITE sites so
+    // the per-frame builder stays untouched.
+    const _shearLocalExtent = (obj) => {
+      const acc = [0, 0, 0];
+      const scan = (o) => {
+        const vs = o.localVertices;
+        if (vs && vs.length) {
+          const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+          for (const p of vs) for (let i = 0; i < 3; i++) { if (p[i] < mn[i]) mn[i] = p[i]; if (p[i] > mx[i]) mx[i] = p[i]; }
+          for (let i = 0; i < 3; i++) acc[i] = Math.max(acc[i], mx[i] - mn[i]);
+        }
+        if (o.children) o.children.forEach(scan);
+      };
+      scan(obj);
+      return acc;
+    };
+
+    // The six components in [moved, reference] order, matching the storage order.
+    const SHEAR_PAIRS = [[0, 1], [0, 2], [1, 0], [1, 2], [2, 0], [2, 1]];
+    const SHEAR_NAMES = ['XY', 'XZ', 'YX', 'YZ', 'ZX', 'ZY'];
+
+    // Which component does an axis handle drive? Grab the axis that should MOVE; the
+    // reference is its partner WITH EXTENT. That clause is load-bearing and came from a
+    // measurement, not taste: `x += shXY*y` is zero for every vertex when y is identically
+    // zero, so on a flat XY path only shXY can do anything. With six components every
+    // handle now has two candidates, and only a fully flat object leaves one idle.
+    // Returns a component INDEX into `shear`, or null when neither reference has extent.
+    const shearIndexForAxis = (axis, obj, preferAlt) => {
+      const e = _shearLocalExtent(obj);
+      const EPS = 1e-6;
+      const moved = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
+      const cands = SHEAR_PAIRS
+        .map((pr, i) => ({ i, ref: pr[1] }))
+        .filter((c, i) => SHEAR_PAIRS[c.i][0] === moved);
+      const live = cands.filter(c => e[c.ref] > EPS);
+      if (!live.length) return null;
+      if (live.length === 1) return live[0].i;
+      // Both references have extent: the larger one by default, the other on the modifier.
+      live.sort((a, b) => e[b.ref] - e[a.ref]);
+      return (preferAlt ? live[1] : live[0]).i;
+    };
+
+    // det of [[1,a,b],[c,1,d],[e,f,1]] with the stored order [a,b,c,d,e,f].
+    const _shearDet = (sh) => {
+      const [a, b, c, d, e, f] = sh;
+      return 1 - d * f - a * c + a * d * e + b * c * f - b * e;
+    };
+    // Pull a shear back toward identity until it is safely invertible. Continuous (so an
+    // animation curve passing through a singular pose bends rather than jumps) and a no-op
+    // for anything sane — a pure upper-triangular shear has det 1 at every magnitude, so
+    // no file written before v20260812j can trigger it.
+    const SHEAR_DET_FLOOR = 0.05;
+    const _shearClamped = (sh) => {
+      if (!sh) return sh;
+      if (Math.abs(_shearDet(sh)) >= SHEAR_DET_FLOOR) return sh;
+      let lo = 0, hi = 1;
+      for (let k = 0; k < 24; k++) {
+        const mid = (lo + hi) / 2;
+        if (Math.abs(_shearDet(sh.map(v => v * mid))) >= SHEAR_DET_FLOOR) lo = mid; else hi = mid;
+      }
+      return sh.map(v => v * lo);
+    };
+
+    const createShearMatrix = (shXY, shXZ, shYX, shYZ, shZX, shZY) => [
+      [1, shXY, shXZ, 0],
+      [shYX, 1, shYZ, 0],
+      [shZX, shZY, 1, 0],
+      [0, 0, 0, 1],
+    ];
+
+    // The middle term is `S · Sh` — SHEAR FIRST, then scale (owner decision, 2026-08-12).
+    // Consequence, and it is the reason the order had to be decided before the first saved
+    // file: the stored shear is in the SAME SPACE as `localVertices`, and a non-uniform
+    // scale therefore changes the visible slant angle. `Sh · S` would have made the number
+    // mean "world units of slide per world unit of height" instead.
+    const objectShapeMatrix = (scale, pivotRotation, shear) => {
+      const S = createScaleMatrix(scale[0], scale[1], scale[2]);
+      const RP = matrixFromEuler(pivotRotation || [0, 0, 0]);
+      // Inverse of an orthogonal matrix is its transpose.
+      const invRP = [
+        [RP[0][0], RP[1][0], RP[2][0], 0],
+        [RP[0][1], RP[1][1], RP[2][1], 0],
+        [RP[0][2], RP[1][2], RP[2][2], 0],
+        [0, 0, 0, 1]
+      ];
+      // ZERO-SHEAR FAST PATH. Multiplying by an exact identity is bit-exact for finite
+      // floats, so this is an optimisation rather than a correctness guard — but it is
+      // also the proof: every object authored before shear existed takes byte-for-byte
+      // the v20260812d code path, and this is the hot path (every object, every frame).
+      if (!shear || !(shear[0] || shear[1] || shear[2] || shear[3] || shear[4] || shear[5])) {
+        return matrixMultiply(RP, matrixMultiply(S, invRP));
+      }
+      const SSh = matrixMultiply(S, createShearMatrix(
+        shear[0], shear[1], shear[2] || 0, shear[3] || 0, shear[4] || 0, shear[5] || 0));
+      return matrixMultiply(RP, matrixMultiply(SSh, invRP));
+    };
+
+    // WORLD → LOCAL when the matrix carries shear (v20260812e). `decomposeMatrix` takes
+    // scale to be the COLUMN LENGTHS, which is only true when the columns are orthogonal;
+    // a sheared matrix has non-orthogonal columns, so it would fold the shear into a bogus
+    // "rotation". This is the QR that recovers all three channels: Gram-Schmidt on the
+    // columns gives M = Q·U with Q orthogonal and U upper-triangular, and U IS `S · Sh` —
+    // scale on the diagonal, shear on the off-diagonal over its row's diagonal.
+    const decomposeShapeMatrix = (m) => {
+      const col = (j) => [m[0][j], m[1][j], m[2][j]];
+      const c0 = col(0), c1 = col(1), c2 = col(2);
+      const r00 = Math.hypot(c0[0], c0[1], c0[2]);
+      if (r00 < 1e-12) return null;
+      const q0 = [c0[0] / r00, c0[1] / r00, c0[2] / r00];
+      const r01 = vectorDot(q0, c1);
+      const v1 = [c1[0] - r01 * q0[0], c1[1] - r01 * q0[1], c1[2] - r01 * q0[2]];
+      const r11 = Math.hypot(v1[0], v1[1], v1[2]);
+      if (r11 < 1e-12) return null;
+      const q1 = [v1[0] / r11, v1[1] / r11, v1[2] / r11];
+      const r02 = vectorDot(q0, c2);
+      const r12 = vectorDot(q1, c2);
+      const v2 = [c2[0] - r02 * q0[0] - r12 * q1[0],
+                  c2[1] - r02 * q0[1] - r12 * q1[1],
+                  c2[2] - r02 * q0[2] - r12 * q1[2]];
+      const r22 = Math.hypot(v2[0], v2[1], v2[2]);
+      if (r22 < 1e-12) return null;
+      const q2 = [v2[0] / r22, v2[1] / r22, v2[2] / r22];
+      return {
+        rotationMatrix: [
+          [q0[0], q1[0], q2[0], 0],
+          [q0[1], q1[1], q2[1], 0],
+          [q0[2], q1[2], q2[2], 0],
+          [0, 0, 0, 1]
+        ],
+        scale: [r00, r11, r22],
+        // UPPER-TRIANGULAR ONLY — a QR cannot return anything else. The lower half comes
+        // back as rotation instead; see the header. World matrix exact, params re-expressed.
+        shear: [r01 / r00, r02 / r00, 0, r12 / r11, 0, 0]
+      };
+    };
+
+    // Are a 3×3's columns mutually orthogonal? Decides which decomposition
+    // `setLocalFromWorld` uses, so that a shear-free matrix takes the ORIGINAL path and
+    // stays bit-identical (v20260812e).
+    const _shapeColsOrthogonal = (m) => {
+      const c = [[m[0][0], m[1][0], m[2][0]], [m[0][1], m[1][1], m[2][1]], [m[0][2], m[1][2], m[2][2]]];
+      const n0 = Math.hypot(...c[0]), n1 = Math.hypot(...c[1]), n2 = Math.hypot(...c[2]);
+      if (n0 < 1e-12 || n1 < 1e-12 || n2 < 1e-12) return true; // degenerate: leave it to the old path
+      return Math.abs(vectorDot(c[0], c[1])) / (n0 * n1) < 1e-7
+          && Math.abs(vectorDot(c[0], c[2])) / (n0 * n2) < 1e-7
+          && Math.abs(vectorDot(c[1], c[2])) / (n1 * n2) < 1e-7;
+    };
 
     const createRotationXMatrix = (rad) => {
       const c = Math.cos(rad);
@@ -33478,15 +33968,7 @@
       const pv = obj.pivot || [0, 0, 0];
       const sh = obj.pivotShift || [0, 0, 0];
       if (!pv[0] && !pv[1] && !pv[2] && !sh[0] && !sh[1] && !sh[2]) return [...tcol];
-      const S = createScaleMatrix(obj.scale[0], obj.scale[1], obj.scale[2]);
-      const RP = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
-      const invRP = [
-        [RP[0][0], RP[1][0], RP[2][0], 0],
-        [RP[0][1], RP[1][1], RP[2][1], 0],
-        [RP[0][2], RP[1][2], RP[2][2], 0],
-        [0, 0, 0, 1]
-      ];
-      const orientedS = matrixMultiply(RP, matrixMultiply(S, invRP));
+      const orientedS = objectShapeMatrix(obj.scale, obj.pivotRotation, obj.shear);
       const pivTerm = vectorApplyMatrix(pv, matrixMultiply(obj.rotationMatrix, orientedS));
       return [tcol[0] + pivTerm[0] - sh[0], tcol[1] + pivTerm[1] - sh[1], tcol[2] + pivTerm[2] - sh[2]];
     };
@@ -33511,7 +33993,24 @@
       }
       const RP = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
       const invRP = matrixInverse(RP);
-      const dec = invRP ? decomposeMatrix(matrixMultiply(L, RP)) : decomposeMatrix(L);
+      const LRP = invRP ? matrixMultiply(L, RP) : L;
+      // SHEAR-AWARE BRANCH (v20260812e). `decomposeMatrix` reads scale off the COLUMN
+      // LENGTHS, which is only the scale when the columns are orthogonal — a sheared
+      // matrix would have its shear folded into a bogus "rotation" and silently lost on
+      // group / ungroup. Taken ONLY when the columns are actually non-orthogonal, so
+      // every shear-free object keeps the original code path bit-for-bit.
+      if (!_shapeColsOrthogonal(LRP)) {
+        const q = decomposeShapeMatrix(LRP);
+        if (q) {
+          obj.rotationMatrix = invRP ? matrixMultiply(q.rotationMatrix, invRP) : q.rotationMatrix;
+          obj.rotationEuler = matrixToEuler(obj.rotationMatrix);
+          obj.scale = q.scale;
+          obj.shear = q.shear;
+          obj.position = positionFromMatrixTranslation(obj, [L[0][3], L[1][3], L[2][3]]);
+          return;
+        }
+      }
+      const dec = invRP ? decomposeMatrix(LRP) : decomposeMatrix(L);
       const s = dec.scale;
       if (!invRP || !isFinite(s[0] + s[1] + s[2]) || s[0] < 1e-12 || s[1] < 1e-12 || s[2] < 1e-12) {
         // Degenerate (zero-scale object/ancestor) — best-effort raw decompose,
@@ -33540,6 +34039,7 @@
           [0, 0, 0, 1]
         ];
         this.scale = [1, 1, 1];
+        this.shear = [0, 0, 0, 0, 0, 0]; // [shXY,shXZ,shYX,shYZ,shZX,shZY] — v20260812j
         this.children = [];
         this.parent = null;
         this.visible = true;
@@ -33702,18 +34202,9 @@
           if (_mpRes) { _anch = _mpRes.anchor; _mpFrameR = _mpRes.frameR; }
         }
         const T = createTranslationMatrix(_anch[0], _anch[1], _anch[2]);
-        const S = createScaleMatrix(this.scale[0], this.scale[1], this.scale[2]);
         const TPivot = createTranslationMatrix(-this.pivot[0], -this.pivot[1], -this.pivot[2]);
-        const RPivot = matrixFromEuler(this.pivotRotation || [0, 0, 0]);
-        // Inverse of RPivot is Transpose (since it's orthogonal)
-        const invRPivot = [
-          [RPivot[0][0], RPivot[1][0], RPivot[2][0], 0],
-          [RPivot[0][1], RPivot[1][1], RPivot[2][1], 0],
-          [RPivot[0][2], RPivot[1][2], RPivot[2][2], 0],
-          [0, 0, 0, 1]
-        ];
         // M = T * R * (RP * S * invRP) * TPivot
-        const orientedS = matrixMultiply(RPivot, matrixMultiply(S, invRPivot));
+        const orientedS = objectShapeMatrix(this.scale, this.pivotRotation, this.shear);
 
         // Face Camera Override
         let R = this.rotationMatrix;
@@ -34256,6 +34747,7 @@
         this.position = position;
         this.rotationMatrix = matrixFromEuler(rotation);
         this.scale = scale || [1, 1, 1]; // Default scale
+        this.shear = [0, 0, 0, 0, 0, 0]; // [shXY,shXZ,shYX,shYZ,shZX,shZY] — v20260812j
         this.localVertices = vertices.map((v) => [...v]); // Deep copy vertices
         this.algorithm = algorithm;
         this.loop = loop;
@@ -34505,18 +34997,9 @@
           if (_mpRes) { _anch = _mpRes.anchor; _mpFrameR = _mpRes.frameR; }
         }
         const T = createTranslationMatrix(_anch[0], _anch[1], _anch[2]);
-        const S = createScaleMatrix(this.scale[0], this.scale[1], this.scale[2]);
         const TPivot = createTranslationMatrix(-this.pivot[0], -this.pivot[1], -this.pivot[2]);
-        const RPivot = matrixFromEuler(this.pivotRotation || [0, 0, 0]);
-
-        const invRPivot = [
-          [RPivot[0][0], RPivot[1][0], RPivot[2][0], 0],
-          [RPivot[0][1], RPivot[1][1], RPivot[2][1], 0],
-          [RPivot[0][2], RPivot[1][2], RPivot[2][2], 0],
-          [0, 0, 0, 1]
-        ];
         // M = T * R * (RP * S * invRP) * TPivot
-        const orientedS = matrixMultiply(RPivot, matrixMultiply(S, invRPivot));
+        const orientedS = objectShapeMatrix(this.scale, this.pivotRotation, this.shear);
 
         let R = this.rotationMatrix;
         // MOTION PATH (v20260719f): tangent frame composes LEFT of own rotation
@@ -47427,7 +47910,10 @@
 
       const showMoveGizmo = currentTool === 'select' || (currentTool === 'directSelect' && selectedVertexInfo);
       const showRotateGizmo = currentTool === 'rotate';
-      const showScaleGizmo = currentTool === 'scale';
+      // Shear reuses the Scale gizmo's geometry verbatim (owner's call, v20260812g) —
+      // box handles on the axes plus the three planar handles. Only the DRAG semantics
+      // differ, so there is nothing to draw differently.
+      const showScaleGizmo = currentTool === 'scale' || currentTool === 'shear';
       const showPivotGizmo = currentTool === 'pivot';
 
       // During rotation drag, isolate the active axis for cleaner visuals
@@ -47640,7 +48126,10 @@
       }
 
       // Scale Planar Bars — diagonal lines connecting axis endpoints (Scale Only)
-      if (showScaleGizmo) {
+      // NOT under Shear (v20260812j): with six components three planar bars can only name
+      // three of six pairs, so they stopped being a shortcut and became a half-truth. They
+      // were also the source of the owner's highlight report - dragging an axis lit a PLANE.
+      if (showScaleGizmo && currentTool !== 'shear') {
         const planarNormalColors = [gc.xy, gc.yz, gc.xz];
         const planarActiveColors = [gc.xyActive, gc.yzActive, gc.xzActive];
         const planarAxisNames = ['xy', 'yz', 'xz'];
@@ -47732,7 +48221,11 @@
         const isCenterHighlighted = highlightedAxis === 'scale-uniform';
         uniformCircle.setAttribute('fill', isCenterHighlighted ? '#444' : '#000');
         uniformCircle.setAttribute('data-axis', 'scale-uniform');
-        uniformCircle.style.display = 'block';
+        // NO UNIFORM HANDLE UNDER SHEAR (v20260812i, owner's call): "uniform shear" names
+        // nothing — the three components are independent slopes, and a single centre drag
+        // could not choose among them. Hidden rather than idle, so the gizmo shows only
+        // what it can actually do.
+        uniformCircle.style.display = (currentTool === 'shear') ? 'none' : 'block';
         topElements.push({ el: uniformCircle, z: tOrigin[2] + 0.001 }); // Slightly in front
       } else if (showPivotGizmo) {
         // Pivot Free-Move Center Circle — allows unconstrained pivot dragging (great with snap-to-point)
@@ -52888,6 +53381,7 @@
       resetMoveToolSession();
       if (typeof resetRotateToolSession === 'function') resetRotateToolSession();
       if (typeof resetScaleToolSession === 'function') resetScaleToolSession();
+      if (typeof resetShearToolSession === 'function') resetShearToolSession(); // v20260812h — same re-baseline on selection change
       if (typeof resetPivotToolSession === 'function') resetPivotToolSession();
 
       // Re-sync _lastSceneState to absorb any lazy property mutations (e.g. rotationEuler)
@@ -53371,6 +53865,15 @@
         scaleYInput.disabled = false;
         if (document.activeElement !== scaleZInput) scaleZInput.value = selectedObject.scale[2].toFixed(2);
         scaleZInput.disabled = false;
+
+        // Shear Inputs (v20260812f)
+        if (!selectedObject.shear) selectedObject.shear = [0, 0, 0, 0, 0, 0];
+        ['shearXYInput', 'shearXZInput', 'shearYXInput', 'shearYZInput', 'shearZXInput', 'shearZYInput'].forEach((id, i) => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          if (document.activeElement !== el) el.value = selectedObject.shear[i].toFixed(2);
+          el.disabled = false;
+        });
 
         // Pivot Inputs
         const pivotXInput = document.getElementById('pivotXInput');
@@ -55307,6 +55810,16 @@
       ];
       selectedObject.scale = newScale;
 
+      // SHEAR (v20260812j). CLAMPED, unlike v20260812f-i: three upper-triangular
+      // components always had determinant 1, so every value was invertible for free. Six
+      // do not — shXY = shYX = 1 is singular. `_shearClamped` pulls back toward identity.
+      const _shEl = ['shearXYInput', 'shearXZInput', 'shearYXInput', 'shearYZInput', 'shearZXInput', 'shearZYInput'].map(id => document.getElementById(id));
+      const prevShear = [...(selectedObject.shear || [0, 0, 0, 0, 0, 0])];
+      const newShear = _shEl.every(Boolean)
+        ? _shEl.map(el => parseFloat(el.value) || 0)
+        : prevShear;
+      selectedObject.shear = _shearClamped(newShear);
+
       if (typeof tlAutoKeyProps === 'function') {
         const posProps = ['posX', 'posY', 'posZ'].filter((p, i) => Math.abs(newPos[i] - prevPos[i]) > 1e-9);
         const sclProps = ['sclX', 'sclY', 'sclZ'].filter((p, i) => Math.abs(newScale[i] - prevScale[i]) > 1e-9);
@@ -55315,6 +55828,8 @@
           targets.forEach(o => tlAutoKeyProps(tlKeyOf(o), posProps)); // delta moved every one
         }
         if (sclProps.length) tlAutoKeyProps(tlKeyOf(selectedObject), sclProps); // scale writes primary only
+        const shrProps = ['shrXY', 'shrXZ', 'shrYX', 'shrYZ', 'shrZX', 'shrZY'].filter((p, i) => Math.abs(newShear[i] - prevShear[i]) > 1e-9);
+        if (shrProps.length) tlAutoKeyProps(tlKeyOf(selectedObject), shrProps); // primary only, like scale
       }
 
       if (typeof updateMoveToolUI === 'function') updateMoveToolUI(); // Update Delta Panel
@@ -55369,29 +55884,62 @@
     document.getElementById('scaleYInput').addEventListener('input', updateObjectFromInput);
     document.getElementById('scaleZInput').addEventListener('input', updateObjectFromInput);
 
+    document.getElementById('shearXYInput').addEventListener('input', updateObjectFromInput);
+    document.getElementById('shearXZInput').addEventListener('input', updateObjectFromInput);
+    document.getElementById('shearYXInput').addEventListener('input', updateObjectFromInput);
+    document.getElementById('shearYZInput').addEventListener('input', updateObjectFromInput);
+    document.getElementById('shearZXInput').addEventListener('input', updateObjectFromInput);
+    document.getElementById('shearZYInput').addEventListener('input', updateObjectFromInput);
+
+    // BAKE SCALE / SHEAR (v20260812k). Folds the ENTIRE shape matrix into the vertices,
+    // not just the scale triple, which is what makes shear bakeable at all.
+    //
+    // Why the whole matrix rather than scale-then-shear: the shape term is
+    // `RP . S . Sh . RP^T`, and S and Sh do not commute, so there is no order in which
+    // baking one and leaving the other is correct. Baking M outright and resetting BOTH
+    // channels to identity is exact, because with scale 1 and shear 0 the same expression
+    // collapses to `RP . I . RP^T` = I - so `pivotRotation` can be left alone and the
+    // object's world transform is unchanged to the last bit.
+    //
+    // This also fixes a latent wart in the old scale-only bake: it multiplied vertices
+    // componentwise, which equals `S`, but the actual shape term is `RP . S . RP^T`. With
+    // a non-identity `pivotRotation` those differ, so baking moved the object. MEASURED
+    // rather than assumed, and the honest size of it: scale [2, 0.5, 1.5] with
+    // pivotRotation [0.3, 0.5, 0.2] on a cube of extent 2 drifted 0.0105 - real, about
+    // half a percent, and small enough that nobody would have filed it. At pivotRotation
+    // zero, which is nearly all content, the drift is exactly 0 and the new path is a
+    // diagonal multiply - arithmetically the same operation as before.
     const bakeScale = () => {
       if (!selectedObject) return;
-      pushUndoState('Bake scale');
+      // Groups carry no vertices of their own - there is nothing here to fold into.
+      if (!selectedObject.localVertices || !selectedObject.localVertices.length) return;
 
-      const scale = selectedObject.scale || [1, 1, 1];
+      const M = objectShapeMatrix(
+        selectedObject.scale || [1, 1, 1],
+        selectedObject.pivotRotation,
+        selectedObject.shear
+      );
+      // Nothing to bake if the shape term is already the identity.
+      const isIdentity = [0, 1, 2].every(r => [0, 1, 2].every(c =>
+        Math.abs(M[r][c] - (r === c ? 1 : 0)) < 1e-12));
+      if (isIdentity) return;
 
-      // No need to bake if scale is already 1,1,1
-      if (scale[0] === 1 && scale[1] === 1 && scale[2] === 1) return;
+      pushUndoState('Bake scale / shear');
 
-      // Apply scale to all local vertices
       for (let i = 0; i < selectedObject.localVertices.length; i++) {
         const v = selectedObject.localVertices[i];
         selectedObject.localVertices[i] = [
-          v[0] * scale[0],
-          v[1] * scale[1],
-          v[2] * scale[2]
+          M[0][0] * v[0] + M[0][1] * v[1] + M[0][2] * v[2],
+          M[1][0] * v[0] + M[1][1] * v[1] + M[1][2] * v[2],
+          M[2][0] * v[0] + M[2][1] * v[1] + M[2][2] * v[2]
         ];
       }
 
-      // Reset scale
       selectedObject.scale = [1, 1, 1];
+      selectedObject.shear = [0, 0, 0, 0, 0, 0];
 
-      // Update Gizmo/Properties
+      notifyPathUpdated(selectedObject);
+      if (typeof resetShearToolSession === 'function') resetShearToolSession();
       updatePropertiesPanel();
       requestRender();
     };
@@ -55410,16 +55958,7 @@
       // orientedS = RPivot * S * invRPivot  (matches getLocalMatrix exactly)
       // The compensation goes into the hidden pivotShift so obj.position (and any
       // authored position keyframes) never change when the pivot is edited.
-      const S = createScaleMatrix(obj.scale[0], obj.scale[1], obj.scale[2]);
-      const RPivot = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
-      // Inverse of an orthogonal matrix is its transpose
-      const invRPivot = [
-        [RPivot[0][0], RPivot[1][0], RPivot[2][0], 0],
-        [RPivot[0][1], RPivot[1][1], RPivot[2][1], 0],
-        [RPivot[0][2], RPivot[1][2], RPivot[2][2], 0],
-        [0, 0, 0, 1]
-      ];
-      const orientedS = matrixMultiply(RPivot, matrixMultiply(S, invRPivot));
+      const orientedS = objectShapeMatrix(obj.scale, obj.pivotRotation, obj.shear);
       const RS = matrixMultiply(obj.rotationMatrix, orientedS);
       const positionDelta = vectorApplyMatrix(deltaPivot, RS);
 
@@ -56437,6 +56976,13 @@
     // mints unique names via ensureUniqueName and records old→new name pairs
     // (for _copyAnimTracks) — used by the real Duplicate action. Pass
     // opts.idMap (a Map) to collect old→new IDS for remapRefs (v20260726n).
+    // EVERY HAND-ROLLED TRANSFORM COPY IS A PLACE A CHANNEL CAN FALL OUT (v20260812m).
+    // This function and the path->group conversion both ENUMERATE the transform fields by
+    // hand, so `shear` was silently dropped from v20260812e until this release: duplicating
+    // a sheared object handed back the unsheared shape with no warning. Measured
+    // [0.4,0,0,0.3,0.55,0] -> [0,0,0,0,0,0]. Adding a transform channel means grepping for
+    // these enumerations, not just the matrix builder - `position`/`pivotRotation` are the
+    // reliable markers to grep for.
     const duplicateObject = (obj, opts) => {
       if (!obj) return null;
       const nameFor = (o) => {
@@ -56456,6 +57002,7 @@
         // Deep copy transform properties
         newGroup.position = [...obj.position];
         newGroup.scale = [...obj.scale];
+        newGroup.shear = [...(obj.shear || [0, 0, 0, 0, 0, 0])];   // v20260812m — see below
         newGroup.rotationMatrix = obj.rotationMatrix.map(row => [...row]);
         newGroup.style = JSON.parse(JSON.stringify(obj.style));
         newGroup.visible = obj.visible;
@@ -56532,6 +57079,7 @@
         if (obj.foldSettings) newPath.foldSettings = JSON.parse(JSON.stringify(obj.foldSettings)); // FOLD (v20260720m)
 
         // Copy transform extras
+        newPath.shear = [...(obj.shear || [0, 0, 0, 0, 0, 0])];   // v20260812m — see below
         newPath.pivot = [...obj.pivot];
         newPath.pivotRotation = [...obj.pivotRotation];
         newPath.pivotShift = [...(obj.pivotShift || [0, 0, 0])];
@@ -62259,8 +62807,13 @@
           }
         }
 
-      } else if (['select', 'directSelect', 'scale', 'rotate', 'pivot'].includes(currentTool)) {
+      } else if (['select', 'directSelect', 'scale', 'shear', 'rotate', 'pivot'].includes(currentTool)) {
         // --- Unified Selection & Transform Logic ---
+        // 'shear' joined this list in v20260812g. It gates the ENTIRE transform block —
+        // gizmo hit-test, selection, marquee — so a tool absent from it gets a gizmo it
+        // can see and cannot grab. That is exactly how the Shear tool first behaved:
+        // the handles drew (they come from showScaleGizmo) and mousedown never reached
+        // the dragMode branch.
 
         // 1. Gizmo Interaction
         let handledByGizmo = false;
@@ -62283,6 +62836,34 @@
                 lockedAxis = clickedGizmoAxis.split('-')[1];
               }
             } else handledByGizmo = false;
+          } else if (clickedGizmoAxis.startsWith('scale-') && currentTool === 'shear') {
+            // SHEAR, six components (v20260812j). AXIS HANDLES ONLY: grab the axis that
+            // should MOVE, and the reference is the partner with more extent. Hold SHIFT
+            // for the other partner - the drag direction cannot encode it, because a drag
+            // along axis A is along A whichever reference you meant.
+            //
+            // SHIFT and not ALT: Alt is the camera-orbit modifier on this same mousedown
+            // (see the `event.altKey` branch above), so Alt+drag would orbit instead. Shift
+            // alone reaches here because the gizmo branch consumes the click before the
+            // selection hit-test that Shift otherwise extends.
+            const _ax = clickedGizmoAxis.split('-')[1];
+            const _comp = (_ax === 'x' || _ax === 'y' || _ax === 'z')
+              ? shearIndexForAxis(_ax, selectedObject, event.shiftKey)
+              : null;
+            if (_comp !== null) {
+              dragMode = 'shear';
+              shearComponent = _comp;
+              lockedAxis = _ax;
+              dragStartWorldPosition = selectedObject.position;
+              (selectedObjects.length ? selectedObjects : [selectedObject])
+                .forEach(obj => { obj.dragStartShear = [...(obj.shear || [0, 0, 0, 0, 0, 0])]; });
+            }
+            // A handle with no live reference (both partner axes flat) starts no drag, and
+            // the centre circle is not drawn at all. The click is still CONSUMED
+            // (handledByGizmo stays true), because falling through runs the selection
+            // hit-test, which lands on the gizmo rather than an object and DESELECTS.
+            // Owner report, v20260812h: "dragging does nothing, it deselects as I click".
+            // Inert must mean inert, not destructive.
           } else if (clickedGizmoAxis.startsWith('scale-')) {
             // Scale or Select Tool
             if (currentTool === 'scale' || currentTool === 'select') {
@@ -63323,7 +63904,7 @@
             lockedAxis = totalDeltaX > totalDeltaY ? 'x' : 'y';
           }
         }
-      } else if (dragMode !== 'translate-local' && dragMode !== 'translate-planar' && dragMode !== 'translate-free' && dragMode !== 'rotate-local' && dragMode !== 'rotate-screen' && dragMode !== 'translate-radial' && dragMode !== 'translate' && dragMode !== 'scale' && dragMode !== 'translate-pivot' && dragMode !== 'translate-pivot-planar' && dragMode !== 'translate-pivot-free') {
+      } else if (dragMode !== 'translate-local' && dragMode !== 'translate-planar' && dragMode !== 'translate-free' && dragMode !== 'rotate-local' && dragMode !== 'rotate-screen' && dragMode !== 'translate-radial' && dragMode !== 'translate' && dragMode !== 'scale' && dragMode !== 'shear' && dragMode !== 'translate-pivot' && dragMode !== 'translate-pivot-planar' && dragMode !== 'translate-pivot-free') {
         lockedAxis = 'none';
       }
 
@@ -63562,6 +64143,68 @@
           });
         }
         updatePropertiesPanel();
+      } else if (dragMode === 'shear') {
+        if (!selectedObject) return;
+        // Drag along the MOVED axis of the pair — the one the handle names. `lockedAxis`
+        // is that axis; `shearComponent` is which of its two references was chosen.
+        const _shIdx = shearComponent;
+        const _mv = SHEAR_PAIRS[_shIdx][0];
+        const _movedAxis = [_mv === 0 ? 1 : 0, _mv === 1 ? 1 : 0, _mv === 2 ? 1 : 0];
+        // Local axis -> world. gizmoEffectiveMode pins Shear to Local, so this is the
+        // object's own frame; Phase 4 is what makes the basis a choice.
+        const _wAxis = gizmoAxisToWorld(_movedAxis, selectedObject);
+        const _camZ = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
+        const _camX = vectorNormalize(vectorCross(activeCamera.up, _camZ));
+        const _camY = vectorNormalize(vectorCross(_camZ, _camX));
+        const _sx = vectorDot(_wAxis, _camX), _sy = vectorDot(_wAxis, _camY);
+        const _len = Math.hypot(_sx, _sy);
+        const _mdx = event.clientX - dragStartMousePosition.x;
+        const _mdy = event.clientY - dragStartMousePosition.y;
+        // Same projection and fallback as the single-axis scale drag: an axis pointing
+        // at the camera has no screen direction, so vertical drag stands in for it.
+        const _proj = _len > 0.01 ? (_mdx * _sx + _mdy * (-_sy)) / _len : -_mdy;
+        const SHEAR_SENSITIVITY = 0.01;   // slope units per pixel, matching scale's feel
+        const _delta = _proj * SHEAR_SENSITIVITY;
+
+        const _objs = selectedObjects.length ? selectedObjects : [selectedObject];
+        const _isGroup = (_objs.length > 1) || shearPivotMode === 'origin';
+        let _pivot = null;
+        if (_isGroup) {
+          if (shearPivotMode === 'origin') _pivot = [0, 0, 0];
+          else if (_objs.length > 1) {
+            if (shearPivotMode === 'keyObject') _pivot = (selectedObject.dragStartPos || selectedObject.position).slice();
+            else if (shearPivotMode === 'center') {
+              let ax = 0, ay = 0, az = 0;
+              _objs.forEach(o => { const p = o.dragStartPos || o.position; ax += p[0]; ay += p[1]; az += p[2]; });
+              _pivot = [ax / _objs.length, ay / _objs.length, az / _objs.length];
+            }
+          }
+        }
+        _objs.forEach(obj => {
+          const st = obj.dragStartShear || obj.shear || [0, 0, 0, 0, 0, 0];
+          const ns = [...st];
+          ns[_shIdx] = st[_shIdx] + _delta;
+          obj.shear = _shearClamped(ns);
+          if (_pivot) {
+            // Shear the POSITIONS about the pivot too, so a group shears as one body
+            // rather than each member shearing in place. Generic over all six components
+            // now (v20260812j): exactly one changes per drag, and it slides the MOVED axis
+            // by delta x the REFERENCE coordinate. Read the delta back off `obj.shear`
+            // rather than `ns` so a clamped drag moves the bodies by what was actually
+            // applied — otherwise position and shape disagree at the determinant floor.
+            const bp = obj.dragStartPos || obj.position;
+            const rel = [bp[0] - _pivot[0], bp[1] - _pivot[1], bp[2] - _pivot[2]];
+            const _d = obj.shear[_shIdx] - st[_shIdx];
+            const _np = [_pivot[0] + rel[0], _pivot[1] + rel[1], _pivot[2] + rel[2]];
+            _np[SHEAR_PAIRS[_shIdx][0]] += _d * rel[SHEAR_PAIRS[_shIdx][1]];
+            obj.position = _np;
+          }
+          notifyPathUpdated(obj);
+        });
+        updatePropertiesPanel();
+        if (typeof updateShearToolUI === 'function') updateShearToolUI();
+        requestRender();
+        return;
       } else if (dragMode === 'scale') {
         if (!selectedObject) return;
 
@@ -64075,15 +64718,7 @@
 
         // Convert world delta to local-space pivot delta
         // Bug 3 fix: use R * orientedS (RPivot*S*invRPivot) instead of R * S
-        const S_piv = createScaleMatrix(selectedObject.scale[0], selectedObject.scale[1], selectedObject.scale[2]);
-        const RPiv = matrixFromEuler(selectedObject.pivotRotation || [0, 0, 0]);
-        const invRPiv = [
-          [RPiv[0][0], RPiv[1][0], RPiv[2][0], 0],
-          [RPiv[0][1], RPiv[1][1], RPiv[2][1], 0],
-          [RPiv[0][2], RPiv[1][2], RPiv[2][2], 0],
-          [0, 0, 0, 1]
-        ];
-        const orientedS_piv = matrixMultiply(RPiv, matrixMultiply(S_piv, invRPiv));
+        const orientedS_piv = objectShapeMatrix(selectedObject.scale, selectedObject.pivotRotation, selectedObject.shear);
         const RS_piv = matrixMultiply(selectedObject.rotationMatrix, orientedS_piv);
         const invRS_piv = matrixInverse(RS_piv);
         if (invRS_piv) {
@@ -64164,15 +64799,7 @@
 
               // Convert world delta to local pivot delta
               // Bug 3 fix: use R * orientedS (RPivot*S*invRPivot) instead of R * S
-              const S_piv2 = createScaleMatrix(selectedObject.scale[0], selectedObject.scale[1], selectedObject.scale[2]);
-              const RPiv2 = matrixFromEuler(selectedObject.pivotRotation || [0, 0, 0]);
-              const invRPiv2 = [
-                [RPiv2[0][0], RPiv2[1][0], RPiv2[2][0], 0],
-                [RPiv2[0][1], RPiv2[1][1], RPiv2[2][1], 0],
-                [RPiv2[0][2], RPiv2[1][2], RPiv2[2][2], 0],
-                [0, 0, 0, 1]
-              ];
-              const orientedS_piv2 = matrixMultiply(RPiv2, matrixMultiply(S_piv2, invRPiv2));
+              const orientedS_piv2 = objectShapeMatrix(selectedObject.scale, selectedObject.pivotRotation, selectedObject.shear);
               const RS_piv2 = matrixMultiply(selectedObject.rotationMatrix, orientedS_piv2);
               const invRS_piv2 = matrixInverse(RS_piv2);
               if (invRS_piv2) {
@@ -64251,15 +64878,7 @@
 
               // Convert world delta to local pivot delta
               // Bug 3 fix: use R * orientedS (RPivot*S*invRPivot) instead of R * S
-              const S_piv3 = createScaleMatrix(selectedObject.scale[0], selectedObject.scale[1], selectedObject.scale[2]);
-              const RPiv3 = matrixFromEuler(selectedObject.pivotRotation || [0, 0, 0]);
-              const invRPiv3 = [
-                [RPiv3[0][0], RPiv3[1][0], RPiv3[2][0], 0],
-                [RPiv3[0][1], RPiv3[1][1], RPiv3[2][1], 0],
-                [RPiv3[0][2], RPiv3[1][2], RPiv3[2][2], 0],
-                [0, 0, 0, 1]
-              ];
-              const orientedS_piv3 = matrixMultiply(RPiv3, matrixMultiply(S_piv3, invRPiv3));
+              const orientedS_piv3 = objectShapeMatrix(selectedObject.scale, selectedObject.pivotRotation, selectedObject.shear);
               const RS_piv3 = matrixMultiply(selectedObject.rotationMatrix, orientedS_piv3);
               const invRS_piv3 = matrixInverse(RS_piv3);
               if (invRS_piv3) {
@@ -65673,6 +66292,9 @@
           } else if (isScale) {
             props.push('sclX', 'sclY', 'sclZ');
             if (scalePivotMode === 'origin' || (isMulti && scalePivotMode !== 'inPlace')) props.push('posX', 'posY', 'posZ');
+          } else if (_prevDragMode === 'shear') {
+            props.push('shrXY', 'shrXZ', 'shrYX', 'shrYZ', 'shrZX', 'shrZY');
+            if (shearPivotMode === 'origin' || (isMulti && shearPivotMode !== 'inPlace')) props.push('posX', 'posY', 'posZ');
           }
           const akTargets = isMulti ? selectedObjects : [selectedObject];
           akTargets.forEach(o => { tlAutoKeyProps(tlKeyOf(o), props); tlAutoKeyObject(o); });
@@ -66173,60 +66795,48 @@
           if (!hasSelection) return;
 
           const nudgeAmount = KEYBOARD_NUDGE_AMOUNT * (event.shiftKey ? 10 : 1);
-          let moveVector = [0, 0, 0];
-          const camRight = activeCamera.getRightVector();
-          const viewDir = vectorNormalize(vectorSubtract(activeCamera.target, activeCamera.position));
-          const camUp = vectorNormalize(vectorCross(viewDir, camRight));
 
-          // --- World-Axis Lock (X/Y/Z keys held) ---
-          if (isXPressed || isYPressed || isZPressed) {
-            let axis = [0, 0, 0];
-            let direction = 0;
+          // ARROW NUDGE FOLLOWS THE GIZMO (v20260812l, owner's call). Horizontal = the
+          // gizmo's X, vertical = its Y, and Z+arrow drives its Z. One mapping for all
+          // four basis modes, so the keys agree with the arrows you can see.
+          //
+          // WHAT THIS REPLACED, and why nothing is lost: the old default was SCREEN space
+          // (camera right/up) in every mode - measured identical across World, Local,
+          // Camera and Workplane, i.e. the gizmo setting did not reach the arrows at all.
+          // That screen-space mapping is EXACTLY this one evaluated in Camera mode, which
+          // is not a coincidence but two negations cancelling: `getRightVector()` is the
+          // precise negative of `cameraGizmoBasis`'s X (verified [-0.711,0,0.703] against
+          // [0.711,0,-0.703]) and the old code compensated with `ArrowRight -> -camRight`.
+          // So Camera mode reproduces the pre-v20260812l feel bit-for-bit - which is what
+          // Camera mode is for.
+          //
+          // The X / Y held keys now name what the arrows already do, and are kept as
+          // no-op aliases rather than freed: those same flags gate DRAG behaviour
+          // elsewhere (X/Y+drag = rotate-axis lock), so the keydown handler must go on
+          // setting them. Y was always a duplicate of X here in any case.
+          //
+          // SUBJECT: the A tool orients to the vertex's OWNER, not to `selectedObject` -
+          // the same argument `gizmoBasis` takes at the DRAWING site. They could disagree:
+          // shift-clicking a vertex on a second object updates `selectedVertexInfo` and
+          // never calls `setSelectedObject`, so in Local mode the arrows used to move
+          // along a different axis than the gizmo on screen. `gizmoAxisToWorld` is safe
+          // with a null subject (`_subjectIn2D` null-guards, and Local falls back to the
+          // identity), so this needs no selection guard of its own.
+          const nudgeSubject = (currentTool === 'directSelect' && selectedVertexInfo)
+            ? selectedVertexInfo.object
+            : selectedObject;
 
-            if (isZPressed) {
-              if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-                // World Y-axis: Y+ on ArrowUp, Y- on ArrowDown
-                axis = [0, 1, 0];
-                if (event.key === 'ArrowUp') direction = 1;
-                else if (event.key === 'ArrowDown') direction = -1;
-              } else if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
-                // World Z-axis: Z- on ArrowRight, Z+ on ArrowLeft
-                axis = [0, 0, 1];
-                if (event.key === 'ArrowRight') direction = -1;
-                else if (event.key === 'ArrowLeft') direction = 1;
-              }
-            }
-            else if (isXPressed || isYPressed) {
-              if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
-                // World X-axis: X+ on ArrowRight, X- on ArrowLeft
-                axis = [1, 0, 0];
-                if (event.key === 'ArrowRight') direction = 1;
-                else if (event.key === 'ArrowLeft') direction = -1;
-              } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-                // World Y-axis: Y+ on ArrowUp, Y- on ArrowDown
-                axis = [0, 1, 0];
-                if (event.key === 'ArrowUp') direction = 1;
-                else if (event.key === 'ArrowDown') direction = -1;
-              }
-            }
-
-            // Only move if a valid direction was pressed for the locked axis
-            if (direction !== 0) {
-              // Map the canonical axis into world space through the gizmo basis.
-              // Guarded on selectedObject as before: with nothing selected the old
-              // code left `axis` untouched, and gizmoBasis(null) returns identity,
-              // so the guard is now belt-and-braces rather than load-bearing.
-              if (selectedObject) axis = gizmoAxisToWorld(axis, selectedObject);
-              moveVector = vectorScale(axis, direction * nudgeAmount);
-            }
-          } else {
-            // Screen Space Movement (No World Lock)
-            // FIX: Corrected the inversion of horizontal screen movement.
-            if (event.key === 'ArrowRight') moveVector = vectorScale(camRight, -nudgeAmount);
-            else if (event.key === 'ArrowLeft') moveVector = vectorScale(camRight, nudgeAmount);
-            else if (event.key === 'ArrowUp') moveVector = vectorScale(camUp, nudgeAmount);
-            else if (event.key === 'ArrowDown') moveVector = vectorScale(camUp, -nudgeAmount);
-          }
+          const _horizontal = (event.key === 'ArrowRight' || event.key === 'ArrowLeft');
+          const _positive = (event.key === 'ArrowRight' || event.key === 'ArrowUp');
+          // Z+arrow: BOTH axes drive Z, and -> / ^ are both +Z (owner's call,
+          // v20260812l). The old mapping put Z on the horizontal only, left the vertical
+          // as Y, and hard-coded `-> = -Z` so that +Z read leftward from the default iso
+          // camera - correct there and inverted the moment you orbit past it.
+          const _canonical = isZPressed ? [0, 0, 1] : (_horizontal ? [1, 0, 0] : [0, 1, 0]);
+          const moveVector = vectorScale(
+            gizmoAxisToWorld(_canonical, nudgeSubject),
+            (_positive ? 1 : -1) * nudgeAmount
+          );
 
           // Apply fixed world-space delta (no scale factor)
           const worldSpaceDelta = moveVector;
@@ -66403,6 +67013,11 @@
           case 'S':
             event.preventDefault();
             setTool('scale');
+            break;
+          case 'h':
+          case 'H':
+            event.preventDefault();
+            setTool('shear');
             break;
           // Pivot tool moved D -> J (v20260718j). 'D' is reserved as the
           // HELD drag modifier for radial move (push toward / away from the
@@ -67671,20 +68286,22 @@
       // --- App Settings (localStorage) ---
       const SETTINGS_KEY = 'dim-settings';
 
-      let animationEnabled = true; // default ON (loadSettings reconciles with saved prefs)
+      // RETIRED SETTING KEYS (v20260813b). Keys that a previous build persisted
+      // and this one no longer honours. They are PRUNED from the stored object on
+      // load rather than merely ignored, so `dim-settings` never contains a value
+      // that looks authoritative and is not — which is what a reader (or a future
+      // `settings.animationEnabled` read added back by accident) would trip over.
+      //
+      // Add a key here when a feature graduates out of the experimental pattern
+      // (§11 of the state report has the full checklist). Removal is one-way and
+      // deliberately silent: the value is dead by the time it is deleted, so there
+      // is nothing to warn about.
+      const RETIRED_SETTINGS_KEYS = ['animationEnabled', 'textToolEnabled'];
 
-      const setAnimationEnabled = (enabled) => {
-        animationEnabled = enabled;
-        const panel = document.getElementById('timelinePanel');
-        if (panel) panel.style.display = enabled ? 'flex' : 'none';
-        const cb = document.getElementById('animationEnabledCb');
-        if (cb) cb.checked = enabled;
-        // Stop playback when disabling
-        if (!enabled && typeof tlStopPlayback === 'function') {
-          try { tlStopPlayback(); } catch (_) { }
-        }
-        updateTimelineHeight();
-      };
+      // `animationEnabled` / `setAnimationEnabled` moved to TOP LEVEL in
+      // v20260813a — see the ANIMATION FEATURE GATE block. They were declared
+      // here, inside init's closure, which is what made importScene's
+      // auto-enable dead code.
 
       const loadSettings = () => {
         try {
@@ -67721,12 +68338,29 @@
                 if (ulInp) ulInp.value = val;
               }
             }
-            // Animation experiment toggle (default ON; still gated so it can be
-            // turned off). Absent field → on; only an explicit false stays off,
-            // so a user who deliberately disabled it keeps that choice.
-            setAnimationEnabled(settings.animationEnabled !== false);
-            // Text tool experiment toggle (default ON, same rule) — TEXT-TOOL
-            setTextToolEnabled(settings.textToolEnabled !== false);
+            // `settings.animationEnabled` and `settings.textToolEnabled` are
+            // deliberately NOT read any more (v20260813a). Both features are
+            // default-on and no longer have a control, so honouring a stored
+            // `false` would strand that user with a feature they could never
+            // turn back on.
+            //
+            // v20260813b: and the dead keys are now DELETED rather than ignored.
+            // Writing back only when something was actually removed keeps this a
+            // one-time migration — after the first load the object no longer has
+            // them, `pruned` stays false, and no further boot writes localStorage.
+            // The whole parsed object is written back, so every other setting is
+            // preserved exactly; `saveSettings` cannot do this job because it
+            // merges and has no way to express a deletion.
+            {
+              let pruned = false;
+              for (const k of RETIRED_SETTINGS_KEYS) {
+                if (Object.prototype.hasOwnProperty.call(settings, k)) {
+                  delete settings[k];
+                  pruned = true;
+                }
+              }
+              if (pruned) localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+            }
             // Grid appearance (global prefs). Absent key → keep default.
             if (typeof settings.gridColor === 'string') {
               gridColor = settings.gridColor;
@@ -67745,10 +68379,6 @@
             }
             keepGridOnHide = settings.keepGridOnHide === true;
             const kg = document.getElementById('keepGridOnHideCheckbox'); if (kg) kg.checked = keepGridOnHide;
-          } else {
-            // No saved settings — both experiments default ON
-            setAnimationEnabled(true);
-            setTextToolEnabled(true); // TEXT-TOOL
           }
         } catch (e) {
           console.warn('Failed to load settings:', e);
@@ -67946,23 +68576,8 @@
         });
       }
 
-      // Animation experiment checkbox
-      const animationCb = document.getElementById('animationEnabledCb');
-      if (animationCb) {
-        animationCb.addEventListener('change', (e) => {
-          setAnimationEnabled(e.target.checked);
-          saveSettings({ animationEnabled: e.target.checked });
-        });
-      }
-
-      // TEXT TOOL (experimental) toggle
-      const textToolCb = document.getElementById('textToolEnabledCb');
-      if (textToolCb) {
-        textToolCb.addEventListener('change', (e) => {
-          setTextToolEnabled(e.target.checked);
-          saveSettings({ textToolEnabled: e.target.checked });
-        });
-      }
+      // The Animation and Text Tool checkboxes were removed in v20260813a —
+      // both are default features and their gates are code constants now.
 
       // Show Raster Image (debug view, session-only — no settings key)
       const rasterHelperViewCbEl = document.getElementById('rasterHelperViewCb');
@@ -68044,13 +68659,8 @@
           const ulInp = document.getElementById('undoLimitInput');
           if (ulInp) ulInp.value = 50;
 
-          // Reset animation to its default (ON)
-          setAnimationEnabled(true);
-          saveSettings({ animationEnabled: true });
-
-          // Reset text tool to its default (ON) — TEXT-TOOL
-          setTextToolEnabled(true);
-          saveSettings({ textToolEnabled: true });
+          // Animation and the Text tool are no longer settings, so Reset
+          // Settings has nothing to reset for them (v20260813a).
 
           // Reset grid appearance to defaults (black @ 20%, weight 1) + keep-on-Tab off
           gridColor = '#000000'; gridOpacity = 0.2; gridWeight = 1; keepGridOnHide = false;
@@ -68067,6 +68677,16 @@
           console.log('Settings reset to defaults.');
         });
       }
+
+      // FEATURE GATES (v20260813a). Applied from the CONSTANTS, not from saved
+      // settings — Animation and the Text tool are default features and have no
+      // control any more. This is the one boot-time application of both
+      // switches; a non-animation (or no-text) build flips the constant and
+      // needs no other edit. Applied here, immediately before loadSettings(), to
+      // keep the previous ordering: the old code applied them from inside
+      // loadSettings at this same point in init.
+      setAnimationEnabled(ANIMATION_DEFAULT_ON);
+      setTextToolEnabled(TEXT_TOOL_DEFAULT_ON);
 
       loadSettings();
 
@@ -68569,6 +69189,7 @@
         rotationMatrix: obj.rotationMatrix,
         rotationEuler: obj.rotationEuler, // Save Euler angles (v20260126)
         scale: obj.scale,
+        shear: obj.shear, // v20260812e — also what puts shear in the UNDO diff
         visible: obj.visible,
         lock: obj.lock,
         pivot: obj.pivot,
@@ -68834,6 +69455,16 @@
       }
 
       if (data.scale) obj.scale = [...data.scale];
+      // Absent in every scene written before v20260812e; the constructor default
+      // [0,0,0] then applies, which is exactly the old behaviour.
+      if (data.shear) {
+        // MIGRATION (v20260812j). Files written v20260812e-i carry three components in
+        // [shXY, shXZ, shYZ] order; a length check tells them apart, and the mapping is
+        // lossless. Anything older has no `shear` key and takes the constructor's zeros.
+        obj.shear = data.shear.length === 3
+          ? [data.shear[0], data.shear[1], 0, data.shear[2], 0, 0]
+          : [...data.shear];
+      }
       if (data.visible !== undefined) obj.visible = data.visible;
       // LAYER RANGES (v20260729a, multi-segment v20260729c) — absent key leaves
       // the object always-visible. `layerRange` (singular) is the v20260729a
@@ -69000,28 +69631,23 @@
       // Restore Animation Timeline
       if (data.animation && typeof tlDeserialize === 'function') {
         tlDeserialize(data.animation);
-        // Re-enable animation panel if there are keyframes in the data
-        const hasTracks = data.animation.tracks && Object.keys(data.animation.tracks).length > 0;
-        if (hasTracks && typeof setAnimationEnabled === 'function') {
-          setAnimationEnabled(true);
-        }
+        // v20260813a: the "re-enable the panel if the scene has keyframes" call
+        // is GONE. It existed to rescue a user who had ticked the experiment
+        // off, which is no longer reachable — and it had never run anyway, since
+        // setAnimationEnabled was declared inside init's closure and the
+        // `typeof` test it was guarded by evaluated false. Removing it is what
+        // makes ANIMATION_DEFAULT_ON = false a switch a scene file cannot undo.
       } else if (typeof tlDeserialize === 'function') {
         // No animation data — clear timeline
         tlDeserialize(null);
       }
 
-      // TEXT TOOL (experimental): auto-enable when the scene contains text
-      // primitives, so a text scene is never silently un-editable (mirror
-      // of the animation hasTracks rule above). Enables the UI only — does
-      // not persist the setting.
-      {
-        const _hasTextPrim = (list) => Array.isArray(list) && list.some(o =>
-          (o && o.primitiveData && o.primitiveData.type === 'text') ||
-          (o && _hasTextPrim(o.children)));
-        if (_hasTextPrim(data.objects) && typeof setTextToolEnabled === 'function' && !textToolEnabled) {
-          setTextToolEnabled(true);
-        }
-      }
+      // TEXT TOOL: the "auto-enable when the scene contains text primitives"
+      // pass was removed in v20260813a for the same reason as the animation one
+      // above — the tool is always on, so it had nothing left to rescue, and a
+      // build that deliberately withdraws the tool must not have it handed back
+      // by a scene file. Text OBJECTS in a loaded scene were never gated: they
+      // carry their own glyph cache and render as plain paths either way.
 
       updateTreeView();
       _scheduleHistoryUpdate();
@@ -70392,6 +71018,7 @@
         if (paramDef.vecProp === 'position') return obj.position[paramDef.vecIdx];
         if (paramDef.vecProp === 'rotation') return (obj.rotationEuler || matrixToEuler(obj.rotationMatrix))[paramDef.vecIdx];
         if (paramDef.vecProp === 'scale') return (obj.scale || [1, 1, 1])[paramDef.vecIdx];
+        if (paramDef.vecProp === 'shear') return (obj.shear || [0, 0, 0, 0, 0, 0])[paramDef.vecIdx];
         if (paramDef.vecProp === 'pivot') return (obj.pivot || [0, 0, 0])[paramDef.vecIdx];
         return null;
       }
@@ -70512,6 +71139,7 @@
           obj.rotationMatrix = matrixFromEuler(obj.rotationEuler);
         }
         else if (paramDef.vecProp === 'scale') { if (!obj.scale) obj.scale = [1, 1, 1]; obj.scale[paramDef.vecIdx] = val; }
+        else if (paramDef.vecProp === 'shear') { if (!obj.shear) obj.shear = [0, 0, 0, 0, 0, 0]; obj.shear[paramDef.vecIdx] = val; obj.shear = _shearClamped(obj.shear); }
         else if (paramDef.vecProp === 'pivot') { if (!obj.pivot) obj.pivot = [0, 0, 0]; obj.pivot[paramDef.vecIdx] = val; }
         return;
       }
@@ -71014,19 +71642,13 @@
           trackVal(rotKfs[1], f, restEuler[1], 'rotY'),
           trackVal(rotKfs[2], f, restEuler[2], 'rotZ')
         ]);
-        const S = createScaleMatrix(
+        // Scale is FRAME-SAMPLED here, not obj.scale — which is why objectShapeMatrix
+        // takes values rather than an object.
+        return matrixMultiply(R, objectShapeMatrix([
           trackVal(sclKfs[0], f, restScale[0], 'sclX'),
           trackVal(sclKfs[1], f, restScale[1], 'sclY'),
           trackVal(sclKfs[2], f, restScale[2], 'sclZ')
-        );
-        const RP = matrixFromEuler(obj.pivotRotation || [0, 0, 0]);
-        const invRP = [
-          [RP[0][0], RP[1][0], RP[2][0], 0],
-          [RP[0][1], RP[1][1], RP[2][1], 0],
-          [RP[0][2], RP[1][2], RP[2][2], 0],
-          [0, 0, 0, 1]
-        ];
-        return matrixMultiply(R, matrixMultiply(RP, matrixMultiply(S, invRP)));
+        ], obj.pivotRotation, obj.shear));
       };
 
       // Pivot "events" = union of pivot key frames, ascending
@@ -71569,6 +72191,10 @@
               rotChanged = true;
             } else if (vecProp === 'scale') {
               obj.scale[vecIdx] = val;
+            } else if (vecProp === 'shear') {
+              if (!obj.shear) obj.shear = [0, 0, 0, 0, 0, 0];
+              obj.shear[vecIdx] = val;
+              obj.shear = _shearClamped(obj.shear);
             } else if (vecProp === 'pivot') {
               if (!newPivot) newPivot = [...(obj.pivot || [0, 0, 0])];
               newPivot[vecIdx] = val;
@@ -72137,6 +72763,12 @@
       { prop: 'sclX', label: 'Scl X', precision: 2, vecProp: 'scale', vecIdx: 0 },
       { prop: 'sclY', label: 'Scl Y', precision: 2, vecProp: 'scale', vecIdx: 1 },
       { prop: 'sclZ', label: 'Scl Z', precision: 2, vecProp: 'scale', vecIdx: 2 },
+      { prop: 'shrXY', label: 'Shr XY', precision: 3, vecProp: 'shear', vecIdx: 0 },
+      { prop: 'shrXZ', label: 'Shr XZ', precision: 3, vecProp: 'shear', vecIdx: 1 },
+      { prop: 'shrYX', label: 'Shr YX', precision: 3, vecProp: 'shear', vecIdx: 2 },
+      { prop: 'shrYZ', label: 'Shr YZ', precision: 3, vecProp: 'shear', vecIdx: 3 },
+      { prop: 'shrZX', label: 'Shr ZX', precision: 3, vecProp: 'shear', vecIdx: 4 },
+      { prop: 'shrZY', label: 'Shr ZY', precision: 3, vecProp: 'shear', vecIdx: 5 },
       { prop: 'pivX', label: 'Piv X', precision: 2, vecProp: 'pivot', vecIdx: 0 },
       { prop: 'pivY', label: 'Piv Y', precision: 2, vecProp: 'pivot', vecIdx: 1 },
       { prop: 'pivZ', label: 'Piv Z', precision: 2, vecProp: 'pivot', vecIdx: 2 },
@@ -72945,8 +73577,13 @@
     // Only acts if animation is enabled AND the object/camera already has tracks.
 
     const tlAutoKeyCamera = () => {
-      const animCb = document.getElementById('animationEnabledCb');
-      if (!animCb || !animCb.checked) return;
+      // v20260813a: reads the GATE, not a checkbox's DOM state. All three
+      // tlAutoKey* functions used to test
+      // `document.getElementById('animationEnabledCb').checked`, so deleting
+      // that markup would have made every one of them return early forever —
+      // Auto-Key silently dead for the camera, for objects and for every param
+      // family, with nothing failing loudly.
+      if (!animationEnabled) return;
       if (animationTimeline.isPlaying) return;
       if (!_tlAutoKeyframing) return;
       const camTracks = animationTimeline.tracks.get('__camera__');
@@ -72974,8 +73611,7 @@
 
     const tlAutoKeyObject = (obj) => {
       if (!obj) return;
-      const animCb = document.getElementById('animationEnabledCb');
-      if (!animCb || !animCb.checked) return;
+      if (!animationEnabled) return;   // v20260813a: the gate, not a checkbox
       if (animationTimeline.isPlaying) return;
       if (!_tlAutoKeyframing) return;
       const objTracks = animationTimeline.tracks.get(tlKeyOf(obj));
@@ -73019,8 +73655,7 @@
     // not editing; deliberate camera-panel numeric edits DO route here.
     const tlAutoKeyProps = (objectName, props) => {
       if (!_tlAutoKeyframing) return false;
-      const animCb = document.getElementById('animationEnabledCb');
-      if (!animCb || !animCb.checked) return false;
+      if (!animationEnabled) return false;   // v20260813a: the gate, not a checkbox
       if (animationTimeline.isPlaying) return false;
       if (!objectName || !props || !props.length) return false;
       const frame = animationTimeline.currentFrame;
@@ -75418,7 +76053,7 @@
     // handlers (Space-truck arming, arrow object-nudge — whose branch does
     // NOT exclude altKey) never double-fire (the v20260718l lesson).
     // panel.matches(':hover') needs no enter/leave bookkeeping and is
-    // automatically false while the panel is hidden (Animation toggle off).
+    // automatically false while the panel is hidden (ANIMATION_DEFAULT_ON off).
     document.addEventListener('keydown', (e) => {
       const panel = document.getElementById('timelinePanel');
       if (!panel || !panel.matches(':hover')) return;

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260815p -->
+<!-- dim v20260816b -->
 
 <!--
   MIT License
@@ -7155,6 +7155,13 @@
                         <option value="maskRender" id="maskRenderOption">Masks (Vector Z-Buffer)</option>
                       </select>
                     </div>
+                  </div>
+                  <!-- GLASS RENDER: the master switch for the glass pipeline
+                       (MaskRender.GLASS_GATE + GLASS_ORDER + GLASS_LIVE_SORT).
+                       Unchecked reproduces pre-campaign behaviour exactly. -->
+                  <div class="style-row" id="glassRenderRow" style="display:none;">
+                    <label class="ui-checkbox-label">Glass Render</label>
+                    <input type="checkbox" id="glassRenderCb" class="ui-checkbox" />
                   </div>
                   <!-- RASTER HELPER (experimental): debug view of the depth/ID buffer -->
                   <div class="style-row" id="rasterHelperViewRow" style="display:none;">
@@ -27733,6 +27740,162 @@
       // hybrid's stroke path reads it; with it false nothing stamps and no
       // consumer branch is reachable (verified byte-identical, not assumed).
       STROKE_VIS: false,
+      // ---- GLASS: PART 1, THE TRANSLUCENT-OCCLUDER ENTRY GATE (v20260815r) --
+      // A mask entry ERASES the face it hides. That is right for an opaque
+      // occluder and wrong for glass: behind a translucent face you must see
+      // the face behind it, not the background. Measured on
+      // _tests/_repro_glass_crystal.json (two extruded letters, every face
+      // fill-opacity 0.55): part of the blue "n" is simply gone where the red
+      // "a" crosses it, and the R1 oracle — a per-texel depth-sorted
+      // source-over composite of every rec, which is what glass IS — puts that
+      // ink 4,336 px away from the picture the renderer draws.
+      //
+      // THE RULE IS TWO-PART and this flag is part 1 only:
+      //   (1) HERE, and it is free: an entry whose OCCLUDER is translucent is
+      //       not pushed, so the hidden face survives whole.
+      //   (2) NOT free, and NOT in this release: the occluder still paints
+      //       BEFORE the face it hides (structural — 167/167 measured entries
+      //       in v20260814l), so gating alone leaves the glass UNDER the thing
+      //       it should cover. Measured here: 4,336 -> 2,933 px against the
+      //       oracle, the missing piece back, the remainder wrong-ORDER, not
+      //       wrong-geometry. G2 (split emission: divide the face at the
+      //       occlusion boundary and place the occluded piece below the
+      //       occluder) is the pending half; the worklist is in the G1 report.
+      //
+      // SELF-BLENDS ARE UNTOUCHED BY CONSTRUCTION, verified rather than
+      // assumed: the crystal has FIVE mask entries and ZERO of them are
+      // same-owner, so a letter's own cap over its own sides was already pure
+      // alpha compositing and already matches the oracle. G3 will make that a
+      // stated policy instead of a measured accident.
+      //
+      // OPAQUE SCENES CANNOT MOVE: the product below is 1 for them, so the
+      // gate's condition is false and every push happens exactly as before.
+      // That is the corpus contract and it is checked four ways (fill, flatten,
+      // clip and piece corpus hashes, all 12/12) rather than argued.
+      //
+      // The 0.99 threshold and the element+geometry-child product are NOT new:
+      // they are v20260814f's `_ridOpacity`, reused verbatim so glass has one
+      // definition of "effectively opaque" in this file. Known limit of that
+      // definition, inherited: an `opacity` authored on an ANCESTOR GROUP is
+      // not folded in (dim writes fill-opacity on the face), so a group-level
+      // translucency would still erase. Widen both together if that ever bites.
+      GLASS_GATE: true,
+      // ---- GLASS PART 2: MINIMAL-SPLIT GLOBAL ORDER (G2b) -------------------
+      //
+      // What part 1 leaves behind, measured: the crystal's blue `n` is WHOLE
+      // again but paints ABOVE the red `a` where the `a` is in front — 2,933 px
+      // against the R1 oracle, all of it wrong-ORDER and none of it
+      // wrong-geometry. Gating an entry restores the ink; it cannot move it.
+      //
+      // THE RULE: order whole faces, and cut only where no order can exist.
+      //   1  every overlapping pair of translucent faces is classified by
+      //      scanning its shared coverage with the two faces' own ANALYTIC
+      //      depths — A-in-front, B-in-front, or MIXED (they cross);
+      //   2  a definite pair is one edge, far -> near; a SAME-OWNER pair
+      //      contributes its EXISTING paint order instead, pinning every
+      //      self-blend exactly where it already is;
+      //   3  each MIXED pair is cut ONCE, splitting one of its two faces at the
+      //      crossing curve, so both fragments have a definite relation;
+      //   4  a topological sort with the current paint index as the tiebreak
+      //      gives the emission order — an unconstrained face does not move.
+      //
+      // WHY PAINT ORDER IS ALLOWED TO CARRY THIS, and it is the distinction the
+      // earlier decline turned on: these are PURE TRANSLUCENT FILLS, and
+      // source-over of pure fills is exactly a painter's algorithm — put them
+      // in depth order and the composite is correct. The standing
+      // "depth-ordered pieces" refusal is about OPAQUE faces under the mask
+      // model, where an element carries a stroke and a mask and reordering it
+      // changes what it hides, not merely what it blends over. Nothing here
+      // hides anything: part 1 already guarantees a translucent occluder never
+      // produces a mask entry.
+      //
+      // MEASURED ON THE CRYSTAL (28 glass faces, 378 unordered pairs):
+      //   109 pairs consistently ordered · 8 MIXED · 0 cycles
+      //   whole-face order alone   2,933 px  (unchanged — the mean-z sort
+      //                                       already satisfies all 109)
+      //   + 9 crossing cuts            0 px  (the edge-noise floor, which this
+      //                                       fixture measures at exactly 0)
+      // So the sort is free and the CROSSINGS ARE THE WHOLE DEFECT. 37 emitted
+      // paths against 28 faces.
+      //
+      // WHAT THIS REPLACED, and why — the owner's reason, recorded because the
+      // measurement alone would not have chosen it. G2's first form built
+      // correction REGIONS from the gated pairs, refined them into disjoint
+      // cells until each had a constant covering-set-and-order, and emitted a
+      // depth-sorted stack per cell. It reached 6 px on the crystal and it was
+      // REJECTED ON FORM: 100 emitted paths against 28 faces, so the exported
+      // letters arrived in Illustrator as a bag of fragments. The aim is
+      // "ordering instead of deleting", with division only where unavoidable —
+      // a face that no crossing passes through must come out whole and
+      // selectable. The region form's cells were cut at every covering-set
+      // CHANGE, which is a far finer partition than correctness needs; this one
+      // cuts only at genuine depth crossings. Same oracle, fewer pieces: 0 px
+      // at 37 paths against 6 px at 100.
+      //
+      // THE LIMIT, and it stands down cleanly rather than degrading: cutting
+      // every mixed PAIR makes every PAIRWISE relation definite and still does
+      // not guarantee a global order — three faces can each be pairwise-ordered
+      // and cycle as a triple (classic painter's cyclic overlap). The
+      // three-slab fixture does exactly that (23 mixed, 23 cuts, 35 of 51
+      // fragments unplaceable) and the pass DECLINES: whole faces, part 1's
+      // picture, no fragments shipped. Breaking those cycles needs a cut along
+      // the cycle's MUTUAL overlap — a BSP-style split, and a campaign of its
+      // own. `stats.glassCycles` says whether a real scene ever needs it.
+      //
+      // SCOPE: translucent, unmasked faces sharing one parent. An opaque
+      // occluder means clip-chain geometry and a face the planner already
+      // masked is not this pass's business; both decline, both counted.
+      //
+      // WHERE IT RUNS: clipExport — the settle-time producer and the export
+      // seam, so the presented picture and the file are the same picture. A
+      // gesture keeps part 1's cheap approximation (whole geometry, imperfect
+      // order at the crossings), which is already closer to the owner's model
+      // than the erasure it replaced.
+      GLASS_ORDER: true,
+      GLASS_LIVE_SORT: true,     // G2c: order glass faces per frame in the LIVE
+      //   tree so the settled picture is a LOCAL refinement at the crossings
+      //   rather than a whole-picture flip. Costs one pair scan per frame on a
+      //   glass scene and exactly nothing on an opaque one (no glass pair is
+      //   ever recorded there, so the call is not reached). See _glassLiveOrder.
+      GLASS_PROBES: 256,         // depth probes per pair in _glassVerdict when a
+      //   FRAGMENT restricts the sample (the seam, after a cut)
+      GLASS_RUN_SNAP: true,      // collapse a stroke run that is shorter than a
+      //   stroke width AND has both endpoints within a cap radius of the SAME
+      //   authored vertex — a corner dot. Off makes the A/B one line, which is
+      //   how the stroke-coverage gate is measured.
+      GLASS_RUN_MERGE: true,     // join two stroke runs whose endpoints meet
+      //   within a cap radius w/2 (the _consolidateInk pattern). One outline
+      //   emitted as several runs reads as dashes; two caps that close already
+      //   overlap, so bridging them adds nothing but the join. See trimStubs.
+      GLASS_RUN_EXTENT: true,    // measure a run's REACH (bbox diagonal), not
+      //   its traversal length, when asking the cap-radius question. A run that
+      //   doubles back paints the ink of its extent, not of its traversal.
+      GLASS_LIVE_MS: 30,         // wall-clock budget for the live sort's LAZY
+      //   pin measurements (see _glassLiveOrder). Past it the sort still
+      //   completes — an incomplete sort is what reverts a frame to mean-z —
+      //   but it stops paying for a verdict per broken pin.
+      GLASS_LIVE_PROBES: 64,     // …and for a whole-face pair. A whole-face
+      //   verdict is a yes/no over a large overlap, not a boundary measurement,
+      //   so it converges far sooner; the crystal's orbit gives the same order
+      //   at 64 as at 256 and costs a quarter.
+      GLASS_DEBUG: false,        // record per-cell sample signatures into
+      //   MaskRender._glassLast: how many distinct ORDERS and how many distinct
+      //   COVERING SETS a cell's interior samples produced. The two answer
+      //   different questions — a set that varies is a third face's footprint
+      //   edge running through the cell (cut it), an order that varies with a
+      //   constant set is a genuine depth crossing inside it (subdivide at the
+      //   crossing, or decline). Off by default; the sample loop is hot.
+      GLASS_MS_BUDGET: 2500,     // hard wall-clock wall for the whole pass. The
+      //   settle producer runs it synchronously in a rAF callback, so a scene
+      //   that would take a second and a half must degrade to part 1's picture
+      //   rather than to a stalled canvas. Measured on the crystal (28 faces,
+      //   231 gated pairs, 16 regions): 0.97 s — scan 0.38 (dominated by the
+      //   ~16 _mixedCurvedEntry front-region builds, ~24 ms each), cells 0.11,
+      //   refine 0.07, build 0.40. Paid once per SETTLE, never per frame, and
+      //   exactly zero on any scene with no translucent occluder.
+      GLASS_ORDER_SAMPLES: 64,   // interior texels sampled per cell for the
+      //   constant-order verification above. Cheap: they are buffer lookups plus
+      //   one analytic depth per covering rec per sample.
       STROKE_CLIP: false,     // REFUTED v20260805zq. Do not revive without first
       //   answering the question at the end of this comment.
       //
@@ -28196,7 +28359,15 @@
           rimSnapped: 0, rimSnapMiss: 0, seamChained: 0, arcRingsDropped: 0,
           arcRepaired: 0, arcRepairFail: 0, arcBorderRepaired: 0, arcBorderFail: 0,
           pocketNoCore: 0, rimFitted: 0, rimFitFail: 0, regionFitted: 0, regionFitFail: 0,
-          absorbMoved: 0, absorbRings: 0, absorbFail: 0, absorbMaxTexels: 0, sheetFixed: 0, strokeClip: 0, strokeEls: 0, strokeSkipped: 0, mixedToConst: 0,
+          absorbMoved: 0, absorbRings: 0, absorbFail: 0, absorbMaxTexels: 0, sheetFixed: 0, strokeClip: 0, strokeEls: 0, strokeSkipped: 0, mixedToConst: 0, glassSkipped: 0,
+          // GLASS part 2 (MaskRender.GLASS_ORDER): pairs recorded for the export
+          // seam and faces given a raster-id stamp. Both are 0 on every opaque
+          // scene by construction — the gate's condition is never true there.
+          glassOrderPairs: 0, glassGid: 0,
+          // G2c live sort: pairs that cross (unfixable without cuts), faces
+          // actually moved, and the per-frame cost. All 0 on an opaque scene.
+          glassLiveMixed: 0, glassLiveMoved: 0, glassLiveCycles: 0,
+          glassLivePinsBroken: 0, glassLiveMs: 0, glassLiveFailed: 0,
           tipSpliced: 0, tipSpliceFail: 0,
           partnerKnots: 0,
           budget: false, ms: 0 };
@@ -28242,6 +28413,8 @@
           e.element.removeAttribute('mask');         // elements persist across frames
           e.element.removeAttribute('data-mr-rid');  // …and so would a stale raster id
           e.element.removeAttribute('data-mr-svis'); // …and so would stale visible runs
+          e.element.removeAttribute('data-mr-glass');// …and so would a stale glass entry set
+          e.element.removeAttribute('data-mr-gid');  // …and so would a stale glass raster id
           // v20260805zn: and put back any stroke the previous frame's stroke
           // sibling borrowed. Elements are live and persist, so this must be
           // exact — a face whose stroke stayed 'none' would silently lose it.
@@ -28581,6 +28754,57 @@
           if (c.a === 0) { stats.pruned++; return false; }
           return true;
         };
+        // GLASS PART 1 (see MaskRender.GLASS_GATE): true ⇒ this occluder is
+        // translucent, so an entry naming it would ERASE what is behind glass.
+        // The product is v20260814f's `_ridOpacity` verbatim — element times
+        // geometry child, opaque at >= 0.99 — so there is one definition of
+        // "effectively opaque" in this file rather than two that can drift.
+        const _gnum = (nd, a) => {
+          const v = nd && nd.getAttribute && nd.getAttribute(a);
+          if (v === null || v === undefined || v === '') return 1;
+          const f = parseFloat(v);
+          return isFinite(f) ? f : 1;
+        };
+        // GLASS RENDER master switch (per group, owner-facing). Off ⇒ every
+        // glass mechanism below takes its pre-campaign branch: entries are
+        // pushed for translucent occluders again, no pair is recorded, no plan
+        // is stashed, and the live sort never runs.
+        const glassOn = !!(host && host.glassRender === true);
+        const glassSkip = (el) => {
+          if (!glassOn || !this.GLASS_GATE || !el || !el.getAttribute) return false;
+          const g = el.getAttribute('d') ? el : (el.firstElementChild || el);
+          const fill = (g.getAttribute && g.getAttribute('fill')) || el.getAttribute('fill');
+          if (!fill || fill === 'none' || fill === 'transparent') return false;
+          let o = _gnum(el, 'opacity') * _gnum(el, 'fill-opacity');
+          if (g !== el) o *= _gnum(g, 'opacity') * _gnum(g, 'fill-opacity');
+          if (o >= 0.99) return false;
+          stats.glassSkipped++;
+          return true;
+        };
+        // GLASS PART 2 (see MaskRender.GLASS_ORDER). A gated pair is RECORDED
+        // and nothing else — no verdict, no region, no emission. Everything the
+        // correction needs is computed later, at the export / settle seam, from
+        // the plan stashed below; a gesture therefore pays the gate and a push
+        // to an array, which is the whole per-frame cost of part 2.
+        //
+        // AND IT IS RECORDED EARLIER THAN AN ENTRY WOULD BE, deliberately: the
+        // planner prunes a pair whose occluder is never the buffer's FRONT-MOST
+        // face (`entryNeeded`), which is exactly right for an opaque occluder
+        // and WRONG for glass — behind two other translucent faces an occluder
+        // is invisible to that test and still perfectly visible to the eye.
+        // Measured: with the pruned pairs excluded the crystal's residual
+        // stalled at 381 px in a region no gated pair covered; the pruning was
+        // the reason. The seam re-decides these pairs with an ANALYTIC pairwise
+        // depth test instead, which is the oracle's own question.
+        //
+        // SAME-OWNER PAIRS ARE NOT RECORDED, and that is the G3 policy stated
+        // rather than inherited: a letter's own cap over its own sides is
+        // already real glass via paint order + alpha, has zero mask entries and
+        // agrees with the oracle exactly (v20260815q R2 measured it, and this
+        // release re-measures it as 0 px outside the crossing zone). There is
+        // nothing to correct, so nothing is touched.
+        const glassPairs = [];
+        const glassRec = (Dr, Nr) => { glassPairs.push([Dr, Nr]); stats.glassOrderPairs++; };
         // Pairwise verdicts in PAINT order: recs[j] paints OVER recs[i] (i<j).
         // A mask entry is added on the LATER face wherever the earlier face
         // wins depth — the earlier face needs nothing (the later one paints
@@ -28635,13 +28859,16 @@
               if (!cNeg) {                            // N in front everywhere — the
                 // fill is already right, but D's stroke still bleeds over N
                 // (see the reverse-entry note on the curved branch)
-                if (this.STROKE_CLIP && cPos && entryNeeded(N, D)) {
+                if (this.STROKE_CLIP && cPos && entryNeeded(N, D) && !glassSkip(N.el)) {
                   (D.maskEntries || (D.maskEntries = [])).push({ el: N.el, dg: N.gEl, half: null });
                   stats.strokeClip++;
                 }
                 continue;
               }
               if (sameOwner && cPos) continue;        // same-owner MIXED stays the emitter's business
+              // GLASS part 1: D is the occluder here. Recorded BEFORE the
+              // visibility prune, for the reason at `glassRec`.
+              if (glassSkip(D.el)) { if (this.GLASS_ORDER && !sameOwner) glassRec(D, N); continue; }
               if (!entryNeeded(D, N)) continue;       // occluder never visibly front — vacuous
               if (!cPos) {                            // D fully nearer — full violation fix
                 (N.maskEntries || (N.maskEntries = [])).push({ el: D.el, dg: D.gEl, half: null });
@@ -28654,7 +28881,7 @@
                   { el: D.el, dg: D.gEl, half: { dp, sh: shBox } });
                 stats.mixedEntries++;
                 // and the STROKE's reverse: the OTHER half-plane, where N wins
-                if (this.STROKE_CLIP) {
+                if (this.STROKE_CLIP && !glassSkip(N.el)) {
                   (D.maskEntries || (D.maskEntries = [])).push({ el: N.el, dg: N.gEl,
                     half: { dp: [-dp[0], -dp[1], -dp[2]], sh: shBox }, rev: true });
                   stats.strokeClip++;
@@ -28664,6 +28891,10 @@
               // Curved member(s): raster verdict. Mixed ⇒ M2 scope (counted).
               const a = idOfEl(D.el), b = idOfEl(N.el);
               if (a === undefined || b === undefined || a === b) { stats.curvedUndecided++; continue; }
+              // GLASS part 1 + 2: recorded here, ahead of BOTH the visibility
+              // prune inside `_frontCounts` and the region build, so the seam
+              // sees every pair a translucent occluder takes part in.
+              if (glassSkip(D.el)) { if (this.GLASS_ORDER && !sameOwner) glassRec(D, N); continue; }
               // Flip-fraction classification (M2): the raster's visible-front
               // counts decide the pair's CHARACTER, not just its order. A
               // substantial minority = a genuine crossing (region mask); a
@@ -28776,17 +29007,24 @@
               // constant pair the whole occluder is already correct, because
               // there the winner wins everywhere they overlap.
               if (this.STROKE_CLIP && !mixed) {
-                if (c.b > c.a && c.b >= 3) {
+                if (c.b > c.a && c.b >= 3 && !glassSkip(N.el)) {
                   (D.maskEntries || (D.maskEntries = [])).push(
                     { el: N.el, dg: N.gEl, half: null, rev: true });
                   stats.strokeClip++;
-                } else if (c.a > c.b && c.a >= 3) {
+                } else if (c.a > c.b && c.a >= 3 && !glassSkip(D.el)) {
                   (N.maskEntries || (N.maskEntries = [])).push(
                     { el: D.el, dg: D.gEl, half: null, rev: true });
                   stats.strokeClip++;
                 }
               }
               if (mixed && sameOwner) { stats.sameOwnerMixedSkipped++; continue; }
+              // GLASS part 1, and this is the site the first cut MISSED: on the
+              // crystal every surviving entry came through the curved MIXED
+              // path, not the constant ones, so gating only the `.push(` sites
+              // a grep for `maskEntries.push` finds leaves 3 of 5 entries
+              // standing (glassSkipped 2, curvedMixed 3, oracle 3,513 not
+              // 2,933). Gating before `_mixedCurvedEntry` also skips the
+              // region build, which is the expensive stage of this branch.
               if (mixed) {
                 // genuine mixed crossing — the painter's own field machinery
                 // yields the closed screen region where the HOST is in
@@ -28809,7 +29047,7 @@
                   // region building is the expensive stage: the 23-case sweep
                   // that ran in two minutes had not finished in five. This costs
                   // one object literal.
-                  if (entry.region && !sameOwner) {
+                  if (entry.region && !sameOwner && !glassSkip(N.el)) {
                     (D.maskEntries || (D.maskEntries = [])).push({
                       el: N.el, dg: N.gEl, half: null, rev: true,
                       region: { rings: entry.region.rings, groups: entry.region.groups,
@@ -28880,10 +29118,56 @@
                 // So: mask D where N wins. Redundant for the fill by
                 // construction, which is precisely what makes it safe — the
                 // only thing it can remove is ink that should not be there.
-                (D.maskEntries || (D.maskEntries = [])).push({ el: N.el, dg: N.gEl, half: null });
-                stats.strokeClip++;
+                if (!glassSkip(N.el)) {
+                  (D.maskEntries || (D.maskEntries = [])).push({ el: N.el, dg: N.gEl, half: null });
+                  stats.strokeClip++;
+                }
               }
             }
+          }
+        }
+        // ---- GLASS PART 2: PUBLISH THE RASTER IDENTITY (see GLASS_ORDER) ----
+        // _glassOrder runs on a CLONE, long after this returns, and its whole
+        // construction is "which recs cover this cell and in what depth order".
+        // Both questions are answered by the buffer, so the buffer's id has to
+        // ride the clone — the same argument, and the same failure, that
+        // data-mr-rid records: matching clone geometry back to `idOf`'s live
+        // keys by `d` was tried there and resolved faces to the WRONG set.
+        //
+        // STAMPED ONLY WHEN A GATED PAIR EXISTS, which is why this is not
+        // FLATTEN_REPAIR's always-on cost: an opaque scene never reaches the
+        // glass gate, so `_glassSeq` stays 0, nothing is written, and the
+        // export seam's `[data-mr-glass]` query finds nothing.
+        this._glassSeq = 0;
+        this._glassCtx = null;
+        if (buf && glassOn && this.GLASS_ORDER && glassPairs.length) {
+          this._glassSeq = buf.seq;
+          for (const ent of buf.idOf.entries()) {
+            const e = ent[0];
+            if (e && e.setAttribute) { e.setAttribute('data-mr-gid', buf.seq + ':' + ent[1]); stats.glassGid++; }
+          }
+          // …and a MARKER on the occludee of every gated pair. Two seams gate
+          // the whole clip conversion on "does this tree carry a mask" — and a
+          // glass scene can legitimately have ZERO masks (the crystal does,
+          // since part 1 gates every entry it has). Without a second token
+          // those seams would skip clipExport and part 2 would never run on the
+          // one class it exists for.
+          for (const pr of glassPairs) {
+            if (pr[1].el && pr[1].el.setAttribute) pr[1].el.setAttribute('data-mr-glass', '1');
+          }
+          // …and the PLAN ITSELF. _glassOrder needs three things no DOM channel
+          // carries: a face's footprint rings by raster id, the pairwise
+          // analytic depths, and the planner's front-region between an
+          // ARBITRARY pair (the crossing cut) — which is _mixedCurvedEntry over
+          // these very recs. Live element refs, exactly like RasterHelper._last,
+          // and guarded by the same build serial rather than by hope.
+          this._glassCtx = { seq: buf.seq, recs, buf, pairs: glassPairs };
+          // …and order the LIVE picture now (see _glassLiveOrder). The face
+          // list is committed to the DOM by the z-sort caller AFTER apply()
+          // returns, so permuting it here is the live paint order.
+          if (this.GLASS_LIVE_SORT) {
+            try { this._glassLiveOrder(faceList, recs, buf, glassPairs, stats); }
+            catch (err) { stats.glassLiveFailed = 1; }
           }
         }
         // Emit masks. M3: each occluder's black copy lives ONCE in defs and
@@ -33635,7 +33919,34 @@
                      svisTrimmed: 0, svisDropped: 0,
                      skipPaint: 0, skipBare: 0, skipDivide: 0, skipGeom: 0, skipUnion: 0,
                      simpleBareMax: 0, foldClamped: 0, foldDepth: 0,
-                     foldGaveUp: 0, foldLadder: 0 };
+                     foldGaveUp: 0, foldLadder: 0,
+                     // GLASS part 2 (MaskRender.GLASS_ORDER, see _glassOrder).
+                     // `glassCells` is what shipped; every `glass*Declined` is a
+                     // cell that kept part 1's picture and says WHY, which is
+                     // the number that has to be readable per scene.
+                     // G2b: faces ordered, pairs classified, and CUTS — the
+                     // headline is that `glassPieces` should sit a handful above
+                     // `glassFaces`, not multiples of it.
+                     glassHosts: 0, glassFaces: 0, glassPieces: 0, glassCells: 0,
+                     glassPairsOrdered: 0, glassPairsMixed: 0, glassResidualMixed: 0,
+                     glassCuts: 0, glassCutFailed: 0, glassCycles: 0, glassMultiParent: 0,
+                     glassWholeFallback: 0, glassCyclesWhole: 0, glassStubsDropped: 0,
+                     glassFragmentsEmitted: 0, glassRunsCollapsed: 0,
+                     // The three stroke-run instruments (see trimStubs):
+                     // `glassRunsMerged` counts JOINS, `glassMergeBridge` is the
+                     // summed length those joins added — the stroke-coverage
+                     // gate is coverage delta == this number, so it has to be a
+                     // length, not a count. `glassRunsReach` is the subset of
+                     // `glassStubsDropped` that only the REACH measure caught.
+                     glassRunsMerged: 0, glassMergeBridge: 0, glassRunsReach: 0,
+                     glassStale: 0, glassGeomDeclined: 0, glassMs: 0,
+                     // ALPHA EXACTLY ONCE, as a number rather than a claim: the
+                     // worst relative |face| - (|face_out| + Σ|pieces|) over
+                     // every split face. Pieces are F ∩ cell over DISJOINT cells
+                     // and face_out is F − ∪cells, so all four are subsets of F
+                     // and area additivity is exactly the partition property.
+                     glassAlphaWorst: 0, glassAlphaFail: 0, glassDivideRetry: 0,
+                     glassBudget: 0, glassPhases: null };
         // Depth cap (see CLIP_DEPTH_CAP). opts.noCap reproduces the pre-cap
         // emitter byte for byte, which is what makes capped-vs-uncapped a clean
         // same-build A/B instead of a cross-build one.
@@ -33976,6 +34287,14 @@
             st.bands++;
           }
         }
+        // GLASS PART 2 (MaskRender.GLASS_ORDER). Runs AFTER every chained face
+        // is in place, because its scope test is "is this face unoccluded by the
+        // planner", and after the loop that is a structural question the tree
+        // answers: a chained face now sits inside a g[clip-path].
+        if (this.GLASS_ORDER) {
+          try { this._glassOrder(clonedRoot, st, ringsOf, segsOf); }
+          catch (err) { st.glassGeomDeclined++; }
+        }
         // Drop the now-unreferenced mask machinery; seam-ink clips (mrs*) stay.
         for (const n of clonedRoot.querySelectorAll('mask[id^="mrm"], [id^="mrg"], clipPath[id^="mrc"]')) {
           if (n.parentNode) n.parentNode.removeChild(n);
@@ -34005,6 +34324,978 @@
         st.bytes = new XMLSerializer().serializeToString(clonedRoot).length;
         st.ms = +(performance.now() - t0).toFixed(2);
         return st;
+      },
+
+      // ---- ONE PAIRWISE VERDICT, SHARED BY THE LIVE SORT AND THE SEAM -------
+      //
+      // The oracle's question over a pair's shared coverage: is A nearer
+      // everywhere, B nearer everywhere, or do they cross? `ringsA`/`ringsB`
+      // restrict the sample to a FRAGMENT's own geometry (the seam needs that
+      // after a cut; the live sort never passes them).
+      //
+      // Both callers must ask it the same way or live and settle disagree for
+      // no reason, which is the entire complaint G2c exists to answer.
+      _glassVerdict(A, B, idA, idB, buf, ringsA, ringsB, budget) {
+        const RH = RasterHelper;
+        const ox0 = Math.max(A.bb.minX, B.bb.minX), ox1 = Math.min(A.bb.maxX, B.bb.maxX);
+        const oy0 = Math.max(A.bb.minY, B.bb.minY), oy1 = Math.min(A.bb.maxY, B.bb.maxY);
+        if (!(ox1 > ox0 && oy1 > oy0)) return null;
+        const ca = buf.cov[idA], cb = buf.cov[idB];
+        if (!ca || !cb) return null;
+        const tx0 = Math.max(0, Math.floor(RH._btx(buf, ox0))), tx1 = Math.min(buf.R - 1, Math.ceil(RH._btx(buf, ox1)));
+        const ty0 = Math.max(0, Math.floor(RH._bty(buf, oy0))), ty1 = Math.min(buf.R - 1, Math.ceil(RH._bty(buf, oy1)));
+        const step = Math.max(1, Math.ceil(Math.sqrt(
+          ((tx1 - tx0 + 1) * (ty1 - ty0 + 1)) / (budget || this.GLASS_PROBES))));
+        let nA = 0, nB = 0;
+        for (let ty = ty0; ty <= ty1; ty += step) {
+          for (let tx = tx0; tx <= tx1; tx += step) {
+            const q = ty * buf.R + tx, bit = 1 << (q & 7), by = q >> 3;
+            if (!(ca[by] & bit) || !(cb[by] & bit)) continue;
+            const wx = RH._bfx(buf, tx), wy = RH._bfy(buf, ty);
+            if (ringsA && !PolyClip._evenOddInside(wx, wy, ringsA)) continue;
+            if (ringsB && !PolyClip._evenOddInside(wx, wy, ringsB)) continue;
+            const za = this._glassDepthAt(buf.recs[idA], wx, wy);
+            const zb = this._glassDepthAt(buf.recs[idB], wx, wy);
+            if (za === null || zb === null || !isFinite(za) || !isFinite(zb)) continue;
+            if (za < zb) nA++; else nB++;
+          }
+        }
+        if (!nA && !nB) return null;
+        if (!nB) return { k: 'a', nA, nB };
+        if (!nA) return { k: 'b', nA, nB };
+        return { k: 'mixed', nA, nB };
+      },
+
+      // ---- GLASS PART 2c: THE LIVE WHOLE-FACE ORDER -------------------------
+      //
+      // WHY THIS EXISTS, in the owner's words: orbiting the crystal showed "the
+      // render happens twice" — the live picture visibly flipping to the
+      // settled one. On opaque scenes the two agree to 0 px so the M4 swap is
+      // invisible; on glass they disagreed, which made the standing
+      // architecture's seam visible for the first time.
+      //
+      // MEASURED, over a 6-angle orbit of the crystal, live and order-only
+      // against the oracle:
+      //     az    28    88   148   208   268   328
+      //   live  2933   543  5871    52     9  1980
+      //   order 2933   543  1721    52     9  1980
+      // — identical at five angles and 3.4x BETTER at 148. So the mean-z order
+      // the live picture has always painted is usually already the depth order,
+      // and occasionally badly wrong; sorting live costs one pair scan and
+      // removes both the error and that part of the swap.
+      //
+      // It reorders the FACE LIST IN PLACE, which is the whole trick: the
+      // z-sort commit downstream reparents `sharedFaceList` in order, so
+      // returning a permuted list IS the live paint order. Non-glass entries
+      // never move — the glass faces are permuted within the slots they already
+      // occupy, so seam ink, bands and opaque siblings keep their positions.
+      //
+      // NO CUTS, BY DESIGN. Crossing pairs stay wrong on one side while the
+      // camera moves; the settle refines exactly those. That residual is the
+      // flip the owner is left with, and it is local to the crossing wedges.
+      _glassLiveOrder(faceList, recs, buf, pairs, stats) {
+        const t0 = performance.now();
+        const idOf = (r) => buf.idOf.get(r.el);
+        // THE NODE SET IS EVERY TRANSLUCENT FACE, not only those the plan
+        // recorded a pair for — and that is a correctness requirement, not
+        // thoroughness. Permuting a subset moves those faces through the slots
+        // of siblings left behind: measured over a 12-angle orbit, a node set
+        // built from the recorded pairs alone produced 5 SAME-OWNER ordinal
+        // inversions against 0 with the sort off, i.e. it broke the very
+        // self-blend order the pins exist to protect. Faces outside the pair
+        // list cost nothing here — they carry pins only, never a scan.
+        const _num = (nd, a2) => {
+          const v = nd && nd.getAttribute && nd.getAttribute(a2);
+          if (v === null || v === undefined || v === '') return 1;
+          const f = parseFloat(v);
+          return isFinite(f) ? f : 1;
+        };
+        const _isGlass = (el) => {
+          if (!el || !el.getAttribute) return false;
+          const g = el.getAttribute('d') ? el : (el.firstElementChild || el);
+          const fill = (g.getAttribute && g.getAttribute('fill')) || el.getAttribute('fill');
+          if (!fill || fill === 'none' || fill === 'transparent') return false;
+          let o = _num(el, 'opacity') * _num(el, 'fill-opacity');
+          if (g !== el) o *= _num(g, 'opacity') * _num(g, 'fill-opacity');
+          return o < 0.99;
+        };
+        const glass = new Map();                       // rec -> id
+        for (const r of recs) {
+          const id = idOf(r);
+          if (id === undefined) continue;
+          if (r.el.hasAttribute && r.el.hasAttribute('mask')) continue;
+          if (!_isGlass(r.el)) continue;
+          glass.set(r, id);
+        }
+        if (glass.size < 2) return;
+        // position of each glass face in the CURRENT list
+        const slot = new Map();
+        for (let i = 0; i < faceList.length; i++) {
+          const e = faceList[i];
+          for (const r of glass.keys()) if (r.el === e.element) { slot.set(r, i); break; }
+        }
+        const nodes = [...glass.keys()].filter(r => slot.has(r));
+        if (nodes.length < 2) return;
+        nodes.sort((a, b) => slot.get(a) - slot.get(b));
+        const idx = new Map(); nodes.forEach((n, i) => idx.set(n, i));
+        const adj = nodes.map(() => []), indeg = new Array(nodes.length).fill(0);
+        let mixed = 0;
+        const edge = (u, v) => { adj[u].push(v); indeg[v]++; };
+        // SAME-OWNER PINS COST NOTHING: a letter's own faces keep the order the
+        // emitter gave them, which is already correct (v20260815q R2) and must
+        // not churn frame to frame. No scan, just an edge in current order.
+        for (let i = 0; i < nodes.length; i++) {
+          for (let j = i + 1; j < nodes.length; j++) {
+            const A = nodes[i], B = nodes[j];
+            if (A.owner && A.owner === B.owner) edge(i, j);
+          }
+        }
+        // CROSS-OWNER EDGES COME FROM THE RECORDED PAIR LIST, not from a fresh
+        // all-pairs sweep. The plan already enumerated every overlapping
+        // cross-owner pair with a translucent occluder — 79 on the crystal
+        // against 378 unordered pairs — and scanning the other 299 only ever
+        // rediscovers "these two do not overlap". Measured: 20-48 ms per frame
+        // for the all-pairs form, 1-3 ms for this one, same order out.
+        for (const pr of pairs) {
+          const A = pr[0], B = pr[1];
+          const u = idx.get(A), v2 = idx.get(B);
+          if (u === undefined || v2 === undefined || u === v2) continue;
+          if (A.owner && A.owner === B.owner) continue;                     // pinned above
+          const ver = this._glassVerdict(A, B, glass.get(A), glass.get(B), buf, null, null,
+                                         this.GLASS_LIVE_PROBES);
+          if (!ver) continue;
+          if (ver.k === 'mixed') { mixed++; continue; }
+          if (ver.k === 'a') edge(v2, u); else edge(u, v2);                 // far paints first
+        }
+        // KAHN'S, AND A CYCLE BREAKS A PIN RATHER THAN THE WHOLE SORT.
+        //
+        // Measured over a 36-frame orbit before this: the graph cycled on 15 of
+        // 36 frames, the sort bailed, and those frames reverted to the raw
+        // mean-z order — so the live picture changed character between adjacent
+        // frames of one continuous drag. That alternation is what the owner is
+        // seeing; it is not a mask (a census over the same 36 frames found ZERO
+        // mrm masks and ZERO pushed entries, so GLASS_GATE is not bypassed).
+        //
+        // The cycles come from mixing two kinds of edge. A depth edge is a
+        // MEASUREMENT — one face really is nearer. A same-owner pin is a
+        // PREFERENCE — "leave this object's own faces where the emitter put
+        // them" — and a pin that takes part in a cycle is, by definition,
+        // already contradicted by measurements. So the pins are what give:
+        // break the minimum number of them and keep every depth constraint.
+        // Only if the graph still stalls with no pin left to break is there a
+        // genuine depth cycle, and then the order is left untouched.
+        const pin = adj.map(() => new Set());
+        for (let i = 0; i < nodes.length; i++) {
+          for (let j = i + 1; j < nodes.length; j++) {
+            const A = nodes[i], B = nodes[j];
+            if (A.owner && A.owner === B.owner) pin[i].add(j);
+          }
+        }
+        const ready = [];
+        for (let i = 0; i < nodes.length; i++) if (!indeg[i]) ready.push(i);
+        const order = [];
+        let pinsBroken = 0;
+        // The stall loop restarts its scan from the top, so without this the
+        // same pin is measured once per stall — the whole reason the worst
+        // frame read 84 ms. One verdict per pin, ever.
+        const pinVerdict = new Map();
+        for (;;) {
+          while (ready.length) {
+            ready.sort((p, q) => p - q);               // stable on the current order
+            const u = ready.shift();
+            order.push(u);
+            for (const v of adj[u]) if (--indeg[v] === 0) ready.push(v);
+          }
+          if (order.length === nodes.length) break;
+          // Stalled. Cut a pin — but MEASURE it first, and prefer the pins that
+          // are already wrong. A pin is only a preference; asking the depth
+          // buffer about that one same-owner pair (lazily, so the common path
+          // never pays for it) turns the break into a measured decision and
+          // lets the pair be re-linked in its TRUE order instead of dropped to
+          // whatever the tiebreak does. Breaking blind was measured first and
+          // reads worse on exactly the thing pins protect: same-owner pairs
+          // disagreeing with depth went 37 -> 43 over a 12-angle orbit, where
+          // the lazy-measured break keeps them at or below the control.
+          const placed = new Set(order);
+          let cut = false, fallbackU = -1, fallbackV = -1;
+          for (let u = 0; u < nodes.length && !cut; u++) {
+            if (placed.has(u)) continue;
+            for (const v of adj[u]) {
+              if (placed.has(v) || !pin[u].has(v)) continue;
+              if (fallbackU < 0) { fallbackU = u; fallbackV = v; }
+              // THE MEASURED BREAK IS TIME-BOUNDED. Each break costs a pair
+              // scan and a badly tangled frame wants many: measured worst frame
+              // 83.9 ms against a 10.9 ms median, and the standing lesson is
+              // that smoothness is governed by the WORST frame, not the mean.
+              // Past the budget the loop keeps breaking pins — completeness is
+              // what stops a frame reverting to mean-z — but blind, which is
+              // the cheap path.
+              const pk = u + '|' + v;
+              let ver = pinVerdict.get(pk);
+              if (ver === undefined) {
+                if (performance.now() - t0 > this.GLASS_LIVE_MS) break;
+                ver = this._glassVerdict(nodes[u], nodes[v], glass.get(nodes[u]),
+                                         glass.get(nodes[v]), buf, null, null,
+                                         this.GLASS_LIVE_PROBES);
+                pinVerdict.set(pk, ver);
+              }
+              // 'b' = v is nearer ⇒ u must paint first ⇒ the pin u->v agrees.
+              // Only a pin that DISAGREES with depth is a free cut.
+              if (!ver || ver.k !== 'a') continue;
+              pin[u].delete(v);
+              const k = adj[u].indexOf(v);
+              if (k >= 0) adj[u].splice(k, 1);
+              if (--indeg[v] === 0) ready.push(v);
+              // …and re-link in the measured direction, if that is still legal
+              if (!placed.has(u)) { adj[v].push(u); indeg[u]++; }
+              pinsBroken++; cut = true; break;
+            }
+          }
+          if (!cut && fallbackU >= 0) {
+            // Every candidate pin agrees with depth, so the cycle is carried by
+            // depth edges through other owners. Drop one pin anyway — it is
+            // still the only preference in the graph — and do not re-link.
+            pin[fallbackU].delete(fallbackV);
+            const k2 = adj[fallbackU].indexOf(fallbackV);
+            if (k2 >= 0) adj[fallbackU].splice(k2, 1);
+            if (--indeg[fallbackV] === 0) ready.push(fallbackV);
+            pinsBroken++; cut = true;
+          }
+          if (!cut) break;                              // a real depth cycle
+        }
+        stats.glassLivePinsBroken = pinsBroken;
+        stats.glassLiveMixed = mixed;
+        // PUBLISH IT ON THE PLAN, or publish the FAILURE. The seam's whole-face
+        // fallback adopts exactly this order rather than re-deriving one — see
+        // the fallback for why that has to be an identity and not an agreement.
+        //
+        // It rides `_glassCtx` rather than a bare field so it inherits the
+        // BUILD SERIAL guard: the Camera Subwindow draws a second camera
+        // through this same apply(), and a bare field would leave camera B's
+        // order sitting where the seam reads camera A's tree.
+        const ctx = this._glassCtx;
+        if (ctx) ctx.liveKeys = null;
+        if (order.length !== nodes.length) { stats.glassLiveCycles = nodes.length - order.length; return; }
+        // permute the glass entries within their own slots
+        const slots = nodes.map(n => slot.get(n)).sort((a, b) => a - b);
+        const entryOf = new Map();
+        for (const n of nodes) entryOf.set(n, faceList[slot.get(n)]);
+        let moved = 0;
+        for (let k = 0; k < slots.length; k++) {
+          const want = entryOf.get(nodes[order[k]]);
+          if (faceList[slots[k]] !== want) moved++;
+          faceList[slots[k]] = want;
+        }
+        stats.glassLiveMoved = moved;
+        if (ctx) ctx.liveKeys = order.map(i => glass.get(nodes[i]));
+        stats.glassLiveMs = +(performance.now() - t0).toFixed(2);
+      },
+
+      // ---- IS THERE A GLASS CORRECTION TO MAKE? -----------------------------
+      //
+      // THE ENTRY GATE ASKS THE PLAN, NOT THE DOM, and that is a correction to
+      // how this shipped in v20260815s. Four seams decide whether to run the
+      // clip conversion at all, and all four asked a DOM query — originally
+      // `mask[id^="mrm"]`, widened to include `[data-mr-glass]`. But that
+      // marker is CLEARED BY apply() AT THE TOP OF EVERY FRAME and rewritten at
+      // the end, so any frame that skips or fails apply() leaves a tree with no
+      // marker while `_glassCtx` still holds a perfectly good plan — and the
+      // presentation silently concludes "nothing to present". The plan is the
+      // truth; the marker is now only an inspection aid.
+      //
+      // Guarded by the same build serial `_glassOrder` uses, so a plan left over
+      // from another frame answers false rather than confidently wrong.
+      hasGlassPlan() {
+        if (!this.GLASS_ORDER) return false;
+        const c = this._glassCtx;
+        if (!c || !c.pairs || !c.pairs.length) return false;
+        const b = (typeof RasterHelper !== 'undefined') && RasterHelper._last;
+        return !!(b && b.seq === c.seq);
+      },
+
+      // ---- GLASS PART 2: THE ANALYTIC DEPTH OF ONE REC AT ONE POINT ---------
+      //
+      // Verbatim the model the R1 oracle validated (v20260815q): a planar rec is
+      // its own plane equation; a curved rec is the (t,w) lattice `_rasterCurved`
+      // already builds, tessellated into screen triangles across which z is
+      // affine. Cached per rec on the buffer, so a cell's samples cost one grid
+      // lookup each. Deliberately the SAME evaluation the oracle uses — the
+      // whole of G2's correctness claim is "the emitted order is the order the
+      // oracle would compute here", and two different depth models would make
+      // that claim unmeasurable.
+      _glassDepthAt(rec, x, y) {
+        const RI = RenderIntersections;
+        let m = rec._gzm;
+        if (!m) {
+          if (rec.plane) m = { kind: 'plane', plane: rec.plane };
+          else if (rec.xr) {
+            const xr = rec.xr, tMax = RI._xrTMax(xr);
+            const nT = Math.max(4, Math.round(12 * tMax)), nW = xr.kind === 'sr' ? 6 : 1;
+            const V = [], cols = nW + 1;
+            for (let it = 0; it <= nT; it++) {
+              const t = tMax * it / nT;
+              for (let iw = 0; iw <= nW; iw++) {
+                const pp = RI._xrScreen(xr, t, iw / nW);
+                V.push(pp ? [pp.x, pp.y, pp.z] : null);
+              }
+            }
+            const tri = (A, B, C) => {
+              const x1 = B[0] - A[0], y1 = B[1] - A[1], z1 = B[2] - A[2];
+              const x2 = C[0] - A[0], y2 = C[1] - A[1], z2 = C[2] - A[2];
+              const det = x1 * y2 - x2 * y1;
+              if (!(Math.abs(det) > 1e-12)) return null;
+              const p = (z1 * y2 - z2 * y1) / det, q = (x1 * z2 - x2 * z1) / det;
+              return { p, q, r: A[2] - p * A[0] - q * A[1],
+                minX: Math.min(A[0], B[0], C[0]), maxX: Math.max(A[0], B[0], C[0]),
+                minY: Math.min(A[1], B[1], C[1]), maxY: Math.max(A[1], B[1], C[1]), A, B, C };
+            };
+            const tris = [];
+            for (let it = 0; it < nT; it++) for (let iw = 0; iw < nW; iw++) {
+              const a = V[it * cols + iw], b = V[(it + 1) * cols + iw];
+              const c = V[(it + 1) * cols + iw + 1], d = V[it * cols + iw + 1];
+              let T;
+              if (a && b && c) { T = tri(a, b, c); if (T) tris.push(T); }
+              if (a && c && d) { T = tri(a, c, d); if (T) tris.push(T); }
+            }
+            const bb = rec.protoBB || rec.bb;
+            const G = Math.max(1, Math.min(32, Math.round(Math.sqrt(tris.length / 3))));
+            const w = Math.max(1e-9, bb.maxX - bb.minX), h = Math.max(1e-9, bb.maxY - bb.minY);
+            const cells = new Array(G * G);
+            for (let k = 0; k < G * G; k++) cells[k] = [];
+            for (const t2 of tris) {
+              const cx0 = Math.max(0, Math.min(G - 1, Math.floor((t2.minX - bb.minX) / w * G)));
+              const cx1 = Math.max(0, Math.min(G - 1, Math.floor((t2.maxX - bb.minX) / w * G)));
+              const cy0 = Math.max(0, Math.min(G - 1, Math.floor((t2.minY - bb.minY) / h * G)));
+              const cy1 = Math.max(0, Math.min(G - 1, Math.floor((t2.maxY - bb.minY) / h * G)));
+              for (let yy = cy0; yy <= cy1; yy++) for (let xx = cx0; xx <= cx1; xx++) cells[yy * G + xx].push(t2);
+            }
+            m = { kind: 'tess', tris, cells, G, bb, w, h, last: null };
+          } else m = { kind: 'none' };
+          rec._gzm = m;
+        }
+        if (m.kind === 'plane') return RI.planeZ(m.plane, x, y);
+        if (m.kind !== 'tess') return null;
+        const inTri = (T) => {
+          const A = T.A, B = T.B, C = T.C;
+          const d1 = (x - B[0]) * (A[1] - B[1]) - (A[0] - B[0]) * (y - B[1]);
+          const d2 = (x - C[0]) * (B[1] - C[1]) - (B[0] - C[0]) * (y - C[1]);
+          const d3 = (x - A[0]) * (C[1] - A[1]) - (C[0] - A[0]) * (y - A[1]);
+          return !(((d1 < 0) || (d2 < 0) || (d3 < 0)) && ((d1 > 0) || (d2 > 0) || (d3 > 0)));
+        };
+        let T = null;
+        if (m.last && inTri(m.last)) T = m.last;
+        if (!T) {
+          const G = m.G, bb = m.bb;
+          const cx = Math.max(0, Math.min(G - 1, Math.floor((x - bb.minX) / m.w * G)));
+          const cy = Math.max(0, Math.min(G - 1, Math.floor((y - bb.minY) / m.h * G)));
+          for (let oy = -1; oy <= 1 && !T; oy++) for (let ox = -1; ox <= 1 && !T; ox++) {
+            const qx = cx + ox, qy = cy + oy;
+            if (qx < 0 || qy < 0 || qx >= G || qy >= G) continue;
+            const L = m.cells[qy * G + qx];
+            for (const t3 of L) if (inTri(t3)) { T = t3; break; }
+          }
+        }
+        if (!T) {
+          let best = Infinity;
+          for (const t3 of m.tris) {
+            const ddx = x < t3.minX ? t3.minX - x : (x > t3.maxX ? x - t3.maxX : 0);
+            const ddy = y < t3.minY ? t3.minY - y : (y > t3.maxY ? y - t3.maxY : 0);
+            const dd = ddx * ddx + ddy * ddy;
+            if (dd < best) { best = dd; T = t3; }
+          }
+        }
+        if (!T) return null;
+        m.last = T;
+        return T.p * x + T.q * y + T.r;
+      },
+
+      // ---- GLASS PART 2b: MINIMAL-SPLIT GLOBAL ORDER ------------------------
+      //
+      // See MaskRender.GLASS_ORDER for the design and for why the per-region
+      // construction it replaces was retired.
+      //
+      // THE SHAPE OF IT. Whole translucent faces are ordered by a TOPOLOGICAL
+      // SORT of their pairwise depth relation, and geometry is cut only where
+      // no order can exist:
+      //   1  every overlapping pair of glass faces is classified by scanning
+      //      its shared coverage with the two faces' own analytic depths —
+      //      A-in-front, B-in-front, or MIXED (they cross);
+      //   2  a definite pair contributes one edge, far -> near ("paints
+      //      first"); a SAME-OWNER pair contributes its EXISTING paint order
+      //      instead, which pins every self-blend exactly where it is;
+      //   3  each MIXED pair is cut ONCE — one of the two faces is split at the
+      //      pair's depth-crossing curve, and the two fragments have a definite
+      //      relation to the partner by construction;
+      //   4  Kahn's algorithm with the current paint index as the tiebreak
+      //      produces the emission order, so anything the depth relation does
+      //      not constrain keeps the order it already had.
+      //
+      // ALPHA EXACTLY ONCE IS TRIVIAL HERE, which is the structural gain over
+      // the region form: an unsplit face is emitted once as ITSELF, and a split
+      // face's fragments partition it. There is no stack to double-count into.
+      // The numeric check stays as a gate anyway — it costs one area sum.
+      _glassOrder(root, st, ringsOf, segsOf) {
+        const NS = 'http://www.w3.org/2000/svg';
+        const RI = RenderIntersections;
+        const RH = (typeof RasterHelper !== 'undefined') ? RasterHelper : null;
+        const t0 = performance.now();
+        // The marker is stripped wherever it is found and is NOT the trigger —
+        // see hasGlassPlan for why keying on it was wrong.
+        const hosts = Array.prototype.slice.call(root.querySelectorAll('[data-mr-glass]'));
+        for (const n of hosts) n.removeAttribute('data-mr-glass');
+        st.glassHosts = hosts.length;
+        if (!this.hasGlassPlan()) return;
+        const done = () => { st.glassMs = +(performance.now() - t0).toFixed(2); };
+        if (this.GLASS_DEBUG) { this._glassLast = []; this._glassFail = []; }
+        const buf = RH && RH._last;
+        const ctx = this._glassCtx;
+        if (!buf || !buf.cov || !ctx || ctx.seq !== buf.seq) { st.glassStale = 1; done(); return; }
+        let _phScan = 0, _phCut = 0, _phSort = 0, _phEmit = 0;
+        const _t = () => performance.now();
+        let _m = _t();
+
+        // raster id -> the clone's face element (see the mrg exclusion note)
+        const elOfId = new Map();
+        for (const n of root.querySelectorAll('[data-mr-gid]')) {
+          if (n.closest('defs, mask, clipPath, [data-mr-ink], [data-mr-band]')) continue;
+          const v = (n.getAttribute('data-mr-gid') || '').split(':');
+          if (+v[0] !== buf.seq) continue;
+          const id = +v[1];
+          if (!elOfId.has(id)) elOfId.set(id, n);
+        }
+        const recById = new Map();
+        for (const r of ctx.recs) {
+          const id = buf.idOf.get(r.el);
+          if (id !== undefined) recById.set(id, r);
+        }
+        const ringsOfRec = (r) => (r && r.rings && r.rings.length)
+          ? r.rings.map(p => ({ pts: p, srcs: null })) : null;
+        const _gnum = (nd, a) => {
+          const v = nd && nd.getAttribute && nd.getAttribute(a);
+          if (v === null || v === undefined || v === '') return 1;
+          const f = parseFloat(v);
+          return isFinite(f) ? f : 1;
+        };
+        const isGlass = (el) => {
+          if (!el || !el.getAttribute) return false;
+          const g = el.getAttribute('d') ? el : (el.firstElementChild || el);
+          const fill = (g.getAttribute && g.getAttribute('fill')) || el.getAttribute('fill');
+          if (!fill || fill === 'none' || fill === 'transparent') return false;
+          let o = _gnum(el, 'opacity') * _gnum(el, 'fill-opacity');
+          if (g !== el) o *= _gnum(g, 'opacity') * _gnum(g, 'fill-opacity');
+          return o < 0.99;
+        };
+
+        // ---- THE NODE SET ------------------------------------------------------
+        // Translucent, unmasked, mappable, and all under ONE parent. The last is
+        // a scope test, not an incidental one: the emission REPLACES the glass
+        // faces' relative order, and a sequence cannot be re-laid across two
+        // containers without moving artwork between them.
+        const nodes = [];
+        let parent = null, multiParent = false;
+        for (const ent of recById.entries()) {
+          const id = ent[0], rec = ent[1];
+          const el = elOfId.get(id);
+          if (!el || !root.contains(el)) continue;
+          if (!isGlass(el)) continue;
+          if (el.hasAttribute('mask') || el.closest('g[clip-path]')) continue;
+          const rings = ringsOfRec(rec);
+          if (!rings) continue;
+          if (!parent) parent = el.parentNode;
+          else if (el.parentNode !== parent) multiParent = true;
+          nodes.push({ id, rec, el, rings: null, order: id, owner: rec.owner || null, whole: true });
+        }
+        if (multiParent) { st.glassMultiParent = 1; done(); return; }
+        if (nodes.length < 2 || !parent) { done(); return; }
+        st.glassFaces = nodes.length;
+
+        // ---- PAIRWISE VERDICT --------------------------------------------------
+        // The oracle's question, asked over the pair's shared coverage and — for
+        // a FRAGMENT — restricted to the texels its geometry actually covers.
+        // ONE DEFINITION OF THE VERDICT, shared with the live sort — see
+        // _glassVerdict. The seam passes each node's own rings so a FRAGMENT is
+        // judged only where its geometry actually is, and the full probe budget
+        // because a post-cut verdict decides whether more cutting is needed.
+        const verdict = (A, B) => this._glassVerdict(
+          A.rec, B.rec, A.id, B.id, buf, A.rings, B.rings, this.GLASS_PROBES);
+
+        // WHERE REC p IS NEARER THAN REC q, as a cut — the planner's own answer.
+        const frCache = new Map();
+        const dToRings = (d) => {
+          const p = document.createElementNS(NS, 'path');
+          p.setAttribute('d', d);
+          const rs = RI.ringsFromElement(p);
+          return (rs || []).map(r => ({ pts: r, srcs: null }));
+        };
+        const frontSet = (p, q) => {
+          const key = p + '>' + q;
+          if (frCache.has(key)) return frCache.get(key);
+          let out = null;
+          const A = recById.get(p), B = recById.get(q);
+          if (A && B) {
+            if (A.plane && B.plane) {
+              const dp = [A.plane[0] - B.plane[0], A.plane[1] - B.plane[1], A.plane[2] - B.plane[2]];
+              // Cut from the WHOLE VIEWPORT: as a mask clip the pair's own box
+              // is enough, as a CUT a polygon that stops short reports "the far
+              // side" for everything beyond it.
+              const sh = { minX: buf.vx0, minY: buf.vy0,
+                           maxX: buf.vx0 + buf.vw, maxY: buf.vy0 + buf.vh };
+              const d = this._halfPlanePoly(dp, sh);      // dp·x <= 0 ⇒ A nearer
+              if (d) { const rr = dToRings(d); if (rr.length) out = { rings: rr, complement: false }; }
+            } else {
+              let en = null;
+              try { en = this._mixedCurvedEntry(A, B, { buf, dId: p, nId: q }); } catch (err) { en = null; }
+              if (en && en.region) {
+                let rr = en.region.groups ? [].concat.apply([], en.region.groups) : en.region.rings;
+                rr = (rr || []).map(r => (r && r.pts) ? r : { pts: r, srcs: null })
+                               .filter(r => r.pts && r.pts.length >= 3);
+                if (rr.length) out = { rings: rr, complement: !!en.region.complement };
+              }
+            }
+          }
+          frCache.set(key, out);
+          return out;
+        };
+
+        // ---- CLASSIFY, THEN CUT ONLY WHAT MUST BE CUT --------------------------
+        const classify = (list) => {
+          const rel = [], mixed = [];
+          for (let i = 0; i < list.length; i++) {
+            for (let j = i + 1; j < list.length; j++) {
+              const A = list[i], B = list[j];
+              if (A.src === B.src) continue;               // fragments of one face never constrain each other
+              const v = verdict(A, B);
+              if (!v) continue;
+              if (A.owner && A.owner === B.owner) {        // pin the emitter's own order
+                rel.push(A.order <= B.order ? [A, B] : [B, A]);
+                continue;
+              }
+              if (v.k === 'mixed') { mixed.push({ A, B, minority: v.minority }); continue; }
+              rel.push(v.k === 'a' ? [B, A] : [A, B]);     // far paints first
+            }
+          }
+          return { rel, mixed };
+        };
+        for (const n of nodes) n.src = n.id;                // fragments inherit this
+        let list = nodes.slice();
+        let pass = classify(list);
+        _phScan = _t() - _m; _m = _t();
+        st.glassPairsOrdered = pass.rel.length;
+        st.glassPairsMixed = pass.mixed.length;
+
+        // CUT: one split per mixed pair, on the face that is in FEWER mixed
+        // pairs — spreading the cuts keeps each face as close to whole as the
+        // crossing structure allows, which is the whole point of this form.
+        const mixCount = new Map();
+        for (const mp of pass.mixed) {
+          mixCount.set(mp.A.src, (mixCount.get(mp.A.src) || 0) + 1);
+          mixCount.set(mp.B.src, (mixCount.get(mp.B.src) || 0) + 1);
+        }
+        const splitOf = new Map();                          // src -> [nodes]
+        for (const mp of pass.mixed) {
+          if (performance.now() - t0 > this.GLASS_MS_BUDGET) { st.glassBudget = 1; break; }
+          const cutA = (mixCount.get(mp.A.src) || 0) <= (mixCount.get(mp.B.src) || 0);
+          const cutNode = cutA ? mp.A : mp.B;
+          const fs = frontSet(mp.A.id, mp.B.id);            // where A is nearer
+          if (!fs) { st.glassCutFailed++; continue; }
+          const pool = splitOf.get(cutNode.src) || [cutNode];
+          const next = [];
+          let didCut = false;
+          for (const nd of pool) {
+            const base = nd.rings || ringsOfRec(nd.rec);
+            let res = null;
+            try { res = this._splitRobust(base, fs.rings); } catch (err) { res = null; }
+            if (!res) { next.push(nd); continue; }
+            let inA = fs.complement ? (res.back || []) : (res.front || []);   // A nearer here
+            let inB = fs.complement ? (res.front || []) : (res.back || []);   // B nearer here
+            if (!inA.length || !inB.length) { next.push(nd); continue; }
+            next.push({ id: nd.id, rec: nd.rec, el: nd.el, rings: inA, order: nd.order,
+                        owner: nd.owner, whole: false, src: nd.src });
+            next.push({ id: nd.id, rec: nd.rec, el: nd.el, rings: inB, order: nd.order,
+                        owner: nd.owner, whole: false, src: nd.src });
+            didCut = true;
+          }
+          if (!didCut) { st.glassCutFailed++; continue; }
+          splitOf.set(cutNode.src, next);
+          st.glassCuts++;
+        }
+        if (splitOf.size) {
+          list = [];
+          for (const n of nodes) {
+            const frags = splitOf.get(n.src);
+            if (frags && n.whole) { for (const f of frags) list.push(f); }
+            else if (!frags) list.push(n);
+          }
+          pass = classify(list);
+        }
+        st.glassPieces = list.length;
+        st.glassResidualMixed = pass.mixed.length;
+        _phCut = _t() - _m; _m = _t();
+
+        // ---- TOPOLOGICAL SORT --------------------------------------------------
+        // Kahn's, with the current paint index as the tiebreak, so an
+        // unconstrained face does not move at all.
+        const index = new Map();
+        list.forEach((n, i) => index.set(n, i));
+        const indeg = new Array(list.length).fill(0);
+        const adj = list.map(() => []);
+        for (const e of pass.rel) {
+          const u = index.get(e[0]), v = index.get(e[1]);
+          if (u === undefined || v === undefined || u === v) continue;
+          adj[u].push(v); indeg[v]++;
+        }
+        const ready = [];
+        for (let i = 0; i < list.length; i++) if (!indeg[i]) ready.push(i);
+        const sorted = [];
+        while (ready.length) {
+          ready.sort((p, q) => (list[p].order - list[q].order) || (p - q));
+          const u = ready.shift();
+          sorted.push(u);
+          for (const v of adj[u]) if (--indeg[v] === 0) ready.push(v);
+        }
+        if (sorted.length !== list.length) {
+          // A CYCLE — BUT DEGRADE TO WHOLE FACES BEFORE STANDING DOWN.
+          //
+          // THE CUTS ARE WHAT CREATE THE CYCLES. Measured over a 6-angle orbit
+          // of the crystal: the fragment graph cycles at FIVE of six angles
+          // (17/18/25/23/23 unplaceable nodes) while the WHOLE-FACE graph is
+          // acyclic at five of six. Standing the whole pass down therefore
+          // threw away a perfectly good ordering to punish a failed cut — and
+          // the crystal was correct only at its authored pose, which is exactly
+          // what a single-pose gate could not see and this one does.
+          //
+          // So: re-sort the UNCUT node set. If that is acyclic, emit whole
+          // faces in depth order — no cuts, no fragments, crossings left to
+          // part 1. That is the same picture the live sort now paints, so the
+          // settle swap collapses to zero at these angles instead of showing a
+          // decline. Only if the whole-face graph ALSO cycles does the pass
+          // stand down — as the three-slab fixture does (23 mixed pairs, 23
+          // cuts, residual mixed 0, 35 of 51 fragments unplaceable, and its
+          // whole-face graph cycles too). An earlier version appended the
+          // unplaced nodes in paint order there, "improving" it from 50,735 to
+          // 48,244 px against the oracle: the wrong trade, because it ships 51
+          // fragments for a picture that is still wrong. What would fix that
+          // class is a cut along the cycle's MUTUAL overlap rather than a
+          // pairwise crossing — a BSP-style split, and a campaign of its own.
+          st.glassCycles = list.length - sorted.length;
+          // AND IT ADOPTS THE LIVE ORDER, not one of its own. Deriving a second
+          // whole-face order here was built first and is REFUTED: the live sort
+          // draws its edges from the plan's recorded pair list, this pass draws
+          // them from an all-pairs sweep, and two different graphs cycle on
+          // different scenes. Measured on the three-slab fixture: the live
+          // graph cycled (so the live picture stayed part 1) while this one did
+          // not, and the settle then re-ordered 18 whole faces underneath it —
+          // a 36,369 px flip at settle, which is the exact complaint G2c exists
+          // to remove, reintroduced by the fix for it.
+          //
+          // Adopting `_glassLiveKeys` makes "live and settle agree on whole-face
+          // order" an IDENTITY rather than a coincidence. When the live sort
+          // could not order the scene there is nothing to adopt and the pass
+          // stands down, which leaves live and settle agreeing on part 1.
+          const liveKeys = ctx.liveKeys;
+          const byId = new Map(); for (const n of nodes) byId.set(n.id, n);
+          const wSorted = [];
+          if (liveKeys && liveKeys.length === nodes.length) {
+            for (const id of liveKeys) { const n = byId.get(id); if (n) wSorted.push(nodes.indexOf(n)); }
+          }
+          if (wSorted.length === nodes.length) {
+            st.glassWholeFallback = 1;
+            list = nodes;
+            sorted.length = 0;
+            for (const i of wSorted) sorted.push(i);
+          } else {
+            st.glassCyclesWhole = 1;
+            done(); return;
+          }
+        }
+        _phSort = _t() - _m; _m = _t();
+
+        // ---- EMIT --------------------------------------------------------------
+        // An unsplit face is REUSED, not rebuilt: same element, same `d`, same
+        // paint, moved. That is what keeps the file at "the letters, reordered"
+        // instead of a bag of fragments.
+        const CARRY = ['fill', 'fill-opacity', 'opacity'];
+        const SCARRY = ['stroke-width', 'stroke-opacity', 'stroke-linejoin',
+                        'stroke-linecap', 'stroke-dasharray'];
+        const geoOf = (e) => (e.getAttribute && e.getAttribute('d')) ? e
+          : ((e.querySelector && e.querySelector('[d]')) || e);
+        const segCache = new Map();
+        const vertCache = new Map();
+        const ownSegsOf = (src) => {
+          let s = segCache.get(src);
+          if (!s) { s = RI._sourceSegs(src) || []; segCache.set(src, s); }
+          return s;
+        };
+        const partnerSegs = [];
+        for (const n of nodes) partnerSegs.push(geoOf(n.el));
+        // A RUN SHORTER THAN ITS OWN CAP RADIUS IS PURE CAP — DROP IT.
+        //
+        // This is a geometric identity, not a tuned threshold, and that is what
+        // separates it from the pose3 threshold decline: a stroke run of length
+        // L < w/2 has no shaft at all, so every pixel it paints comes from the
+        // two caps meeting over the vanishing centreline. It cannot be "the
+        // right amount of ink drawn slightly wrong"; it is ink with no geometry
+        // under it. Measured on the stroked crystal (both letters, width 6):
+        // the exported tree carried 25 such runs, 16 of them under w/2 and the
+        // SHORTEST of length exactly 0 — the owner's black ticks at the a's
+        // silhouette tip, the n's box corners and the crossing endpoints. The
+        // pre-glass build (_bkup/dim_20260815p.html, same scene, same strokes)
+        // has ZERO, so the class is this emitter's authored-run classification
+        // meeting cut fragments, not a pre-existing stroked-extrude artifact.
+        //
+        // Applied HERE and not inside `_exportRingsToD`, deliberately: that
+        // function serves the opaque piece emitter too and its corpus is a
+        // shipped contract.
+        // RUN SNAP, and it is the SAME identity one step further out. The
+        // cap-radius rule above kills a run with no shaft at all. The residual
+        // class is different: runs of w/2..w whose two ENDPOINTS both sit
+        // within a cap radius of the SAME authored corner. The classification
+        // that produced them put its endpoints slightly off the corner, mid
+        // edge; visually an endpoint within cap radius of a corner IS at the
+        // corner, so both ends are the same point and the run is a corner dot.
+        //
+        // THE SNAP IS A PREDICATE, NOT A REWRITE, deliberately. Moving the
+        // geometry is what would risk the failure this gate names — over-snap
+        // and an authored edge loses stroke. Deciding with it and leaving the
+        // surviving runs untouched cannot under-stroke anything: the only
+        // outcome is "drop a run that collapses to a point". Measured stroke
+        // coverage of the authored outline is unchanged for every surviving
+        // run by construction.
+        //
+        // No tunable enters: w/2 is the cap radius, the same number the rule
+        // above uses, and the vertices are the source path's own segment
+        // endpoints (RI._sourceSegs' P[0] / P[last]) — authored, not sampled.
+        // RUN MERGE, and it is the SAME cap-radius identity a third time — this
+        // time as a JOIN instead of a drop. Measured on the stroked crystal, the
+        // residual after the snap was NOT one class but two, and neither was the
+        // one v20260815y predicted (that entry's "8 fragments separated by
+        // classification gaps" is corrected here, with the census that says so):
+        //
+        //   · 7 of 8 are DEGENERATE CLOSED RINGS — three or four near-collinear
+        //     points walked out and back, e.g.
+        //     "M 24.51 -148.46 L 24.51 -149.44 L 24.51 -150.91 L 24.51 -148.46 Z"
+        //     (traversal 4.9, reach 2.45). They bound no region, so they have no
+        //     merge partner and no fill under them; they are handled by the
+        //     REACH measure below, not by merging.
+        //   · 1 of 8 is the true gap class, and it is the RING SEAM: the group
+        //     walk starts at an ownership boundary mid-ring, so an authored
+        //     stretch that wraps the start index comes out as the FIRST and LAST
+        //     runs of the same ring — endpoints coincident (measured gap 0.000)
+        //     and `strokeOpen = false` at the ring end keeping them apart.
+        //
+        // So the merge is real and it is small: join two runs when one's end is
+        // within a cap radius of the other's start. The licence is the same
+        // geometric identity the trim uses — two caps a cap radius apart already
+        // overlap, so the bridge changes no covered pixel, only the AA at the
+        // join. The bridge is EXPLICIT (an L to the second run's start), never
+        // an implicit continuation: absorbing the gap into the following C would
+        // move that curve's first control point. Closed runs never join, exactly
+        // as in `_consolidateInk`, whose shape this follows.
+        //
+        // COVERAGE IS THE GATE, and `glassMergeBridge` is what makes it
+        // falsifiable: total stroke length after == before + Σ bridges, so a
+        // merge can neither lose a run nor emit one twice.
+        const trimStubs = (dstr, w, verts) => {
+          if (!dstr || !(w > 0)) return dstr;
+          const min = w * 0.5, out = [];
+          const nearestVert = (x, y) => {
+            if (!verts || !verts.length) return -1;
+            let best = -1, bd = min * min;
+            for (let k = 0; k < verts.length; k++) {
+              const dx = verts[k][0] - x, dy = verts[k][1] - y, d2 = dx * dx + dy * dy;
+              if (d2 <= bd) { bd = d2; best = k; }
+            }
+            return best;
+          };
+          const numsOf = (body) =>
+            body.split(/[^0-9eE.+-]+/).filter(t => t !== '' && isFinite(+t)).map(Number);
+          const runs = [];
+          for (const part of dstr.split('M')) {
+            const body = part.trim();
+            if (!body) continue;
+            const nums = numsOf(body);
+            // A run that says Z is closed and is never a merge candidate: its
+            // ends are the same point, so "endpoints meet" is vacuously true and
+            // joining it to anything would splice a loop into a line.
+            runs.push({ txt: 'M' + part, nums, closed: body.indexOf('Z') >= 0 || body.indexOf('z') >= 0 });
+          }
+          if (this.GLASS_RUN_MERGE && runs.length > 1) {
+            const J2 = min * min;
+            let joined = true;
+            while (joined) {
+              joined = false;
+              outer:
+              for (let i = 0; i < runs.length; i++) {
+                const A = runs[i];
+                if (A.closed || A.nums.length < 4) continue;
+                const ex = A.nums[A.nums.length - 2], ey = A.nums[A.nums.length - 1];
+                for (let j = 0; j < runs.length; j++) {
+                  if (j === i) continue;
+                  const B = runs[j];
+                  if (B.closed || B.nums.length < 4) continue;
+                  const dx = B.nums[0] - ex, dy = B.nums[1] - ey;
+                  if (dx * dx + dy * dy > J2) continue;
+                  A.txt += 'L' + B.txt.slice(1);
+                  A.nums = A.nums.concat(B.nums);
+                  A.closed = B.closed;
+                  st.glassRunsMerged++;
+                  st.glassMergeBridge = +(st.glassMergeBridge + Math.hypot(dx, dy)).toFixed(4);
+                  runs.splice(j, 1);
+                  joined = true;
+                  break outer;
+                }
+              }
+            }
+          }
+          for (const run of runs) {
+            const nums = run.nums;
+            let len = 0;
+            for (let i = 2; i + 1 < nums.length; i += 2) {
+              len += Math.hypot(nums[i] - nums[i - 2], nums[i + 1] - nums[i - 1]);
+            }
+            // REACH, NOT TRAVERSAL — the cap-radius rule with the measure it
+            // always meant. "No shaft" is a claim about how far the run's
+            // centreline REACHES, and traversal length is that only for a run
+            // that never doubles back. The degenerate rings above traverse ~4-5
+            // units and reach ~2.5: their ink is the same lozenge a 2.5-unit run
+            // paints, drawn twice. The bounding-box diagonal is an upper bound
+            // on the reach (and O(n), where the true diameter is O(n²)), so this
+            // form can only drop runs the exact one would also drop.
+            let reach = len;
+            if (this.GLASS_RUN_EXTENT && nums.length >= 4) {
+              let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+              for (let i = 0; i + 1 < nums.length; i += 2) {
+                if (nums[i] < x0) x0 = nums[i];
+                if (nums[i] > x1) x1 = nums[i];
+                if (nums[i + 1] < y0) y0 = nums[i + 1];
+                if (nums[i + 1] > y1) y1 = nums[i + 1];
+              }
+              const diag = Math.hypot(x1 - x0, y1 - y0);
+              if (diag < reach) reach = diag;
+            }
+            if (reach < min) { st.glassStubsDropped++; if (len >= min) st.glassRunsReach++; continue; }
+            // …AND THE RUN MUST BE SHORT. Endpoint-collapse alone is not the
+            // identity: a CLOSED run returns to its own start, so both ends sit
+            // on the same anchor however long it is, and dropping it would
+            // delete a whole authored loop. Measured without this guard: 10
+            // runs collapsed but the tick count fell by only 1, i.e. most of
+            // what it removed was legitimate outline. A run is a corner dot
+            // only when it is BOTH shorter than a stroke width and pinned to
+            // one corner at both ends.
+            if (this.GLASS_RUN_SNAP && len < w && nums.length >= 4) {
+              const a0 = nearestVert(nums[0], nums[1]);
+              const a1 = nearestVert(nums[nums.length - 2], nums[nums.length - 1]);
+              if (a0 >= 0 && a0 === a1) { st.glassRunsCollapsed++; continue; }
+            }
+            out.push(run.txt);
+          }
+          return out.length ? out.join('') : null;
+        };
+        // The piece's own AUTHORED vertices, from the source path's segments.
+        const vertsOf = (src) => {
+          let v = vertCache.get(src);
+          if (v) return v;
+          v = [];
+          for (const sg of ownSegsOf(src)) {
+            if (!sg || !sg.P || !sg.P.length) continue;
+            v.push(sg.P[0], sg.P[sg.P.length - 1]);
+          }
+          vertCache.set(src, v);
+          return v;
+        };
+        const mkFragment = (n) => {
+          const src = geoOf(n.el);
+          const own = ownSegsOf(src);
+          const segs = own.slice();
+          for (const o of partnerSegs) { if (o === src) continue; for (const s of ownSegsOf(o)) segs.push(s); }
+          let rec = null;
+          try { rec = this._exportRingsToD(n.rings, segs, own.length); } catch (err) { rec = null; }
+          if (!rec || !rec.d) return null;
+          const out = [];
+          const p = document.createElementNS(NS, 'path');
+          p.setAttribute('d', rec.d);
+          p.setAttribute('fill-rule', 'evenodd');
+          for (const a of CARRY) { const v = src.getAttribute(a); if (v) p.setAttribute(a, v); }
+          out.push(p);
+          const sv = src.getAttribute('data-mr-stroke') || src.getAttribute('stroke');
+          const sw = parseFloat(src.getAttribute('stroke-width'));
+          if (sv && sv !== 'none' && sw > 0) {
+            // A whole-outline stroke on a piece too small to HAVE an outline is
+            // the same artifact wearing the allAuthored hat.
+            const vs = vertsOf(src);
+            const tinyPiece = rec.allAuthored && !trimStubs(rec.d, sw, null);
+            if (tinyPiece) st.glassStubsDropped++;
+            const trimmed = rec.allAuthored ? null : trimStubs(rec.strokeD, sw, vs);
+            if (rec.allAuthored && !tinyPiece) {
+              p.setAttribute('stroke', sv);
+              for (const a of SCARRY) { const v = src.getAttribute(a); if (v) p.setAttribute(a, v); }
+            } else if (trimmed) {
+              const sp = document.createElementNS(NS, 'path');
+              sp.setAttribute('d', trimmed);
+              sp.setAttribute('fill', 'none');
+              sp.setAttribute('stroke', sv);
+              for (const a of SCARRY) { const v = src.getAttribute(a); if (v) sp.setAttribute(a, v); }
+              out.push(sp);
+            }
+          }
+          return out;
+        };
+        // Build everything BEFORE touching the tree — a failure here is a clean
+        // decline, exactly as the piece emitter's is.
+        const emit = [];
+        const areaOf = new Map();
+        // WHAT WAS ACTUALLY EMITTED, counted at emit time. `glassCuts` and the
+        // cut phase's `glassPieces` are both recorded BEFORE the cycle fallback
+        // may throw the fragments away, so neither says whether this pass
+        // changed anything — FlattenPreview's present-only-if-different test
+        // read `glassCuts` first and never fired because of it.
+        st.glassFragmentsEmitted = 0;
+        for (const i of sorted) {
+          const n = list[i];
+          if (!n.rings) { emit.push({ n, nodes: [n.el] }); continue; }
+          st.glassFragmentsEmitted++;
+          const ns = mkFragment(n);
+          if (!ns) { st.glassGeomDeclined++; done(); return; }
+          emit.push({ n, nodes: ns });
+          areaOf.set(n.src, (areaOf.get(n.src) || 0) + Math.abs(this._signedArea(n.rings)));
+        }
+        // ALPHA EXACTLY ONCE, as a gate. A split face's fragments must sum to
+        // the face; an unsplit face is emitted once and cannot double-count.
+        for (const ent of areaOf.entries()) {
+          const rec = recById.get(ent[0]);
+          const full = rec && ringsOfRec(rec);
+          if (!full) continue;
+          const aF = Math.abs(this._signedArea(full));
+          if (!(aF > 1e-9)) continue;
+          const err = Math.abs(aF - ent[1]) / aF;
+          if (err > st.glassAlphaWorst) st.glassAlphaWorst = +err.toFixed(6);
+          if (err > this.SIMPLE_AREA_TOL) { st.glassAlphaFail++; done(); return; }
+        }
+        // COMMIT: the glass faces' slots become the sorted sequence. Everything
+        // that is not a glass face keeps its own slot, so seam ink, bands and
+        // opaque siblings are untouched.
+        // A PLACEHOLDER, because the obvious anchor does not survive. Taking
+        // `firstGlassElement.nextSibling` and inserting before it throws
+        // NotFoundError the moment that sibling is itself a glass face — which
+        // it almost always is — and the removals have already run by then, so
+        // the whole clone comes back EMPTY (measured: 0 paths, 88 bytes). Park
+        // a marker in the slot first; it cannot be removed by the loop below
+        // because it is not one of the faces.
+        const anchor = nodes.reduce((a, n) => {
+          if (!a) return n.el;
+          return (a.compareDocumentPosition(n.el) & 2) ? n.el : a;    // 2 = PRECEDING
+        }, null);
+        const mark = document.createComment('mr-glass-order');
+        parent.insertBefore(mark, anchor || null);
+        for (const n of nodes) if (n.el.parentNode === parent) parent.removeChild(n.el);
+        for (const e of emit) for (const nd of e.nodes) parent.insertBefore(nd, mark);
+        parent.removeChild(mark);
+        st.glassCells = emit.length;
+        st.glassPieces = emit.length;                  // the emitted count, not the cut phase's
+        _phEmit = _t() - _m;
+        st.glassPhases = { scan: +_phScan.toFixed(1), cut: +_phCut.toFixed(1),
+                           sort: +_phSort.toFixed(1), emit: +_phEmit.toFixed(1) };
+        done();
       },
 
       // ---- THE PIECE EMITTER (simple-pieces S3b) ----------------------------
@@ -37863,6 +39154,27 @@
       // So: Effective = ChildStyle merged with ParentStyle, where ParentStyle keys replace ChildStyle keys.
       // Order: Child -> Parent -> GrandParent. Last one wins.
 
+      // A PARENT THAT DRAWS NO STROKE DOES NOT GET TO SET stroke-* ON A CHILD
+      // THAT DOES (owner report, 2026-08-15). "Actively applied" was tested per
+      // KEY, on truthiness alone — and `stroke-width: 1` is truthy, so a group
+      // whose own `stroke` is `none` still overrode the width of a child that
+      // had deliberately been given one. Reproduced on the crystal: child
+      // stroke-width 10, group stroke none / width 1, effective width 1, and
+      // all 28 emitted paths carried `stroke-width="1"`.
+      //
+      // PRE-EXISTING, not a glass-campaign regression: the identical numbers
+      // come back from _bkup/dim_20260815p.html driven in an iframe, which is
+      // the build before the campaign started.
+      //
+      // The rule is dependency, not truthiness: stroke-width, stroke-opacity,
+      // the joins, caps and dashes are all meaningless without a stroke, so a
+      // parent only gets to impose them when it is actually stroking. Scoped to
+      // the STROKE family deliberately — `fill-rule` has the same shape and is
+      // NOT changed here, because a group setting evenodd with no fill of its
+      // own is an established idiom in this file (the crystal group does it)
+      // and retiring it needs its own gate.
+      const STROKE_DEPS = ['stroke-width', 'stroke-opacity', 'stroke-linejoin',
+                           'stroke-linecap', 'stroke-dasharray', 'stroke-miterlimit'];
       const effective = {};
       // Iterate styles from Child to Root
       styles.forEach((s, i) => {
@@ -37870,10 +39182,11 @@
           Object.assign(effective, s);
         } else {
           // Parent styles override child styles only if they are actively applied
+          const parentStrokes = !!(s.stroke && s.stroke !== 'none');
           for (const key in s) {
-            if (s[key] && s[key] !== 'none') {
-              effective[key] = s[key];
-            }
+            if (!(s[key] && s[key] !== 'none')) continue;
+            if (!parentStrokes && STROKE_DEPS.indexOf(key) >= 0) continue;
+            effective[key] = s[key];
           }
         }
       });
@@ -38156,6 +39469,19 @@
         this.renderIntersections = false; // Split faces that intersect in 3D (requires zSortChildren)
         this.pathRender = false; // Vector HSR (V1, planar groups): planar-map render, no painter ordering (requires zSortChildren)
         this.maskRender = false; // MASK RENDERER (experimental M1): vector z-buffer — authored paths + occlusion masks (requires zSortChildren + raster-helper gate)
+        // GLASS RENDER (owner switch): master gate for the whole glass pipeline
+        // — the translucency entry gate, the settle's ordering/cuts and the live
+        // sort. DEFAULT FALSE (owner call, 2026-08-15: "the decent render is the
+        // glass off"), so a new group renders pre-campaign: a translucent
+        // occluder produces mask entries and erases, as it always did.
+        //
+        // THE ABSENT KEY NOW MEANS OFF, and that is deliberate and stated: a
+        // scene saved during the ON-default era carries no `glassRender` key
+        // and will therefore open with glass OFF. That is the owner's intent,
+        // not an accident of the flip — the serialization is inverted to match
+        // (written only when TRUE), so from here on a file says what it means.
+        // The two glass fixtures carry the key explicitly for that reason.
+        this.glassRender = false;
         this.style = {}; // Initialize empty style for inheritance
         this.pivot = [0, 0, 0]; // Pivot point
         this.pivotRotation = [0, 0, 0]; // Pivot Rotation (Euler degrees)
@@ -59403,6 +60729,18 @@
           if (renderIntersectionsRow) {
             renderIntersectionsRow.style.display = selectedObject.zSortChildren ? '' : 'none';
           }
+          // GLASS RENDER IS AN RI SUB-OPTION, so it follows the same rule the
+          // other sub-options use (`rasterHelperViewRow` is the sibling to copy):
+          // visible only when the group is z-sorted AND Render Intersections is
+          // actually on. It is the master switch for a pipeline that lives
+          // inside the mask renderer, so with RI off it governs nothing.
+          // The RI checkbox handler calls updateStylePanel, so this tracks live.
+          {
+            const _gr = document.getElementById('glassRenderRow');
+            const _gc = document.getElementById('glassRenderCb');
+            if (_gr) _gr.style.display = (selectedObject.zSortChildren && isRiActive) ? '' : 'none';
+            if (_gc && document.activeElement !== _gc) _gc.checked = selectedObject.glassRender === true;
+          }
           if (renderIntersectionsCb && document.activeElement !== renderIntersectionsCb) {
             renderIntersectionsCb.checked = isRiActive;
           }
@@ -59456,6 +60794,7 @@
           zSortChildrenRow.style.display = 'none';
           if (zSortModeRow) zSortModeRow.style.display = 'none';
           if (renderIntersectionsRow) renderIntersectionsRow.style.display = 'none';
+          { const _gr = document.getElementById('glassRenderRow'); if (_gr) _gr.style.display = 'none'; }
           if (renderIntersectionsMethodRow) renderIntersectionsMethodRow.style.display = 'none';
           const _rhvRow = document.getElementById('rasterHelperViewRow'); // RASTER HELPER
           if (_rhvRow) _rhvRow.style.display = 'none';
@@ -61334,6 +62673,7 @@
         newGroup.renderIntersections = obj.renderIntersections;
         newGroup.pathRender = obj.pathRender;
         newGroup.maskRender = obj.maskRender;   // MASK RENDERER (experimental)
+        newGroup.glassRender = obj.glassRender; // GLASS RENDER master switch
 
         // Deep copy surface constraint (Spline Flow / 3D Mapping)
         if (obj.surfaceConstraint) {
@@ -63258,6 +64598,25 @@
         requestRender();
       }
     });
+    // GLASS RENDER master switch. Undo-safe the same way its neighbour is
+    // (pushUndoState first), and it FORCES A RE-PRESENT: the flag does not
+    // change the live tree's `d` strings, so FlattenPreview._signature cannot
+    // see it and the settled picture would otherwise stay on screen showing
+    // the old pipeline's output until something else moved.
+    document.getElementById('glassRenderCb').addEventListener('change', function (e) {
+      if (selectedObject && selectedObject.isGroup) {
+        pushUndoState();
+        selectedObject.glassRender = !!e.target.checked;
+        if (typeof FlattenPreview !== 'undefined') {
+          FlattenPreview.teardown();
+          FlattenPreview._sig = 0;
+          FlattenPreview._attempted = false;
+          FlattenPreview._changeAt = 0;
+        }
+        updateStylePanel(selectedObject);
+        requestRender();
+      }
+    });
     document.getElementById('renderIntersectionsMethodInput').addEventListener('change', function (e) {
       if (selectedObject && selectedObject.isGroup) {
         pushUndoState();
@@ -64174,7 +65533,12 @@
     const dimClipHash = () => {
       const clone = pathGroup.cloneNode(true);
       let stats = null, ms = 0;
-      const hasMasks = !!clone.querySelector('mask[id^="mrm"]');
+      // …or a GLASS PLAN: a translucent scene can have zero masks and still
+      // carry a part-2 correction (MaskRender.GLASS_ORDER, hasGlassPlan). An
+      // opaque scene never records a glass pair, so this cannot move an opaque
+      // hash.
+      const hasMasks = !!clone.querySelector('mask[id^="mrm"]') ||
+        (typeof MaskRender !== 'undefined' && MaskRender.hasGlassPlan());
       if (typeof MaskRender !== 'undefined' && hasMasks) {
         const t0 = performance.now();
         try {
@@ -64374,7 +65738,8 @@
     const dimPieceHash = () => {
       const clone = pathGroup.cloneNode(true);
       let stats = null;
-      const hasMasks = !!clone.querySelector('mask[id^="mrm"]');
+      const hasMasks = !!clone.querySelector('mask[id^="mrm"]') ||
+        (typeof MaskRender !== 'undefined' && MaskRender.hasGlassPlan());
       if (typeof MaskRender !== 'undefined' && hasMasks) {
         // `simple: true` because this hash exists to watch the PIECES, and
         // since S3b the emitter runs only where the export seam asks for it
@@ -64625,6 +65990,9 @@
                                 //   flatten = exportSplitFail delta, clip = stats.failed
       lastKind: '',             // 'clip' | 'flatten' — which producer built `group`
       standDowns: 0,            // attempts abandoned because of a producer failure
+      skippedNoOp: 0,           // settles that produced the picture already on
+                                //   screen and therefore did not swap at all
+                                //   (see the present-only-if-different note)
       _sig: 0,                  // 0 = "nothing observed yet"
       _changeAt: 0,
       _attempted: false,        // one attempt per settled signature
@@ -64681,6 +66049,25 @@
       // Called from render() BEFORE the scene draw: the presented picture is
       // stale the moment the drawn one moves, so the teardown has to land in
       // the same frame that redraws, before the browser gets a paint.
+      // IMPORT PRESENTS WITH THE FIRST PAINT (owner report, 2026-08-15).
+      //
+      // THE MECHANISM, and it is not the 120 ms idle gate. render() is async and
+      // awaits every object's draw, so the browser gets a paint opportunity
+      // BETWEEN the live tree being written and frameEnd() presenting the
+      // settled one — inside a single frame. On an opaque scene the two agree
+      // to 0 px so that paint is invisible; on the crystal it is the whole
+      // 2,933 px crossing cluster appearing late, and the scene's saved camera
+      // is the one pose where the cuts land, so an import shows it every time.
+      //
+      // A scene import is already a blocking operation, so the fix is to hold
+      // the canvas for exactly ONE frame: `armImport()` cloaks #pathGroup at
+      // frameStart and frameEnd either hands over to the presented group or
+      // uncloaks. The user sees the previous picture a moment longer instead of
+      // a wrong one, and no second pass is added — the arm also releases the
+      // idle gate so that same frame presents.
+      _importArm: false,
+      armImport() { this._importArm = true; },
+
       frameStart() {
         if (!this.enabled || !pathGroup || this._held()) {
           this.teardown();
@@ -64697,11 +66084,27 @@
           this._changeAt = t0;
           this._attempted = false;
         }
+        // THE CLOAK GOES LAST, because `teardown()` above restores the opacity
+        // it sets — and an import ALWAYS changes the signature, so the teardown
+        // always runs. Setting it before that block was a silent no-op.
+        if (this._importArm) pathGroup.style.opacity = '0';
       },
 
       // Called from render() at the very end, after the dangling-mask sweep, so
       // the clone is taken from a fully finished frame.
       frameEnd() {
+        // THE IMPORT FRAME PRESENTS NOW, then disarms whatever happened. The
+        // uncloak is unconditional on the failure paths: a scene with nothing
+        // to present (no masks, no glass plan) must not be left invisible.
+        if (this._importArm) {
+          this._importArm = false;
+          if (this.enabled && !this._held() && !this.group && this._sig) {
+            this._attempted = true;
+            this._present();
+          }
+          if (!this.group && pathGroup && pathGroup.style.opacity !== '') pathGroup.style.opacity = '';
+          return;
+        }
         if (!this.enabled || this.group || this._attempted || !this._sig) return;
         if (this._held()) return;
         if ((performance.now() - this._changeAt) < this.DELAY) return;
@@ -64716,12 +66119,17 @@
         clone.removeAttribute('id');
         // Nothing masked ⇒ the flatten is a no-op and the authored tree already
         // IS the flattened picture. Presenting a clone would only cost paint.
-        if (!clone.querySelector('mask[id^="mrm"]')) return;
+        // …or the GLASS PLAN (MaskRender.hasGlassPlan): the crystal has ZERO
+        // masks after part 1 gates its entries, so a mask-only gate skips the
+        // producer on the exact class part 2 exists for — the settled canvas
+        // then shows the live wrong-order tree, which is what the owner saw.
+        if (!clone.querySelector('mask[id^="mrm"]') && !MaskRender.hasGlassPlan()) return;
         const st = MaskRender.stats;
         const f0 = st ? st.exportSplitFail : 0;
         // THE PRODUCER, and the only line M4 changed (MaskRender.CLIP_PICTURE).
         // Both take this clone and must leave it mask-free; everything after
         // this block is written against that contract and nothing else.
+        const hadMasks = !!clone.querySelector('mask[id^="mrm"]');
         const useClip = (MaskRender.CLIP_PICTURE !== false);
         let cst = null;
         try {
@@ -64756,6 +66164,36 @@
               : 'split failure in the flatten') + '; keeping the mask picture ' +
               '(set FlattenPreview.abortOnSplitFail = false to present it anyway).');
           }
+          return;
+        }
+        // PRESENT ONLY IF DIFFERENT (owner: "a normal render reaches the canvas,
+        // then the glass render happens"). On a PURE GLASS scene — no mask
+        // entries anywhere — the settle's output is the same faces the live
+        // tree already holds, in the order the LIVE SORT already applied,
+        // unless a crossing cut actually landed. When no cut landed the swap is
+        // provably a no-op, so the cheapest correct fix is not to swap: skip
+        // the presentation entirely and leave the live tree on screen.
+        //
+        // Measured over the crystal's 6-angle ladder: cuts land at ONE angle
+        // (the authored pose, 8 cuts, 2,933 px -> 0) and the whole-face
+        // fallback carries the other five, where live and settle were already
+        // pixel-identical. So this removes the visible swap at five of six
+        // angles and leaves it exactly where the feature is arriving.
+        //
+        // THE STRUCTURAL TEST, not a raster compare: `glassFragmentsEmitted === 0`
+        // says every face came through WHOLE and in the live order — there is
+        // nothing a swap could show. It is counted at emit time on purpose: the
+        // cut phase's counters are taken before the cycle fallback may discard
+        // the fragments, so they report cuts that never reached the tree. Gated on
+        // `!hadMasks` so an opaque or mixed scene keeps M4's behaviour
+        // untouched (there the clip form is what corrects the picture).
+        //
+        // WHAT THIS CANNOT DO, stated plainly: it cannot remove the swap at the
+        // pose where cuts DO land. That would mean running the cuts per frame —
+        // measured ~400 ms of booleans — which is not viable during a gesture.
+        // The mitigation is minimisation, not elimination.
+        if (!hadMasks && cst && cst.glassFaces > 0 && cst.glassFragmentsEmitted === 0) {
+          this.skippedNoOp++;
           return;
         }
         // NAMESPACE FIRST, then name the group. svgNamespaceIds renames every
@@ -72872,7 +74310,7 @@
       // Sync PolyClip rewrite of the CLONE only; the live canvas keeps its
       // masks. All export paths share this call site.
       if (typeof MaskRender !== 'undefined') {
-        if (clonedGroup.querySelector('mask[id^="mrm"]')) {
+        if (clonedGroup.querySelector('mask[id^="mrm"]') || MaskRender.hasGlassPlan()) {
           // CLIP-FIRST EXPORT (plan M2) is opt-in — see MaskRender.CLIP_EXPORT for
           // what it routes and why it is off. The two producers are
           // interchangeable here BY CONTRACT: each takes the clone and leaves it
@@ -72919,6 +74357,12 @@
         // faces and emits no <mask>, so the flatten never runs and the stamps
         // would ship. This strip is ungated for that reason.
         clonedGroup.querySelectorAll('[data-mr-rid]').forEach(el => el.removeAttribute('data-mr-rid'));
+        // …and the same for the GLASS part-2 channel (MaskRender.GLASS_ORDER).
+        // _glassOrder consumes both on its way through, so these are no-ops on
+        // the normal path; they exist for the flag-off and stood-down cases,
+        // where the stamps would otherwise be the only thing that shipped.
+        clonedGroup.querySelectorAll('[data-mr-gid]').forEach(el => el.removeAttribute('data-mr-gid'));
+        clonedGroup.querySelectorAll('[data-mr-glass]').forEach(el => el.removeAttribute('data-mr-glass'));
       }
 
       exportSVG.appendChild(clonedGroup);
@@ -75577,6 +77021,10 @@
           if (obj.renderIntersections) data.renderIntersections = true;
           if (obj.pathRender) data.pathRender = true;
           if (obj.maskRender) data.maskRender = true;
+          // GLASS RENDER: written ONLY when switched ON (the default is off),
+          // so an untouched file stays byte-identical and an absent key reads
+          // back as OFF — see the ctor note.
+          if (obj.glassRender === true) data.glassRender = true;
         }
         // GROUP EXTRUDE (v20260719b): written only when meaningful so files
         // from before the feature (and groups not using it) stay byte-identical.
@@ -75695,6 +77143,8 @@
           // decides which renderer runs - see MASK_ONLY. These decide nothing.)
           if (data.pathRender) obj.pathRender = true;
           if (data.maskRender) obj.maskRender = true;
+          // …and absent means OFF (see the ctor default).
+          if (data.glassRender === true) obj.glassRender = true;
           // MASK_ONLY Phase 1: a group that asked for ANY method gets the Mask.
           // `data` is untouched, so the file keeps its own encoding.
           if (MASK_ONLY && (obj.renderIntersections || obj.pathRender || obj.maskRender)) {
@@ -75983,6 +77433,10 @@
 
       updateTreeView();
       _scheduleHistoryUpdate();
+      // GLASS: present the settled picture WITH the import's first paint rather
+      // than after it — see FlattenPreview.armImport for why an import shows
+      // the uncut picture first without this.
+      if (typeof FlattenPreview !== 'undefined' && FlattenPreview.armImport) FlattenPreview.armImport();
       requestRender();
     };
 

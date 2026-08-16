@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260816q -->
+<!-- dim v20260816r -->
 
 <!--
   MIT License
@@ -39468,15 +39468,30 @@
       // come back from _bkup/dim_20260815p.html driven in an iframe, which is
       // the build before the campaign started.
       //
-      // The rule is dependency, not truthiness: stroke-width, stroke-opacity,
-      // the joins, caps and dashes are all meaningless without a stroke, so a
-      // parent only gets to impose them when it is actually stroking. Scoped to
-      // the STROKE family deliberately — `fill-rule` has the same shape and is
-      // NOT changed here, because a group setting evenodd with no fill of its
-      // own is an established idiom in this file (the crystal group does it)
-      // and retiring it needs its own gate.
-      const STROKE_DEPS = ['stroke-width', 'stroke-opacity', 'stroke-linejoin',
+      // The rule is dependency, not truthiness: stroke-width, the joins, caps
+      // and dashes are all meaningless without a stroke, so a parent only gets
+      // to impose them when it is actually stroking. Scoped to the STROKE
+      // family deliberately — `fill-rule` has the same shape and is NOT
+      // changed here, because a group setting evenodd with no fill of its own
+      // is an established idiom in this file (the crystal group does it) and
+      // retiring it needs its own gate. stroke-opacity left this list for the
+      // OPACITY_KEYS branch below (group-opacity slice): unlike a width, an
+      // opacity is meaningful on a non-stroking container.
+      const STROKE_DEPS = ['stroke-width', 'stroke-linejoin',
                            'stroke-linecap', 'stroke-dasharray', 'stroke-miterlimit'];
+      // THE OPACITY KEYS ARE NUMERIC AND ZERO IS A VALUE. The generic merge
+      // below tests truthiness, so a parent's numeric 0 was dropped (a group
+      // fade-out popped back to opaque on its last keyframe) while the string
+      // '0' survived — the panel writes strings, the timeline writes numbers,
+      // which is why the bug read as intermittent. Opacity is tested for
+      // PRESENCE instead. It is also exempt from the STROKE_DEPS dependency
+      // (stroke-opacity moved out of that list here): opacity is a modulation
+      // channel, meaningful on a container that paints nothing itself — a
+      // group fade must dim its children's strokes even when the group's own
+      // stroke is none. Census before this change: no scene carried a falsy
+      // group style value, and the four groups carrying stroke-opacity all
+      // hold '1' over children at '1', so no existing render can move.
+      const OPACITY_KEYS = ['fill-opacity', 'stroke-opacity'];
       const effective = {};
       // Iterate styles from Child to Root
       styles.forEach((s, i) => {
@@ -39486,6 +39501,12 @@
           // Parent styles override child styles only if they are actively applied
           const parentStrokes = !!(s.stroke && s.stroke !== 'none');
           for (const key in s) {
+            if (OPACITY_KEYS.indexOf(key) >= 0) {
+              const v = s[key];
+              if (v === undefined || v === null || v === '') continue;
+              effective[key] = v;
+              continue;
+            }
             if (!(s[key] && s[key] !== 'none')) continue;
             if (!parentStrokes && STROKE_DEPS.indexOf(key) >= 0) continue;
             effective[key] = s[key];
@@ -45121,12 +45142,21 @@
               if (!_el.hasAttribute('stroke-width') && _zsEffective['stroke-width'] !== undefined) {
                 _el.setAttribute('stroke-width', getEffectiveStrokeWidth(_zsEffective['stroke-width']));
               }
-              if (!_el.hasAttribute('fill-opacity') && _zsEffective['fill-opacity'] !== undefined) {
+              // Opacity stamps are UNCONDITIONAL (group-opacity slice): face
+              // elements persist across frames, so the old !hasAttribute guard
+              // froze the first frame's value and an ANIMATED group opacity
+              // never updated on z-sorted faces. Safe to overwrite: every
+              // emitter that stamps a deliberately different opacity (fold
+              // crease marks, the 3D-stroke fill mapping) re-stamps its own
+              // element every draw after this loop, and the rest derive from
+              // same getEffectiveStyle this reads. Undefined clears, so a key
+              // removed from the style does not linger on a persistent face.
+              if (_zsEffective['fill-opacity'] !== undefined) {
                 _el.setAttribute('fill-opacity', _zsEffective['fill-opacity']);
-              }
-              if (!_el.hasAttribute('stroke-opacity') && _zsEffective['stroke-opacity'] !== undefined) {
+              } else _el.removeAttribute('fill-opacity');
+              if (_zsEffective['stroke-opacity'] !== undefined) {
                 _el.setAttribute('stroke-opacity', _zsEffective['stroke-opacity']);
-              }
+              } else _el.removeAttribute('stroke-opacity');
               if (!_el.hasAttribute('stroke-linejoin') && _zsEffective['stroke-linejoin']) {
                 _el.setAttribute('stroke-linejoin', _zsEffective['stroke-linejoin']);
               }
@@ -51559,7 +51589,7 @@
             // the index is li directly and layer 1 gets color 1.
             const layerFill = loftPal ? paletteColorAt(loftPal, li, layerCount + 1, ls.paletteMode) : fillColor;
             layerPath.setAttribute('fill', (allClosed && layerFill && layerFill !== 'none') ? layerFill : 'none');
-            layerPath.setAttribute('fill-opacity', _effLoft['fill-opacity'] || '1');
+            layerPath.setAttribute('fill-opacity', _effLoft['fill-opacity'] !== undefined ? _effLoft['fill-opacity'] : '1');
             if (strokeColor) {
               layerPath.setAttribute('stroke', strokeColor);
               layerPath.setAttribute('stroke-width', strokeWidth);
@@ -51827,7 +51857,7 @@
                 poly.setAttribute('d', `M ${s0.x} ${s0.y} L ${s1.x} ${s1.y} L ${s2.x} ${s2.y} L ${s3.x} ${s3.y} Z`);
                 // PALETTE: i is the CROSS-SECTION index along the loft (U).
                 poly.setAttribute('fill', (loftPal ? paletteColorAt(loftPal, i, crossSectionsForSp.length - 1, ls.paletteMode) : fillColor) || 'none');
-                poly.setAttribute('fill-opacity', _effLoft['fill-opacity'] || '1');
+                poly.setAttribute('fill-opacity', _effLoft['fill-opacity'] !== undefined ? _effLoft['fill-opacity'] : '1');
                 if (strokeColor) {
                   poly.setAttribute('stroke', strokeColor);
                   poly.setAttribute('stroke-width', strokeWidth);
@@ -51851,7 +51881,7 @@
               const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
               pathEl.setAttribute('d', d);
               pathEl.setAttribute('fill', (loftPal ? paletteColorAt(loftPal, i, crossSectionsForSp.length - 1, ls.paletteMode) : fillColor) || 'none');
-              pathEl.setAttribute('fill-opacity', _effLoft['fill-opacity'] || '1');
+              pathEl.setAttribute('fill-opacity', _effLoft['fill-opacity'] !== undefined ? _effLoft['fill-opacity'] : '1');
               if (strokeColor) {
                 pathEl.setAttribute('stroke', strokeColor);
                 pathEl.setAttribute('stroke-width', strokeWidth);
@@ -51914,7 +51944,7 @@
             capEl.setAttribute('d', dStr);
             capEl.setAttribute('fill-rule', 'evenodd');
             capEl.setAttribute('fill', resolvedFill || 'none');
-            capEl.setAttribute('fill-opacity', _effLoft['fill-opacity'] || '1');
+            capEl.setAttribute('fill-opacity', _effLoft['fill-opacity'] !== undefined ? _effLoft['fill-opacity'] : '1');
             if (strokeColor) {
               capEl.setAttribute('stroke', strokeColor);
               capEl.setAttribute('stroke-width', strokeWidth);
@@ -60012,7 +60042,9 @@
       const strokeOpacity = styleSource['stroke-opacity'] !== undefined ? styleSource['stroke-opacity'] : 1;
       if (document.activeElement !== strokeOpacityInput) strokeOpacityInput.value = strokeOpacity;
       strokeOpacityValue.value = parseFloat(strokeOpacity).toFixed(2);
-      strokeOpacityInput.disabled = !hasStroke;
+      // Group-opacity slice: a Group's opacity sliders are live without a
+      // stroke/fill of its own — the merge carries the value to descendants.
+      strokeOpacityInput.disabled = !hasStroke && !(selectedObject && selectedObject.isGroup);
       document.getElementById('strokeOpacityRow').style.setProperty('--fill', (parseFloat(strokeOpacity) * 100) + '%');
 
       // Fill
@@ -60030,7 +60062,8 @@
       const fillOpacityVal = styleSource['fill-opacity'] !== undefined ? styleSource['fill-opacity'] : 1;
       if (document.activeElement !== fillOpacityInput) fillOpacityInput.value = fillOpacityVal;
       fillOpacityValue.value = parseFloat(fillOpacityVal).toFixed(2);
-      fillOpacityInput.disabled = !hasFill;
+      // Group-opacity slice: live for Groups (see stroke-opacity note above).
+      fillOpacityInput.disabled = !hasFill && !(selectedObject && selectedObject.isGroup);
       document.getElementById('fillOpacityRow').style.setProperty('--fill', (parseFloat(fillOpacityVal) * 100) + '%');
 
       // Fill Rule
@@ -64255,6 +64288,11 @@
           else delete s['stroke-dasharray'];
         }
         if ((forceStrokeProps || targetId === 'strokeOpacityInput') && hasStroke) s['stroke-opacity'] = opacity;
+        // Group-opacity slice: a Group needs no stroke of its own to carry an
+        // opacity for its subtree (the merge delivers it to descendants). Only
+        // a DIRECT edit of this input writes it — a forced sync must not
+        // inject keys into untouched group styles.
+        else if (targetId === 'strokeOpacityInput' && obj.isGroup) s['stroke-opacity'] = opacity;
 
         // STROKE TRIM (v20260719c): numeric % positions (AE-style). Exactly
         // 0 / 100 = untrimmed and the key is removed (absent = old behavior).
@@ -64313,6 +64351,8 @@
         }
 
         if ((forceFillProps || targetId === 'fillOpacityInput') && hasFill) s['fill-opacity'] = fillOpacity;
+        // Group-opacity slice: same as stroke-opacity above — direct edit only.
+        else if (targetId === 'fillOpacityInput' && obj.isGroup) s['fill-opacity'] = fillOpacity;
         if ((forceFillProps || targetId === 'fillRuleInput') && hasFill) s['fill-rule'] = fillRule;
 
         if (forceAll || targetId === 'blendModeInput') {
@@ -64633,7 +64673,7 @@
         const AK = {
           strokeTrimStartInput: ['trimStart'],
           strokeTrimEndInput: ['trimEnd'],
-          fillOpacityInput: ['fillOpacity'],       // v20260728w (Path-only, like trim)
+          fillOpacityInput: ['fillOpacity'],       // v20260728w; Groups since the group-opacity slice
           strokeOpacityInput: ['strokeOpacity'],
           extrudeDepthInput: ['exDepth'],
           extrudeVecXInput: ['exVecX'], extrudeVecYInput: ['exVecY'], extrudeVecZInput: ['exVecZ'],
@@ -64648,11 +64688,10 @@
         };
         const akProps = AK[targetId];
         if (akProps) {
-          // Path-only families: trim (§8.2) and, since v20260728w, opacity —
-          // both are style-backed with a default, so a Group would otherwise
-          // resolve a value and record a track nothing applies.
-          const pathOnlyEdit = targetId.startsWith('strokeTrim')
-            || targetId === 'fillOpacityInput' || targetId === 'strokeOpacityInput';
+          // Path-only families: trim (§8.2). Opacity left this list in the
+          // group-opacity slice — a Group's opacity is applied (via the merge)
+          // and written (tlApplyFrame), so its Auto-Key is meaningful now.
+          const pathOnlyEdit = targetId.startsWith('strokeTrim');
           targets.forEach(o => { if (!(pathOnlyEdit && o.isGroup)) tlAutoKeyProps(tlKeyOf(o), akProps); });
         }
       }
@@ -79136,11 +79175,11 @@
       const trDef = _strokeTrimParams.find(p => p.prop === prop);
       if (trDef) return (obj.style && obj.style[trDef.styleKey] !== undefined) ? obj.style[trDef.styleKey] : trDef.default;
       // Opacity param (style-backed, v20260728w) — absent key = default, coerced.
-      // The isGroup guard must match the WRITE side's: without it a Group reads
-      // back a plausible 1, so tlAutoKeyProps would happily create a track that
-      // nothing ever applies (the write branch refuses groups this slice).
+      // Groups included since the group-opacity slice; read and write sides
+      // opened TOGETHER (a read without a write creates tracks nothing applies,
+      // and vice versa — the trap the old Paths-only guard comment recorded).
       const opDef = _opacityParams.find(p => p.prop === prop);
-      if (opDef && !obj.isGroup) return _opacityRead(obj, opDef);
+      if (opDef) return _opacityRead(obj, opDef);
       // Motion Path param (v20260719f)
       const mpDef = _motionPathParams.find(p => p.prop === prop);
       if (mpDef && obj.motionPathSettings) return obj.motionPathSettings[mpDef.mpKey] ?? null;
@@ -79265,7 +79304,7 @@
       // (no delete-at-default — see the _opacityParams note) and push to the DOM,
       // which a style write alone does not do.
       const opDef = _opacityParams.find(p => p.prop === prop);
-      if (opDef && !obj.isGroup) {
+      if (opDef) {
         if (!obj.style) obj.style = {};
         obj.style[opDef.styleKey] = Math.min(1, Math.max(0, val));
         _tlApplyStyleToDom(obj);
@@ -80395,12 +80434,14 @@
           }
         }
 
-        // --- Opacity params (style-backed, v20260728w) ---
+        // --- Opacity params (style-backed, v20260728w; Groups since the
+        // group-opacity slice) ---
         // Like stroke trim this reads the RAW table rather than
         // _getOpacityParamsForObj, so an existing track keeps applying even after
         // the fill or stroke is switched off (the documented tlApplyFrame
-        // asymmetry). The DOM push happens ONCE per object, not per param.
-        if (!obj.isGroup) {
+        // asymmetry). The DOM push happens ONCE per object, not per param — for
+        // a Group that push is the recursive effective-style pass.
+        {
           let _opTouched = false;
           for (const paramDef of _opacityParams) {
             const kfs = objTracks.get(paramDef.prop);
@@ -80999,11 +81040,16 @@
     //     already written explicitly into the app's default style object, so
     //     removing it would change existing style objects for no gain.
     //
-    // Paths only for now (obj.isGroup excluded), by owner decision: a GROUP's
-    // opacity has two unfixed obstacles — getEffectiveStyle drops a parent value
-    // of numeric 0 (its `s[key] &&` truthiness test, so a group fade-out pops back
-    // to opaque on the last keyframe) and z-sorted groups strip opacity off the
-    // <g> and re-stamp it per face. Both are their own slice.
+    // GROUPS INCLUDED (group-opacity slice; was Paths-only from v20260728w).
+    // The two obstacles that excluded groups are fixed in the same release:
+    // getEffectiveStyle now treats the opacity keys by PRESENCE (numeric 0 no
+    // longer dropped, so a group fade-out reaches true 0 instead of popping
+    // back opaque), and the z-sort per-face stamp is unconditional (the old
+    // !hasAttribute guard froze an animated value at its first frame). A
+    // group's opacity is never stamped on its own <g> — the z-sort branch
+    // strips those attributes every frame and non-z-sorted groups would
+    // double-apply — it flows to descendants through getEffectiveStyle via
+    // updateVisualsRecursive (see _tlApplyStyleToDom).
     const _opacityParams = [
       { prop: 'fillOpacity', label: 'Fill Opacity', styleKey: 'fill-opacity', default: 1, precision: 2, step: 0.05 },
       { prop: 'strokeOpacity', label: 'Stroke Opacity', styleKey: 'stroke-opacity', default: 1, precision: 2, step: 0.05 },
@@ -81020,17 +81066,27 @@
     };
 
     // Push obj.style to the DOM — see note (1) above. Mirrors what the Style panel
-    // does on an edit; cheap (one attribute pass over one element).
+    // does on an edit; cheap (one attribute pass over one element). For a GROUP
+    // the push is recursive over descendants through getEffectiveStyle instead:
+    // stamping the group's own <g> is the one thing this must never do (the
+    // z-sort branch strips paint attributes off a group <g> every frame, and a
+    // non-z-sorted group would hand the DOM cascade a second copy of a value
+    // the merge already delivers).
     const _tlApplyStyleToDom = (obj) => {
-      if (obj && obj.svgElement && typeof applySvgStyles === 'function') {
+      if (!obj) return;
+      if (obj.isGroup) { updateVisualsRecursive(obj); return; }
+      if (obj.svgElement && typeof applySvgStyles === 'function') {
         applySvgStyles(obj.svgElement, obj.style);
       }
     };
 
-    // Opacity params for a scene object. Paths only; offered whenever the object
-    // has a fill or a stroke to fade (or already carries tracks/keys for it).
+    // Opacity params for a scene object. A Path offers them whenever it has a
+    // fill or a stroke to fade; a GROUP offers them unconditionally — it needs
+    // no paint of its own, the merge carries its opacity to every descendant
+    // (group-opacity slice).
     const _getOpacityParamsForObj = (obj) => {
-      if (!obj || obj.isGroup || !obj.style) return null;
+      if (!obj || !obj.style) return null;
+      if (obj.isGroup) return _opacityParams;
       const hasFill = obj.style.fill && obj.style.fill !== 'none';
       const hasStroke = obj.style.stroke && obj.style.stroke !== 'none';
       return (hasFill || hasStroke) ? _opacityParams : null;
@@ -82672,7 +82728,7 @@
                 // key resolves to the default, so the value always exists.
                 if (!keyed) {
                   const opParamDef = _opacityParams.find(p => p.prop === prop);
-                  if (opParamDef && !obj.isGroup) {
+                  if (opParamDef) {
                     tlAddKeyframe(objectName, prop, frame, _opacityRead(obj, opParamDef));
                     keyed = true;
                   }

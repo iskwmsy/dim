@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260816l -->
+<!-- dim v20260816q -->
 
 <!--
   MIT License
@@ -7513,11 +7513,11 @@
                         <label>Divisions</label>
                         <div class="xyz-inputs">
                           <div class="xyz-field">
-                            <span class="xyz-col-label">U (Depth)</span>
+                            <span class="xyz-col-label" title="U divisions (along depth)">U</span>
                             <input type="number" id="extrudeDivisionsUInput" step="1" min="1" value="8" />
                           </div>
                           <div class="xyz-field">
-                            <span class="xyz-col-label">V (Profile)</span>
+                            <span class="xyz-col-label" title="V divisions (around profile)">V</span>
                             <input type="number" id="extrudeDivisionsVInput" step="1" min="1" value="8" />
                           </div>
                         </div>
@@ -7603,11 +7603,11 @@
                       <label>Taper</label>
                       <div class="xyz-inputs">
                         <div class="xyz-field">
-                          <span class="xyz-col-label">Start Scale</span>
+                          <span class="xyz-col-label" title="Start scale">Start</span>
                           <input type="number" id="revolveScaleStartInput" value="1.0" step="0.1" />
                         </div>
                         <div class="xyz-field">
-                          <span class="xyz-col-label">End Scale</span>
+                          <span class="xyz-col-label" title="End scale">End</span>
                           <input type="number" id="revolveScaleEndInput" value="1.0" step="0.1" />
                         </div>
                       </div>
@@ -7693,11 +7693,11 @@
                         <label>Divisions</label>
                         <div class="xyz-inputs">
                           <div class="xyz-field">
-                            <span class="xyz-col-label">U (Rail)</span>
+                            <span class="xyz-col-label" title="U divisions (along rail)">U</span>
                             <input type="number" id="revolveDivsUInput" value="16" min="2" step="1" />
                           </div>
                           <div class="xyz-field">
-                            <span class="xyz-col-label">V (Profile)</span>
+                            <span class="xyz-col-label" title="V divisions (around profile)">V</span>
                             <input type="number" id="revolveDivsVInput" value="16" min="2" step="1" />
                           </div>
                         </div>
@@ -7757,11 +7757,11 @@
                       <label>Taper</label>
                       <div class="xyz-inputs">
                         <div class="xyz-field">
-                          <span class="xyz-col-label">Start Scale</span>
+                          <span class="xyz-col-label" title="Start scale">Start</span>
                           <input type="number" id="sweepScaleStartInput" value="1.0" step="0.1" />
                         </div>
                         <div class="xyz-field">
-                          <span class="xyz-col-label">End Scale</span>
+                          <span class="xyz-col-label" title="End scale">End</span>
                           <input type="number" id="sweepScaleEndInput" value="1.0" step="0.1" />
                         </div>
                       </div>
@@ -7847,11 +7847,11 @@
                         <label>Divisions</label>
                         <div class="xyz-inputs">
                           <div class="xyz-field">
-                            <span class="xyz-col-label">U (Rail)</span>
+                            <span class="xyz-col-label" title="U divisions (along rail)">U</span>
                             <input type="number" id="sweepDivisionsUInput" value="16" min="2" step="1" />
                           </div>
                           <div class="xyz-field">
-                            <span class="xyz-col-label">V (Profile)</span>
+                            <span class="xyz-col-label" title="V divisions (around profile)">V</span>
                             <input type="number" id="sweepDivisionsVInput" value="16" min="2" step="1" />
                           </div>
                         </div>
@@ -8048,7 +8048,7 @@
                           <input type="number" id="surfaceOffsetInput" step="0.01" value="0.0" />
                         </div>
                         <div class="xyz-field">
-                          <span class="xyz-col-label">H Offset</span>
+                          <span class="xyz-col-label" title="H Offset (distance along the target path)">H</span>
                           <input type="number" id="surfaceHOffsetInput" step="0.01" value="0.0" />
                         </div>
                       </div>
@@ -28524,6 +28524,7 @@
         // RasterHelper.stats.phases). Measure that before building it.
         let buf = null;
         try { buf = RasterHelper.build(faceList, { res: this.MASK_RES }); } catch (err) { buf = null; }
+        if (window._SILH_DEBUG) window._mssBuf = buf;   // probe lens only
         const idOfEl = (el) => buf ? buf.idOf.get(el) : undefined;
         // PLAN-TIME RASTER-ID STAMPS (v20260814f) — INPUTS TO THE DECLINED
         // FLATTEN_REPAIR PASS, and gated with it: nothing else reads them, so a
@@ -30968,26 +30969,93 @@
         }
         // coherent components only — a 1–2-texel boundary ribbon is verdict/
         // AA noise and adding it would jag the whole analytic seam
+        if (window._SILH_DEBUG) {
+          let cand = 0, hf = 0;
+          const cpts = [];
+          for (let s = 0; s < W * H; s++) {
+            if (pocket[s]) {
+              cand++;
+              if (cpts.length < 200) {
+                const cx2 = s % W + x0, cy2 = (s / W | 0) + y0;
+                cpts.push([+(buf.vx0 + (cx2 + 0.5) * buf.vw / buf.R).toFixed(1),
+                           +(buf.vy0 + (cy2 + 0.5) * buf.vh / buf.R).toFixed(1)]);
+              }
+            }
+            if (hostFront[s]) hf++;
+          }
+          // component size census (same 8-connectivity as below, throwaway)
+          const seen2 = new Uint8Array(W * H), comps = [];
+          for (let s = 0; s < W * H; s++) {
+            if (!pocket[s] || seen2[s]) continue;
+            seen2[s] = 1;
+            const st = [s]; let cnt = 0;
+            let bxa = W, bxb = -1, bya = H, byb = -1;
+            while (st.length) {
+              const c = st.pop(); cnt++;
+              const cx = c % W, cy = (c / W) | 0;
+              if (cx < bxa) bxa = cx; if (cx > bxb) bxb = cx;
+              if (cy < bya) bya = cy; if (cy > byb) byb = cy;
+              for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+                const nx = cx + dx, ny = cy + dy;
+                if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+                const q = ny * W + nx;
+                if (pocket[q] && !seen2[q]) { seen2[q] = 1; st.push(q); }
+              }
+            }
+            comps.push({ n: cnt, w: bxb - bxa + 1, h: byb - bya + 1 });
+          }
+          (window._mssPocketDbg = window._mssPocketDbg || []).push(
+            { hostId, otherId, strip, want: !!wantInside, W, H, hostFront: hf, cand, comps, cpts });
+        }
         const seen = new Uint8Array(W * H);
         const out = [], inks = [];
+        // v20260816m (mask-half round): at MASK_RES 1024 a missing rim strip
+        // arrives DOTTED — the union boundary wiggles across the true
+        // crossing, so the candidates fragment into 1-11-texel components,
+        // and POCKET_MIN (12) starved the strip repair to ZERO on the torus
+        // fixture (measured at az45: 49 residual px, every one under a
+        // candidate dot; pocketFill 0). Strip mode is evidence-gated by the
+        // depth census below, so shape gates have no business in front of
+        // it: (1) components are LABELED on a 1-dilated map, so a dotted
+        // arc pools its evidence into one blob (bridge texels are walked,
+        // never collected — a contested texel stays out of the geometry);
+        // (2) the size floor is the census's own minimum (3), not
+        // POCKET_MIN. Non-strip pockets are untouched.
+        let walk = pocket;
+        if (strip) {
+          walk = new Uint8Array(W * H);
+          for (let s = 0; s < W * H; s++) {
+            if (!pocket[s]) continue;
+            const cx = s % W, cy = (s / W) | 0;
+            for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+              const nx = cx + dx, ny = cy + dy;
+              if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+              walk[ny * W + nx] = 1;
+            }
+          }
+        }
         for (let s = 0; s < W * H; s++) {
           if (!pocket[s] || seen[s]) continue;
           seen[s] = 1;
           const stack = [s], cells = [];
           let bx0 = W, bx1 = -1, by0 = H, by1 = -1;
           while (stack.length) {
-            const c = stack.pop(); cells.push(c);
+            const c = stack.pop();
+            if (pocket[c]) {
+              cells.push(c);
+              const cx2 = c % W, cy2 = (c / W) | 0;
+              if (cx2 < bx0) bx0 = cx2; if (cx2 > bx1) bx1 = cx2;
+              if (cy2 < by0) by0 = cy2; if (cy2 > by1) by1 = cy2;
+            }
             const cx = c % W, cy = (c / W) | 0;
-            if (cx < bx0) bx0 = cx; if (cx > bx1) bx1 = cx;
-            if (cy < by0) by0 = cy; if (cy > by1) by1 = cy;
             for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
               const nx = cx + dx, ny = cy + dy;
               if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
               const q = ny * W + nx;
-              if (pocket[q] && !seen[q]) { seen[q] = 1; stack.push(q); }
+              if (walk[q] && !seen[q]) { seen[q] = 1; stack.push(q); }
             }
           }
-          if (cells.length < this.POCKET_MIN) continue;
+          if (cells.length < (strip ? 3 : this.POCKET_MIN)) continue;
           // strip mode: a long thin blob is the whole point — require only
           // the LONG axis to clear the noise floor, not both.
           if (strip ? Math.max(bx1 - bx0, by1 - by0) < 2
@@ -31608,6 +31676,13 @@
             if (rs && rs.length) sets.push(rs); else partFails++;
           }
           if (this.stats) this.stats.compositePartFail += partFails;
+          if (window._SILH_DEBUG) {
+            const cEl = dComp ? D.el : N.el, oEl = dComp ? N.el : D.el;
+            (window._mssPairDbg = window._mssPairDbg || []).push({
+              comp: cEl && cEl.getAttribute ? cEl.getAttribute('data-mss') : null,
+              other: oEl && oEl.getAttribute ? (oEl.getAttribute('data-mss') || oEl.getAttribute('fill')) : null,
+              compIsD: dComp, parts: compRec.xr.parts.length, fails: partFails, kept: sets.length });
+          }
           if (!sets.length) return null;
           const rings = this._unionRings(sets);
           if (!rings || !rings.length) return null;
@@ -76241,7 +76316,11 @@
               const min = input.min !== '' ? parseFloat(input.min) : -Infinity;
               const max = input.max !== '' ? parseFloat(input.max) : Infinity;
               let newVal = scrubStartVal + scrubAccum;
-              newVal = Math.round(newVal * 1e9) / 1e9;
+              // Emit one decimal finer than the declared step (0.01 → 0.001).
+              // scrubAccum keeps the raw remainder — round only the emission,
+              // never the accumulator, or slow drags stop moving.
+              const q = Math.pow(10, (String(step).split('.')[1] || '').length + 1);
+              newVal = Math.round(newVal * q) / q;
               newVal = Math.max(min, Math.min(max, newVal));
 
               input.value = newVal;
@@ -82127,7 +82206,11 @@
         const min = inp.min !== '' ? parseFloat(inp.min) : -Infinity;
         const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
         let newVal = scrubStartVal + scrubAccum;
-        newVal = Math.round(newVal * 1e9) / 1e9;
+        // Emit one decimal finer than the declared step (0.01 → 0.001).
+        // scrubAccum keeps the raw remainder — round only the emission,
+        // never the accumulator, or slow drags stop moving.
+        const q = Math.pow(10, (String(st).split('.')[1] || '').length + 1);
+        newVal = Math.round(newVal * q) / q;
         newVal = Math.max(min, Math.min(max, newVal));
         inp.value = newVal;
         inp.dispatchEvent(new Event('input', { bubbles: true }));

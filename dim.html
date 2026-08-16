@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260816b -->
+<!-- dim v20260816l -->
 
 <!--
   MIT License
@@ -26262,10 +26262,22 @@
           img.setAttribute('id', 'rasterHelperViewImage');
           img.setAttribute('style', 'image-rendering:pixelated; pointer-events:none;');
         }
-        // sit directly ABOVE the artwork, below the gizmo/preview layers —
-        // and survive anything that reshuffles mainGroup's children
+        // sit directly ABOVE the artwork AND the settled preview, below the
+        // gizmo layers. The clip preview is pathGroup's next sibling since
+        // v20260814w, so anchoring on pathGroup alone RACED it: ticking the
+        // checkbox while a preview was already presented buried this lens
+        // under the clone, permanently (the parent-only guard never
+        // re-inserted). Glass scenes masked the race — their settle mostly
+        // stands down (present-only-if-different), so the lens appeared to
+        // depend on Glass Render (owner report, v20260816e). Enforced EVERY
+        // draw, so a later re-present cannot reshuffle it under either.
         const pg = document.getElementById('pathGroup');
-        if (pg && img.parentNode !== pg.parentNode) pg.parentNode.insertBefore(img, pg.nextSibling);
+        if (pg) {
+          const fp = document.getElementById('flattenPreviewGroup');
+          const anchor = (fp && fp.parentNode === pg.parentNode) ? fp : pg;
+          if (img.parentNode !== pg.parentNode || img.previousElementSibling !== anchor)
+            pg.parentNode.insertBefore(img, anchor.nextSibling);
+        }
         const R = b.R;
         let cv = this._viewCanvas;
         if (!cv) cv = this._viewCanvas = document.createElement('canvas');
@@ -28360,6 +28372,14 @@
           arcRepaired: 0, arcRepairFail: 0, arcBorderRepaired: 0, arcBorderFail: 0,
           pocketNoCore: 0, rimFitted: 0, rimFitFail: 0, regionFitted: 0, regionFitFail: 0,
           absorbMoved: 0, absorbRings: 0, absorbFail: 0, absorbMaxTexels: 0, sheetFixed: 0, strokeClip: 0, strokeEls: 0, strokeSkipped: 0, mixedToConst: 0, glassSkipped: 0,
+          // v20260816c: composite (More Simple / silhouette sidecar) pairs —
+          // parts whose mini-host field built nothing, and unions rejected by
+          // the containment gate (those fall to the constant verdict).
+          compositePartFail: 0, compositeUnionLow: 0,
+          // v20260816j: union back-rings dropped by the disjointness verify
+          unionRingDropped: 0,
+          // v20260816k: verified true unions (exact) vs falls to the drop form
+          unionExact: 0, unionExactFail: 0,
           // GLASS part 2 (MaskRender.GLASS_ORDER): pairs recorded for the export
           // seam and faces given a raster-id stamp. Both are 0 on every opaque
           // scene by construction — the gate's condition is never true there.
@@ -29391,9 +29411,16 @@
             if (en.half || en.region) {
               const style = this._seamStrokeStyle(r.gEl, en.dg);
               if (style) {
+                // v20260816k: composite entries ink their crossings from the
+                // per-part TAGGED rings (partRings) — the verified union's
+                // rings carry no srcs and would silence the seam entirely.
                 let seamD = en.half
                   ? this._lineInRectPath(en.half.dp, en.half.sh)
-                  : this._regionSeamPath(en.region.rings);
+                  : (en.region.partRings
+                    ? (en.region.partRings
+                        .map(rs => this._regionSeamPath(rs))
+                        .filter(Boolean).join(' ').trim() || null)
+                    : this._regionSeamPath(en.region.rings));
                 // OWNER-REPORTED BUG FIX: seam ink was clipped only to the two
                 // faces' authored OUTLINES, i.e. their 2D silhouette overlap —
                 // and for a planar pair _lineInRectPath hands over the WHOLE
@@ -30819,7 +30846,22 @@
           if (mt > this.stats.absorbMaxTexels) this.stats.absorbMaxTexels = +mt.toFixed(2);
         }
       },
-      _rasterPockets(buf, frontId, coId, ringsScreen, wantInside) {
+      _rasterPockets(buf, frontId, coId, ringsScreen, wantInside, opts) {
+        // opts.strip (v20260816d, composite pairs only): accept thin coherent
+        // blobs with NO solid core, gated per-blob by the depth median
+        // instead of by shape. The core gate below is measured doctrine for
+        // CONTIGUOUS regions — there the analytic boundary is trustworthy and
+        // a no-core patch is a texel rim laid over a correct contour. A
+        // COMPOSITE union's boundary is exactly where its guard-banded parts
+        // are least trustworthy: the residual class on the MSS fixtures is a
+        // 1-2-texel strip between the union edge and the true crossing
+        // (blade-through-tube at most orbit poses), which this pass was
+        // structurally deaf to. The noise the core gate protects against —
+        // tie-band/AA ribbons — is separated by evidence, not shape: a real
+        // missing strip sits at a resolved crossing (measured 1.2e-4 gap),
+        // a noise ribbon is near-tie by construction. Same discriminator as
+        // the pair-level v20260805o gate, applied per blob.
+        const strip = !!(opts && opts.strip);
         const hostId = frontId, otherId = coId;
         if (!buf || !buf.cov[hostId] || !buf.cov[otherId]) return null;
         const rh = buf.recs[hostId], ro = buf.recs[otherId];
@@ -30946,7 +30988,10 @@
             }
           }
           if (cells.length < this.POCKET_MIN) continue;
-          if (bx1 - bx0 < 2 || by1 - by0 < 2) continue;
+          // strip mode: a long thin blob is the whole point — require only
+          // the LONG axis to clear the noise floor, not both.
+          if (strip ? Math.max(bx1 - bx0, by1 - by0) < 2
+                    : (bx1 - bx0 < 2 || by1 - by0 < 2)) continue;
           const blob = new Uint8Array(W * H);
           for (const c of cells) blob[c] = 1;
           // (v20260805n's erosion test lived here — "a patch must survive
@@ -31053,7 +31098,29 @@
               cells: cells.length, solid, frac: +(solid / cells.length).toFixed(3),
               erode: depths, w: bx1 - bx0 + 1, h: by1 - by0 + 1 });
           }
-          if (solid < this.POCKET_SOLID_MIN) { this.stats.pocketNoCore++; continue; }
+          if (strip) {
+            // no shape gate — the blob must instead prove a RESOLVED depth
+            // order over its own texels: median (z1-z0) where the host is
+            // front and the partner is COVERED must clear the classifier's
+            // own constant. The partner need not hold the second SLOT — in a
+            // 3+-face stack (tube front piece / blade / tube back piece) the
+            // second layer is often a third face, and requiring id1 ===
+            // otherId starved the census to nothing (the az210 stroke line).
+            // Sound because the buffer keeps the top two: a covered partner
+            // that is not id0 lies at or beyond z1, so z1-z0 is a LOWER
+            // bound on the pair's separation and clearing the floor with it
+            // is conservative.
+            const covO = buf.cov[otherId];
+            let sn = 0, slo = 0, shi = 0;
+            for (const c of cells) {
+              const gi = ((c / W | 0) + y0) * buf.R + (c % W + x0);
+              if (buf.id0[gi] !== hostId) continue;
+              if (!(covO[gi >> 3] & (1 << (gi & 7)))) continue;
+              sn++;
+              if (buf.z1[gi] - buf.z0[gi] < MaskRender.COINCIDENT_GAP) slo++; else shi++;
+            }
+            if (sn < 3 || slo >= shi) { this.stats.pocketNoCore++; continue; }
+          } else if (solid < this.POCKET_SOLID_MIN) { this.stats.pocketNoCore++; continue; }
           const dil = [];
           for (const c of cells) {
             const cx = c % W, cy = (c / W) | 0;
@@ -31531,21 +31598,96 @@
           const otherRec = dComp ? nRec : dRec;
           const otherBB = dComp ? N.bb : D.bb;
           const sets = [];
+          let partFails = 0;
           for (const part of compRec.xr.parts) {
             if (!this._partTouches(part, otherBB)) continue;
             const miniHost = { xr: { kind: 'sr', evalScreen: part.evalScreen, tMax: part.tMax } };
             let rs = null;
             const pEv = ev ? { buf: ev.buf, otherId: dComp ? ev.nId : ev.dId } : null;
             try { rs = this._frontRegion(miniHost, otherRec, pEv); } catch (err) { rs = null; }
-            if (rs && rs.length) sets.push(rs);
+            if (rs && rs.length) sets.push(rs); else partFails++;
           }
+          if (this.stats) this.stats.compositePartFail += partFails;
           if (!sets.length) return null;
           const rings = this._unionRings(sets);
           if (!rings || !rings.length) return null;
+          // v20260816c: THE UNION IS VERIFIED AND RASTER-CORRECTED, exactly
+          // like a contiguous region — it used to be neither, and a failed
+          // part was SILENTLY read as "never in front". That default is
+          // structurally wrong for a curved×planar pair: _depthAtScreen
+          // answers a planar partner as its INFINITE PLANE (by design — the
+          // D8 record below shows vetoing that by coverage collapses these
+          // pairs), so a part lying past the quad's real edge but behind its
+          // plane reads uniformly covered, has no g=0 contour, and its
+          // _frontRegion is EMPTY even though the raster shows the part
+          // visibly in front. Full/Simple never hit this because their small
+          // faces resolve as raster-constant verdicts; a More Simple piece
+          // spans the crossing, genuinely needs the mixed region, and the
+          // union's hole let the complement over-claim — the MSS sliver
+          // (_tests/_repro_mss_ix04_glitch.json: 363 px of blade through
+          // tube, every failed part's footprint exactly under the artifact).
+          // Two corrections, both existing machinery:
+          //  (1) containment gate — same oracle as the contiguous path; a
+          //      degenerate union falls to the CONSTANT verdict (v20260808f)
+          //      instead of shipping, counted in compositeUnionLow.
+          //  (2) pocket/anti repair — the raster's per-texel front ids are
+          //      the authority in both directions (v20260805a/o); pockets
+          //      refill what failed parts dropped, anti trims over-claims.
+          const compId = ev ? (dComp ? ev.dId : ev.nId) : undefined;
+          const othId = ev ? (dComp ? ev.nId : ev.dId) : undefined;
+          const hasIds = !!(ev && ev.buf && compId !== undefined && othId !== undefined);
+          if (hasIds) {
+            const own = RasterHelper.frontSamples(compId, othId, ev.buf, this.REGION_SAMPLES);
+            const foreign = RasterHelper.frontSamples(othId, compId, ev.buf, this.REGION_SAMPLES);
+            const fOwn = this._ringsContainFrac(rings, own);
+            const fFor = this._ringsContainFrac(rings, foreign);
+            const score = fOwn === null ? null : fOwn - (fFor === null ? 0 : fFor);
+            if (score !== null && score < this.REGION_AGREE) {
+              // v20260816l: COUNTED, NO LONGER FATAL. The v20260816c gate sent
+              // a low-scoring union to the CONSTANT verdict per the v20260808f
+              // rule — but that rule was earned on CONTIGUOUS rejected regions,
+              // where the region was garbage. A composite union is never
+              // garbage: its failure mode is UNDER-coverage (dropped rings),
+              // which the strip-pocket repair corrects from the raster —
+              // while a constant whole-footprint mask on a genuinely MIXED
+              // pair is unrepairable. Measured at the torus fixture az135:
+              // the constant fallback cost 2,777 px of piece-over-occluder;
+              // accepting this same low-scoring union costs 4 px.
+              if (this.stats) this.stats.compositeUnionLow++;
+            }
+          }
+          let groups = null, anti = null, patchInk = null;
+          if (this.POCKET_FILL && hasIds) {
+            // strip mode (v20260816d): a composite union's boundary error is
+            // typically a thin strip the standard gates are deaf to — see
+            // the opts.strip note at _rasterPockets.
+            let pockets = null;
+            try { pockets = this._rasterPockets(ev.buf, compId, othId, rings, false, { strip: true }); }
+            catch (err) { pockets = null; }
+            if (pockets) {
+              groups = [rings];
+              for (const p of pockets.groups) groups.push(p);
+              if (this.stats) this.stats.pocketFill += pockets.groups.length;
+              if (pockets.inks.length) patchInk = pockets.inks;
+            }
+            let antiR = null;
+            try { antiR = this._rasterPockets(ev.buf, othId, compId, rings, true, { strip: true }); }
+            catch (err) { antiR = null; }
+            if (antiR) {
+              anti = antiR.groups;
+              if (this.stats) this.stats.antiFill += antiR.groups.length;
+              if (antiR.inks.length) patchInk = (patchInk || []).concat(antiR.inks);
+            }
+          }
           // rings = where the COMPOSITE is in front of the other face.
           // Composite occludes (it is D) ⇒ that IS the D-wins clip;
           // composite is the masked face (N) ⇒ D wins in the complement.
-          return { el: D.el, dg: D.gEl, half: null, region: { rings, complement: !dComp } };
+          // v20260816k: the RAW per-part rings ride along for SEAM INK — the
+          // verified union's output carries no srcs tags (and is RDP-thinned),
+          // so the crossing ink is emitted per PART from the original tagged
+          // rings instead, restoring Simple-density seams.
+          return { el: D.el, dg: D.gEl, half: null,
+            region: { rings, complement: !dComp, groups, anti, patchInk, partRings: sets } };
         }
         // No composite: contiguous host. WHICH face hosts the field is not a
         // free choice when BOTH are curved: the field is built over the
@@ -32085,17 +32227,102 @@
       // S1b: incremental union — accumulate each set's OUTSIDE-the-accumulator
       // remainder (PolyClip back), so the result is a disjoint ring set that
       // is safe under both nonzero and even-odd rules.
+      //
+      // v20260816j: THE DISJOINTNESS IS NOW VERIFIED, NOT ASSUMED — the
+      // ONE-INTERPRETATION principle (campaign round 5,
+      // _plans/PLAN-mss-revolve-fill-coverage.md). PolyClip's near-coincident
+      // `back` can OVER-CLAIM without throwing, and an overlapping same-wound
+      // pair in the output is read TWO WAYS downstream: the live mask applies
+      // it with clip-rule=evenodd (the overlap CANCELS), while the clip
+      // conversion's eff boolean reads rings by winding (the overlap UNIONS).
+      // The two consumers then disagree exactly on the overlap slivers — the
+      // presented picture's slash-triangle class, a rock-stable 1,624 px on
+      // the ix05 owner scene because the ambiguity is deterministic. A back
+      // ring whose vertices land substantially INSIDE the accumulated region
+      // is dropped instead (an under-claim, which the strip-pocket repair
+      // already corrects from the raster); same for the old raw-concat
+      // failure arm, whose "overlap accepted" was this bug by design.
+      // v20260816k: THE VERIFIED TRUE UNION IS THE PRIMARY FORM (campaign
+      // round 7). The v20260816j drop-on-overlap union bought unambiguity at
+      // the price of the overlap stretches — the owner's "the splitting is
+      // inaccurate vs Simple" (measured: the torus-over-column wrap MISSING,
+      // 5 rings dropped per frame). The clip fold's union kernel
+      // (_unionRingsCluster: A∪B = LR − ((LR−A)∩(LR−B)) through the
+      // area-verified _splitRobust, gated by _unionCoversInputs) yields
+      // disjoint-or-properly-nested output WITH the overlaps kept, and
+      // _orientEvenOddRings makes it rule-independent — the
+      // one-interpretation principle holds by construction. Two measured
+      // costs shaped the form: raw part rings price the fold at 30 ms/frame;
+      // RDP-simplifying them first (1 unit ≈ 1 texel on a texel-accurate
+      // MS boundary) prices it at 10 ms with all unions still exact. The
+      // drop-union below survives as the FALLBACK when the fold or its
+      // coverage gate fails. Seam ink no longer reads these rings at all —
+      // it is emitted per PART from the original tagged rings (partRings).
       _unionRings(sets) {
+        const RI = RenderIntersections;
+        const items = [];
+        for (const rs of sets) {
+          const rings = rs.map(r => {
+            const pts = r.pts || r;
+            return { pts: (pts.length > 24 ? (RI._rdp(pts, 1.0) || pts) : pts), srcs: null };
+          }).filter(r => r.pts && r.pts.length >= 3);
+          if (!rings.length) continue;
+          let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+          for (const r of rings) for (const p of r.pts) {
+            if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+            if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+          }
+          items.push({ rings, bb: [x0, y0, x1, y1] });
+        }
+        if (!items.length) return null;
+        if (items.length === 1) return items[0].rings;
+        const uni = this._unionRingsCluster(items);
+        if (uni && this._unionCoversInputs(items, uni)) {
+          if (this.stats) this.stats.unionExact++;
+          return this._orientEvenOddRings(uni, 0);
+        }
+        if (this.stats) this.stats.unionExactFail++;
+        return this._unionRingsDrop(sets);
+      },
+      // The v20260816j fallback: incremental split with per-ring disjointness
+      // verification — under-claims instead of shipping ambiguity.
+      _unionRingsDrop(sets) {
+        const insideAcc = (acc, x, y) => {
+          let inside = false;
+          for (const rg of acc) {
+            const P = rg.pts;
+            for (let k = 0, l = P.length - 1; k < P.length; l = k++) {
+              const a = P[k], c = P[l];
+              if (((a[1] > y) !== (c[1] > y)) &&
+                (x < (c[0] - a[0]) * (y - a[1]) / (c[1] - a[1]) + a[0])) inside = !inside;
+            }
+          }
+          return inside;
+        };
+        const disjointFrom = (acc, ring) => {
+          const P = ring.pts;
+          if (!P || P.length < 3) return false;
+          let inN = 0;
+          for (const p of P) if (insideAcc(acc, p[0], p[1])) inN++;
+          // boundary vertices jitter across the shared split seam — tolerate a
+          // few; a ring genuinely overlapping the region has a solid interior
+          // presence (>= 3 vertices AND >= 10%).
+          return !(inN >= 3 && inN >= P.length * 0.1);
+        };
         let acc = null;
         for (const rs of sets) {
           const clean = rs.map(r => ({ pts: r.pts || r, srcs: r.srcs || null }));
           if (!clean.length) continue;
           if (!acc) { acc = clean; continue; }
+          let back = null;
           try {
-            const back = PolyClip.split(clean, acc.map(r => ({ pts: r.pts, srcs: null }))).back || [];
-            acc = acc.concat(back);
+            back = PolyClip.split(clean, acc.map(r => ({ pts: r.pts, srcs: null }))).back || [];
           } catch (err) {
-            acc = acc.concat(clean);                  // rare: raw concat, overlap accepted
+            back = clean;                             // verified below like any back
+          }
+          for (const r of back) {
+            if (disjointFrom(acc, r)) acc.push(r);
+            else if (this.stats) this.stats.unionRingDropped++;
           }
         }
         return acc;
@@ -50625,7 +50852,13 @@
             }
             if (window._SILH_DEBUG) window._mssDbg = {
               bounds: _bandBounds.map(b => ({ bounds: b.bounds.slice(), closed: b.closed })),
-              pieces: _pieces.map(p => ({ key: p.key, front: p.front, z: p.z })),
+              pieces: _pieces.map(p => ({ key: p.key, front: p.front, z: p.z,
+                // ring census for the MSS fill-coverage campaign
+                // (_plans/PLAN-mss-revolve-fill-coverage.md): which iv/band/
+                // sign each ring carries, so mis-grouping is readable from
+                // the console without closure access. Debug-gated only.
+                rings: p.rings.map(rr => ({ iv: rr.iv, pMid: rr.pMid,
+                  sign: rr.areaSign, z: +(rr.z || 0).toFixed(5), area: +(rr.absArea || 0).toFixed(1) })) })),
             };
           } else {
           const fillEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');

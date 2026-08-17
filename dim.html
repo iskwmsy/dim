@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260817d -->
+<!-- dim v20260818c -->
 
 <!--
   MIT License
@@ -39117,7 +39117,7 @@
               }
               for (const [fr, bands] of ordFrames) {
                 const remove = new Set();
-                const sections = [], sectionPolys = [], sectionCells = [];
+                const sections = [], sectionPolys = [], sectionCells = [], sectionSigs = [];
                 const bandKeys = [...bands.keys()].sort((a, b) => a < b ? -1 : (a > b ? 1 : 0)); // sigs are strings (v20260721n)
                 for (const bk of bandKeys) {
                   const members = bands.get(bk);
@@ -39163,6 +39163,7 @@
                   sections.push({ element: gSec, z: zSum / members.length });
                   sectionPolys.push(members.flatMap(m => m._foldOrd.polys));
                   sectionCells.push(members.flatMap(m => m._foldOrd.cells || []));
+                  sectionSigs.push(bk); // FLAT-FOLD tiebreak (v20260818a): the band key IS the cell sig (string; curved bands are numeric → tie declines)
                 }
                 for (let i = sharedFaceList.length - 1; i >= 0; i--) {
                   if (remove.has(sharedFaceList[i])) sharedFaceList.splice(i, 1);
@@ -39191,9 +39192,9 @@
                   // arbitrary rotations order EXACTLY by plane separation.
                   if (fr.mode === 'fold' && !fr.allParallel) {
                     // v20260722h: sub-cell separation (flat cells, not polys).
-                    Path._orderFlatPieces(sections, sectionCells, eyeL);
+                    Path._orderFlatPieces(sections, sectionCells, eyeL, fr, sectionSigs);
                   } else {
-                    Path._orderFoldBands(sections, sectionPolys, fr, eyeL);
+                    Path._orderFoldBands(sections, sectionPolys, fr, eyeL, sectionSigs);
                   }
                 }
               }
@@ -40404,7 +40405,155 @@
       // partners; coplanar pairs tie by AUTHORED order (the sticker rule);
       // undecided pairs keep avg-z. Plane order can be intransitive, so
       // cycles break greedily (the v20260721k pattern).
-      static _orderFlatPieces(faces, cellsList, eyeLIn) {
+      // FLAT-FOLD LAYERS (v20260818a, generalized to 2D v20260818b —
+      // PLAN-fold-flat-order.md): at the flat limit (creases folded to
+      // exactly ±180°) the layers are exactly coplanar — no geometric
+      // verdict exists — and the correct order is the PHYSICAL LAYER STACK
+      // of the folded paper. This simulates the fold in the sheet plane:
+      // each cell (sig) is a CONVEX POLYGON (the sheet rectangle cut by its
+      // crease half-planes) with a 2D isometry map and an integer layer;
+      // each flat crease, in fold order, reflects its '1'-bit cells about
+      // its crease line (source-space reflection right-composed onto the
+      // cell map ≡ reflecting about the CARRIED line, since maps are
+      // isometries) and lands them beyond the overlapping static layers on
+      // the side the fold approaches. The landing direction is the hinge
+      // convention (+angle folds toward −N, v20260720q) times the mirror
+      // state (det) of the moving STACK'S ROOT (its min-|layer| cell) — a
+      // carried crease has been flipped over by each earlier fold, and a
+      // fold THROUGH an already-folded stack (the owner's shaka-shaka
+      // craft: a horizontal crease folding sheet + folded edge strips
+      // together) takes the whole stack to one side, so mixed mirror
+      // states among the movers are NORMAL, not a bail (v20260818b; the
+      // v20260818a 1D version bailed and only handled parallel chains).
+      // Crease angle gates, three-way: ≈180 (mod 360) → fold; ≈0 (mod 360)
+      // → NO-OP (an unfolded crease moves nothing — the 1D version wrongly
+      // killed its movers); anything else → its movers leave the map (out
+      // of plane; the geometric verdicts own them).
+      // DELIBERATE DEVIATION, measured before it was chosen (v20260818a):
+      // the 179.9° near-limit picture is NOT the target for every pair —
+      // same-sense 180° folds compose to a translation, the tail wraps
+      // AROUND the base, and the near-limit wedge INTERPENETRATES (a
+      // zero-thickness artifact the painter resolves by ray majority). The
+      // stack is what real paper does; it matches the limit everywhere the
+      // limit is physical.
+      // Returns Map(sig → integer layer, in signed-N units) or null.
+      static _flatFoldLayers(fr, sigs) {
+        try {
+          if (!fr || !fr.creaseList) return null;
+          const strs = [];
+          for (const s of sigs) if (typeof s === 'string' && s.length) strs.push(s);
+          if (strs.length < 2) return null;
+          const cl = fr.creaseList;
+          const K = cl.length;
+          const EPS = 1e-9 * Math.max(1, Math.abs(fr.uMax - fr.uMin), Math.abs(fr.vMax - fr.vMin));
+          // Convex clip: keep the half-plane side sgn·((p−A)·n) ≥ 0.
+          const clip = (poly, A, n, sgn) => {
+            const out = [];
+            const d = poly.map(p => sgn * ((p[0] - A[0]) * n[0] + (p[1] - A[1]) * n[1]));
+            for (let i = 0; i < poly.length; i++) {
+              const j = (i + 1) % poly.length;
+              const di = d[i], dj = d[j];
+              if (di >= -EPS) out.push(poly[i]);
+              if ((di > EPS && dj < -EPS) || (di < -EPS && dj > EPS)) {
+                const t = di / (di - dj);
+                out.push([poly[i][0] + (poly[j][0] - poly[i][0]) * t, poly[i][1] + (poly[j][1] - poly[i][1]) * t]);
+              }
+            }
+            return out;
+          };
+          const areaOf = (poly) => {
+            let s2 = 0;
+            for (let i = 0; i < poly.length; i++) {
+              const a = poly[i], b = poly[(i + 1) % poly.length];
+              s2 += a[0] * b[1] - b[0] * a[1];
+            }
+            return s2 / 2;
+          };
+          const flatK = [], zeroK = [];
+          for (let k = 0; k < K; k++) {
+            const aN = ((cl[k].angle % 360) + 360) % 360;
+            flatK.push(Math.abs(aN - 180) <= 0.01);
+            zeroK.push(aN <= 0.01 || aN >= 359.99);
+          }
+          // Cells: sheet rect ∩ per-bit half-planes ('1' = the n2-positive
+          // flap side, matching the split pass's plus-side sig bit).
+          const rect = [[fr.uMin, fr.vMin], [fr.uMax, fr.vMin], [fr.uMax, fr.vMax], [fr.uMin, fr.vMax]];
+          const seen = new Set();
+          const cells = [];
+          for (const s of strs) {
+            if (seen.has(s)) continue;
+            seen.add(s);
+            let poly = rect;
+            for (let k = 0; k < K && k < s.length && poly.length > 2; k++) {
+              poly = clip(poly, cl[k].A2, cl[k].n2, s[k] === '1' ? 1 : -1);
+            }
+            if (poly.length < 3 || Math.abs(areaOf(poly)) < EPS) continue; // degenerate region
+            // Map: p ↦ m·p + t (isometry; det ±1 is the mirror state).
+            cells.push({ sig: s, poly, m: [1, 0, 0, 1], t: [0, 0], det: 1, layer: 0, dead: false });
+          }
+          if (cells.length < 2) return null;
+          const mapPt = (c, p) => [c.m[0] * p[0] + c.m[1] * p[1] + c.t[0], c.m[2] * p[0] + c.m[3] * p[1] + c.t[1]];
+          const physPoly = (c) => c.poly.map(p => mapPt(c, p));
+          const overlaps = (PA, PB) => {
+            // Convex ∩ convex via S-H: orient B CCW, clip A by B's edges.
+            let B = PB;
+            if (areaOf(B) < 0) B = B.slice().reverse();
+            let A = PA.slice();
+            for (let i = 0; i < B.length && A.length > 2; i++) {
+              const j = (i + 1) % B.length;
+              const e = [B[j][0] - B[i][0], B[j][1] - B[i][1]];
+              A = clip(A, B[i], [-e[1], e[0]], 1); // inward normal of a CCW edge
+            }
+            return A.length > 2 && Math.abs(areaOf(A)) > EPS;
+          };
+          for (let k = 0; k < K; k++) {
+            const M = cells.filter(c => !c.dead && c.sig[k] === '1');
+            if (!M.length || zeroK[k]) continue;         // unfolded crease: no-op
+            if (!flatK[k]) { M.forEach(c => { c.dead = true; }); continue; } // out of plane
+            // Landing dir: hinge convention × the moving stack's ROOT mirror
+            // state (min |layer|; folding THROUGH a stack is normal).
+            let root = M[0];
+            for (const m of M) if (Math.abs(m.layer) < Math.abs(root.layer)) root = m;
+            const L = (cl[k].angle >= 0 ? -1 : 1) * root.det;
+            // Reflect: source-space reflection about crease k's line,
+            // right-composed (T' = T·R ≡ reflecting about the carried line).
+            const d = cl[k].dir2, A0 = cl[k].A2;
+            const rm = [d[0] * d[0] - d[1] * d[1], 2 * d[0] * d[1], 2 * d[0] * d[1], d[1] * d[1] - d[0] * d[0]];
+            const rt = [A0[0] - (rm[0] * A0[0] + rm[1] * A0[1]), A0[1] - (rm[2] * A0[0] + rm[3] * A0[1])];
+            for (const c of M) {
+              const nm = [
+                c.m[0] * rm[0] + c.m[1] * rm[2], c.m[0] * rm[1] + c.m[1] * rm[3],
+                c.m[2] * rm[0] + c.m[3] * rm[2], c.m[2] * rm[1] + c.m[3] * rm[3]
+              ];
+              const nt = [c.m[0] * rt[0] + c.m[1] * rt[1] + c.t[0], c.m[2] * rt[0] + c.m[3] * rt[1] + c.t[1]];
+              c.m = nm; c.t = nt; c.det = -c.det;
+            }
+            // Land beyond the statics that overlap the moved group.
+            const mPolys = M.map(physPoly);
+            let base = 0, found = false;
+            for (const c of cells) {
+              if (c.dead || c.sig[k] === '1') continue;
+              const cp = physPoly(c);
+              if (!mPolys.some(mp => overlaps(mp, cp))) continue;
+              if (!found) { base = c.layer; found = true; }
+              else base = L > 0 ? Math.max(base, c.layer) : Math.min(base, c.layer);
+            }
+            if (!found) base = 0;
+            // Flip reverses the group's internal layer order.
+            const gMax = Math.max(...M.map(c => c.layer));
+            const gMin = Math.min(...M.map(c => c.layer));
+            for (const m of M) {
+              const rel = L > 0 ? (gMax - m.layer) : (m.layer - gMin);
+              m.layer = base + L * (1 + rel);
+            }
+          }
+          const map = new Map();
+          for (const c of cells) if (!c.dead) map.set(c.sig, c.layer);
+          return map.size >= 2 ? map : null;
+        } catch (e) { return null; }
+      }
+
+      static _orderFlatPieces(faces, cellsList, eyeLIn, frIn, sigs) {
         // v20260722h: verdicts at CELL granularity. A bend-merged piece is
         // only PIECEWISE flat — whole-piece plane separation straddles as
         // soon as one merged run rises through a neighbour's plane (the
@@ -40483,6 +40632,15 @@
             return s === Math.sign(es) ? 1 : -1;
           };
           const bbOverlap = (a, b) => a[0] <= b[1] && b[0] <= a[1] && a[2] <= b[3] && b[2] <= a[3];
+          // FLAT-FOLD layer stack (v20260818a): computed once; +1 = j nearer.
+          const ffLayers = (frIn && sigs) ? Path._flatFoldLayers(frIn, sigs) : null;
+          const ffEyeW = frIn ? frIn.SG[2] * (eyeL[frIn.AX[2]] - frIn.wMid) : 0;
+          const _ffTie = (i2, j2) => {
+            if (!ffLayers || Math.abs(ffEyeW) < 1e-12) return 0;
+            const la = ffLayers.get(sigs[i2]), lb = ffLayers.get(sigs[j2]);
+            if (la === undefined || lb === undefined || la === lb) return 0;
+            return (lb - la) * ffEyeW > 0 ? 1 : -1;
+          };
           const edges = [], indeg = new Array(n).fill(0);
           for (let i = 0; i < n; i++) {
             for (let j = i + 1; j < n; j++) {
@@ -40501,7 +40659,15 @@
               }
               if (near && !far) { edges.push([i, j]); indeg[j]++; }       // i draws first (far)
               else if (far && !near) { edges.push([j, i]); indeg[i]++; }
-              else if (!near && !far && cop) { edges.push([i, j]); indeg[j]++; } // authored: earlier = behind
+              else if (!near && !far && cop) {
+                // Coplanar-only: FLAT-FOLD layer stack first (v20260818a) —
+                // physical fold order decides the flat limit; authored order
+                // (earlier = behind, the sticker doctrine) remains the
+                // fallback and IS the +1 edge, so only a −1 verdict differs.
+                const tv = _ffTie(i, j);
+                if (tv === -1) { edges.push([j, i]); indeg[i]++; }
+                else { edges.push([i, j]); indeg[j]++; }
+              }
             }
           }
           if (!edges.length) return false;
@@ -40532,7 +40698,7 @@
         } catch (e) { return false; }
       }
 
-      static _orderFoldBands(faces, polys3, fr, eyeLIn) {
+      static _orderFoldBands(faces, polys3, fr, eyeLIn, sigs) {
         // Exact painter order for curved (wrap/curl) band faces
         // (v20260720y): avg-z is noise once a roll has 3+ silhouette bands —
         // the shells share one thin depth band (the "eaten cap" class). But
@@ -40568,6 +40734,15 @@
           // depth verdicts are untouched.
           const tieTol = fr.mode !== 'fold' ? Math.max(1e-9, fr.radius * 0.005) : 1e-9;
           const n = faces.length;
+          // FLAT-FOLD layer stack (v20260818a): computed once; +1 = j nearer.
+          const ffLayers = sigs ? Path._flatFoldLayers(fr, sigs) : null;
+          const ffEyeW = fr.SG[2] * (eyeL[fr.AX[2]] - fr.wMid);
+          const _ffTie = (i2, j2) => {
+            if (!ffLayers || Math.abs(ffEyeW) < 1e-12) return 0;
+            const la = ffLayers.get(sigs[i2]), lb = ffLayers.get(sigs[j2]);
+            if (la === undefined || lb === undefined || la === lb) return 0;
+            return (lb - la) * ffEyeW > 0 ? 1 : -1;
+          };
           // Per face: 2D polylines + angular interval about the eye.
           const P2 = [], ANG = [];
           for (let i = 0; i < n; i++) {
@@ -40639,11 +40814,18 @@
                 // COINCIDENT profiles (v20260721i): both rays hit at the same
                 // depth — coplanar fold layers or same-shell curl sheets from
                 // overlapping children (2D-stacked artwork folded as a
-                // group). No geometric verdict exists; stack them by AUTHORED
-                // order — earlier in the face list (scene-tree draw order) =
-                // behind — exactly the 2D painter semantics the flat artwork
-                // had, and what a single multi-subpath path does implicitly.
-                if (tieHit) { edges.push([i, j]); indeg[j]++; }
+                // group). No geometric verdict exists; the FLAT-FOLD
+                // tiebreak decides first (v20260818a — fold semantics at the
+                // exactly-180° limit), then AUTHORED order — earlier in the
+                // face list (scene-tree draw order) = behind — exactly the
+                // 2D painter semantics the flat artwork had, and what a
+                // single multi-subpath path does implicitly. The +1/0 cases
+                // share the authored edge, so only a −1 verdict differs.
+                if (tieHit) {
+                  const tv = _ffTie(i, j);
+                  if (tv === -1) { edges.push([j, i]); indeg[i]++; }
+                  else { edges.push([i, j]); indeg[j]++; }
+                }
                 continue;
               }
               // vote=1: i nearer → j is far → edge j→i (j draws first)
@@ -43315,19 +43497,20 @@
               // user's rotated-fold z-sort report).
               if (!groupOrd && pieces.bands.length > 1
                 && (wrapMode || pieces.frame.creaseList.length > 1)) {
-                const live = [], livePolys = [], liveCells = [];
+                const live = [], livePolys = [], liveCells = [], liveSigs = [];
                 pieces.bands.forEach((b, bi) => {
                   const face = bandFaces[bi];
                   if (!face) return;
                   live.push(face); livePolys.push(bandPolys(b)); liveCells.push(b.cells || []);
+                  liveSigs.push(b.sig); // FLAT-FOLD tiebreak (v20260818a): string for fold cells, undefined for curved bands → tie declines
                 });
                 if (live.length > 1) {
                   if (!wrapMode && !pieces.frame.allParallel) {
                     // v20260722h: sub-cell separation — pass the flat cells
                     // ({n, pts}), not the sampled band polys.
-                    Path._orderFlatPieces(live, liveCells, foldEye);
+                    Path._orderFlatPieces(live, liveCells, foldEye, pieces.frame, liveSigs);
                   } else {
-                    Path._orderFoldBands(live, livePolys, pieces.frame, foldEye);
+                    Path._orderFoldBands(live, livePolys, pieces.frame, foldEye, liveSigs);
                   }
                 }
               }

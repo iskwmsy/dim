@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260816v -->
+<!-- dim v20260817d -->
 
 <!--
   MIT License
@@ -7127,6 +7127,27 @@
                     <button id="convertToBezierBtn" class="ui-btn" style="width: 100%;">Convert to Bezier</button>
                   </div>
 
+                  <!-- BACKSIDE: NONE / SHEET / VIEW (Group only; v20260817a
+                       select, v20260817b tri-state consolidation replacing
+                       the three Sticker Back checkboxes —
+                       PLAN-backside-view.md). None = authored order from any
+                       orientation. Sheet (default) = fold's heritage
+                       relative flip (v20260722a; the base sheet never
+                       flips). View = physical two-sided sheet — layer order
+                       follows which side faces the camera, incl. the
+                       mapping sticker sections. Sits BEFORE the
+                       zSortChildren family so its always-visible row never
+                       splits that block's dependent rows. -->
+                  <div class="xyz-row" id="backsideModeRow" style="display:none;">
+                    <label for="backsideModeInput" title="The sheet's backside model: None never reverses layer order; Sheet reverses only pieces folded past the unfolded sheet's plane; View reverses whichever side faces away from the camera (and enables the mapping sticker sections)">Backside</label>
+                    <div class="xyz-inputs">
+                      <select id="backsideModeInput">
+                        <option value="none">None</option>
+                        <option value="sheet">Sheet</option>
+                        <option value="view">View</option>
+                      </select>
+                    </div>
+                  </div>
                   <!-- Z-SORT CHILDREN (Group only) -->
                   <div class="style-row" id="zSortChildrenRow" style="display:none;">
                     <label class="ui-checkbox-label">Z-Sort Children</label>
@@ -8137,10 +8158,8 @@
                       <label class="ui-checkbox-label">Silhouette Split</label>
                       <input type="checkbox" id="surfaceSilhouetteSplitInput" class="ui-checkbox" checked />
                     </div>
-                    <div class="style-row">
-                      <label class="ui-checkbox-label">Sticker Back</label>
-                      <input type="checkbox" id="surfaceStickerBackInput" class="ui-checkbox" />
-                    </div>
+                    <!-- Sticker Back checkbox removed v20260817b — consolidated
+                         into the Style tab's Backside select ('view'). -->
                   </div>
 
                   <!-- SURFACE MAPPING SECTION -->
@@ -8282,10 +8301,8 @@
                       <label class="ui-checkbox-label">Silhouette Split</label>
                       <input type="checkbox" id="surfaceMappingSplitInput" class="ui-checkbox" checked />
                     </div>
-                    <div class="style-row">
-                      <label class="ui-checkbox-label">Sticker Back</label>
-                      <input type="checkbox" id="surfaceMappingStickerBackInput" class="ui-checkbox" />
-                    </div>
+                    <!-- Sticker Back checkbox removed v20260817b — consolidated
+                         into the Style tab's Backside select ('view'). -->
                   </div>
 
                   <!-- MOTION PATH SECTION (v20260719f): transform constraint —
@@ -8405,9 +8422,19 @@
                       </div>
                     </div>
                     <div class="xyz-row">
-                      <label>Position</label>
+                      <label>Position U</label>
                       <div class="xyz-inputs">
                         <input type="number" id="foldPositionInput" value="0.5" step="0.01" />
+                      </div>
+                    </div>
+                    <!-- POSITION V (v20260817d, PLAN-fold-crease-2d.md): the
+                         crease anchor's V coordinate — what lets a 90°-rotated
+                         crease be placed at all. Default 0.5 = the old pinned
+                         v-middle. -->
+                    <div class="xyz-row">
+                      <label>Position V</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="foldPositionVInput" value="0.5" step="0.01" />
                       </div>
                     </div>
                     <div class="xyz-row">
@@ -8458,14 +8485,11 @@
                       <label class="ui-checkbox-label">Force Split</label>
                       <input type="checkbox" id="foldForceSplitInput" class="ui-checkbox" />
                     </div>
-                    <!-- v20260803j: back-facing sections reverse child order
-                         (white sticker backing). Default ON — fold's heritage
-                         behavior; OFF shows the authored top layer from any
-                         orientation (the mapping checkbox's off semantics). -->
-                    <div class="style-row" id="foldStickerBackRow">
-                      <label class="ui-checkbox-label">Sticker Back</label>
-                      <input type="checkbox" id="foldStickerBackInput" class="ui-checkbox" checked />
-                    </div>
+                    <!-- Sticker Back checkbox removed v20260817b (was
+                         v20260803j, default ON) — consolidated into the Style
+                         tab's tri-state Backside select: None = the old OFF,
+                         Sheet = the old ON (heritage), View = physical. -->
+
                     <!-- v20260722c: stroke drawn ON the crease lines (Fold
                          mode). Row mirrors the Style tab's Stroke row:
                          toggle + width + hex + swatch. Angle Fade ramps the
@@ -38512,6 +38536,23 @@
         // rebuilds every object (see the note there).
         this.zSortChildren = false; // Z-sort all child faces together (painter's algorithm across objects)
         this.zSortMode = 'children'; // 'children' = direct only, 'descendants' = flatten all nested groups
+        // BACKSIDE: NONE / SHEET / VIEW (v20260817a select, v20260817b
+        // tri-state consolidation — PLAN-backside-view.md): THE one backside
+        // model switch, replacing the three Sticker Back checkboxes (fold's
+        // default-ON one and the two default-OFF mapping ones).
+        //   'none'  — authored layer order from any orientation (old fold
+        //             Sticker Back OFF / mapping Sticker Back OFF).
+        //   'sheet' — heritage default: the fold flip relative to the
+        //             unfolded sheet (v20260722a refSign; base never flips);
+        //             mapping does not flip (its only flip is camera-
+        //             relative, which this model reserves for 'view').
+        //   'view'  — physical two-sided sheet: layer order follows which
+        //             side faces the draw camera, everywhere — fold
+        //             sections, plain groups, pristine folds, motion-pathed
+        //             groups, and the mapping sticker sections (the old
+        //             mapping Sticker Back ON).
+        // Serialized only when !== 'sheet'; legacy keys migrate at load.
+        this.backside = 'sheet';
         this.renderIntersections = false; // Split faces that intersect in 3D (requires zSortChildren)
         this.pathRender = false; // Vector HSR (V1, planar groups): planar-map render, no painter ordering (requires zSortChildren)
         this.maskRender = false; // MASK RENDERER (experimental M1): vector z-buffer — authored paths + occlusion masks (requires zSortChildren + raster-helper gate)
@@ -38709,6 +38750,116 @@
         return localMatrix;
       }
 
+      // BACKSIDE: VIEW (v20260817a, PLAN-backside-view.md) — the sheet-plane
+      // sampling triangle for the plain-DOM facing test: three group-space
+      // points, CCW in the sheet's (u,v) with u×v = +normal, anchored inside
+      // the content. With a threaded fold the frame's OWN plane and anchor are
+      // used (the refSign IIFE's construction, frame coords → project via the
+      // thread's anchorMVP) so a pristine fold and its 0.001° neighbour make
+      // the SAME flip decision. Otherwise: the flattest axis of the direct
+      // content's local bounds is the normal (tie → Z, an XY sheet), and the
+      // walk mirrors _foldGroupFrame's per-draw traversal (accepted cost —
+      // runs only when Backside: View is on and no fold frame is threaded).
+      _backsideTriangle(foldThread) {
+        const fr = foldThread && foldThread.frame;
+        if (fr) {
+          const e = 0.01 * Math.max(1e-6, fr.uMax - fr.uMin);
+          // Handedness: the triangle must be CCW seen from the POSITIVE
+          // normal-axis side (the defined front — see the section flip's h),
+          // so when SG and the axis permutation's parity make û×v̂ point down
+          // the negative axis (X×Z = −Y), the u/v legs swap.
+          const eps = ((fr.AX[1] - fr.AX[0] + 3) % 3 === 1) ? 1 : -1;
+          const hh = (fr.SG[0] * fr.SG[1] >= 0 ? 1 : -1) * eps;
+          const legs = hh >= 0 ? [[0, 0], [e, 0], [0, e]] : [[0, 0], [0, e], [e, 0]];
+          return legs.map(q => {
+            const p = [0, 0, 0];
+            p[fr.AX[0]] = fr.SG[0] * (fr.A2[0] + q[0]);
+            p[fr.AX[1]] = fr.SG[1] * (fr.A2[1] + q[1]);
+            p[fr.AX[2]] = fr.wMid;
+            return p;
+          });
+        }
+        const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+        const walk = (obj, M) => {
+          if (!obj.visible) return;
+          const m2 = M ? matrixMultiply(M, obj.getLocalMatrix()) : obj.getLocalMatrix();
+          if (obj.isGroup) { obj.children.forEach(c => walk(c, m2)); return; }
+          if (!obj.localVertices) return;
+          for (const p of obj.localVertices) {
+            if (!p) continue;
+            const t = pointApplyMatrix(p, m2);
+            for (let i = 0; i < 3; i++) {
+              if (t[i] < mn[i]) mn[i] = t[i];
+              if (t[i] > mx[i]) mx[i] = t[i];
+            }
+          }
+        };
+        this.children.forEach(c => walk(c, null));
+        if (!isFinite(mn[0])) return null;
+        const ext = [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]];
+        let n = 2; // tie → Z normal (an XY sheet)
+        if (ext[0] < ext[n]) n = 0;
+        if (ext[1] < ext[n]) n = 1;
+        const uAx = (n + 1) % 3, vAx = (n + 2) % 3; // u×v = +normal, right-handed
+        const c0 = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
+        const e = 0.01 * Math.max(1e-6, ext[uAx], ext[vAx]);
+        const p1 = c0.slice(), p2 = c0.slice();
+        p1[uAx] += e; p2[vAx] += e;
+        return [c0, p1, p2];
+      }
+
+      // BACKSIDE: VIEW — the plain-DOM flip pass. When the sheet plane shows
+      // its back to the draw camera, the subtree's paint order reverses DEEP:
+      // a stack viewed from behind reverses at every nesting level, matching
+      // the fold sticker sections' flattened-list reversal (top-level-only
+      // reversal would leave [A, G(B,C)] reading B,C,A instead of C,B,A).
+      // Runs only on the plain branches — sticker sections and z-sort own
+      // their ordering — and never on an actively mapped subtree (a mapped
+      // group's flip is the RC-layer sticker sections, keyed on the same
+      // 'view' value, so the two mechanisms can never double-flip). The old
+      // cross-check against fold's Sticker Back checkbox is gone with the
+      // checkbox (v20260817b): 'none' and 'sheet' simply never enter here,
+      // so the pristine-seam consistency is the property's own. The reorder
+      // repeats per frame while flipped (the z-sort commit's replaceChildren
+      // precedent) and self-heals to authored order exactly once when it
+      // stops applying — the early-out makes it zero-cost for every group
+      // not in 'view', and for front-facing poses.
+      _applyBacksideView(currentMVP, foldThread, activeMapping) {
+        let want = false;
+        if (this.backside === 'view' && !activeMapping) {
+          const tri = this._backsideTriangle(foldThread);
+          const mvp = (foldThread && foldThread.frame) ? foldThread.anchorMVP : currentMVP;
+          if (tri && mvp) {
+            const pts = tri.map(p => {
+              const s = transformVertex(p, mvp);
+              return s ? [s[0], -s[1]] : null;
+            });
+            if (!pts.some(p => !p)) {
+              const a2 = (pts[1][0] - pts[0][0]) * (pts[2][1] - pts[0][1])
+                - (pts[2][0] - pts[0][0]) * (pts[1][1] - pts[0][1]);
+              // y-down projection of a CCW-in-uv triangle reads NEGATIVE when
+              // the sheet's front (+normal side) faces the eye — the sticker
+              // sections' screen-sign convention (calibrated on the owner's
+              // XZ-sheet repro, v20260817a). Positive ⇒ back-facing.
+              want = a2 > 0;
+            }
+          }
+        }
+        if (!want && !this._backsideFlipped) return;
+        const reorder = (grp, rev) => {
+          const els = grp.children.map(c => c.svgElement).filter(Boolean);
+          grp.svgElement.replaceChildren(...(rev ? els.slice().reverse() : els));
+          grp._backsideFlipped = rev;
+          for (const c of grp.children) {
+            // Plain nested groups only: a z-sorted (or z-sort-committed)
+            // group's DOM is its own committed face order — replacing it
+            // with child svgElements would blank the render.
+            if (c.isGroup && !c.zSortChildren && !c._zsDomCommitted) reorder(c, rev);
+          }
+        };
+        reorder(this, want);
+      }
+
       draw(parentMVP, drawOptions = {}) {
         // 2D MODE (v20260727b): the group lives in the 1000x1000 frame —
         // replace the whole inherited chain (camera + ancestor transforms)
@@ -38744,6 +38895,11 @@
           // re-read from the global below this line.
           camera: cam = activeCamera,
           mappingAnchorWM: anchorWMIn = null,
+          // BACKSIDE (v20260817b): the mapping ROOT's tri-state mode, carried
+          // beside inheritedMapping so Path.draw's fragment stamps can gate
+          // on 'view' without a transient on the (wholesale-serialized)
+          // mapping config object.
+          inheritedBackside = null,
           collectIx = false,
           inheritedExtrude = null,
           inheritedFold = null,
@@ -38830,7 +38986,11 @@
             foldThread = {
               settings: this.foldSettings, frame: frG,
               rel: createIdentityMatrix(), anchorMVP: currentMVP,
-              eyeL, wrapCuts
+              eyeL, wrapCuts,
+              // BACKSIDE (v20260817a/b) — the fold ROOT's tri-state mode
+              // rides the thread so every descendant's _foldOrd stamp
+              // carries it.
+              backside: this.backside || 'sheet'
             };
           }
         } else if (inheritedFold) {
@@ -38858,14 +39018,22 @@
         // per-child DOM stacking can never express (foldZSort precedent,
         // v20260721j). Gated on the checkbox, so plain mappings keep their
         // authored DOM order exactly as before.
+        // v20260817b: the per-config stickerBack flags are consolidated into
+        // the group's tri-state Backside — mapping sections engage at 'view'.
         const mapStickerZSort = !!(activeMapping && activeMapping === this.surfaceConstraint &&
-          ((this.surfaceConstraint.active && this.surfaceConstraint.targetId && this.surfaceConstraint.stickerBack) ||
-            (this.surfaceConstraint.surfaceMapping?.enabled && this.surfaceConstraint.surfaceMapping.surfacePathId && this.surfaceConstraint.surfaceMapping.stickerBack)));
+          this.backside === 'view' &&
+          ((this.surfaceConstraint.active && this.surfaceConstraint.targetId) ||
+            (this.surfaceConstraint.surfaceMapping?.enabled && this.surfaceConstraint.surfaceMapping.surfacePathId)));
         const zSortOn = this.zSortChildren || foldZSort || mapStickerZSort;
 
         // Build child draw options (shared by all branches)
         const childOpts = {
           inheritedMapping: activeMapping,
+          // BACKSIDE (v20260817b): when THIS group is the mapping root, its
+          // own mode governs the subtree's fragment stamps; a pass-through
+          // group forwards the root's.
+          inheritedBackside: (activeMapping && activeMapping === this.surfaceConstraint)
+            ? (this.backside || 'sheet') : inheritedBackside,
           inheritedRelativeMatrix: relativeMatrix,
           inheritedBounds: activeBounds,
           cameraVP,
@@ -38962,12 +39130,33 @@
                   // layer order (the folded sticker's white backing).
                   let area = 0, zSum = 0;
                   members.forEach(m => { area += (m._area || 0); zSum += m.z; });
-                  const refSign = members[0]._foldOrd.refSign || -1;
-                  const backFacing = area * refSign < 0;
-                  // Sticker Back toggle (v20260803j): default ON — the flip IS
-                  // fold's heritage sticker model. OFF keeps authored order in
-                  // any orientation (the mapping checkbox's off semantics).
-                  const flip = backFacing && members[0]._foldOrd.stickerBack !== false;
+                  // BACKSIDE: VIEW (v20260817a, PLAN-backside-view.md): in
+                  // View mode facing is measured against the CAMERA — the
+                  // physical two-sided sheet — with the sheet's FRONT defined
+                  // as its POSITIVE normal-axis side (+Z for an XY sheet, +Y
+                  // for an XZ sheet: the side the default authoring camera
+                  // sees). A winding-normalized CCW-in-uv piece projected
+                  // into y-down screen coords reads NEGATIVE from the uv
+                  // normal's side, and the uv normal (û×v̂) equals the
+                  // positive axis only up to the pair's handedness — X×Z is
+                  // −Y, which is exactly how the pre-v20260722a fixed
+                  // constant inverted XZ stacks (measured again on the
+                  // owner's "fold layer invert" repro: the raw constant read
+                  // the BELOW side as front). h folds SG and the axis
+                  // permutation's parity in, so front ⇔ area·h < 0 for every
+                  // pair. Sheet mode keeps the v20260722a relative reference
+                  // — the base sheet never flips.
+                  // v20260817b tri-state: 'none' never flips (the old Sticker
+                  // Back OFF), 'sheet' keeps the v20260722a relative
+                  // reference, 'view' uses the absolute h-corrected test.
+                  const ord0 = members[0]._foldOrd;
+                  const mode0 = ord0.backside || 'sheet';
+                  const fr0 = ord0.frame;
+                  const eps0 = ((fr0.AX[1] - fr0.AX[0] + 3) % 3 === 1) ? 1 : -1;
+                  const h0 = (fr0.SG[0] * fr0.SG[1] >= 0 ? 1 : -1) * eps0;
+                  const refSign = mode0 === 'view' ? -h0 : (ord0.refSign || -1);
+                  const backFacing = mode0 !== 'none' && area * refSign < 0;
+                  const flip = backFacing;
                   const gSec = document.createElementNS('http://www.w3.org/2000/svg', 'g');
                   (flip ? members.slice().reverse() : members)
                     .forEach(m => gSec.appendChild(m.element));
@@ -39209,6 +39398,7 @@
             for (const child of this.children) {
               child.draw(currentMVP, childOpts);
             }
+            this._applyBacksideView(currentMVP, foldThread, activeMapping); // BACKSIDE: VIEW (v20260817a)
             // Compute z of group's position for sorting
             const groupWorldPos = transformVertex(this.position, parentMVP);
             const groupZ = groupWorldPos ? groupWorldPos[2] : 0;
@@ -39219,6 +39409,7 @@
           for (const child of this.children) {
             child.draw(currentMVP, childOpts);
           }
+          this._applyBacksideView(currentMVP, foldThread, activeMapping); // BACKSIDE: VIEW (v20260817a)
         }
       }
     }
@@ -39549,7 +39740,6 @@
           scaleV: 1,
           mode: 'fold',  // 'fold' | 'wrap' | 'curl' (v20260720x: curl = endless roll)
           forceSplit: false, // v20260722b: fold cuts at EVERY crease (legacy render); off = bend, cut only at silhouettes/overlaps
-          stickerBack: true, // v20260803j: back-facing sections reverse child order (white sticker backing). DEFAULT ON — fold's heritage behavior; every read is `!== false` so legacy scenes (no key) stay ON
           drawCrease: false,     // v20260722c: stroke drawn ON the crease lines (fold mode)
           creaseColor: '#000000',
           creaseWidth: 1,        // display units (same conversion as the Style tab stroke width)
@@ -39900,7 +40090,12 @@
         if ((uMax - uMin) < 1e-9) return null;
         const sideSign = (cr.side === 'left') ? -1 : 1;
         const rho = (cr.rotation || 0) * Math.PI / 180;
-        const A2 = [uMin + (cr.position ?? 0.5) * (uMax - uMin), (vMin + vMax) / 2];
+        // POSITION V (v20260817d, PLAN-fold-crease-2d.md): the crease anchor
+        // is 2D — positionV places it across the V extent (default 0.5 = the
+        // old hard-pinned v-middle, so absent-key scenes are byte-identical).
+        // This is what lets a 90°-rotated crease (parallel to U) be placed at
+        // all: `position` slides such a line along itself.
+        const A2 = [uMin + (cr.position ?? 0.5) * (uMax - uMin), vMin + (cr.positionV ?? 0.5) * (vMax - vMin)];
         // WRAP (stage F2, v20260720u): mode 'wrap' replaces the sharp hinge
         // with a developable cylindrical bend of radius r starting AT the
         // crease (the tangency line — the base side never moves). The bend
@@ -39924,7 +40119,7 @@
         // positions are ALLOWED — each line splits the paper on its own,
         // so keyframed positions sweep past each other freely.
         const uRange = uMax - uMin;
-        const vMid2 = (vMin + vMax) / 2;
+        const vRange = vMax - vMin; // POSITION V (v20260817d)
         let allParallel = true;
         const creaseList = fs.creases.map((c2, i2) => {
           const rhoK = (c2.rotation || 0) * Math.PI / 180;
@@ -39934,7 +40129,7 @@
           const sgK = (c2.side === 'left') ? -1 : 1;
           return {
             idx: i2,
-            A2: [uMin + (c2.position ?? 0.5) * uRange, vMid2],
+            A2: [uMin + (c2.position ?? 0.5) * uRange, vMin + (c2.positionV ?? 0.5) * vRange],
             dir2: [-Math.sin(rhoK), Math.cos(rhoK)],
             n2: [sgK * Math.cos(rhoK), sgK * Math.sin(rhoK)],
             sideSign: sgK,
@@ -41300,7 +41495,7 @@
           ? Path._foldCreaseRoles(fr, eyeL || null, !!fs.forceSplit)
           : null;
         const roleSig = roleInfo ? `|R:${roleInfo.roles.map(r => r[0]).join('')}|DC:${fs.drawCrease ? 1 : 0}${fs.creaseShowAt0 ? 1 : 0}` : '';
-        const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.creases.map(c2 => [c2.position, c2.rotation, c2.angle, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}${inhSig}${roleSig}`;
+        const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.creases.map(c2 => [c2.position, c2.positionV, c2.rotation, c2.angle, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}${inhSig}${roleSig}`;
         const fdHit = this._foldCache ? this._foldCache.get(key) : null;
         if (fdHit) return fdHit.val;
 
@@ -42641,6 +42836,7 @@
           camera: cam = activeCamera,
           mappingAnchorWM = null,
           inheritedFold = null,
+          inheritedBackside = null, // BACKSIDE (v20260817b): mapping root's mode
           collectIx = false,
           inheritedExtrude = null,
         } = drawOptions;
@@ -42807,7 +43003,11 @@
               frame: foldSrcInh.frame,
               settings: foldSrcInh.settings,
               sourceRel: matrixMultiply(foldSrcInh.rel, modelMatrix),
-              anchorMVP: foldSrcInh.anchorMVP
+              anchorMVP: foldSrcInh.anchorMVP,
+              // BACKSIDE (v20260817a/b) — this rebuild enumerates fields by
+              // hand, so the mode must be carried explicitly (the same
+              // enumeration that silently dropped `shear` for eight releases).
+              backside: foldSrcInh.backside || 'sheet'
             };
             foldEye = foldSrcInh.eyeL;
             foldPieces = this._generateFoldPieces(foldSrcInh.wrapCuts, foldInh, foldSrcInh.eyeL);
@@ -43074,7 +43274,7 @@
                   // Fold cells key by SIG (global identity, v20260721n);
                   // curved bands by index (their band arrays are always
                   // full-length per child, so the index IS global).
-                  if (face) face._foldOrd = { frame: foldInh.frame, eye: foldEye, band: b.sig !== undefined ? b.sig : bi, refSign, polys: bandPolys(b), cells: b.cells || null, stickerBack: foldInh.settings?.stickerBack !== false };
+                  if (face) face._foldOrd = { frame: foldInh.frame, eye: foldEye, band: b.sig !== undefined ? b.sig : bi, refSign, polys: bandPolys(b), cells: b.cells || null, backside: foldInh.backside || 'sheet' };
                 });
               }
               // Exact hinge rule (FOLD only — base | flap about the crease
@@ -43321,11 +43521,13 @@
 
                   if (fragGroup.childNodes.length > 0) {
                     const face = { element: fragGroup, z: frag.avgZ || 0 };
-                    // Sticker Back (v20260803i): a GROUP-mapped child's split
-                    // fragments carry their section identity up to the group
-                    // pass — mapping-config object as the key (the fold pass's
-                    // frame-object trick), RC layer as the facing signal.
-                    if (inheritedMapping && activeMapping.stickerBack && frag.type === 'split') {
+                    // Sticker Back (v20260803i; keyed on the group's tri-state
+                    // Backside === 'view' since v20260817b): a GROUP-mapped
+                    // child's split fragments carry their section identity up
+                    // to the group pass — mapping-config object as the key
+                    // (the fold pass's frame-object trick), RC layer as the
+                    // facing signal.
+                    if (inheritedMapping && inheritedBackside === 'view' && frag.type === 'split') {
                       face._mapOrd = {
                         key: activeMapping, layer: frag.layer,
                         u0: frag.u0 ?? 0, u1: frag.u1 ?? 1
@@ -43554,7 +43756,7 @@
                     // Sticker Back (v20260803i) — see the spline-flow site.
                     // Key = the surfaceMapping sub-object, so a group's spline
                     // flow and surface mapping can never share sections.
-                    if (inheritedMapping && activeMapping.surfaceMapping?.stickerBack && frag.type === 'split') {
+                    if (inheritedMapping && inheritedBackside === 'view' && frag.type === 'split') { // v20260817b: tri-state Backside
                       face._mapOrd = {
                         key: activeMapping.surfaceMapping, layer: frag.layer,
                         u0: frag.u0 ?? 0, u1: frag.u1 ?? 1
@@ -58143,24 +58345,9 @@
       });
     }
 
-    // Sticker Back (v20260803i): back-facing bands paint their children in
-    // reversed authored order — the fold sticker model for spline flow.
-    const surfaceStickerBackInput = document.getElementById('surfaceStickerBackInput');
-    if (surfaceStickerBackInput) {
-      surfaceStickerBackInput.addEventListener('change', (e) => {
-        pushUndoStateCoalesced();
-        const val = e.target.checked;
-        if (selectedObject && selectedObject.surfaceConstraint?.active) {
-          selectedObject.surfaceConstraint.stickerBack = val;
-          requestRender();
-        } else if (selectedObjects.length > 0) {
-          selectedObjects.forEach(obj => {
-            if (obj.surfaceConstraint) obj.surfaceConstraint.stickerBack = val;
-          });
-          requestRender();
-        }
-      });
-    }
+    // (Sticker Back listener removed v20260817b — the per-config flag is
+    // consolidated into the group's tri-state Backside select; legacy
+    // stickerBack keys migrate to backside:'view' at load.)
     // (Closure Steps input removed in v20260704h — it was the legacy
     // closure tracer's quality dial; the region-clip splitter has no
     // closure tracing. closureSteps stays in the data model for scene
@@ -59766,6 +59953,22 @@
       const renderIntersectionsCb = document.getElementById('renderIntersectionsCb');
       const renderIntersectionsMethodRow = document.getElementById('renderIntersectionsMethodRow');
       const renderIntersectionsMethodInput = document.getElementById('renderIntersectionsMethodInput');
+      // BACKSIDE: SHEET / VIEW (v20260817a) — group-only, always visible for
+      // groups (it is general: fold, pristine fold, plain layered groups).
+      {
+        const backsideModeRow = document.getElementById('backsideModeRow');
+        const backsideModeInput = document.getElementById('backsideModeInput');
+        if (backsideModeRow && backsideModeInput) {
+          if (selectedObject && selectedObject.isGroup) {
+            backsideModeRow.style.display = '';
+            if (document.activeElement !== backsideModeInput) {
+              backsideModeInput.value = selectedObject.backside || 'sheet';
+            }
+          } else {
+            backsideModeRow.style.display = 'none';
+          }
+        }
+      }
       if (zSortChildrenRow && zSortChildrenCb) {
         if (selectedObject && selectedObject.isGroup) {
           zSortChildrenRow.style.display = '';
@@ -59937,8 +60140,6 @@
           if (hOffInput && document.activeElement !== hOffInput) hOffInput.value = sc.hOffset || 0;
           if (resInput && document.activeElement !== resInput) resInput.value = sc.resolution || 16;
           if (splitInput && document.activeElement !== splitInput) splitInput.checked = (sc.silhouetteSplit !== false);
-          const sfStickerInput = document.getElementById('surfaceStickerBackInput');
-          if (sfStickerInput && document.activeElement !== sfStickerInput) sfStickerInput.checked = !!sc.stickerBack;
           if (bankInput && document.activeElement !== bankInput) bankInput.value = sc.bankFactor ?? 1;
           if (twistInput && document.activeElement !== twistInput) twistInput.value = sc.twist || 0;
           if (sfScaleUInput && document.activeElement !== sfScaleUInput) sfScaleUInput.value = sc.scaleU ?? 1;
@@ -59967,10 +60168,6 @@
         if (hOffInput) hOffInput.disabled = ctrlDisabled;
         if (resInput) resInput.disabled = ctrlDisabled;
         if (splitInput) splitInput.disabled = ctrlDisabled;
-        {
-          const sfStickerEl = document.getElementById('surfaceStickerBackInput');
-          if (sfStickerEl) sfStickerEl.disabled = ctrlDisabled;
-        }
         if (bankInput) bankInput.disabled = ctrlDisabled;
         if (twistInput) twistInput.disabled = ctrlDisabled;
         if (sfScaleUInput) sfScaleUInput.disabled = ctrlDisabled;
@@ -60042,10 +60239,8 @@
 
         const smResolution = document.getElementById('surfaceMappingResolution');
         const smSplitInput = document.getElementById('surfaceMappingSplitInput');
-        const smStickerInput = document.getElementById('surfaceMappingStickerBackInput');
         if (smResolution && document.activeElement !== smResolution) smResolution.value = sm.resolution || 8;
         if (smSplitInput && document.activeElement !== smSplitInput) smSplitInput.checked = (sm.silhouetteSplit !== false);
-        if (smStickerInput && document.activeElement !== smStickerInput) smStickerInput.checked = !!sm.stickerBack;
         const smAlgorithmSelect = document.getElementById('surfaceMappingAlgorithm');
         if (smAlgorithmSelect && document.activeElement !== smAlgorithmSelect) smAlgorithmSelect.value = sm.algorithm || 'subdivision';
         // Resolution row only applies to Subdivide (mirrors spline flow)
@@ -60069,7 +60264,6 @@
         if (smRotation) smRotation.disabled = smDisabled;
         if (smResolution) smResolution.disabled = smDisabled;
         if (smSplitInput) smSplitInput.disabled = smDisabled;
-        if (smStickerInput) smStickerInput.disabled = smDisabled;
         if (smAlgorithmSelect) smAlgorithmSelect.disabled = smDisabled;
         const smAxisUEl = document.getElementById('surfaceMappingAxisU');
         const smAxisVEl = document.getElementById('surfaceMappingAxisV');
@@ -60137,6 +60331,7 @@
         const fdScaleUInput = document.getElementById('foldScaleUInput');
         const fdScaleVInput = document.getElementById('foldScaleVInput');
         const fdPositionInput = document.getElementById('foldPositionInput');
+        const fdPositionVInput = document.getElementById('foldPositionVInput'); // POSITION V (v20260817d)
         const fdRotationInput = document.getElementById('foldRotationInput');
         const fdAngleInput = document.getElementById('foldAngleInput');
         const fdSideInput = document.getElementById('foldSideInput');
@@ -60175,6 +60370,7 @@
           syncSel(fdScaleUInput, fd ? (fd.scaleU ?? 1) : 1);
           syncSel(fdScaleVInput, fd ? (fd.scaleV ?? 1) : 1);
           syncSel(fdPositionInput, cr ? (cr.position ?? 0.5) : 0.5);
+          syncSel(fdPositionVInput, cr ? (cr.positionV ?? 0.5) : 0.5); // POSITION V (v20260817d)
           syncSel(fdRotationInput, cr ? (cr.rotation || 0) : 0);
           syncSel(fdAngleInput, cr ? (cr.angle || 0) : 0);
           syncSel(fdSideInput, (cr && cr.side === 'left') ? 'left' : 'right');
@@ -60197,13 +60393,8 @@
           // Sticker Back (v20260803j): ALL modes — the owner's use case is
           // curl. Default-ON polarity: read is `!== false` so legacy scenes
           // (no key) stay checked.
-          {
-            const sbInput = document.getElementById('foldStickerBackInput');
-            if (sbInput && document.activeElement !== sbInput) {
-              sbInput.checked = !fd || fd.stickerBack !== false;
-              sbInput.disabled = fdDisabled;
-            }
-          }
+          // (Sticker Back sync removed v20260817b — the tri-state Backside
+          // select in the Style tab is the one control.)
           // Draw Crease (v20260722c, Fold mode only): stroke row mirrors the
           // Style tab; the fade row shows only while Draw Crease is on.
           {
@@ -60277,8 +60468,10 @@
                   `<div class="xyz-row"><label>Crease ${ci + 1}</label><div style="display:flex; gap:4px; margin-left:auto;">` +
                   `<button type="button" class="ui-btn ui-btn-small" data-fold-up="${ci}" title="Move up (folds earlier)">▲</button>` +
                   `<button type="button" class="ui-btn ui-btn-small" data-fold-remove="${ci}" title="Remove crease">✕</button></div></div>` +
-                  `<div class="xyz-row"><label>Position</label><div class="xyz-inputs">` +
+                  `<div class="xyz-row"><label>Position U</label><div class="xyz-inputs">` +
                   `<input type="number" step="0.01" data-fold-idx="${ci}" data-fold-key="position" /></div></div>` +
+                  `<div class="xyz-row"><label>Position V</label><div class="xyz-inputs">` +
+                  `<input type="number" step="0.01" data-fold-idx="${ci}" data-fold-key="positionV" /></div></div>` +
                   `<div class="xyz-row"><label>Rotation</label><div class="xyz-inputs">` +
                   `<input type="number" step="1" data-fold-idx="${ci}" data-fold-key="rotation" /></div></div>` +
                   `<div class="xyz-row"><label>Angle</label><div class="xyz-inputs">` +
@@ -60297,7 +60490,7 @@
               const kk = inp.dataset.foldKey;
               if (document.activeElement !== inp) {
                 if (kk === 'side') inp.value = (c2 && c2.side === 'left') ? 'left' : 'right';
-                else inp.value = c2 ? (c2[kk] ?? (kk === 'position' ? 0.5 : 0)) : 0;
+                else inp.value = c2 ? (c2[kk] ?? ((kk === 'position' || kk === 'positionV') ? 0.5 : 0)) : 0;
               }
               inp.disabled = fdDisabled;
             });
@@ -61204,17 +61397,7 @@
       });
     }
 
-    // Sticker Back (v20260803i) — see the spline-flow listener.
-    const surfaceMappingStickerBackInput = document.getElementById('surfaceMappingStickerBackInput');
-    if (surfaceMappingStickerBackInput) {
-      surfaceMappingStickerBackInput.addEventListener('change', (e) => {
-        pushUndoStateCoalesced();
-        if (selectedObject && selectedObject.surfaceConstraint?.surfaceMapping) {
-          selectedObject.surfaceConstraint.surfaceMapping.stickerBack = e.target.checked;
-          requestRender();
-        }
-      });
-    }
+    // (Sticker Back listener removed v20260817b — see the spline-flow note.)
     // (Closure Steps input removed in v20260704h — see spline-flow note.)
 
     const surfaceMappingOverflowModeUSelect = document.getElementById('surfaceMappingOverflowModeU');
@@ -61332,7 +61515,6 @@
           if (o.isGroup && !o.foldSettings) {
             o.foldSettings = {
               enabled: false, axisU: 'X', axisV: 'Y', scaleU: 1, scaleV: 1, mode: 'fold', forceSplit: false,
-              stickerBack: true,
               drawCrease: false, creaseColor: '#000000', creaseWidth: 1, creaseFade: false, creaseFadeAngle: 90,
               creaseCap: 'round', creaseDash: '', creaseShowAt0: false,
               creases: [{ position: 0.5, rotation: 0, angle: 0, radius: 0.5, pitch: 0, tighten: 0, side: 'right' }]
@@ -61386,6 +61568,10 @@
       document.getElementById('foldPositionInput')?.addEventListener('input', (e) => {
         fdApply((fd, cr) => { cr.position = parseFloat(e.target.value) || 0; }, ['fdPosition']);
       });
+      // POSITION V (v20260817d): the 2D crease anchor's V coordinate.
+      document.getElementById('foldPositionVInput')?.addEventListener('input', (e) => {
+        fdApply((fd, cr) => { cr.positionV = parseFloat(e.target.value) || 0; }, ['fdPositionV']);
+      });
       document.getElementById('foldRotationInput')?.addEventListener('input', (e) => {
         fdApply((fd, cr) => { cr.rotation = parseFloat(e.target.value) || 0; }, ['fdRotation']);
       });
@@ -61400,10 +61586,7 @@
       document.getElementById('foldForceSplitInput')?.addEventListener('change', (e) => {
         fdApply(fd => { fd.forceSplit = e.target.checked; });
       });
-      // STICKER BACK (v20260803j) — default ON; see the panel row note.
-      document.getElementById('foldStickerBackInput')?.addEventListener('change', (e) => {
-        fdApply(fd => { fd.stickerBack = e.target.checked; });
-      });
+      // (Sticker Back listener removed v20260817b — tri-state Backside.)
       // DRAW CREASE (v20260722c)
       document.getElementById('foldDrawCreaseInput')?.addEventListener('change', (e) => {
         fdApply(fd => { fd.drawCrease = e.target.checked; });
@@ -61440,6 +61623,7 @@
           const last = fd.creases[fd.creases.length - 1];
           fd.creases.push({
             position: (last?.position ?? 0.5) + 0.15,
+            positionV: last?.positionV ?? 0.5, // 2D anchor (v20260817d): inherit
             rotation: last?.rotation ?? 0, // parallel to the last crease by default
             angle: (last && last.angle) ? -last.angle : 90,
             radius: last?.radius ?? 0.5,
@@ -61713,6 +61897,7 @@
         if (Array.isArray(obj.layerRanges) && obj.layerRanges.length) newGroup.layerRanges = obj.layerRanges.map(s => ({ in: s.in, out: s.out }));
         newGroup.zSortChildren = obj.zSortChildren;
         newGroup.zSortMode = obj.zSortMode;
+        newGroup.backside = obj.backside || 'sheet'; // BACKSIDE (v20260817a/b) — the Duplicate-drops-a-channel trap
         newGroup.renderIntersections = obj.renderIntersections;
         newGroup.pathRender = obj.pathRender;
         newGroup.maskRender = obj.maskRender;   // MASK RENDERER (experimental)
@@ -63619,6 +63804,14 @@
       if (selectedObject && selectedObject.isGroup) {
         pushUndoState();
         selectedObject.zSortMode = e.target.value;
+        requestRender();
+      }
+    });
+    // BACKSIDE: NONE / SHEET / VIEW (v20260817a/b, PLAN-backside-view.md)
+    document.getElementById('backsideModeInput').addEventListener('change', function (e) {
+      if (selectedObject && selectedObject.isGroup) {
+        pushUndoState();
+        selectedObject.backside = e.target.value;
         requestRender();
       }
     });
@@ -75989,6 +76182,7 @@
         data.children = obj.children.map(child => serializeObject(child, opts));
         if (obj.zSortChildren) data.zSortChildren = true;
         if (obj.zSortMode && obj.zSortMode !== 'children') data.zSortMode = obj.zSortMode;
+        if (obj.backside && obj.backside !== 'sheet') data.backside = obj.backside; // BACKSIDE (v20260817b) — key absent = Sheet (heritage), legacy scenes byte-identical
         // INTERSECTION STATE IS MEANINGLESS WITHOUT Z-SORT (v20260805k).
         // Every intersection method runs inside Group.draw's z-sorted branch
         // — that branch owns the shared face list they all consume — so a
@@ -76107,6 +76301,25 @@
         obj = new Group(data.name);
         if (data.zSortChildren) obj.zSortChildren = true;
         if (data.zSortMode) obj.zSortMode = data.zSortMode;
+        // BACKSIDE (v20260817b): tri-state with legacy migration. Priority:
+        // the new key → the one-release v20260817a boolean → the retired
+        // two-control keys (fold stickerBack default-ON, mapping stickerBack
+        // default-OFF; a mapping ON beats a fold OFF in the rare conflict —
+        // the deliberately-enabled visible feature wins). The legacy keys are
+        // then STRIPPED from the loaded settings objects: leaving them would
+        // re-fire this migration on every undo restore / save round-trip
+        // after the user picks the (key-absent) 'sheet' default, silently
+        // flipping the mode back.
+        if (data.backside === 'none' || data.backside === 'sheet' || data.backside === 'view') {
+          obj.backside = data.backside;
+        } else if (data.backsideView) {
+          obj.backside = 'view';
+        } else {
+          const mapOn = !!(data.surfaceConstraint && (data.surfaceConstraint.stickerBack
+            || data.surfaceConstraint.surfaceMapping?.stickerBack));
+          const foldOff = !!(data.foldSettings && data.foldSettings.stickerBack === false);
+          obj.backside = mapOn ? 'view' : (foldOff ? 'none' : 'sheet');
+        }
         // Same rule on the way IN, so files already saved in the stranded
         // state (a method flag with no zSortChildren — see the serializer)
         // load as what they actually render: a plain group. Without this an
@@ -76178,6 +76391,12 @@
         obj.surfaceConstraint = { ...obj.surfaceConstraint, ...data.surfaceConstraint };
         if (!obj.surfaceConstraint.resolution) obj.surfaceConstraint.resolution = 16;
         if (!obj.surfaceConstraint.algorithm) obj.surfaceConstraint.algorithm = 'subdivision'; // Default
+        // v20260817b migration: stickerBack consolidated into Group.backside
+        // (read above, before these blocks) — strip so re-saves are clean and
+        // the migration cannot re-fire on undo/save round-trips (the
+        // delete-plane precedent).
+        delete obj.surfaceConstraint.stickerBack;
+        if (obj.surfaceConstraint.surfaceMapping) delete obj.surfaceConstraint.surfaceMapping.stickerBack;
       }
 
       // MOTION PATH (v20260719f): merge over ctor defaults (absent = old behavior)
@@ -76196,6 +76415,7 @@
           if (_pm) { obj.foldSettings.axisU = _pm[0]; obj.foldSettings.axisV = _pm[1]; }
         }
         delete obj.foldSettings.plane;
+        delete obj.foldSettings.stickerBack; // v20260817b: consolidated into Group.backside (migrated above)
         const _crDef = { position: 0.5, rotation: 0, angle: 0, radius: 0.5, pitch: 0, tighten: 0, side: 'right' };
         obj.foldSettings.creases = (Array.isArray(data.foldSettings.creases) && data.foldSettings.creases.length)
           ? data.foldSettings.creases.map(c => ({ ..._crDef, ...c }))
@@ -79740,7 +79960,8 @@
     const _foldParams = [
       { prop: 'fdScaleU', label: 'Scale U', fsKey: 'scaleU', precision: 2, step: 0.1 },
       { prop: 'fdScaleV', label: 'Scale V', fsKey: 'scaleV', precision: 2, step: 0.1 },
-      { prop: 'fdPosition', label: 'Position', foldKey: 'position', precision: 2, step: 0.01 },
+      { prop: 'fdPosition', label: 'Position U', foldKey: 'position', precision: 2, step: 0.01 },
+      { prop: 'fdPositionV', label: 'Position V', foldKey: 'positionV', precision: 2, step: 0.01 }, // 2D anchor (v20260817d)
       { prop: 'fdRotation', label: 'Rotation', foldKey: 'rotation', precision: 1, step: 5 },
       { prop: 'fdAngle', label: 'Angle', foldKey: 'angle', precision: 1, step: 5 },
       { prop: 'fdRadius', label: 'Radius', foldKey: 'radius', precision: 2, step: 0.05 }, // wrap (v20260720u)
@@ -79750,7 +79971,12 @@
     const _foldRead = (obj, def) => {
       if (!obj || !obj.foldSettings) return null;
       if (def.fsKey) return obj.foldSettings[def.fsKey] ?? null;
-      return obj.foldSettings.creases?.[def.creaseIdx || 0]?.[def.foldKey] ?? null;
+      // POSITION V (v20260817d): the key is OPTIONAL on legacy creases
+      // (absent = the old pinned v-middle), so the read must supply the 0.5
+      // default here — callers fall back with `?? 0`, which would snap an
+      // auto-keyed crease to the sheet edge.
+      return obj.foldSettings.creases?.[def.creaseIdx || 0]?.[def.foldKey]
+        ?? (def.foldKey === 'positionV' ? 0.5 : null);
     };
     const _foldWrite = (obj, def, val) => {
       if (!obj || !obj.foldSettings) return false;
@@ -79767,14 +79993,17 @@
     const _foldParamOf = (prop) => {
       const st = _foldParams.find(p2 => p2.prop === prop);
       if (st) return st;
-      const m2 = /^fd(\d+)(Position|Rotation|Angle|Radius|Pitch|Tighten)$/.exec(prop);
+      // POSITION V (v20260817d): PositionV must precede Position in the
+      // alternation (else fdNPositionV never matches), and its foldKey stays
+      // camelCase — a bare toLowerCase() would write creases[i].positionv.
+      const m2 = /^fd(\d+)(PositionV|Position|Rotation|Angle|Radius|Pitch|Tighten)$/.exec(prop);
       if (!m2) return null;
       const ci = parseInt(m2[1], 10) - 1;
       if (ci < 1) return null; // crease 1 = the legacy un-numbered props
-      const meta = { Position: [2, 0.01], Rotation: [1, 5], Angle: [1, 5], Radius: [2, 0.05], Pitch: [2, 0.05], Tighten: [2, 0.05] };
+      const meta = { PositionV: [2, 0.01], Position: [2, 0.01], Rotation: [1, 5], Angle: [1, 5], Radius: [2, 0.05], Pitch: [2, 0.05], Tighten: [2, 0.05] };
       return {
         prop, label: `C${ci + 1} ${m2[2]}`,
-        foldKey: m2[2].toLowerCase(), creaseIdx: ci,
+        foldKey: m2[2] === 'PositionV' ? 'positionV' : m2[2].toLowerCase(), creaseIdx: ci,
         precision: meta[m2[2]][0], step: meta[m2[2]][1]
       };
     };
@@ -79783,7 +80012,7 @@
       const crs = obj?.foldSettings?.creases;
       if (Array.isArray(crs)) {
         for (let ci = 1; ci < crs.length; ci++) {
-          out.push(_foldParamOf(`fd${ci + 1}Position`), _foldParamOf(`fd${ci + 1}Rotation`), _foldParamOf(`fd${ci + 1}Angle`));
+          out.push(_foldParamOf(`fd${ci + 1}Position`), _foldParamOf(`fd${ci + 1}PositionV`), _foldParamOf(`fd${ci + 1}Rotation`), _foldParamOf(`fd${ci + 1}Angle`));
         }
       }
       return out;

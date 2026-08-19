@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260818c -->
+<!-- dim v20260820a -->
 
 <!--
   MIT License
@@ -8437,6 +8437,22 @@
                         <input type="number" id="foldPositionVInput" value="0.5" step="0.01" />
                       </div>
                     </div>
+                    <!-- CREASE EXTENT (v20260818d, PLAN-fold-crease-extent.md):
+                         segment creases — the active span along the line as
+                         fractions of its chord (0/1 = the full line). Ends
+                         must land in empty paper. What box folds need. -->
+                    <div class="xyz-row">
+                      <label title="The crease's active span along its line (0..1 of the chord). Paper outside the span does not fold. Span ends must land in empty paper.">Extent A</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="foldExtentAInput" value="0" step="0.01" />
+                      </div>
+                    </div>
+                    <div class="xyz-row">
+                      <label>Extent B</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="foldExtentBInput" value="1" step="0.01" />
+                      </div>
+                    </div>
                     <div class="xyz-row">
                       <label>Rotation</label>
                       <div class="xyz-inputs">
@@ -8484,6 +8500,13 @@
                     <div class="style-row" id="foldForceSplitRow">
                       <label class="ui-checkbox-label">Force Split</label>
                       <input type="checkbox" id="foldForceSplitInput" class="ui-checkbox" />
+                    </div>
+                    <!-- AUTO EXTENT (v20260819a): computed crease spans - the
+                         anti-crossing rule; manual Extent A/B are ignored
+                         (and disabled) while on. -->
+                    <div class="style-row" id="foldAutoExtentRow">
+                      <label class="ui-checkbox-label" title="Compute each crease's Extent automatically: the span of its line outside every crossing crease's flap. Manual Extent A/B are ignored while on.">Auto Extent</label>
+                      <input type="checkbox" id="foldAutoExtentInput" class="ui-checkbox" />
                     </div>
                     <!-- Sticker Back checkbox removed v20260817b (was
                          v20260803j, default ON) — consolidated into the Style
@@ -38765,9 +38788,13 @@
         if (fr) {
           const e = 0.01 * Math.max(1e-6, fr.uMax - fr.uMin);
           // Handedness: the triangle must be CCW seen from the POSITIVE
-          // normal-axis side (the defined front — see the section flip's h),
-          // so when SG and the axis permutation's parity make û×v̂ point down
-          // the negative axis (X×Z = −Y), the u/v legs swap.
+          // normal-axis side (View mode's defined front), so when SG and the
+          // axis permutation's parity make û×v̂ point down the negative axis
+          // (X×Z = −Y), the u/v legs swap. NOTE (v20260819f): this parity
+          // term ORIENTS a probe triangle — legitimate. The fold SECTION
+          // flip once used the same formula to INTERPRET a projected-area
+          // sum and was wrong-signed for some frames; it now reads the
+          // sub-cell normals directly (see the flip site's comment).
           const eps = ((fr.AX[1] - fr.AX[0] + 3) % 3 === 1) ? 1 : -1;
           const hh = (fr.SG[0] * fr.SG[1] >= 0 ? 1 : -1) * eps;
           const legs = hh >= 0 ? [[0, 0], [e, 0], [0, e]] : [[0, 0], [0, e], [e, 0]];
@@ -39151,11 +39178,48 @@
                   // reference, 'view' uses the absolute h-corrected test.
                   const ord0 = members[0]._foldOrd;
                   const mode0 = ord0.backside || 'sheet';
-                  const fr0 = ord0.frame;
-                  const eps0 = ((fr0.AX[1] - fr0.AX[0] + 3) % 3 === 1) ? 1 : -1;
-                  const h0 = (fr0.SG[0] * fr0.SG[1] >= 0 ? 1 : -1) * eps0;
-                  const refSign = mode0 === 'view' ? -h0 : (ord0.refSign || -1);
-                  const backFacing = mode0 !== 'none' && area * refSign < 0;
+                  // v20260819f: VIEW facing comes from the band's sub-cell
+                  // NORMALS (n = the sheet's +w axis through the bit
+                  // pattern's exact rotation), not from projected-area
+                  // signs. The v20260817a parity constant (-h0) mis-signed
+                  // some frames (the owner's dice: AX [0,2,1], SG [1,1,-1]
+                  // - front-showing walls read "back" and flipped, grey
+                  // paper over the pips), and the area sum itself is
+                  // winding-fragile (coplanar members measured with
+                  // OPPOSITE projected signs on the same wall). The cell
+                  // normal is art-side exact and winding-immune: front =
+                  // n pointing at the eye. Weighted by the cell's spatial
+                  // extent so slivers never outvote faces; a section with
+                  // no cells (curved bands) falls back to the relative
+                  // area test. Sheet mode is untouched (relative reference,
+                  // the base never flips).
+                  let backFacing;
+                  if (mode0 === 'view') {
+                    let fSum = 0;
+                    const eye0 = ord0.eye;
+                    if (eye0) {
+                      for (const m of members) {
+                        const cl = m._foldOrd && m._foldOrd.cells;
+                        if (!cl) continue;
+                        for (const c2 of cl) {
+                          if (!c2 || !c2.n || !c2.pts || !c2.pts.length) continue;
+                          const p0 = c2.pts[0];
+                          const dfc = (eye0[0] - p0[0]) * c2.n[0] + (eye0[1] - p0[1]) * c2.n[1] + (eye0[2] - p0[2]) * c2.n[2];
+                          let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+                          for (const p of c2.pts) {
+                            if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+                            if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+                            if (p[2] < z0) z0 = p[2]; if (p[2] > z1) z1 = p[2];
+                          }
+                          const ex = [x1 - x0, y1 - y0, z1 - z0].sort((a2, b2) => b2 - a2);
+                          fSum += Math.sign(dfc) * (ex[0] * ex[1] || 0);
+                        }
+                      }
+                    }
+                    backFacing = fSum !== 0 ? fSum < 0 : area * (ord0.refSign || -1) < 0;
+                  } else {
+                    backFacing = mode0 !== 'none' && area * (ord0.refSign || -1) < 0;
+                  }
                   const flip = backFacing;
                   const gSec = document.createElementNS('http://www.w3.org/2000/svg', 'g');
                   (flip ? members.slice().reverse() : members)
@@ -40040,7 +40104,8 @@
           if (v < vMin) vMin = v; if (v > vMax) vMax = v;
           if (w < wMin) wMin = w; if (w > wMax) wMax = w;
         }
-        return Path._foldFrameCore(fs, AX, SG, uMin, uMax, vMin, vMax, wMin, wMax);
+        return Path._foldFrameCore(fs, AX, SG, uMin, uMax, vMin, vMax, wMin, wMax,
+          isFinite(uMin) ? [[uMin, uMax, vMin, vMax]] : null); // AUTO EXTENT ink (v20260819c)
       }
 
       // GROUP FOLD (v20260721f, stage G1): crease frame in the GROUP's local
@@ -40056,6 +40121,7 @@
         if (!ax) return null;
         const { AX, SG } = ax;
         let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity, wMin = Infinity, wMax = -Infinity;
+        const inkBoxes = []; // AUTO EXTENT ink (v20260819c): per-path uv bboxes
         const traverse = (obj, inheritedM) => {
           if (!obj.visible) return;
           const M = inheritedM ? matrixMultiply(inheritedM, obj.getLocalMatrix()) : obj.getLocalMatrix();
@@ -40063,6 +40129,7 @@
           if (obj.extrudeSettings?.enabled || obj.revolveSettings?.enabled
             || obj.sweepSettings?.enabled || obj.loftSettings?.enabled
             || obj.foldSettings?.enabled) return; // own-modified children don't fold with the group
+          let bu0 = Infinity, bu1 = -Infinity, bv0 = Infinity, bv1 = -Infinity;
           for (const p of obj.localVertices) {
             if (!p) continue;
             const t = pointApplyMatrix(p, M);
@@ -40070,13 +40137,16 @@
             if (u < uMin) uMin = u; if (u > uMax) uMax = u;
             if (v < vMin) vMin = v; if (v > vMax) vMax = v;
             if (w < wMin) wMin = w; if (w > wMax) wMax = w;
+            if (u < bu0) bu0 = u; if (u > bu1) bu1 = u;
+            if (v < bv0) bv0 = v; if (v > bv1) bv1 = v;
           }
+          if (isFinite(bu0)) inkBoxes.push([bu0, bu1, bv0, bv1]);
         };
         group.children.forEach(c => traverse(c, null));
-        return Path._foldFrameCore(fs, AX, SG, uMin, uMax, vMin, vMax, wMin, wMax);
+        return Path._foldFrameCore(fs, AX, SG, uMin, uMax, vMin, vMax, wMin, wMax, inkBoxes);
       }
 
-      static _foldFrameCore(fs, AX, SG, uMin, uMax, vMin, vMax, wMin, wMax) {
+      static _foldFrameCore(fs, AX, SG, uMin, uMax, vMin, vMax, wMin, wMax, inkBoxes) {
         const cr = fs.creases[0];
         if (!isFinite(uMin) || (uMax - uMin) < 1e-9) return null;
         // Scale about the bbox center (clamped away from 0 so an animated
@@ -40134,9 +40204,128 @@
             dir2: [-Math.sin(rhoK), Math.cos(rhoK)],
             n2: [sgK * Math.cos(rhoK), sgK * Math.sin(rhoK)],
             sideSign: sgK,
-            angle: c2.angle || 0
+            angle: c2.angle || 0,
+            // CREASE EXTENT (v20260818d, PLAN-fold-crease-extent.md): the
+            // active SPAN along the line, as fractions of its chord across
+            // the sheet bbox. Absent = 0/1 = the full infinite-line
+            // behavior, byte-identical legacy. Paper outside the span is
+            // not this crease's paper (segment creases — what a box fold
+            // needs; the extent ends must land in EMPTY paper, else the
+            // straddling cell tears at the full line: documented contract).
+            extentA: c2.extentA ?? 0,
+            extentB: c2.extentB ?? 1
           };
         });
+        // AUTO EXTENT (v20260819a, owner request): with fs.autoExtent on,
+        // each crease's span is COMPUTED instead of authored - the run of
+        // its line outside every NON-PARALLEL crease's flap half-plane.
+        // That is precisely the anti-crossing rule (the bent-hinge glitch is
+        // always a line entering a crossing crease's flap), it reproduces
+        // the hand-tuned dice spans exactly, parallel chains stay untouched
+        // (they cannot cross), and it is ANGLE-INDEPENDENT so the span is
+        // stable across an animation. Each clipper removes a half-line, so
+        // the valid region is always ONE interval: lo = max of lower cuts,
+        // hi = min of upper cuts (empty => the crease has no unclaimed
+        // paper and folds nothing). Written onto the creaseList entries, so
+        // the splitter, hingeRep, guides and marks all inherit it from the
+        // one site they already read.
+        if (fs.autoExtent) {
+          // v20260819c INK SNAP (the owner's dice, imprecise positionV): an
+          // auto clip boundary computed from a slightly-misplaced crossing
+          // crease can land a hair INSIDE the paper it should release - the
+          // strip left outside the span stays unfolded and the per-cell
+          // gates quantize that hair up to whole cells (large stray
+          // triangles / arcs). Snap each clipped end OUTWARD to the edge of
+          // the ink it lands in: ink = the per-child bboxes the line passes
+          // STRICTLY through (edge-touching boxes are the crease's own
+          // flap / neighbour paper and must not count), merged into
+          // intervals along the line; an end inside an interval moves to
+          // that interval's outer bound, accepted only within a
+          // 5%-of-chord window (a larger move means the clip is real
+          // paper, not authoring imprecision - leave it, the tear contract
+          // covers it). Exact-boundary scenes snap by zero: byte-identical.
+          let inkScaled = null; // ink boxes in the frame's (scaled) uv
+          if (inkBoxes && inkBoxes.length) {
+            inkScaled = inkBoxes.map(b2 => {
+              let x0 = uc + (b2[0] - uc) * scaleU, x1 = uc + (b2[1] - uc) * scaleU;
+              let y0 = vc + (b2[2] - vc) * scaleV, y1 = vc + (b2[3] - vc) * scaleV;
+              if (x1 < x0) { const t3 = x0; x0 = x1; x1 = t3; }
+              if (y1 < y0) { const t3 = y0; y0 = y1; y1 = t3; }
+              return [x0, x1, y0, y1];
+            });
+          }
+          const tolS = 1e-6 * Math.max(uMax - uMin, vMax - vMin);
+          for (let k2 = 0; k2 < creaseList.length; k2++) {
+            const ck2 = creaseList[k2];
+            let t0 = -Infinity, t1 = Infinity, missK = false;
+            const slabK = (a0, d0, lo, hi) => {
+              if (Math.abs(d0) < 1e-12) { if (a0 < lo || a0 > hi) missK = true; return; }
+              let u0 = (lo - a0) / d0, u1 = (hi - a0) / d0;
+              if (u0 > u1) { const tt = u0; u0 = u1; u1 = tt; }
+              if (u0 > t0) t0 = u0;
+              if (u1 < t1) t1 = u1;
+            };
+            slabK(ck2.A2[0], ck2.dir2[0], uMin, uMax);
+            slabK(ck2.A2[1], ck2.dir2[1], vMin, vMax);
+            if (missK || t0 >= t1) continue;
+            let lo2 = t0, hi2 = t1;
+            for (let j2 = 0; j2 < creaseList.length; j2++) {
+              if (j2 === k2) continue;
+              const cj2 = creaseList[j2];
+              const crossD = ck2.dir2[0] * cj2.dir2[1] - ck2.dir2[1] * cj2.dir2[0];
+              if (Math.abs(crossD) < 1e-9) continue; // parallel creases never cross
+              const den = ck2.dir2[0] * cj2.n2[0] + ck2.dir2[1] * cj2.n2[1];
+              if (Math.abs(den) < 1e-12) continue;
+              const tStar = ((cj2.A2[0] - ck2.A2[0]) * cj2.n2[0] + (cj2.A2[1] - ck2.A2[1]) * cj2.n2[1]) / den;
+              if (den > 0) hi2 = Math.min(hi2, tStar); // flap side is t > tStar
+              else lo2 = Math.max(lo2, tStar);          // flap side is t < tStar
+            }
+            const span2 = t1 - t0;
+            const needLo = lo2 > t0 + tolS, needHi = hi2 < t1 - tolS;
+            if (inkScaled && span2 > 1e-9 && (needLo || needHi)) {
+              const perp = [-ck2.dir2[1], ck2.dir2[0]];
+              const ivs = [];
+              for (const b2 of inkScaled) {
+                // strict straddle: the box's signed-distance range to the
+                // line must cross 0 with real interior on both sides
+                const sC = (((b2[0] + b2[1]) / 2) - ck2.A2[0]) * perp[0]
+                         + (((b2[2] + b2[3]) / 2) - ck2.A2[1]) * perp[1];
+                const sR = Math.abs(perp[0]) * (b2[1] - b2[0]) / 2
+                         + Math.abs(perp[1]) * (b2[3] - b2[2]) / 2;
+                if (!(sC - sR < -tolS && sC + sR > tolS)) continue;
+                // the box's t-slab along the line, clipped to the chord
+                let ta = t0, tb = t1, missB = false;
+                const slabB = (a0, d0, lo, hi) => {
+                  if (Math.abs(d0) < 1e-12) { if (a0 < lo - tolS || a0 > hi + tolS) missB = true; return; }
+                  let q0 = (lo - a0) / d0, q1 = (hi - a0) / d0;
+                  if (q0 > q1) { const t3 = q0; q0 = q1; q1 = t3; }
+                  if (q0 > ta) ta = q0;
+                  if (q1 < tb) tb = q1;
+                };
+                slabB(ck2.A2[0], ck2.dir2[0], b2[0], b2[1]);
+                slabB(ck2.A2[1], ck2.dir2[1], b2[2], b2[3]);
+                if (!missB && ta <= tb) ivs.push([ta, tb]);
+              }
+              ivs.sort((p2, q2) => p2[0] - q2[0]);
+              const merged = [];
+              for (const iv of ivs) {
+                const m2 = merged[merged.length - 1];
+                if (m2 && iv[0] <= m2[1] + tolS) { if (iv[1] > m2[1]) m2[1] = iv[1]; }
+                else merged.push([iv[0], iv[1]]);
+              }
+              const win2 = 0.05 * span2;
+              for (const m2 of merged) {
+                if (needHi && hi2 >= m2[0] - tolS && hi2 <= m2[1] + tolS
+                  && m2[1] > hi2 && (m2[1] - hi2) <= win2) hi2 = Math.min(m2[1], t1);
+                if (needLo && lo2 >= m2[0] - tolS && lo2 <= m2[1] + tolS
+                  && m2[0] < lo2 && (lo2 - m2[0]) <= win2) lo2 = Math.max(m2[0], t0);
+              }
+            }
+            ck2.extentA = Math.max(0, Math.min(1, (lo2 - t0) / span2));
+            ck2.extentB = Math.max(0, Math.min(1, (hi2 - t0) / span2));
+            if (ck2.extentB < ck2.extentA) ck2.extentB = ck2.extentA; // empty: the crease folds nothing
+          }
+        }
         return {
           AX, SG, sideSign, scaleU, scaleV, uc, vc,
           uMin, uMax, vMin, vMax, wMid: (wMin + wMax) / 2,
@@ -40913,6 +41102,15 @@
           slab(ck.A2[0], ck.dir2[0], fr.uMin, fr.uMax);
           slab(ck.A2[1], ck.dir2[1], fr.vMin, fr.vMax);
           if (miss || t0 > t1) return ck.A2;
+          // CREASE EXTENT (v20260818d): the hinge rep is the midpoint of the
+          // ACTIVE span, not the full chord — for extent creases this picks
+          // the physically-correct carried-rotation composition.
+          const eA = ck.extentA ?? 0, eB = ck.extentB ?? 1;
+          if (eA > 1e-9 || eB < 1 - 1e-9) {
+            const c0 = t0, c1 = t1;
+            t0 = c0 + eA * (c1 - c0);
+            t1 = c0 + eB * (c1 - c0);
+          }
           const tm = (t0 + t1) / 2;
           return [ck.A2[0] + ck.dir2[0] * tm, ck.A2[1] + ck.dir2[1] * tm];
         };
@@ -41150,6 +41348,64 @@
         };
         const sLine = (L, p) => (sgU * p[AXu] - L.A2[0]) * L.n2[0] + (sgV * p[AXv] - L.A2[1]) * L.n2[1];
         const tLine = (L, p) => (sgU * p[AXu] - L.A2[0]) * L.dir2[0] + (sgV * p[AXv] - L.A2[1]) * L.dir2[1];
+        // CREASE EXTENT (v20260818d, PLAN-fold-crease-extent.md): the active
+        // span of each crease line in t-units (fractions of its bbox chord).
+        // null = full line (the legacy behavior, byte-identical). Paper
+        // wholly outside a span neither splits nor moves at that crease.
+        const extSpanOf = (L) => {
+          const eA = L.extentA ?? 0, eB = L.extentB ?? 1;
+          if (eA <= 1e-9 && eB >= 1 - 1e-9) return null;
+          let t0 = -Infinity, t1 = Infinity, miss = false;
+          const slab = (a0, d0, lo, hi) => {
+            if (Math.abs(d0) < 1e-12) { if (a0 < lo || a0 > hi) miss = true; return; }
+            let u0 = (lo - a0) / d0, u1 = (hi - a0) / d0;
+            if (u0 > u1) { const tt = u0; u0 = u1; u1 = tt; }
+            if (u0 > t0) t0 = u0;
+            if (u1 < t1) t1 = u1;
+          };
+          slab(L.A2[0], L.dir2[0], fr.uMin, fr.uMax);
+          slab(L.A2[1], L.dir2[1], fr.vMin, fr.vMax);
+          if (miss || t0 > t1) return { a: 1, b: 0 }; // line misses the sheet: empty span
+          return { a: t0 + eA * (t1 - t0), b: t0 + eB * (t1 - t0) };
+        };
+        const extSpans = fr.creaseList.map(extSpanOf);
+        const inSpan = (sp, t) => !sp || (t >= sp.a - onLineTol && t <= sp.b + onLineTol);
+        // v20260819d SPAN-END CROSS LINES: perpendicular pseudo-lines
+        // through the two extent ends, pushed OUTWARD by the tolerance so
+        // border-touching paper stays with the fold (the v20260818d
+        // outward rule, applied along the line direction). Their plus side
+        // (sLine > 0) is the paper BEYOND that end.
+        const spanEndLines = (L, sp) => [
+          { A2: [L.A2[0] + (sp.a - onLineTol) * L.dir2[0], L.A2[1] + (sp.a - onLineTol) * L.dir2[1]],
+            n2: [-L.dir2[0], -L.dir2[1]], dir2: [L.n2[0], L.n2[1]] },
+          { A2: [L.A2[0] + (sp.b + onLineTol) * L.dir2[0], L.A2[1] + (sp.b + onLineTol) * L.dir2[1]],
+            n2: [L.dir2[0], L.dir2[1]], dir2: [L.n2[0], L.n2[1]] }
+        ];
+        // Entry/cell t-range along a crease (endpoints + curve midpoint —
+        // conservative enough: extent gating is whole-cell/whole-entry).
+        const entTRange = (L, en) => {
+          const ts = en.line
+            ? [tLine(L, en.line[0]), tLine(L, en.line[1])]
+            : [tLine(L, en.p0), tLine(L, en.p3), tLine(L, entMid(en))];
+          return [Math.min(...ts), Math.max(...ts)];
+        };
+        const cellOutsideSpan = (cell, L, sp) => {
+          if (!sp) return false;
+          let lo = Infinity, hi = -Infinity;
+          for (const ens of cell.rings) for (const en of ens) {
+            const r = entTRange(L, en);
+            if (r[0] < lo) lo = r[0]; if (r[1] > hi) hi = r[1];
+          }
+          for (const run of cell.opens) for (const en of run) {
+            const r = entTRange(L, en);
+            if (r[0] < lo) lo = r[0]; if (r[1] > hi) hi = r[1];
+          }
+          // OUTWARD tolerance: paper touching the span border belongs to the
+          // fold — the column's own edges sit EXACTLY at the border in the
+          // natural box-fold authoring, and an inward-shrunk test wrongly
+          // excluded them (measured: the dice's column edges never split).
+          return hi < sp.a - onLineTol || lo > sp.b + onLineTol;
+        };
 
         // Split ONE entry at its crossings of line L (Bézier-exact for
         // cubics — the F1 Bernstein sign scan; exact linear solve for
@@ -41343,32 +41599,111 @@
         //           aligned with W_k across children (section keying).
         //  'skip' → 0-angle crease (v20260721e): untouched, placeholder.
         const roles = roleInfo.roles;
-        const bendCell = (cell, L) => {
+        const bendCell = (cell, L, sp) => {
+          // CREASE EXTENT: entries wholly outside the span never touch this
+          // crease — no hinge anchor there (the line is inactive).
+          const gate = (en, out) => {
+            if (sp) {
+              const r = entTRange(L, en);
+              if (r[1] < sp.a - onLineTol || r[0] > sp.b + onLineTol) { out.push(en); return; } // outward tol (see cellOutsideSpan)
+              // v20260819d: an entry CROSSING a span end must also split
+              // there - bitsForPt's midpoint verdict is whole-entry, and a
+              // straddling entry would carry one verdict across the
+              // boundary (the bend-side twin of the span-end-bits fix).
+              if (r[0] < sp.a - onLineTol || r[1] > sp.b + onLineTol) {
+                let cur = [];
+                splitEntry(L, en, cur);
+                for (const CL of spanEndLines(L, sp)) {
+                  const nx = [];
+                  for (const e2 of cur) splitEntry(CL, e2, nx);
+                  cur = nx;
+                }
+                for (const e2 of cur) out.push(e2);
+                return;
+              }
+            }
+            splitEntry(L, en, out);
+          };
           cell.rings = cell.rings.map(ens => {
             const out = [];
-            for (const en of ens) splitEntry(L, en, out);
+            for (const en of ens) gate(en, out);
             return out;
           });
           cell.opens = cell.opens.map(run => {
             const out = [];
-            for (const en of run) splitEntry(L, en, out);
+            for (const en of run) gate(en, out);
             return out;
           });
         };
         let cells = [{ sig: '', rings: rings, opens: openRuns }];
         fr.creaseList.forEach((ck, kIdx) => {
           if (roles[kIdx] !== 'cut') {
-            if (roles[kIdx] === 'bend') cells.forEach(cell => bendCell(cell, ck));
+            if (roles[kIdx] === 'bend') cells.forEach(cell => bendCell(cell, ck, extSpans[kIdx]));
             cells.forEach(cell => { cell.sig += '0'; });
             return;
           }
           const next = [];
           for (const cell of cells) {
+            // CREASE EXTENT: a cell wholly outside the span is not this
+            // crease's paper — '0' bit, no split (the same passthrough shape
+            // as the placeholder path). Straddling cells split at the full
+            // line: the tear contract (extent ends belong in empty paper).
+            if (cellOutsideSpan(cell, ck, extSpans[kIdx])) {
+              next.push({ sig: cell.sig + '0', rings: cell.rings, opens: cell.opens });
+              continue;
+            }
             const { m1, p1 } = splitCell(cell, ck);
+            // v20260819d SPAN-END BITS: the full-line split above is the
+            // tear contract, but the '1' (fold) bit belongs only to
+            // flap-side paper WITHIN the span. When the crease line sits a
+            // hair inside the sheet (the owner's imprecise dice), the
+            // flap-side sliver extends past the extent ends - paper that
+            // was never attached to this hinge - and a whole-cell '1'
+            // would swing it from far outside the span (the ground-
+            // triangle artifact). Split the flap cell at the span-end
+            // cross lines and merge the beyond parts into the '0' side
+            // (physically continuous with it). Wholly-in-span flap cells
+            // skip the surgery: exact scenes stay byte-identical.
+            let flap = p1;
+            const spK = extSpans[kIdx];
+            if (spK && (p1.rings.length || p1.opens.length)) {
+              let fLo = Infinity, fHi = -Infinity;
+              for (const ens of p1.rings) for (const en of ens) {
+                const r2 = entTRange(ck, en);
+                if (r2[0] < fLo) fLo = r2[0]; if (r2[1] > fHi) fHi = r2[1];
+              }
+              for (const run of p1.opens) for (const en of run) {
+                const r2 = entTRange(ck, en);
+                if (r2[0] < fLo) fLo = r2[0]; if (r2[1] > fHi) fHi = r2[1];
+              }
+              if (fLo < spK.a - onLineTol || fHi > spK.b + onLineTol) {
+                for (const CL of spanEndLines(ck, spK)) {
+                  const r3 = splitCell(flap, CL);
+                  m1.rings.push(...r3.p1.rings);
+                  m1.opens.push(...r3.p1.opens);
+                  flap = r3.m1;
+                }
+              }
+            }
             if (m1.rings.length || m1.opens.length) next.push({ sig: cell.sig + '0', rings: m1.rings, opens: m1.opens });
-            if (p1.rings.length || p1.opens.length) next.push({ sig: cell.sig + '1', rings: p1.rings, opens: p1.opens });
+            if (flap.rings.length || flap.opens.length) next.push({ sig: cell.sig + '1', rings: flap.rings, opens: flap.opens });
           }
           cells = next;
+        });
+        // v20260819e LATE-CHORD BEND SWEEP: entries CREATED by a cut pass
+        // (the region-stitch chords along the cut line, and the span-end
+        // cross chords) never met the bendCell splits of EARLIER bend
+        // creases - the pass loop splits in list order only. A chord
+        // straddling a bend line then takes ONE whole-entry midpoint
+        // verdict in bitsForPt and the ring tears, the fill closing
+        // straight across the gap (the dice's camera-dependent triangle:
+        // the crease-4 cut chord straddled a bend crease at the cube's
+        // top edge; camera-dependent because ROLES are eye-dependent).
+        // Re-run the bend splits over the FINAL cells: idempotent for
+        // entries already conforming (no crossing -> pushed unchanged), so
+        // scenes without late chords are byte-identical.
+        fr.creaseList.forEach((ck, kIdx) => {
+          if (roles[kIdx] === 'bend') cells.forEach(cell => bendCell(cell, ck, extSpans[kIdx]));
         });
         cells.sort((a, b) => a.sig < b.sig ? -1 : (a.sig > b.sig ? 1 : 0));
 
@@ -41403,7 +41738,12 @@
               if (roles[k] === 'cut') bits += cell.sig[k];
               else if (roles[k] === 'bend') {
                 const ck = fr.creaseList[k];
-                bits += ((sgU * m[AXu] - ck.A2[0]) * ck.n2[0] + (sgV * m[AXv] - ck.A2[1]) * ck.n2[1] >= 0) ? '1' : '0';
+                // CREASE EXTENT (v20260818d): a point beyond the active span
+                // is not this crease's paper — bit '0'. THIS is the test
+                // that captured the dice's folded wall (the bend line
+                // crossing already-folded paper in source space).
+                bits += (((sgU * m[AXu] - ck.A2[0]) * ck.n2[0] + (sgV * m[AXv] - ck.A2[1]) * ck.n2[1] >= 0)
+                  && inSpan(extSpans[k], tLine(ck, m))) ? '1' : '0';
               } else bits += '0';
             }
             return bits;
@@ -41584,12 +41924,16 @@
               subs.sort((a, b) => a - b);
               for (let m = 0; m + 1 < subs.length; m++) {
                 const tm2 = (subs[m] + subs[m + 1]) / 2;
+                if (!inSpan(extSpans[k], tm2)) continue; // CREASE EXTENT: no mark beyond the active span
                 const pm = p2Of(tm2);
                 let bits = '';
                 for (let q = 0; q < roles.length; q++) {
                   if (roles[q] === 'skip') { bits += '0'; continue; }
                   const cq = fr.creaseList[q];
-                  bits += ((pm[0] - cq.A2[0]) * cq.n2[0] + (pm[1] - cq.A2[1]) * cq.n2[1] >= 0) ? '1' : '0';
+                  // CREASE EXTENT: mirror the transform's gating (2D t here).
+                  const tq = (pm[0] - cq.A2[0]) * cq.dir2[0] + (pm[1] - cq.A2[1]) * cq.dir2[1];
+                  bits += (((pm[0] - cq.A2[0]) * cq.n2[0] + (pm[1] - cq.A2[1]) * cq.n2[1] >= 0)
+                    && inSpan(extSpans[q], tq)) ? '1' : '0';
                 }
                 let cutSig = '';
                 for (let q = 0; q < roles.length; q++) cutSig += roles[q] === 'cut' ? bits[q] : '0';
@@ -41677,7 +42021,7 @@
           ? Path._foldCreaseRoles(fr, eyeL || null, !!fs.forceSplit)
           : null;
         const roleSig = roleInfo ? `|R:${roleInfo.roles.map(r => r[0]).join('')}|DC:${fs.drawCrease ? 1 : 0}${fs.creaseShowAt0 ? 1 : 0}` : '';
-        const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.creases.map(c2 => [c2.position, c2.positionV, c2.rotation, c2.angle, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}${inhSig}${roleSig}`;
+        const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.autoExtent ? 'AE|' : ''}${fs.creases.map(c2 => [c2.position, c2.positionV, c2.rotation, c2.angle, c2.extentA, c2.extentB, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}${inhSig}${roleSig}`;
         const fdHit = this._foldCache ? this._foldCache.get(key) : null;
         if (fdHit) return fdHit.val;
 
@@ -60515,6 +60859,8 @@
         const fdScaleVInput = document.getElementById('foldScaleVInput');
         const fdPositionInput = document.getElementById('foldPositionInput');
         const fdPositionVInput = document.getElementById('foldPositionVInput'); // POSITION V (v20260817d)
+        const fdExtentAInput = document.getElementById('foldExtentAInput'); // CREASE EXTENT (v20260818d)
+        const fdExtentBInput = document.getElementById('foldExtentBInput');
         const fdRotationInput = document.getElementById('foldRotationInput');
         const fdAngleInput = document.getElementById('foldAngleInput');
         const fdSideInput = document.getElementById('foldSideInput');
@@ -60554,6 +60900,8 @@
           syncSel(fdScaleVInput, fd ? (fd.scaleV ?? 1) : 1);
           syncSel(fdPositionInput, cr ? (cr.position ?? 0.5) : 0.5);
           syncSel(fdPositionVInput, cr ? (cr.positionV ?? 0.5) : 0.5); // POSITION V (v20260817d)
+          syncSel(fdExtentAInput, cr ? (cr.extentA ?? 0) : 0); // CREASE EXTENT (v20260818d)
+          syncSel(fdExtentBInput, cr ? (cr.extentB ?? 1) : 1);
           syncSel(fdRotationInput, cr ? (cr.rotation || 0) : 0);
           syncSel(fdAngleInput, cr ? (cr.angle || 0) : 0);
           syncSel(fdSideInput, (cr && cr.side === 'left') ? 'left' : 'right');
@@ -60572,6 +60920,22 @@
           if (fdFsInput && document.activeElement !== fdFsInput) {
             fdFsInput.checked = !!(fd && fd.forceSplit);
             fdFsInput.disabled = fdDisabled;
+          }
+          // AUTO EXTENT (v20260819a): checkbox sync + the manual extent
+          // inputs grey out while the spans are computed.
+          {
+            const aeRow = document.getElementById('foldAutoExtentRow');
+            if (aeRow) aeRow.style.display = fdMulti ? '' : 'none';
+            const aeInput = document.getElementById('foldAutoExtentInput');
+            const aeOn = !!(fd && fd.autoExtent);
+            if (aeInput && document.activeElement !== aeInput) {
+              aeInput.checked = aeOn;
+              aeInput.disabled = fdDisabled;
+            }
+            const exA = document.getElementById('foldExtentAInput');
+            const exB = document.getElementById('foldExtentBInput');
+            if (exA) exA.disabled = fdDisabled || aeOn;
+            if (exB) exB.disabled = fdDisabled || aeOn;
           }
           // Sticker Back (v20260803j): ALL modes — the owner's use case is
           // curl. Default-ON polarity: read is `!== false` so legacy scenes
@@ -60655,6 +61019,10 @@
                   `<input type="number" step="0.01" data-fold-idx="${ci}" data-fold-key="position" /></div></div>` +
                   `<div class="xyz-row"><label>Position V</label><div class="xyz-inputs">` +
                   `<input type="number" step="0.01" data-fold-idx="${ci}" data-fold-key="positionV" /></div></div>` +
+                  `<div class="xyz-row"><label>Extent A</label><div class="xyz-inputs">` +
+                  `<input type="number" step="0.01" data-fold-idx="${ci}" data-fold-key="extentA" /></div></div>` +
+                  `<div class="xyz-row"><label>Extent B</label><div class="xyz-inputs">` +
+                  `<input type="number" step="0.01" data-fold-idx="${ci}" data-fold-key="extentB" /></div></div>` +
                   `<div class="xyz-row"><label>Rotation</label><div class="xyz-inputs">` +
                   `<input type="number" step="1" data-fold-idx="${ci}" data-fold-key="rotation" /></div></div>` +
                   `<div class="xyz-row"><label>Angle</label><div class="xyz-inputs">` +
@@ -60673,9 +61041,10 @@
               const kk = inp.dataset.foldKey;
               if (document.activeElement !== inp) {
                 if (kk === 'side') inp.value = (c2 && c2.side === 'left') ? 'left' : 'right';
-                else inp.value = c2 ? (c2[kk] ?? ((kk === 'position' || kk === 'positionV') ? 0.5 : 0)) : 0;
+                else inp.value = c2 ? (c2[kk] ?? ((kk === 'position' || kk === 'positionV') ? 0.5 : (kk === 'extentB' ? 1 : 0))) : 0;
               }
-              inp.disabled = fdDisabled;
+              inp.disabled = fdDisabled
+                || (!!(fd && fd.autoExtent) && (kk === 'extentA' || kk === 'extentB')); // AUTO EXTENT (v20260819a)
             });
             fdCreaseList.querySelectorAll('button[data-fold-remove], button[data-fold-up]').forEach(btn => { btn.disabled = fdDisabled; });
           }
@@ -61755,6 +62124,14 @@
       document.getElementById('foldPositionVInput')?.addEventListener('input', (e) => {
         fdApply((fd, cr) => { cr.positionV = parseFloat(e.target.value) || 0; }, ['fdPositionV']);
       });
+      // CREASE EXTENT (v20260818d): segment creases.
+      document.getElementById('foldExtentAInput')?.addEventListener('input', (e) => {
+        fdApply((fd, cr) => { cr.extentA = parseFloat(e.target.value) || 0; }, ['fdExtentA']);
+      });
+      document.getElementById('foldExtentBInput')?.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        fdApply((fd, cr) => { cr.extentB = isFinite(v) ? v : 1; }, ['fdExtentB']);
+      });
       document.getElementById('foldRotationInput')?.addEventListener('input', (e) => {
         fdApply((fd, cr) => { cr.rotation = parseFloat(e.target.value) || 0; }, ['fdRotation']);
       });
@@ -61768,6 +62145,10 @@
       // count changes).
       document.getElementById('foldForceSplitInput')?.addEventListener('change', (e) => {
         fdApply(fd => { fd.forceSplit = e.target.checked; });
+      });
+      // AUTO EXTENT (v20260819a)
+      document.getElementById('foldAutoExtentInput')?.addEventListener('change', (e) => {
+        fdApply(fd => { fd.autoExtent = e.target.checked; });
       });
       // (Sticker Back listener removed v20260817b — tri-state Backside.)
       // DRAW CREASE (v20260722c)
@@ -61807,6 +62188,7 @@
           fd.creases.push({
             position: (last?.position ?? 0.5) + 0.15,
             positionV: last?.positionV ?? 0.5, // 2D anchor (v20260817d): inherit
+            extentA: last?.extentA ?? 0, extentB: last?.extentB ?? 1, // segment creases (v20260818d): inherit
             rotation: last?.rotation ?? 0, // parallel to the last crease by default
             angle: (last && last.angle) ? -last.angle : 90,
             radius: last?.radius ?? 0.5,
@@ -61829,7 +62211,7 @@
         // N ≥ 2 uses fdN* — the same naming _foldParamOf resolves.
         const akCap = kk.charAt(0).toUpperCase() + kk.slice(1);
         const akProp = ci === 0 ? ('fd' + akCap) : ('fd' + (ci + 1) + akCap);
-        fdApply((fd) => { if (fd.creases[ci]) fd.creases[ci][kk] = isFinite(v) ? v : 0; }, [akProp]);
+        fdApply((fd) => { if (fd.creases[ci]) fd.creases[ci][kk] = isFinite(v) ? v : (kk === 'extentB' ? 1 : 0); }, [akProp]); // extentB's empty-input default is 1 (full line), not 0 (v20260818d)
       });
       document.getElementById('foldCreaseList')?.addEventListener('click', (e) => {
         // Move Up (v20260721b): swap with the crease above — LIST ORDER IS
@@ -61853,6 +62235,109 @@
         const ci = parseInt(btn.dataset.foldRemove, 10);
         fdApply((fd) => { if (fd.creases.length > 1 && fd.creases[ci]) fd.creases.splice(ci, 1); });
       });
+
+      // FOLD HANDLE DRAG (v20260818g, owner request): the crease guide's
+      // ANCHOR dot drags Position U/V and the extent TICKS drag Extent A/B —
+      // directly on the canvas. The guide draw stamps Path._foldGuideCtx
+      // {fr, mvp, obj} fresh every render; handles carry data-fold-handle /
+      // data-fold-idx. A capture-phase mousedown on the svg wins over the
+      // tools (stopPropagation halts the bubble-phase onMouseDown); moves
+      // and the release ride window listeners so leaving the canvas cannot
+      // strand the drag. Every write goes through fdApply — the SAME path
+      // as scrubbing the number inputs, so coalesced undo, Auto-Key (the
+      // fdN naming) and live panel sync come for free.
+      const _fhSheetUV = (clientX, clientY, ctx) => {
+        // client px → pathHighlightGroup local (FRAME/2-scaled NDC) → NDC,
+        // then Newton-invert the sheet-plane projection (perspective-safe).
+        const ctm = pathHighlightGroup.getScreenCTM();
+        if (!ctm) return null;
+        const inv = ctm.inverse();
+        const px = inv.a * clientX + inv.c * clientY + inv.e;
+        const py = inv.b * clientX + inv.d * clientY + inv.f;
+        const nx = px * 2 / FRAME_SIZE, ny = -py * 2 / FRAME_SIZE;
+        const fr = ctx.fr;
+        const S = (u, v) => {
+          const p = [0, 0, 0];
+          p[fr.AX[0]] = fr.SG[0] * u;
+          p[fr.AX[1]] = fr.SG[1] * v;
+          p[fr.AX[2]] = fr.wMid;
+          const sc = transformVertex(p, ctx.mvp);
+          return sc ? [sc[0], sc[1]] : null;
+        };
+        let u = (fr.uMin + fr.uMax) / 2, v = (fr.vMin + fr.vMax) / 2;
+        const du = (fr.uMax - fr.uMin) * 0.01 || 1e-3, dv = (fr.vMax - fr.vMin) * 0.01 || 1e-3;
+        for (let it = 0; it < 7; it++) {
+          const s0 = S(u, v);
+          const su = S(u + du, v), sv = S(u, v + dv);
+          if (!s0 || !su || !sv) return null;
+          const a = (su[0] - s0[0]) / du, b = (sv[0] - s0[0]) / dv;
+          const c = (su[1] - s0[1]) / du, d = (sv[1] - s0[1]) / dv;
+          const det = a * d - b * c;
+          if (Math.abs(det) < 1e-12) return null;
+          const rx = nx - s0[0], ry = ny - s0[1];
+          u += (d * rx - b * ry) / det;
+          v += (-c * rx + a * ry) / det;
+        }
+        return [u, v];
+      };
+      let _fhDrag = null;
+      svg.addEventListener('mousedown', (e) => {
+        const t = e.target;
+        if (!t || !t.dataset || !t.dataset.foldHandle) return;
+        const ctx = Path._foldGuideCtx;
+        if (!ctx || !selectedObject || selectedObject !== ctx.obj) return;
+        // AUTO EXTENT (v20260819a): computed spans are not draggable —
+        // the anchor still is (and moves the auto span live).
+        if (t.dataset.foldHandle !== 'anchor' && selectedObject.foldSettings && selectedObject.foldSettings.autoExtent) return;
+        _fhDrag = { kind: t.dataset.foldHandle, ci: parseInt(t.dataset.foldIdx, 10) || 0 };
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }, true);
+      window.addEventListener('mousemove', (e) => {
+        if (!_fhDrag) return;
+        const ctx = Path._foldGuideCtx;
+        if (!ctx || !selectedObject || selectedObject !== ctx.obj) { _fhDrag = null; return; }
+        const uv = _fhSheetUV(e.clientX, e.clientY, ctx);
+        if (!uv) return;
+        const fr = ctx.fr, ci = _fhDrag.ci;
+        const akN = (key) => ci === 0 ? 'fd' + key : 'fd' + (ci + 1) + key;
+        const r3 = (x) => Math.round(x * 1000) / 1000;
+        if (_fhDrag.kind === 'anchor') {
+          const pu = r3((uv[0] - fr.uMin) / ((fr.uMax - fr.uMin) || 1));
+          const pv = r3((uv[1] - fr.vMin) / ((fr.vMax - fr.vMin) || 1));
+          fdApply((fd) => {
+            const cr = fd.creases[ci];
+            if (!cr) return;
+            cr.position = pu;
+            cr.positionV = pv;
+          }, [akN('Position'), akN('PositionV')]);
+        } else {
+          const ck = fr.creaseList && fr.creaseList[ci];
+          if (!ck) return;
+          const tL = (uv[0] - ck.A2[0]) * ck.dir2[0] + (uv[1] - ck.A2[1]) * ck.dir2[1];
+          // chord of the line across the sheet bbox (the extent's 0..1 space)
+          let c0 = -Infinity, c1 = Infinity, miss = false;
+          const slab = (a0, d0, lo, hi) => {
+            if (Math.abs(d0) < 1e-12) { if (a0 < lo || a0 > hi) miss = true; return; }
+            let u0 = (lo - a0) / d0, u1 = (hi - a0) / d0;
+            if (u0 > u1) { const tt = u0; u0 = u1; u1 = tt; }
+            if (u0 > c0) c0 = u0;
+            if (u1 < c1) c1 = u1;
+          };
+          slab(ck.A2[0], ck.dir2[0], fr.uMin, fr.uMax);
+          slab(ck.A2[1], ck.dir2[1], fr.vMin, fr.vMax);
+          if (miss || c0 >= c1) return;
+          const f = r3(Math.max(0, Math.min(1, (tL - c0) / (c1 - c0))));
+          const isA = _fhDrag.kind === 'extA';
+          fdApply((fd) => {
+            const cr = fd.creases[ci];
+            if (!cr) return;
+            if (isA) cr.extentA = Math.min(f, (cr.extentB ?? 1) - 0.02);
+            else cr.extentB = Math.max(f, (cr.extentA ?? 0) + 0.02);
+          }, [akN(isA ? 'ExtentA' : 'ExtentB')]);
+        }
+      });
+      window.addEventListener('mouseup', () => { _fhDrag = null; });
     })();
 
     // Reset Pivot Button
@@ -67703,10 +68188,14 @@
             : selectedObject._foldFrame();
           if (fr) {
             const guideMVP = resolveObjectMVP(selectedObject, vpMatrix); // 2D MODE aware
+            // FOLD HANDLE DRAG (v20260818g): fresh context every render for
+            // the canvas drag of anchors and extent ticks (same fr/mvp as
+            // the drawn guides, so the drag can never disagree with them).
+            Path._foldGuideCtx = { fr, mvp: guideMVP, obj: selectedObject };
             // Draw one guide line through UV anchor a2 along direction d2,
             // clipped to the bbox (+6% overhang). v20260721b: anchor and
             // direction are explicit — each crease has its own line.
-            const drawGuideLine = (a2, d2, id, widthPx, dashOn, dashOff, opacity) => {
+            const drawGuideLine = (a2, d2, id, widthPx, dashOn, dashOff, opacity, ext, hIdx) => {
               const exU = (fr.uMax - fr.uMin) * 0.06 + 1e-6;
               const exV = (fr.vMax - fr.vMin) * 0.06 + 1e-6;
               let gtMin = -Infinity, gtMax = Infinity, gMiss = false;
@@ -67720,28 +68209,94 @@
               slab(a2[0], d2[0], fr.uMin - exU, fr.uMax + exU);
               slab(a2[1], d2[1], fr.vMin - exV, fr.vMax + exV);
               if (gMiss || gtMin >= gtMax) return;
-              const mk3 = (t) => {
+              // CREASE EXTENT (v20260818d; visual upgraded v20260818e): the
+              // ACTIVE span draws as the normal guide, the INACTIVE remainder
+              // of the line as a faint dashed continuation (context: where
+              // the span sits in the full line), and the two span ends get
+              // perpendicular TICKS — the tweakable endpoints made visible.
+              // Fractions apply to the tight (un-overhung) chord so they
+              // match the geometry's spans.
+              let act0 = gtMin, act1 = gtMax, hasExt = false;
+              if (ext && (ext[0] > 1e-9 || ext[1] < 1 - 1e-9)) {
+                let c0 = -Infinity, c1 = Infinity, cMiss = false;
+                const slab2 = (a0, d0, lo, hi) => {
+                  if (Math.abs(d0) < 1e-12) { if (a0 < lo || a0 > hi) cMiss = true; return; }
+                  let u0 = (lo - a0) / d0, u1 = (hi - a0) / d0;
+                  if (u0 > u1) { const tt = u0; u0 = u1; u1 = tt; }
+                  if (u0 > c0) c0 = u0;
+                  if (u1 < c1) c1 = u1;
+                };
+                slab2(a2[0], d2[0], fr.uMin, fr.uMax);
+                slab2(a2[1], d2[1], fr.vMin, fr.vMax);
+                if (cMiss || c0 > c1) return;
+                act0 = Math.max(gtMin, c0 + ext[0] * (c1 - c0));
+                act1 = Math.min(gtMax, c0 + ext[1] * (c1 - c0));
+                if (act0 >= act1) return;
+                hasExt = true;
+              }
+              const mk3uv = (u, v) => {
                 const p = [0, 0, 0];
-                p[fr.AX[0]] = fr.SG[0] * (a2[0] + d2[0] * t); // v20260720n: signed axes
-                p[fr.AX[1]] = fr.SG[1] * (a2[1] + d2[1] * t);
+                p[fr.AX[0]] = fr.SG[0] * u; // v20260720n: signed axes
+                p[fr.AX[1]] = fr.SG[1] * v;
                 p[fr.AX[2]] = fr.wMid;
                 return p;
               };
-              const ga = transformVertex(mk3(gtMin), guideMVP);
-              const gb = transformVertex(mk3(gtMax), guideMVP);
-              if (!ga || !gb) return;
-              const gLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-              gLine.id = id;
-              gLine.setAttribute('x1', (ga[0] * FRAME_SIZE) / 2);
-              gLine.setAttribute('y1', (-ga[1] * FRAME_SIZE) / 2);
-              gLine.setAttribute('x2', (gb[0] * FRAME_SIZE) / 2);
-              gLine.setAttribute('y2', (-gb[1] * FRAME_SIZE) / 2);
-              gLine.setAttribute('stroke', _highlightColor);
-              gLine.setAttribute('stroke-width', widthPx / scale);
-              gLine.setAttribute('stroke-dasharray', `${dashOn / scale} ${dashOff / scale}`);
-              if (opacity !== 1) gLine.setAttribute('stroke-opacity', opacity);
-              gLine.style.pointerEvents = 'none';
-              pathHighlightGroup.appendChild(gLine);
+              const mk3 = (t) => mk3uv(a2[0] + d2[0] * t, a2[1] + d2[1] * t);
+              const emit = (pA, pB, sid, w, dash, op) => {
+                const ga = transformVertex(pA, guideMVP);
+                const gb = transformVertex(pB, guideMVP);
+                if (!ga || !gb) return;
+                const gLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                gLine.id = sid;
+                gLine.setAttribute('x1', (ga[0] * FRAME_SIZE) / 2);
+                gLine.setAttribute('y1', (-ga[1] * FRAME_SIZE) / 2);
+                gLine.setAttribute('x2', (gb[0] * FRAME_SIZE) / 2);
+                gLine.setAttribute('y2', (-gb[1] * FRAME_SIZE) / 2);
+                gLine.setAttribute('stroke', _highlightColor);
+                gLine.setAttribute('stroke-width', w / scale);
+                if (dash) gLine.setAttribute('stroke-dasharray', dash);
+                if (op !== 1) gLine.setAttribute('stroke-opacity', op);
+                gLine.style.pointerEvents = 'none';
+                pathHighlightGroup.appendChild(gLine);
+              };
+              emit(mk3(act0), mk3(act1), id, widthPx, `${dashOn / scale} ${dashOff / scale}`, opacity);
+              if (hasExt) {
+                const faintDash = `${2 / scale} ${5 / scale}`;
+                if (act0 - gtMin > 1e-9) emit(mk3(gtMin), mk3(act0), id + '_off0', widthPx * 0.8, faintDash, 0.3);
+                if (gtMax - act1 > 1e-9) emit(mk3(act1), mk3(gtMax), id + '_off1', widthPx * 0.8, faintDash, 0.3);
+              }
+              // Ticks draw whenever an extent CAN exist (the ext param —
+              // fold-mode creases), full line or not: since v20260818g they
+              // are the DRAG HANDLES for Extent A/B. Each tick gets a wider
+              // invisible hit twin so a 2px stroke is grabbable.
+              if (ext && hIdx !== undefined) {
+                const diag = Math.hypot(fr.uMax - fr.uMin, fr.vMax - fr.vMin) || 1;
+                const h = 0.02 * diag;
+                const pd = [-d2[1], d2[0]];
+                const tick = (t, sid, handle) => {
+                  const bu = a2[0] + d2[0] * t, bv = a2[1] + d2[1] * t;
+                  const pA = mk3uv(bu + pd[0] * h, bv + pd[1] * h);
+                  const pB = mk3uv(bu - pd[0] * h, bv - pd[1] * h);
+                  emit(pA, pB, sid, widthPx * 1.3, null, 1);
+                  const vis = document.getElementById(sid);
+                  if (selectedObject.foldSettings && selectedObject.foldSettings.autoExtent) return; // AUTO EXTENT: indicator only
+                  const hit = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                  if (vis) {
+                    hit.id = sid + '_hit';
+                    for (const at of ['x1', 'y1', 'x2', 'y2']) hit.setAttribute(at, vis.getAttribute(at));
+                    hit.setAttribute('stroke', '#000');
+                    hit.setAttribute('stroke-opacity', '0');
+                    hit.setAttribute('stroke-width', 14 / scale);
+                    hit.style.pointerEvents = 'all';
+                    hit.style.cursor = 'grab';
+                    hit.dataset.foldHandle = handle;
+                    hit.dataset.foldIdx = hIdx;
+                    pathHighlightGroup.appendChild(hit);
+                  }
+                };
+                tick(act0, id + '_ta', 'extA');
+                tick(act1, id + '_tb', 'extB');
+              }
             };
             // One line per crease (fold chains, v20260721a) — each with its
             // OWN anchor and rotation (v20260721b); curved modes draw the
@@ -67750,7 +68305,34 @@
               ? fr.creaseList
               : [{ A2: fr.A2, dir2: fr.dir2 }];
             guideLines.forEach((ck, li) => {
-              drawGuideLine(ck.A2, ck.dir2, li ? 'foldCreaseGuide_' + li : 'foldCreaseGuide', 1.5, 6, 4, 1);
+              const isCrease = fr.mode === 'fold';
+              drawGuideLine(ck.A2, ck.dir2, li ? 'foldCreaseGuide_' + li : 'foldCreaseGuide', 1.5, 6, 4, 1,
+                isCrease ? [ck.extentA ?? 0, ck.extentB ?? 1] : null, // CREASE EXTENT (v20260818d)
+                isCrease ? li : undefined); // v20260818g: tick handles carry the crease index
+              // ANCHOR HANDLE (v20260818g): a draggable dot at the crease
+              // anchor — drags Position U/V (curved modes too: crease 1).
+              {
+                const p = [0, 0, 0];
+                p[fr.AX[0]] = fr.SG[0] * ck.A2[0];
+                p[fr.AX[1]] = fr.SG[1] * ck.A2[1];
+                p[fr.AX[2]] = fr.wMid;
+                const sc = transformVertex(p, guideMVP);
+                if (sc) {
+                  const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                  dot.id = 'foldCreaseGuideAnchor_' + li;
+                  dot.setAttribute('cx', (sc[0] * FRAME_SIZE) / 2);
+                  dot.setAttribute('cy', (-sc[1] * FRAME_SIZE) / 2);
+                  dot.setAttribute('r', 5 / scale);
+                  dot.setAttribute('fill', _highlightColor);
+                  dot.setAttribute('stroke', '#ffffff');
+                  dot.setAttribute('stroke-width', 1.2 / scale);
+                  dot.style.pointerEvents = 'all';
+                  dot.style.cursor = 'move';
+                  dot.dataset.foldHandle = 'anchor';
+                  dot.dataset.foldIdx = li;
+                  pathHighlightGroup.appendChild(dot);
+                }
+              }
             });
             // WRAP (v20260720u): fainter second line marks the bend-zone end
             // (s = wArc in SOURCE space — where the flat tail begins).
@@ -80145,6 +80727,8 @@
       { prop: 'fdScaleV', label: 'Scale V', fsKey: 'scaleV', precision: 2, step: 0.1 },
       { prop: 'fdPosition', label: 'Position U', foldKey: 'position', precision: 2, step: 0.01 },
       { prop: 'fdPositionV', label: 'Position V', foldKey: 'positionV', precision: 2, step: 0.01 }, // 2D anchor (v20260817d)
+      { prop: 'fdExtentA', label: 'Extent A', foldKey: 'extentA', precision: 2, step: 0.01 }, // segment creases (v20260818d)
+      { prop: 'fdExtentB', label: 'Extent B', foldKey: 'extentB', precision: 2, step: 0.01 },
       { prop: 'fdRotation', label: 'Rotation', foldKey: 'rotation', precision: 1, step: 5 },
       { prop: 'fdAngle', label: 'Angle', foldKey: 'angle', precision: 1, step: 5 },
       { prop: 'fdRadius', label: 'Radius', foldKey: 'radius', precision: 2, step: 0.05 }, // wrap (v20260720u)
@@ -80154,12 +80738,14 @@
     const _foldRead = (obj, def) => {
       if (!obj || !obj.foldSettings) return null;
       if (def.fsKey) return obj.foldSettings[def.fsKey] ?? null;
-      // POSITION V (v20260817d): the key is OPTIONAL on legacy creases
-      // (absent = the old pinned v-middle), so the read must supply the 0.5
-      // default here — callers fall back with `?? 0`, which would snap an
-      // auto-keyed crease to the sheet edge.
+      // POSITION V (v20260817d) / EXTENTS (v20260818d): these keys are
+      // OPTIONAL on legacy creases, so the read must supply the real
+      // defaults here — callers fall back with `?? 0`, which would snap an
+      // auto-keyed crease to the sheet edge (positionV) or to ZERO LENGTH
+      // (extentB — its default is 1, the full line).
+      const _fdDef = { positionV: 0.5, extentA: 0, extentB: 1 };
       return obj.foldSettings.creases?.[def.creaseIdx || 0]?.[def.foldKey]
-        ?? (def.foldKey === 'positionV' ? 0.5 : null);
+        ?? (def.foldKey in _fdDef ? _fdDef[def.foldKey] : null);
     };
     const _foldWrite = (obj, def, val) => {
       if (!obj || !obj.foldSettings) return false;
@@ -80177,16 +80763,18 @@
       const st = _foldParams.find(p2 => p2.prop === prop);
       if (st) return st;
       // POSITION V (v20260817d): PositionV must precede Position in the
-      // alternation (else fdNPositionV never matches), and its foldKey stays
-      // camelCase — a bare toLowerCase() would write creases[i].positionv.
-      const m2 = /^fd(\d+)(PositionV|Position|Rotation|Angle|Radius|Pitch|Tighten)$/.exec(prop);
+      // alternation (else fdNPositionV never matches), and camelCase
+      // foldKeys are mapped explicitly — a bare toLowerCase() would write
+      // creases[i].positionv / .extenta. Extents added v20260818d.
+      const m2 = /^fd(\d+)(PositionV|Position|Rotation|Angle|Radius|Pitch|Tighten|ExtentA|ExtentB)$/.exec(prop);
       if (!m2) return null;
       const ci = parseInt(m2[1], 10) - 1;
       if (ci < 1) return null; // crease 1 = the legacy un-numbered props
-      const meta = { PositionV: [2, 0.01], Position: [2, 0.01], Rotation: [1, 5], Angle: [1, 5], Radius: [2, 0.05], Pitch: [2, 0.05], Tighten: [2, 0.05] };
+      const meta = { PositionV: [2, 0.01], Position: [2, 0.01], Rotation: [1, 5], Angle: [1, 5], Radius: [2, 0.05], Pitch: [2, 0.05], Tighten: [2, 0.05], ExtentA: [2, 0.01], ExtentB: [2, 0.01] };
+      const camel = { PositionV: 'positionV', ExtentA: 'extentA', ExtentB: 'extentB' };
       return {
         prop, label: `C${ci + 1} ${m2[2]}`,
-        foldKey: m2[2] === 'PositionV' ? 'positionV' : m2[2].toLowerCase(), creaseIdx: ci,
+        foldKey: camel[m2[2]] || m2[2].toLowerCase(), creaseIdx: ci,
         precision: meta[m2[2]][0], step: meta[m2[2]][1]
       };
     };
@@ -80195,7 +80783,7 @@
       const crs = obj?.foldSettings?.creases;
       if (Array.isArray(crs)) {
         for (let ci = 1; ci < crs.length; ci++) {
-          out.push(_foldParamOf(`fd${ci + 1}Position`), _foldParamOf(`fd${ci + 1}PositionV`), _foldParamOf(`fd${ci + 1}Rotation`), _foldParamOf(`fd${ci + 1}Angle`));
+          out.push(_foldParamOf(`fd${ci + 1}Position`), _foldParamOf(`fd${ci + 1}PositionV`), _foldParamOf(`fd${ci + 1}ExtentA`), _foldParamOf(`fd${ci + 1}ExtentB`), _foldParamOf(`fd${ci + 1}Rotation`), _foldParamOf(`fd${ci + 1}Angle`));
         }
       }
       return out;

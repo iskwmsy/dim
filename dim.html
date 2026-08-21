@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260820a -->
+<!-- dim v20260822b -->
 
 <!--
   MIT License
@@ -3347,6 +3347,26 @@
       user-select: none;
       text-anchor: start;
       dominant-baseline: auto;
+    }
+
+    /* FOLD CREASE NUMBER (v20260821a, PLAN-fold-crease-numbers.md): the
+       crease guides say WHICH crease they are. Same halo-label convention as
+       .vertex-index-label (paint-order stroke + white halo = legible over any
+       artwork); the FILL is set per element as an attribute because the guide
+       accent is recomputed each render from --accent-color. Centred on its
+       own offset point (the offset is computed in screen space), and inert:
+       the anchor dot is the handle, the number is for reading. */
+    #pathHighlightGroup text.fold-crease-label {
+      font-family: 'Avenir Next Condensed', var(--font-family-sans);
+      font-weight: 600;
+      paint-order: stroke;
+      stroke: white;
+      stroke-linecap: butt;
+      stroke-linejoin: miter;
+      pointer-events: none;
+      user-select: none;
+      text-anchor: middle;
+      dominant-baseline: central;
     }
 
     .gizmo-label {
@@ -8378,6 +8398,7 @@
                           <option value="fold">Fold</option>
                           <option value="wrap">Wrap</option>
                           <option value="curl">Curl</option>
+                          <option value="wave">Wave</option>
                         </select>
                       </div>
                     </div>
@@ -8421,6 +8442,15 @@
                         </div>
                       </div>
                     </div>
+                    <!-- CREASE NUMBERS (v20260821a, PLAN-fold-crease-numbers.md):
+                         creases 2..N carry a "Crease N" header in #foldCreaseList,
+                         but crease 1's rows sat bare — so the canvas numbers had
+                         nothing to match at the top of the panel. Shown only when
+                         the crease list is (multi-crease fold), same rule as the
+                         canvas labels: a lone "Crease 1" is noise. -->
+                    <div class="xyz-row" id="foldCrease1HeaderRow" style="display:none;">
+                      <label>Crease 1</label>
+                    </div>
                     <div class="xyz-row">
                       <label>Position U</label>
                       <div class="xyz-inputs">
@@ -8441,13 +8471,17 @@
                          segment creases — the active span along the line as
                          fractions of its chord (0/1 = the full line). Ends
                          must land in empty paper. What box folds need. -->
-                    <div class="xyz-row">
+                    <!-- v20260821e: Fold mode only - the curved-mode band builder never
+                         reads extentA/B (measured: wrap and curl byte-identical with
+                         extents 0.3/0.7 vs absent), so the rows hide there, like the
+                         Auto Extent row already does. -->
+                    <div class="xyz-row" id="foldExtentARow">
                       <label title="The crease's active span along its line (0..1 of the chord). Paper outside the span does not fold. Span ends must land in empty paper.">Extent A</label>
                       <div class="xyz-inputs">
                         <input type="number" id="foldExtentAInput" value="0" step="0.01" />
                       </div>
                     </div>
-                    <div class="xyz-row">
+                    <div class="xyz-row" id="foldExtentBRow">
                       <label>Extent B</label>
                       <div class="xyz-inputs">
                         <input type="number" id="foldExtentBInput" value="1" step="0.01" />
@@ -8459,10 +8493,27 @@
                         <input type="number" id="foldRotationInput" value="0" step="1" />
                       </div>
                     </div>
-                    <div class="xyz-row">
+                    <div class="xyz-row" id="foldAngleRow">
                       <label>Angle</label>
                       <div class="xyz-inputs">
                         <input type="number" id="foldAngleInput" value="0" step="1" />
+                      </div>
+                    </div>
+                    <!-- CURL DIRECTION (v20260821c): in Curl mode the stored
+                         angle carries ONLY its sign (the magnitude is dead by
+                         design - the roll amount is Position's job, the shape
+                         Radius/Pitch/Tighten's), so the numeric Angle row is
+                         a UI lie there. This select replaces it in Curl mode
+                         and writes angle = +90 / -90 into the SAME field:
+                         zero data-model change, legacy scenes read by sign
+                         exactly as before, fdAngle keyframes still apply. -->
+                    <div class="xyz-row" id="foldCurlDirRow" style="display:none;">
+                      <label>Direction</label>
+                      <div class="xyz-inputs">
+                        <select id="foldCurlDirInput">
+                          <option value="front">Front (+N)</option>
+                          <option value="back">Back (&minus;N)</option>
+                        </select>
                       </div>
                     </div>
                     <div class="xyz-row" id="foldRadiusRow">
@@ -8485,7 +8536,48 @@
                         <input type="number" id="foldTightenInput" value="0" step="0.05" />
                       </div>
                     </div>
-                    <div class="xyz-row">
+                    <!-- WAVE (v20260821g, PLAN-fold-wave.md): a generated zigzag /
+                         bump chain. Start = crease 1's Position, sharpness =
+                         Angle, rounding = Radius (0 = sharp, the FOLD chain;
+                         > 0 = the WRAP chain). Size = paper per flank (Height
+                         and Width follow - paper is conserved). -->
+                    <div class="xyz-row" id="foldWaveCountRow" style="display:none;">
+                      <label>Bumps</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="foldWaveCountInput" value="3" step="1" min="1" />
+                      </div>
+                    </div>
+                    <div class="xyz-row" id="foldWaveSizeRow" style="display:none;">
+                      <label title="Paper length per flank. Height = Size x sin(Angle), Width = 2 x Size x cos(Angle).">Size</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="foldWaveSizeInput" value="0.5" step="0.05" min="0" />
+                      </div>
+                    </div>
+                    <div class="xyz-row" id="foldWaveShapeRow" style="display:none;">
+                      <label for="foldWaveShapeInput">Shape</label>
+                      <div class="xyz-inputs">
+                        <select id="foldWaveShapeInput">
+                          <option value="up">Up (+)</option>
+                          <option value="down">Down (&minus;)</option>
+                          <option value="wave">Wave (symmetric)</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="xyz-row" id="foldWaveExtendRow" style="display:none;">
+                      <label for="foldWaveExtendInput">Extend</label>
+                      <div class="xyz-inputs">
+                        <select id="foldWaveExtendInput">
+                          <option value="forward">Forward</option>
+                          <option value="backward">Backward</option>
+                          <option value="both">Both</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="xyz-row" id="foldWaveInfoRow" style="display:none;">
+                      <label>Height / Width</label>
+                      <div class="xyz-inputs"><span id="foldWaveInfo" style="font-size:11px; opacity:0.8;"></span></div>
+                    </div>
+                    <div class="xyz-row" id="foldSideRow">
                       <label for="foldSideInput">Fold Side</label>
                       <div class="xyz-inputs">
                         <select id="foldSideInput">
@@ -39195,12 +39287,13 @@
                   // the base never flips).
                   let backFacing;
                   if (mode0 === 'view') {
-                    let fSum = 0;
+                    let fSum = 0, hasCells = false;
                     const eye0 = ord0.eye;
                     if (eye0) {
                       for (const m of members) {
                         const cl = m._foldOrd && m._foldOrd.cells;
                         if (!cl) continue;
+                        if (cl.length) hasCells = true;
                         for (const c2 of cl) {
                           if (!c2 || !c2.n || !c2.pts || !c2.pts.length) continue;
                           const p0 = c2.pts[0];
@@ -39216,7 +39309,26 @@
                         }
                       }
                     }
-                    backFacing = fSum !== 0 ? fSum < 0 : area * (ord0.refSign || -1) < 0;
+                    if (hasCells && fSum !== 0) {
+                      backFacing = fSum < 0;
+                    } else {
+                      // CURVED BANDS (v20260821d, owner's rotated-dice curl
+                      // report): wrap/curl bands carry NO sub-cells - they
+                      // are smooth sheets cut at the camera-facing horizon
+                      // rulings, so each band is single-sided BY CONSTRUCTION
+                      // and its winding is normalized in phase E, which makes
+                      // the projected-area sign reliable here (unlike the
+                      // multi-plane cut cells above). The v20260819f fallback
+                      // used the RELATIVE reference - Sheet semantics, the
+                      // base never flips - so a curled sheet seen from its
+                      // back still showed its art. View needs the ABSOLUTE
+                      // reference: the measured sheet sign, negated when the
+                      // eye is on the sheet's back (-w) side.
+                      const rM = ord0.refSign || -1;
+                      const fr0 = ord0.frame;
+                      const eyeSide0 = (eye0 && fr0) ? ((eye0[fr0.AX[2]] ?? 0) - fr0.wMid) : 1;
+                      backFacing = area * (eyeSide0 >= 0 ? rM : -rM) < 0;
+                    }
                   } else {
                     backFacing = mode0 !== 'none' && area * (ord0.refSign || -1) < 0;
                   }
@@ -40159,7 +40271,12 @@
         if (uMax < uMin) { const t2 = uMin; uMin = uMax; uMax = t2; }
         if (vMax < vMin) { const t2 = vMin; vMin = vMax; vMax = t2; }
         if ((uMax - uMin) < 1e-9) return null;
-        const sideSign = (cr.side === 'left') ? -1 : 1;
+        // WAVE (v20260821g, PLAN-fold-wave.md): a generated crease chain.
+        // Side is forced + (Extend owns direction); the engine is resolved
+        // from the radius - sharp (0) runs the FOLD chain, rounded runs the
+        // WRAP chain - and the synthetic creases feed the normal pipeline.
+        const isWave = fs.mode === 'wave';
+        const sideSign = isWave ? 1 : ((cr.side === 'left') ? -1 : 1);
         const rho = (cr.rotation || 0) * Math.PI / 180;
         // POSITION V (v20260817d, PLAN-fold-crease-2d.md): the crease anchor
         // is 2D — positionV places it across the V extent (default 0.5 = the
@@ -40180,8 +40297,19 @@
         // rolled-map animation); pitch 0 = same-circle roll.
         const angle = cr.angle || 0;
         const radius = Math.abs(cr.radius ?? 0);
-        const wrapOn = fs.mode === 'wrap' && radius > 1e-6 && Math.abs(angle) > 1e-9;
-        const curlOn = fs.mode === 'curl' && radius > 1e-6;
+        const engine = isWave ? (radius > 1e-6 ? 'wrap' : 'fold') : fs.mode;
+        // WAVE: the synthetic crease array (positions as chord fractions of
+        // THIS frame, so the rest of the build is untouched).
+        const crs = isWave
+          ? Path._foldWaveCreases(fs, cr, engine, A2, [sideSign * Math.cos(rho), sideSign * Math.sin(rho)], uMin, uMax - uMin, vMin, vMax - vMin)
+          : fs.creases;
+        // WRAP CHAINS (v20260821f, PLAN-wrap-chains.md): wrap is on when ANY
+        // crease has a real bend zone (crease 1 alone decided before - a
+        // crease-1 angle of 0 silently degraded a multi-crease wrap to a
+        // sharp fold chain).
+        const wrapOn = engine === 'wrap' && crs.some(c2 =>
+          Math.abs(c2.radius ?? 0) > 1e-6 && Math.abs(c2.angle || 0) > 1e-9);
+        const curlOn = engine === 'curl' && radius > 1e-6;
         // MULTI-CREASE (v20260721a/b, FOLD mode only in v1): each crease is
         // an independent LINE — its own position AND rotation (v20260721b);
         // the Fold Side stays shared (crease 1's). LIST ORDER IS FOLD
@@ -40192,19 +40320,25 @@
         const uRange = uMax - uMin;
         const vRange = vMax - vMin; // POSITION V (v20260817d)
         let allParallel = true;
-        const creaseList = fs.creases.map((c2, i2) => {
+        const creaseList = crs.map((c2, i2) => {
           const rhoK = (c2.rotation || 0) * Math.PI / 180;
           if (Math.abs(Math.sin(rhoK - rho)) > 1e-9) allParallel = false;
           // v20260721d: per-crease Fold Side — each crease picks its own
           // flap side (flips n̂ and the rotation sign, like crease 1's).
           const sgK = (c2.side === 'left') ? -1 : 1;
+          const rK = Math.abs(c2.radius ?? 0), aK = c2.angle || 0;
           return {
             idx: i2,
             A2: [uMin + (c2.position ?? 0.5) * uRange, vMin + (c2.positionV ?? 0.5) * vRange],
             dir2: [-Math.sin(rhoK), Math.cos(rhoK)],
             n2: [sgK * Math.cos(rhoK), sgK * Math.sin(rhoK)],
             sideSign: sgK,
-            angle: c2.angle || 0,
+            angle: aK,
+            // WRAP CHAINS (v20260821f): per-crease bend zone — radius, arc
+            // length r·|angle|, and the bend sign (the single-wrap dD).
+            radius: rK,
+            wArc: rK * Math.abs(aK) * Math.PI / 180,
+            dD: aK > 0 ? -1 : 1,
             // CREASE EXTENT (v20260818d, PLAN-fold-crease-extent.md): the
             // active SPAN along the line, as fractions of its chord across
             // the sheet bbox. Absent = 0/1 = the full infinite-line
@@ -40339,8 +40473,185 @@
           tighten: cr.tighten ?? 0, // v20260720y: curvature × (1 + tighten·s)
           wArc: wrapOn ? radius * Math.abs(angle) * Math.PI / 180 : 0,
           creaseList, // v20260721a/b: creases in LIST order (= fold order)
-          allParallel // all crease lines parallel ⇒ profile-plane ordering valid
+          // WRAP CHAINS (v20260821f, PLAN-wrap-chains.md): with 2+ creases a
+          // wrap is a 1-D CURVATURE PROGRAM along crease 1's normal - every
+          // crease is a zone [sK, sK + wArc] of curvature dD/r; zones add
+          // where they overlap (still an arc), the sheet stays invariant
+          // along the crease direction, so rotation and side are crease
+          // 1's for all (the parallel v1; non-parallel wrap is a campaign,
+          // recorded in the plan). wrapChain is FALSE for a single crease:
+          // that case keeps its original closed-form code path verbatim
+          // (byte-identity; an ulp of atan2/acos re-derivation would not).
+          wrapZones: (wrapOn && crs.length > 1)
+            ? creaseList.filter(ck => ck.wArc > 1e-9).map(ck => ({
+                sK: (ck.A2[0] - A2[0]) * (sideSign * Math.cos(rho)) + (ck.A2[1] - A2[1]) * (sideSign * Math.sin(rho)),
+                r: ck.radius, wArc: ck.wArc, dD: ck.dD, idx: ck.idx
+              }))
+            : null,
+          wrapChain: !!(wrapOn && crs.length > 1),
+          // WAVE (v20260821g): the stationary paper is the FLAT run before the
+          // zigzag - the fold chain's base - so the rounded wave anchors at
+          // the first zone's start (forward → sMin, the v20260821f default)
+          // or end (backward → sMax); anchoring at the corner's CENTRE would
+          // tilt the base by α/2 (measured: a 53 px rigid offset vs the
+          // sharp wave). Both (v20260821h) anchors like forward and is CENTRED
+          // by shifting the pattern in paper space (see _foldWaveCreases).
+          wrapAnchor: (isWave && fs.waveExtend === 'backward') ? Infinity : undefined,
+          wave: isWave ? { count: Math.max(1, Math.round(fs.waveCount ?? 3)), size: fs.waveSize, shape: fs.waveShape || 'up', extend: fs.waveExtend || 'forward', engine } : null,
+          allParallel: allParallel || (wrapOn && crs.length > 1) // a wrap chain is parallel BY CONSTRUCTION (rotation inherited)
         };
+      }
+
+      // WAVE (v20260821g, PLAN-fold-wave.md): the crease-chain GENERATOR. A
+      // zigzag is a sequence of parallel creases with alternating turns, so
+      // a wave is just parameters -> synthetic creases -> the existing
+      // engines (fold chain when sharp, wrap chain when rounded). Profile
+      // coordinate s runs along n̂ from the start (crease 1's anchor); L =
+      // Size (paper per flank - conserved, so the accordion COMPRESSES as the
+      // angle sharpens), α = Angle, σ = shape sign, N = Bumps.
+      //   one-sided (up/down): corners at 0, L, 2L … 2N·L, turns
+      //     +σα, −2σα, +2σα, …, ±σα  (troughs ON the plane, peaks at σ·H)
+      //   wave (symmetric): the same alternation shifted half a flank -
+      //     corners at 0, L/2, 3L/2 … (2N−½)L, 2N·L  (midline = the plane)
+      // Extend: forward = +s from the start; backward = the MIRROR about the
+      // start line (side 'left' creases hinge away from it); both = N bumps
+      // TOTAL, CENTRED on the start and symmetric (v20260821h, owner: "center
+      // the first bump and make it symmetric" - the first cut mirrored N per
+      // side). A centred PEAK cannot be the hinge: the engines keep the
+      // stationary paper IN the sheet plane, so a peak at the start would sit
+      // in the plane and the bump would hang down. Instead the centred
+      // pattern anchors at the flat paper before it (like forward) and is
+      // SHIFTED in paper space by exactly the left half's folded compression,
+      // so the folded centre lands on the start: shift = −F(N·L), F = folded
+      // x from the first corner (sharp: N·L·cos α; rounded: the curvature
+      // profile itself). Recomputed per frame, so the bump stays centred
+      // while the angle animates; odd N centres a peak, even N a trough.
+      // Rounded corners are zones CENTRED on the corner (a zone starts at its
+      // anchor and extends +s, so the synthetic anchor sits r·|τ|/2 before
+      // the corner, whichever side the crease folds).
+      static _foldWaveCreases(fs, cr, engine, A2, n2, uMin, uRange, vMin, vRange) {
+        const N = Math.max(1, Math.round(fs.waveCount ?? 3));
+        const L = Math.max(1e-6, Math.abs(fs.waveSize ?? 0.5));
+        const alpha = cr.angle || 0;
+        const sigma = (fs.waveShape || 'up') === 'down' ? -1 : 1;
+        const shape = fs.waveShape || 'up';
+        const ext = fs.waveExtend || 'forward';
+        const r = engine === 'wrap' ? Math.abs(cr.radius ?? 0) : 0;
+        const rot = cr.rotation || 0;
+        // forward corner list: [s, turnDeg]
+        const fwd = [];
+        if (shape === 'wave') {
+          fwd.push([0, sigma * alpha]);
+          for (let k = 0; k < 2 * N; k++) fwd.push([(k + 0.5) * L, (k % 2 === 0 ? -2 : 2) * sigma * alpha]);
+          fwd.push([2 * N * L, (2 * N % 2 === 0 ? -1 : 1) * sigma * alpha]);
+        } else {
+          fwd.push([0, sigma * alpha]);
+          for (let k = 1; k < 2 * N; k++) fwd.push([k * L, (k % 2 === 1 ? -2 : 2) * sigma * alpha]);
+          fwd.push([2 * N * L, sigma * alpha]);
+        }
+        const corners = []; // [s, turnDeg, side]
+        if (ext === 'forward') for (const c of fwd) corners.push([c[0], c[1], 'right']);
+        else if (ext === 'backward') for (const c of fwd) corners.push([-c[0], c[1], 'left']);
+        else {
+          // both = centred: folded x of the pattern's paper centre (N·L from
+          // the first corner), then shift the pattern so it lands on s = 0
+          const aRad = Math.abs(alpha) * Math.PI / 180;
+          let F = N * L * Math.cos(aRad);
+          if (r > 0) {
+            const zones = fwd.filter(c => Math.abs(c[1]) > 1e-9).map(c => {
+              const w = r * Math.abs(c[1]) * Math.PI / 180;
+              return { sK: c[0] - w / 2, r, wArc: w, dD: c[1] > 0 ? -1 : 1, idx: 0 };
+            });
+            if (zones.length) F = Path._foldWrapProfile({ wrapZones: zones }).at(N * L).x;
+          }
+          const shift = -F;
+          for (const c of fwd) corners.push([c[0] + shift, c[1], 'right']);
+        }
+        const out = [];
+        for (const [sc, turn, side] of corners) {
+          const sA = sc - (r > 0 ? r * Math.abs(turn) * Math.PI / 180 / 2 : 0);
+          const au = A2[0] + n2[0] * sA, av = A2[1] + n2[1] * sA;
+          out.push({
+            position: (au - uMin) / (uRange || 1), positionV: (av - vMin) / (vRange || 1),
+            rotation: rot, angle: turn, radius: r, pitch: 0, tighten: 0, side
+          });
+        }
+        // list order = fold order for the fold chain: nearest the start first
+        // (creases farther out ride on the nearer flaps), so sort by |s|
+        out.forEach((o, i) => { o._absS = Math.abs(corners[i][0]); });
+        out.sort((a, b) => a._absS - b._absS);
+        out.forEach(o => { delete o._absS; });
+        return out;
+      }
+
+      // WRAP CHAINS (v20260821f, PLAN-wrap-chains.md): the composed-curvature
+      // profile. A wrap along PARALLEL creases is a planar curve in the
+      // profile plane (x along n̂ = crease 1's normal, y along N̂) with
+      // piecewise-constant curvature: each zone contributes κ = dD/r over
+      // [sK, sK + wArc]; overlapping zones ADD (still an arc, radius 1/Σκ).
+      // θ(s) = ∫κ, position = ∫(cos θ, sin θ) - exact per interval (lines
+      // and arcs), accumulated at the sorted breakpoints. The single-zone
+      // case reduces to the original wrap formulas (x = r·sin θ, y =
+      // dD·r·(1−cos θ), tail along the tangent) but that case never comes
+      // here - see fr.wrapChain. Everything below sMin (the lowest zone
+      // start) is the stationary base: identity.
+      static _foldWrapProfile(fr) {
+        const zones = fr.wrapZones || [];
+        const bp = [];
+        for (const z of zones) { bp.push(z.sK, z.sK + z.wArc); }
+        bp.sort((a, b) => a - b);
+        const brk = bp.filter((v, i) => i === 0 || v - bp[i - 1] > 1e-12);
+        // intervals: [brk[i], brk[i+1]] with summed curvature. The state is
+        // known at the ANCHOR - (x = anchor, y = 0, θ = 0), the stationary
+        // flat - and integrated outward in both directions (the closed forms
+        // hold for negative lengths). Anchor = the lowest breakpoint by
+        // default (v20260821f chains: byte-identical); wave passes the START
+        // (fr.wrapAnchor = 0) so the flank holding the start stays put.
+        const sMin = brk.length ? brk[0] : 0, sMax = brk.length ? brk[brk.length - 1] : 0;
+        const anchor = (fr.wrapAnchor !== undefined && fr.wrapAnchor !== null) ? fr.wrapAnchor : sMin;
+        const kOf = (a, b) => { const mid = (a + b) / 2; let k = 0; for (const z of zones) if (mid > z.sK && mid < z.sK + z.wArc) k += z.dD / z.r; return k; };
+        const step = (st, k, L) => { // advance a state by signed length L under constant curvature k
+          if (Math.abs(k) < 1e-12) return { x: st.x + L * Math.cos(st.th), y: st.y + L * Math.sin(st.th), th: st.th };
+          const th1 = st.th + k * L;
+          return { x: st.x + (Math.sin(th1) - Math.sin(st.th)) / k, y: st.y + (Math.cos(st.th) - Math.cos(th1)) / k, th: th1 };
+        };
+        const iv = [];
+        for (let i = 0; i + 1 < brk.length; i++) iv.push({ a: brk[i], b: brk[i + 1], k: kOf(brk[i], brk[i + 1]), x0: 0, y0: 0, th0: 0 });
+        // locate the anchor's interval (or end), then integrate forward and backward
+        let ia = iv.findIndex(I => anchor >= I.a && anchor <= I.b);
+        let st0 = { x: anchor, y: 0, th: 0 };
+        if (iv.length) {
+          if (anchor <= sMin) {
+            st0 = { x: sMin, y: 0, th: 0 }; ia = 0;
+            let st = st0;
+            for (let i = 0; i < iv.length; i++) { iv[i].x0 = st.x; iv[i].y0 = st.y; iv[i].th0 = st.th; st = step(st, iv[i].k, iv[i].b - iv[i].a); }
+          } else if (anchor >= sMax) {
+            st0 = { x: sMax, y: 0, th: 0 }; ia = iv.length - 1;
+            let st = st0;
+            for (let i = iv.length - 1; i >= 0; i--) { const s1 = step(st, iv[i].k, iv[i].a - iv[i].b); iv[i].x0 = s1.x; iv[i].y0 = s1.y; iv[i].th0 = s1.th; st = s1; }
+          } else {
+            // anchor inside iv[ia]: state at iv[ia].a is the anchor stepped back
+            const I = iv[ia];
+            const sA = step(st0, I.k, I.a - anchor);
+            I.x0 = sA.x; I.y0 = sA.y; I.th0 = sA.th;
+            let st = step(sA, I.k, I.b - I.a);
+            for (let i = ia + 1; i < iv.length; i++) { iv[i].x0 = st.x; iv[i].y0 = st.y; iv[i].th0 = st.th; st = step(st, iv[i].k, iv[i].b - iv[i].a); }
+            st = sA;
+            for (let i = ia - 1; i >= 0; i--) { const s1 = step(st, iv[i].k, iv[i].a - iv[i].b); iv[i].x0 = s1.x; iv[i].y0 = s1.y; iv[i].th0 = s1.th; st = s1; }
+          }
+        }
+        const head = iv.length ? { x: iv[0].x0, y: iv[0].y0, th: iv[0].th0 } : { x: sMin, y: 0, th: 0 }; // state at sMin
+        const tail = iv.length ? step({ x: iv[iv.length - 1].x0, y: iv[iv.length - 1].y0, th: iv[iv.length - 1].th0 }, iv[iv.length - 1].k, iv[iv.length - 1].b - iv[iv.length - 1].a) : { x: sMax, y: 0, th: 0 }; // state at sMax
+        const at = (sv) => {
+          if (!brk.length) return { x: sv, y: 0, th: 0 };
+          if (sv <= sMin) return { x: head.x + (sv - sMin) * Math.cos(head.th), y: head.y + (sv - sMin) * Math.sin(head.th), th: head.th };
+          if (sv >= sMax) return { x: tail.x + (sv - sMax) * Math.cos(tail.th), y: tail.y + (sv - sMax) * Math.sin(tail.th), th: tail.th };
+          let lo = 0, hi = iv.length - 1;
+          while (lo < hi) { const m = (lo + hi) >> 1; if (sv > iv[m].b) lo = m + 1; else hi = m; }
+          const I = iv[lo];
+          return step({ x: I.x0, y: I.y0, th: I.th0 }, I.k, sv - I.a);
+        };
+        return { zones, brk, iv, sMin, sMax, anchor, head, tail, at, thetaOf: (sv) => at(sv).th };
       }
 
       static _foldCurlGeom(fr) {
@@ -40551,6 +40862,39 @@
           // sticker-section model (tie-break + section ordering carry it).
           return cutsC;
         }
+        if (fr.wrapChain) {
+          // WRAP CHAINS (v20260821f): horizon rulings per ARC interval of the
+          // curvature profile. On an arc the normal is radial, so with the
+          // eye relative to that arc's centre, d = (da, db), the tangency
+          // condition N·(E − P) = 0 is db·cos θ − da·sin θ + 1/κ = 0 →
+          // θ = −φ ± acos(−1/(κ·|d|)), φ = atan2(da, db); roots inside the
+          // interval's θ range map to s = a + (θ − θ0)/κ. Flat intervals
+          // have no horizon (a plane's facing is constant; it flips only at
+          // its bounding arcs). The single-crease wrap never comes here.
+          const prof = Path._foldWrapProfile(fr);
+          const out = [];
+          for (const I of prof.iv) {
+            if (Math.abs(I.k) < 1e-12) continue;
+            const cx = I.x0 - Math.sin(I.th0) / I.k, cy = I.y0 + Math.cos(I.th0) / I.k;
+            const da = a - cx, db = b - cy;
+            const Rd = Math.hypot(da, db);
+            const c0 = -1 / (I.k * Rd);
+            if (!(Rd > 1e-12) || Math.abs(c0) > 1) continue; // eye inside the cylinder: no horizon on this arc
+            const phi = Math.atan2(da, db), dth = Math.acos(c0);
+            const th1 = I.th0 + I.k * (I.b - I.a);
+            const lo = Math.min(I.th0, th1), hi = Math.max(I.th0, th1);
+            const eps = Math.max(1e-9, (hi - lo) * 1e-6);
+            const nMin = Math.floor((lo + phi - dth) / (2 * Math.PI)) - 1;
+            const nMax = Math.ceil((hi + phi + dth) / (2 * Math.PI)) + 1;
+            for (let n = nMin; n <= nMax; n++) {
+              for (const th of [-phi + dth + 2 * Math.PI * n, -phi - dth + 2 * Math.PI * n]) {
+                if (th > lo + eps && th < hi - eps) out.push(I.a + (th - I.th0) / I.k);
+              }
+            }
+          }
+          out.sort((x, y) => x - y);
+          return out.filter((c, i) => i === 0 || c - out[i - 1] > 1e-9);
+        }
         const dD = fr.angle > 0 ? -1 : 1, rr = fr.radius, thW = fr.wArc / rr;
         const A = b - dD * rr, B = -dD * a, C = dD * rr;
         const Rm = Math.hypot(A, B);
@@ -40658,11 +41002,15 @@
             }
             return s2 / 2;
           };
-          const flatK = [], zeroK = [];
+          const flatK = [], zeroK = [], hasOne = [];
           for (let k = 0; k < K; k++) {
             const aN = ((cl[k].angle % 360) + 360) % 360;
             flatK.push(Math.abs(aN - 180) <= 0.01);
             zeroK.push(aN <= 0.01 || aN >= 359.99);
+            // v20260821i: a crease with NO '1' in any sig is a BEND (or skip)
+            // placeholder, not a cut - its bit must not clip, and its movers
+            // are found geometrically (the flap side of its line).
+            hasOne.push(strs.some(s => s[k] === '1'));
           }
           // Cells: sheet rect ∩ per-bit half-planes ('1' = the n2-positive
           // flap side, matching the split pass's plus-side sig bit).
@@ -40674,11 +41022,16 @@
             seen.add(s);
             let poly = rect;
             for (let k = 0; k < K && k < s.length && poly.length > 2; k++) {
+              if (!hasOne[k]) continue; // placeholder bit (bend/skip): no cut here
               poly = clip(poly, cl[k].A2, cl[k].n2, s[k] === '1' ? 1 : -1);
             }
             if (poly.length < 3 || Math.abs(areaOf(poly)) < EPS) continue; // degenerate region
             // Map: p ↦ m·p + t (isometry; det ±1 is the mirror state).
-            cells.push({ sig: s, poly, m: [1, 0, 0, 1], t: [0, 0], det: 1, layer: 0, dead: false });
+            // v20260821i: a 3D PLANE FRAME per cell (normal + point) — the
+            // sheet's at birth, carried rigidly through out-of-plane creases.
+            const n3 = [0, 0, 0]; n3[fr.AX[2]] = fr.SG[2];
+            const p3 = [0, 0, 0]; p3[fr.AX[0]] = fr.SG[0] * fr.A2[0]; p3[fr.AX[1]] = fr.SG[1] * fr.A2[1]; p3[fr.AX[2]] = fr.wMid;
+            cells.push({ sig: s, poly, m: [1, 0, 0, 1], t: [0, 0], det: 1, layer: 0, dead: false, n3, p3 });
           }
           if (cells.length < 2) return null;
           const mapPt = (c, p) => [c.m[0] * p[0] + c.m[1] * p[1] + c.t[0], c.m[2] * p[0] + c.m[3] * p[1] + c.t[1]];
@@ -40695,10 +41048,61 @@
             }
             return A.length > 2 && Math.abs(areaOf(A)) > EPS;
           };
+          const plusSide = (c, k) => { // cell centroid on crease k's flap side (source space)
+            let cx = 0, cy = 0; for (const p of c.poly) { cx += p[0]; cy += p[1]; }
+            cx /= c.poly.length; cy /= c.poly.length;
+            return (cx - cl[k].A2[0]) * cl[k].n2[0] + (cy - cl[k].A2[1]) * cl[k].n2[1] > 0;
+          };
           for (let k = 0; k < K; k++) {
-            const M = cells.filter(c => !c.dead && c.sig[k] === '1');
+            if (!hasOne[k] && !zeroK[k]) {
+              // BEND crease (v20260821i): it does not cut, so a cell can
+              // STRADDLE its line (the accordion's base + first vertical
+              // flank share one sig). Split such cells geometrically - both
+              // halves keep the sig and state - so each half carries its own
+              // plane frame; the consumer matches coplanar halves.
+              for (let ci = cells.length - 1; ci >= 0; ci--) {
+                const c = cells[ci];
+                if (c.dead) continue;
+                const pPlus = clip(c.poly, cl[k].A2, cl[k].n2, 1), pMinus = clip(c.poly, cl[k].A2, cl[k].n2, -1);
+                if (pPlus.length > 2 && pMinus.length > 2 && Math.abs(areaOf(pPlus)) > EPS && Math.abs(areaOf(pMinus)) > EPS) {
+                  c.poly = pMinus;
+                  cells.push({ sig: c.sig, poly: pPlus, m: c.m.slice(), t: c.t.slice(), det: c.det, layer: c.layer, dead: false, n3: c.n3.slice(), p3: c.p3.slice() });
+                }
+              }
+            }
+            const M = hasOne[k]
+              ? cells.filter(c => !c.dead && c.sig[k] === '1')
+              : cells.filter(c => !c.dead && plusSide(c, k)); // bend crease: geometric flap
             if (!M.length || zeroK[k]) continue;         // unfolded crease: no-op
-            if (!flatK[k]) { M.forEach(c => { c.dead = true; }); continue; } // out of plane
+            if (!flatK[k]) {
+              // OUT-OF-PLANE crease (v20260821i, the accordion at ±90°): a
+              // rigid motion of its flap. Relative stacking WITHIN the flap
+              // is unchanged, so the movers stay alive and carry their plane
+              // frame through the rotation - the later 180° folds inside the
+              // flap then simulate exactly as in the sheet plane (a rigid
+              // image of it), and the consumer reads the eye side against
+              // the cell's OWN plane. Valid while the movers are still
+              // unmoved in 2D (the crease's hinge has not been carried by an
+              // earlier flat fold); otherwise the old kill stands. This is
+              // what the v20260818b "out-of-plane creases drop their
+              // movers" rule cost: a compressed accordion (90° start crease +
+              // a stack of 180s) lost its entire layer map.
+              const unmoved = M.every(c => c.m[0] === 1 && c.m[1] === 0 && c.m[2] === 0 && c.m[3] === 1 && c.t[0] === 0 && c.t[1] === 0);
+              if (!unmoved) { M.forEach(c => { c.dead = true; }); continue; }
+              const ck = cl[k];
+              const d3 = [0, 0, 0], A3 = [0, 0, 0];
+              d3[fr.AX[0]] = fr.SG[0] * ck.dir2[0]; d3[fr.AX[1]] = fr.SG[1] * ck.dir2[1];
+              A3[fr.AX[0]] = fr.SG[0] * ck.A2[0]; A3[fr.AX[1]] = fr.SG[1] * ck.A2[1]; A3[fr.AX[2]] = fr.wMid;
+              const R = matrixMultiply(matrixMultiply(createTranslationMatrix(A3[0], A3[1], A3[2]),
+                createRotationAxisAngleMatrix(d3, ck.sideSign * ck.angle * Math.PI / 180)),
+                createTranslationMatrix(-A3[0], -A3[1], -A3[2]));
+              for (const c of M) {
+                const q0 = pointApplyMatrix(c.p3, R);
+                const q1 = pointApplyMatrix([c.p3[0] + c.n3[0], c.p3[1] + c.n3[1], c.p3[2] + c.n3[2]], R);
+                c.p3 = q0; c.n3 = [q1[0] - q0[0], q1[1] - q0[1], q1[2] - q0[2]];
+              }
+              continue;
+            }
             // Landing dir: hinge convention × the moving stack's ROOT mirror
             // state (min |layer|; folding THROUGH a stack is normal).
             let root = M[0];
@@ -40720,8 +41124,9 @@
             // Land beyond the statics that overlap the moved group.
             const mPolys = M.map(physPoly);
             let base = 0, found = false;
+            const Mset = new Set(M);
             for (const c of cells) {
-              if (c.dead || c.sig[k] === '1') continue;
+              if (c.dead || Mset.has(c)) continue; // statics = not moving at k (sig bit OR geometric flap)
               const cp = physPoly(c);
               if (!mPolys.some(mp => overlaps(mp, cp))) continue;
               if (!found) { base = c.layer; found = true; }
@@ -40737,7 +41142,15 @@
             }
           }
           const map = new Map();
-          for (const c of cells) if (!c.dead) map.set(c.sig, c.layer);
+          const subs = new Map();
+          for (const c of cells) {
+            if (c.dead) continue;
+            if (!map.has(c.sig)) map.set(c.sig, c.layer);
+            if (!subs.has(c.sig)) subs.set(c.sig, []);
+            subs.get(c.sig).push({ layer: c.layer, n3: c.n3, p3: c.p3 });
+          }
+          map.cells = subs; // v20260821i: sub-cells with plane frames (a sig may span several planes)
+          map.eps = EPS;
           return map.size >= 2 ? map : null;
         } catch (e) { return null; }
       }
@@ -40825,10 +41238,24 @@
           const ffLayers = (frIn && sigs) ? Path._flatFoldLayers(frIn, sigs) : null;
           const ffEyeW = frIn ? frIn.SG[2] * (eyeL[frIn.AX[2]] - frIn.wMid) : 0;
           const _ffTie = (i2, j2) => {
-            if (!ffLayers || Math.abs(ffEyeW) < 1e-12) return 0;
-            const la = ffLayers.get(sigs[i2]), lb = ffLayers.get(sigs[j2]);
-            if (la === undefined || lb === undefined || la === lb) return 0;
-            return (lb - la) * ffEyeW > 0 ? 1 : -1;
+            if (!ffLayers) return 0;
+            const A = ffLayers.cells && ffLayers.cells.get(sigs[i2]), B = ffLayers.cells && ffLayers.cells.get(sigs[j2]);
+            if (!A || !B) return 0;
+            // v20260821i: a sig may span several planes (bend-merged); pick a
+            // COPLANAR sub-cell pair and read the eye side against THAT
+            // plane (carried through out-of-plane creases), not the sheet's.
+            const tol = 1e-6 * Math.max(1, Math.abs(eyeL[0]) + Math.abs(eyeL[1]) + Math.abs(eyeL[2]));
+            for (const a of A) for (const b of B) {
+              const cx = a.n3[1] * b.n3[2] - a.n3[2] * b.n3[1], cy = a.n3[2] * b.n3[0] - a.n3[0] * b.n3[2], cz = a.n3[0] * b.n3[1] - a.n3[1] * b.n3[0];
+              if (Math.hypot(cx, cy, cz) > 1e-6) continue; // not parallel
+              const off = (b.p3[0] - a.p3[0]) * a.n3[0] + (b.p3[1] - a.p3[1]) * a.n3[1] + (b.p3[2] - a.p3[2]) * a.n3[2];
+              if (Math.abs(off) > 1e-6 * (1 + Math.abs(a.p3[0]) + Math.abs(a.p3[1]) + Math.abs(a.p3[2]))) continue; // not the same plane
+              if (a.layer === b.layer) return 0;
+              const ew = (eyeL[0] - a.p3[0]) * a.n3[0] + (eyeL[1] - a.p3[1]) * a.n3[1] + (eyeL[2] - a.p3[2]) * a.n3[2];
+              if (Math.abs(ew) < tol) return 0;
+              return (b.layer - a.layer) * ew > 0 ? 1 : -1;
+            }
+            return 0;
           };
           const edges = [], indeg = new Array(n).fill(0);
           for (let i = 0; i < n; i++) {
@@ -40927,10 +41354,24 @@
           const ffLayers = sigs ? Path._flatFoldLayers(fr, sigs) : null;
           const ffEyeW = fr.SG[2] * (eyeL[fr.AX[2]] - fr.wMid);
           const _ffTie = (i2, j2) => {
-            if (!ffLayers || Math.abs(ffEyeW) < 1e-12) return 0;
-            const la = ffLayers.get(sigs[i2]), lb = ffLayers.get(sigs[j2]);
-            if (la === undefined || lb === undefined || la === lb) return 0;
-            return (lb - la) * ffEyeW > 0 ? 1 : -1;
+            if (!ffLayers) return 0;
+            const A = ffLayers.cells && ffLayers.cells.get(sigs[i2]), B = ffLayers.cells && ffLayers.cells.get(sigs[j2]);
+            if (!A || !B) return 0;
+            // v20260821i: a sig may span several planes (bend-merged); pick a
+            // COPLANAR sub-cell pair and read the eye side against THAT
+            // plane (carried through out-of-plane creases), not the sheet's.
+            const tol = 1e-6 * Math.max(1, Math.abs(eyeL[0]) + Math.abs(eyeL[1]) + Math.abs(eyeL[2]));
+            for (const a of A) for (const b of B) {
+              const cx = a.n3[1] * b.n3[2] - a.n3[2] * b.n3[1], cy = a.n3[2] * b.n3[0] - a.n3[0] * b.n3[2], cz = a.n3[0] * b.n3[1] - a.n3[1] * b.n3[0];
+              if (Math.hypot(cx, cy, cz) > 1e-6) continue; // not parallel
+              const off = (b.p3[0] - a.p3[0]) * a.n3[0] + (b.p3[1] - a.p3[1]) * a.n3[1] + (b.p3[2] - a.p3[2]) * a.n3[2];
+              if (Math.abs(off) > 1e-6 * (1 + Math.abs(a.p3[0]) + Math.abs(a.p3[1]) + Math.abs(a.p3[2]))) continue; // not the same plane
+              if (a.layer === b.layer) return 0;
+              const ew = (eyeL[0] - a.p3[0]) * a.n3[0] + (eyeL[1] - a.p3[1]) * a.n3[1] + (eyeL[2] - a.p3[2]) * a.n3[2];
+              if (Math.abs(ew) < tol) return 0;
+              return (b.layer - a.layer) * ew > 0 ? 1 : -1;
+            }
+            return 0;
           };
           // Per face: 2D polylines + angular interval about the eye.
           const P2 = [], ANG = [];
@@ -42021,7 +42462,7 @@
           ? Path._foldCreaseRoles(fr, eyeL || null, !!fs.forceSplit)
           : null;
         const roleSig = roleInfo ? `|R:${roleInfo.roles.map(r => r[0]).join('')}|DC:${fs.drawCrease ? 1 : 0}${fs.creaseShowAt0 ? 1 : 0}` : '';
-        const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.autoExtent ? 'AE|' : ''}${fs.creases.map(c2 => [c2.position, c2.positionV, c2.rotation, c2.angle, c2.extentA, c2.extentB, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}${inhSig}${roleSig}`;
+        const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.autoExtent ? 'AE|' : ''}${fs.mode}|${fs.mode === 'wave' ? [fs.waveCount, fs.waveSize, fs.waveShape, fs.waveExtend].join(',') + '|' : ''}${fs.creases.map(c2 => [c2.position, c2.positionV, c2.rotation, c2.angle, c2.extentA, c2.extentB, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}${inhSig}${roleSig}`;
         const fdHit = this._foldCache ? this._foldCache.get(key) : null;
         if (fdHit) return fdHit.val;
 
@@ -42093,7 +42534,7 @@
         // exactly — only bend-zone atoms need subdivision. Out-of-plane
         // source offsets (h along e2) ride the local rotated frame.
         const curvedMode = fr.mode === 'wrap' || fr.mode === 'curl';
-        let bendPoint = null, Mtail = null, curlG = null;
+        let bendPoint = null, Mtail = null, curlG = null, wrapProf = null;
         const wArc = fr.mode === 'wrap' ? fr.wArc : 0;
         if (curvedMode) {
           const e1v = [0, 0, 0], e2v = [0, 0, 0];
@@ -42102,7 +42543,28 @@
           // Curl: angle carries only the direction sign (≥ 0 = the +fold way).
           const dD = (fr.mode === 'curl' ? fr.angle >= 0 : fr.angle > 0) ? -1 : 1;
           const rr = fr.radius;
-          if (fr.mode === 'wrap') {
+          if (fr.mode === 'wrap' && fr.wrapChain) {
+            // WRAP CHAINS (v20260821f): the composed-curvature profile maps
+            // every point as curve(s) + h·normal(s); the normal of the
+            // profile curve is (−sin θ, cos θ) - the single wrap's
+            // h·(−dD·sin, cos) in θ = dD·s/r form. No tail regime: flat
+            // intervals are rigid through the same map (K = 1 below, so a
+            // cubic's control points map affinely - exact).
+            wrapProf = Path._foldWrapProfile(fr);
+            bendPoint = (p) => {
+              const s = sOf(p);
+              if (s <= wrapProf.sMin && wrapProf.anchor <= wrapProf.sMin) return p; // flat base below every zone (anchored chains: the head runs through the map)
+              const h = fr.SG[2] * (p[fr.AX[2]] - fr.wMid);
+              const q = wrapProf.at(s);
+              const x2 = q.x - h * Math.sin(q.th);
+              const y2 = q.y + h * Math.cos(q.th);
+              return [
+                p[0] + (x2 - s) * e1v[0] + (y2 - h) * e2v[0],
+                p[1] + (x2 - s) * e1v[1] + (y2 - h) * e2v[1],
+                p[2] + (x2 - s) * e1v[2] + (y2 - h) * e2v[2]
+              ];
+            };
+          } else if (fr.mode === 'wrap') {
             const thW = wArc / rr, sinW = Math.sin(thW), cosW = Math.cos(thW);
             bendPoint = (p) => {
               const s = sOf(p);
@@ -42158,7 +42620,8 @@
         const nBands = cuts.length + 1;
         const bands = Array.from({ length: nBands }, () => ({ pieces: [], opens: [] }));
         const splitVals = (() => {
-          const v = fr.mode === 'wrap' ? [0, wArc, ...cuts] : [0, ...cuts];
+          const v = wrapProf ? [...wrapProf.brk, ...cuts] // WRAP CHAINS: every zone boundary is a C1 anchor (the old s=0 / s=wArc)
+            : (fr.mode === 'wrap' ? [0, wArc, ...cuts] : [0, ...cuts]);
           v.sort((x, y) => x - y);
           return v.filter((x, i) => i === 0 || x - v[i - 1] > 1e-9);
         })();
@@ -42171,9 +42634,9 @@
           {
             // bendPoint is identity for s ≤ 0 and continuous everywhere, so
             // a forced side is safe and the smooth map applies per atom.
-            if (side <= 0) return [entOf(a.p0, a.p1, a.p2, a.p3)];
+            if (side <= 0 && !(wrapProf && wrapProf.anchor > wrapProf.sMin)) return [entOf(a.p0, a.p1, a.p2, a.p3)]; // WAVE: an anchored profile bends below s = 0 too
             const s0v = sOf(a.p0), s3v = sOf(a.p3);
-            if (fr.mode === 'wrap') {
+            if (fr.mode === 'wrap' && !wrapProf) {
               const sMid = (s0v + 3 * sOf(a.p1) + 3 * sOf(a.p2) + s3v) / 8;
               if (sMid >= wArc - 1e-9) {
                 const tf = (p) => pointApplyMatrix(p, Mtail);
@@ -42183,7 +42646,8 @@
             // Bent atom: subdivide (~8.6° of turn per sub-cubic) and map
             // control points through the cylinder / spiral.
             let thSpan;
-            if (fr.mode === 'wrap') thSpan = Math.max(Math.abs(s3v - s0v), 1e-9) / fr.radius;
+            if (wrapProf) thSpan = Math.abs(wrapProf.thetaOf(s3v) - wrapProf.thetaOf(s0v)); // WRAP CHAINS: 0 on flat intervals → K = 1 (affine, exact)
+            else if (fr.mode === 'wrap') thSpan = Math.max(Math.abs(s3v - s0v), 1e-9) / fr.radius;
             else {
               const sLo = Math.max(Math.min(s0v, s3v), 0), sHi = Math.max(s0v, s3v, 0);
               thSpan = Math.max(curlG.thetaOf(sHi) - curlG.thetaOf(sLo), 1e-9);
@@ -42289,7 +42753,7 @@
           // so the Bernstein average of the atom's OWN control distances).
           for (const a of atoms) {
             const sm = (sOf(a.p0) + 3 * sOf(a.p1) + 3 * sOf(a.p2) + sOf(a.p3)) / 8;
-            a.side = sm >= 0 ? 1 : -1;
+            a.side = sm >= (wrapProf ? wrapProf.sMin : 0) ? 1 : -1; // WRAP CHAINS: the base is below the lowest zone, not s = 0
             a.band = bandOf(sm);
           }
           if (!closed) {
@@ -60884,7 +61348,8 @@
           const fdRadiusRow = document.getElementById('foldRadiusRow');
           const fdPitchInput = document.getElementById('foldPitchInput');
           const fdPitchRow = document.getElementById('foldPitchRow');
-          const fdMode = (fd && (fd.mode === 'wrap' || fd.mode === 'curl')) ? fd.mode : 'fold';
+          const fdMode = (fd && (fd.mode === 'wrap' || fd.mode === 'curl' || fd.mode === 'wave')) ? fd.mode : 'fold';
+          const fdWave = fdMode === 'wave'; // WAVE (v20260821g)
           syncSel(fdModeInput, fdMode);
           if (fdRadiusRow) fdRadiusRow.style.display = (fdMode === 'wrap' || fdMode === 'curl') ? '' : 'none';
           syncSel(fdRadiusInput, cr ? (cr.radius ?? 0.5) : 0.5);
@@ -60904,7 +61369,35 @@
           syncSel(fdExtentBInput, cr ? (cr.extentB ?? 1) : 1);
           syncSel(fdRotationInput, cr ? (cr.rotation || 0) : 0);
           syncSel(fdAngleInput, cr ? (cr.angle || 0) : 0);
+          // CURL DIRECTION (v20260821c): Curl shows the Direction select in
+          // place of the dead-magnitude Angle input. >= 0 reads as Front -
+          // the curl gate's own convention (angle 0 rolls the + way).
+          const fdAngleRow = document.getElementById('foldAngleRow');
+          const fdCurlDirRow = document.getElementById('foldCurlDirRow');
+          const fdCurlDirInput = document.getElementById('foldCurlDirInput');
+          if (fdAngleRow) fdAngleRow.style.display = fdMode === 'curl' ? 'none' : '';
+          if (fdCurlDirRow) fdCurlDirRow.style.display = fdMode === 'curl' ? '' : 'none';
+          syncSel(fdCurlDirInput, (cr && (cr.angle ?? 0) < 0) ? 'back' : 'front');
           syncSel(fdSideInput, (cr && cr.side === 'left') ? 'left' : 'right');
+          // WAVE (v20260821g): rows. Radius is shared (wave uses it for corner
+          // rounding); Side is hidden (Extend owns direction); Pitch/Tighten
+          // stay curl-only (above); the derived Height / Width read-out.
+          {
+            const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+            show('foldWaveCountRow', fdWave); show('foldWaveSizeRow', fdWave); show('foldWaveShapeRow', fdWave);
+            show('foldWaveExtendRow', fdWave); show('foldWaveInfoRow', fdWave); show('foldSideRow', !fdWave);
+            if (fdRadiusRow) fdRadiusRow.style.display = (fdMode === 'wrap' || fdMode === 'curl' || fdWave) ? '' : 'none';
+            syncSel(document.getElementById('foldWaveCountInput'), fd ? (fd.waveCount ?? 3) : 3);
+            syncSel(document.getElementById('foldWaveSizeInput'), fd ? (fd.waveSize ?? 0.5) : 0.5);
+            syncSel(document.getElementById('foldWaveShapeInput'), (fd && fd.waveShape) || 'up');
+            syncSel(document.getElementById('foldWaveExtendInput'), (fd && fd.waveExtend) || 'forward');
+            const info = document.getElementById('foldWaveInfo');
+            if (info && fdWave) {
+              const Lw = Math.abs((fd && fd.waveSize) ?? 0.5), aw = Math.abs((cr && cr.angle) || 0) * Math.PI / 180;
+              const hgt = Lw * Math.sin(aw), wid = 2 * Lw * Math.cos(aw);
+              info.textContent = hgt.toFixed(3) + ' / ' + wid.toFixed(3) + ' per bump';
+            }
+          }
           // MULTI-CREASE list (v20260721a, Fold mode only in v1): rows are
           // rebuilt ONLY when the crease count changes (rebuilding on every
           // sync would steal focus); values sync with activeElement guards.
@@ -60936,6 +61429,11 @@
             const exB = document.getElementById('foldExtentBInput');
             if (exA) exA.disabled = fdDisabled || aeOn;
             if (exB) exB.disabled = fdDisabled || aeOn;
+            // v20260821e: extent is a FOLD-mode concept (wrap/curl never read it)
+            const exARow = document.getElementById('foldExtentARow');
+            const exBRow = document.getElementById('foldExtentBRow');
+            if (exARow) exARow.style.display = fdMulti ? '' : 'none';
+            if (exBRow) exBRow.style.display = fdMulti ? '' : 'none';
           }
           // Sticker Back (v20260803j): ALL modes — the owner's use case is
           // curl. Default-ON polarity: read is `!== false` so legacy scenes
@@ -60947,11 +61445,11 @@
           {
             const dcRow = document.getElementById('foldDrawCreaseRow');
             const dcOn = !!(fd && fd.drawCrease);
-            if (dcRow) dcRow.style.display = fdMulti ? '' : 'none';
+            if (dcRow) dcRow.style.display = (fdMulti || fdWave) ? '' : 'none'; // WAVE (v20260821g): marks draw on a sharp wave (fold chain)
             const dcCb = document.getElementById('foldDrawCreaseInput');
             if (dcCb && document.activeElement !== dcCb) { dcCb.checked = dcOn; dcCb.disabled = fdDisabled; }
             const strokeRow = document.getElementById('foldCreaseStrokeRow');
-            if (strokeRow) strokeRow.style.display = (fdMulti && dcOn) ? '' : 'none';
+            if (strokeRow) strokeRow.style.display = ((fdMulti || fdWave) && dcOn) ? '' : 'none';
             const dcW = document.getElementById('foldCreaseWidthInput');
             if (dcW && document.activeElement !== dcW) {
               dcW.value = toDisplayStroke(parseFloat(fd?.creaseWidth ?? 1) || 1);
@@ -60963,28 +61461,28 @@
             const dcCol = document.getElementById('foldCreaseColorInput');
             if (dcCol && document.activeElement !== dcCol) { dcCol.value = '#' + hex; dcCol.disabled = fdDisabled || !dcOn; }
             const endsRow = document.getElementById('foldCreaseEndsRow');
-            if (endsRow) endsRow.style.display = (fdMulti && dcOn) ? '' : 'none';
+            if (endsRow) endsRow.style.display = ((fdMulti || fdWave) && dcOn) ? '' : 'none';
             const capSel = document.getElementById('foldCreaseCapInput');
             if (capSel && document.activeElement !== capSel) {
               capSel.value = (fd && fd.creaseCap) || 'round';
               capSel.disabled = fdDisabled;
             }
             const dashRow = document.getElementById('foldCreaseDashRow');
-            if (dashRow) dashRow.style.display = (fdMulti && dcOn) ? '' : 'none';
+            if (dashRow) dashRow.style.display = ((fdMulti || fdWave) && dcOn) ? '' : 'none';
             const dashIn = document.getElementById('foldCreaseDashInput');
             if (dashIn && document.activeElement !== dashIn) {
               dashIn.value = (fd && fd.creaseDash) || '';
               dashIn.disabled = fdDisabled;
             }
             const show0Row = document.getElementById('foldCreaseShow0Row');
-            if (show0Row) show0Row.style.display = (fdMulti && dcOn) ? '' : 'none';
+            if (show0Row) show0Row.style.display = ((fdMulti || fdWave) && dcOn) ? '' : 'none';
             const show0Cb = document.getElementById('foldCreaseShow0Input');
             if (show0Cb && document.activeElement !== show0Cb) {
               show0Cb.checked = !!(fd && fd.creaseShowAt0);
               show0Cb.disabled = fdDisabled;
             }
             const fadeRow = document.getElementById('foldCreaseFadeRow');
-            if (fadeRow) fadeRow.style.display = (fdMulti && dcOn) ? '' : 'none';
+            if (fadeRow) fadeRow.style.display = ((fdMulti || fdWave) && dcOn) ? '' : 'none';
             const fadeCb = document.getElementById('foldCreaseFadeInput');
             if (fadeCb && document.activeElement !== fadeCb) { fadeCb.checked = !!(fd && fd.creaseFade); fadeCb.disabled = fdDisabled; }
             const fadeIn = document.getElementById('foldCreaseFadeAngleInput');
@@ -60993,13 +61491,17 @@
               fadeIn.disabled = fdDisabled || !(fd && fd.creaseFade);
             }
           }
-          if (fdAddRow) fdAddRow.style.display = fdMulti ? '' : 'none';
+          // WRAP CHAINS (v20260821f): the crease list is for fold AND wrap;
+          // fdMulti (fold-only) keeps gating Force Split / Auto Extent /
+          // Extent / Draw Crease and the per-crease rotation/side/extent rows.
+          const fdList = fdMode === 'fold' || fdMode === 'wrap'; // WAVE (v20260821g): a generated chain has no authored list
+          if (fdAddRow) fdAddRow.style.display = fdList ? '' : 'none';
           if (fdAddRow) {
             const btn = document.getElementById('foldAddCreaseBtn');
             if (btn) btn.disabled = fdDisabled;
           }
           if (fdCreaseList) {
-            const wantCount = fdMulti ? Math.max(0, crs.length - 1) : 0;
+            const wantCount = fdList ? Math.max(0, crs.length - 1) : 0;
             if (parseInt(fdCreaseList.dataset.count || '0', 10) !== wantCount) {
               fdCreaseList.dataset.count = String(wantCount);
               fdCreaseList.innerHTML = '';
@@ -61019,29 +61521,42 @@
                   `<input type="number" step="0.01" data-fold-idx="${ci}" data-fold-key="position" /></div></div>` +
                   `<div class="xyz-row"><label>Position V</label><div class="xyz-inputs">` +
                   `<input type="number" step="0.01" data-fold-idx="${ci}" data-fold-key="positionV" /></div></div>` +
-                  `<div class="xyz-row"><label>Extent A</label><div class="xyz-inputs">` +
+                  `<div class="xyz-row" data-fold-only="1"><label>Extent A</label><div class="xyz-inputs">` +
                   `<input type="number" step="0.01" data-fold-idx="${ci}" data-fold-key="extentA" /></div></div>` +
-                  `<div class="xyz-row"><label>Extent B</label><div class="xyz-inputs">` +
+                  `<div class="xyz-row" data-fold-only="1"><label>Extent B</label><div class="xyz-inputs">` +
                   `<input type="number" step="0.01" data-fold-idx="${ci}" data-fold-key="extentB" /></div></div>` +
-                  `<div class="xyz-row"><label>Rotation</label><div class="xyz-inputs">` +
+                  `<div class="xyz-row" data-fold-only="1"><label>Rotation</label><div class="xyz-inputs">` +
                   `<input type="number" step="1" data-fold-idx="${ci}" data-fold-key="rotation" /></div></div>` +
                   `<div class="xyz-row"><label>Angle</label><div class="xyz-inputs">` +
                   `<input type="number" step="1" data-fold-idx="${ci}" data-fold-key="angle" /></div></div>` +
-                  `<div class="xyz-row"><label>Fold Side</label><div class="xyz-inputs">` +
+                  // WRAP CHAINS (v20260821f): per-crease Radius (wrap only - the
+                  // record always carried it; fdNRadius is already a track key)
+                  `<div class="xyz-row" data-wrap-only="1"><label>Radius</label><div class="xyz-inputs">` +
+                  `<input type="number" step="0.05" min="0" data-fold-idx="${ci}" data-fold-key="radius" /></div></div>` +
+                  `<div class="xyz-row" data-fold-only="1"><label>Fold Side</label><div class="xyz-inputs">` +
                   `<select data-fold-idx="${ci}" data-fold-key="side">` +
                   `<option value="right">Right (+U)</option><option value="left">Left (-U)</option></select></div></div>`;
                 while (grp.firstChild) fdCreaseList.appendChild(grp.firstChild);
               }
               if (_wrapNumberSpinners) _wrapNumberSpinners(fdCreaseList);
             }
-            fdCreaseList.style.display = fdMulti ? '' : 'none';
+            fdCreaseList.style.display = fdList ? '' : 'none';
+            // WRAP CHAINS (v20260821f): per-crease rows by mode - rotation,
+            // side and extents are fold concepts (a wrap chain is parallel
+            // and shares crease 1's side); radius is wrap's.
+            fdCreaseList.querySelectorAll('[data-fold-only]').forEach(r => { r.style.display = fdMulti ? '' : 'none'; });
+            fdCreaseList.querySelectorAll('[data-wrap-only]').forEach(r => { r.style.display = fdMode === 'wrap' ? '' : 'none'; });
+            // CREASE NUMBERS (v20260821a): crease 1's header appears exactly
+            // when creases 2..N exist — the canvas labels' rule, panel side.
+            const c1Row = document.getElementById('foldCrease1HeaderRow');
+            if (c1Row) c1Row.style.display = (fdList && wantCount >= 1) ? '' : 'none';
             fdCreaseList.querySelectorAll('input[data-fold-idx], select[data-fold-idx]').forEach(inp => {
               const ci = parseInt(inp.dataset.foldIdx, 10);
               const c2 = crs[ci];
               const kk = inp.dataset.foldKey;
               if (document.activeElement !== inp) {
                 if (kk === 'side') inp.value = (c2 && c2.side === 'left') ? 'left' : 'right';
-                else inp.value = c2 ? (c2[kk] ?? ((kk === 'position' || kk === 'positionV') ? 0.5 : (kk === 'extentB' ? 1 : 0))) : 0;
+                else inp.value = c2 ? (c2[kk] ?? ((kk === 'position' || kk === 'positionV' || kk === 'radius') ? 0.5 : (kk === 'extentB' ? 1 : 0))) : 0;
               }
               inp.disabled = fdDisabled
                 || (!!(fd && fd.autoExtent) && (kk === 'extentA' || kk === 'extentB')); // AUTO EXTENT (v20260819a)
@@ -62090,8 +62605,33 @@
       document.getElementById('foldModeInput')?.addEventListener('change', (e) => {
         fdApply(fd => {
           const v = e.target.value;
-          fd.mode = (v === 'wrap' || v === 'curl') ? v : 'fold';
+          fd.mode = (v === 'wrap' || v === 'curl' || v === 'wave') ? v : 'fold';
+          // WAVE (v20260821g): first entry seeds a visible default - Size at
+          // a tenth of the sheet's extent along the crease normal, Angle 45
+          // if the crease was flat (a 0-angle wave is the pristine sheet).
+          if (v === 'wave') {
+            if (fd.waveSize === undefined) {
+              const frW = selectedObject && (selectedObject.isGroup ? Path._foldGroupFrame(selectedObject) : selectedObject._foldFrame && selectedObject._foldFrame());
+              fd.waveSize = frW ? Math.max(0.01, 0.1 * Math.hypot(frW.uMax - frW.uMin, frW.vMax - frW.vMin)) : 0.5;
+            }
+            if (fd.waveCount === undefined) fd.waveCount = 3;
+            if (fd.creases && fd.creases[0] && !(fd.creases[0].angle || 0)) fd.creases[0].angle = 45;
+          }
         });
+      });
+      // WAVE (v20260821g): parameter rows. waveSize rides the settings-level
+      // track fdWaveSize (the fdScaleU precedent); count/shape/extend are discrete.
+      document.getElementById('foldWaveCountInput')?.addEventListener('input', (e) => {
+        fdApply(fd => { const v = parseInt(e.target.value, 10); fd.waveCount = isFinite(v) && v >= 1 ? v : 1; });
+      });
+      document.getElementById('foldWaveSizeInput')?.addEventListener('input', (e) => {
+        fdApply(fd => { const v = parseFloat(e.target.value); fd.waveSize = isFinite(v) ? Math.max(0, v) : 0.5; }, ['fdWaveSize']);
+      });
+      document.getElementById('foldWaveShapeInput')?.addEventListener('change', (e) => {
+        fdApply(fd => { const v = e.target.value; fd.waveShape = (v === 'down' || v === 'wave') ? v : 'up'; });
+      });
+      document.getElementById('foldWaveExtendInput')?.addEventListener('change', (e) => {
+        fdApply(fd => { const v = e.target.value; fd.waveExtend = (v === 'backward' || v === 'both') ? v : 'forward'; });
       });
       document.getElementById('foldRadiusInput')?.addEventListener('input', (e) => {
         fdApply((fd, cr) => { const v = parseFloat(e.target.value); cr.radius = isFinite(v) ? Math.max(0, v) : 0.5; }, ['fdRadius']);
@@ -62137,6 +62677,13 @@
       });
       document.getElementById('foldAngleInput')?.addEventListener('input', (e) => {
         fdApply((fd, cr) => { cr.angle = parseFloat(e.target.value) || 0; }, ['fdAngle']);
+      });
+      // CURL DIRECTION (v20260821c): writes +-90 into the same angle field
+      // (only the sign is read in curl), through the same fdApply + track
+      // key, so undo, Auto-Key and the fdAngle channel behave exactly as a
+      // typed angle would.
+      document.getElementById('foldCurlDirInput')?.addEventListener('change', (e) => {
+        fdApply((fd, cr) => { cr.angle = e.target.value === 'back' ? -90 : 90; }, ['fdAngle']);
       });
       // MULTI-CREASE (v20260721a): Add Crease appends a crease record
       // (accordion-friendly default: alternate the last crease's angle);
@@ -62289,7 +62836,24 @@
         // AUTO EXTENT (v20260819a): computed spans are not draggable —
         // the anchor still is (and moves the auto span live).
         if (t.dataset.foldHandle !== 'anchor' && selectedObject.foldSettings && selectedObject.foldSettings.autoExtent) return;
-        _fhDrag = { kind: t.dataset.foldHandle, ci: parseInt(t.dataset.foldIdx, 10) || 0 };
+        _fhDrag = { kind: t.dataset.foldHandle, ci: parseInt(t.dataset.foldIdx, 10) || 0, off: null };
+        // GRAB OFFSET (v20260821b): the anchor drag maps the cursor's sheet
+        // UV STRAIGHT into position/positionV, so the anchor snaps under the
+        // cursor. Invisible while the handle was a 5px dot; with the 30px bar
+        // a grab at one end would teleport the crease by up to 15px. Record
+        // where on the handle the grab landed and subtract it below, so the
+        // crease follows the grab POINT. Anchor only — the tick branch has
+        // its own math.
+        if (_fhDrag.kind === 'anchor') {
+          // WAVE (v20260822a): the bar sits on the START (fr.A2); creaseList
+          // holds the GENERATED creases - [0] is shifted by the zone centring
+          // (rounded) or the Both centring, so using it as the grab reference
+          // made the start jump on mousedown (owner report).
+          const ck0 = ctx.fr.wave ? null : (ctx.fr.creaseList && ctx.fr.creaseList[_fhDrag.ci]);
+          const a0 = ck0 ? ck0.A2 : ctx.fr.A2;
+          const uv0 = _fhSheetUV(e.clientX, e.clientY, ctx);
+          if (uv0 && a0) _fhDrag.off = [uv0[0] - a0[0], uv0[1] - a0[1]];
+        }
         e.preventDefault();
         e.stopImmediatePropagation();
       }, true);
@@ -62303,8 +62867,10 @@
         const akN = (key) => ci === 0 ? 'fd' + key : 'fd' + (ci + 1) + key;
         const r3 = (x) => Math.round(x * 1000) / 1000;
         if (_fhDrag.kind === 'anchor') {
-          const pu = r3((uv[0] - fr.uMin) / ((fr.uMax - fr.uMin) || 1));
-          const pv = r3((uv[1] - fr.vMin) / ((fr.vMax - fr.vMin) || 1));
+          const gu = _fhDrag.off ? uv[0] - _fhDrag.off[0] : uv[0]; // GRAB OFFSET (v20260821b)
+          const gv = _fhDrag.off ? uv[1] - _fhDrag.off[1] : uv[1];
+          const pu = r3((gu - fr.uMin) / ((fr.uMax - fr.uMin) || 1));
+          const pv = r3((gv - fr.vMin) / ((fr.vMax - fr.vMin) || 1));
           fdApply((fd) => {
             const cr = fd.creases[ci];
             if (!cr) return;
@@ -68301,16 +68867,53 @@
             // One line per crease (fold chains, v20260721a) — each with its
             // OWN anchor and rotation (v20260721b); curved modes draw the
             // single active crease.
-            const guideLines = fr.mode === 'fold'
+            // WRAP CHAINS (v20260821f): wrap draws one line per crease as
+            // well (all along crease 1's direction - the chain is parallel
+            // by construction); curl stays the single active crease.
+            // WAVE (v20260821g): the generated chain's lines draw FAINTER
+            // (they are not individually editable); the START line (crease
+            // 1's anchor - what the bar drags) draws at full weight first.
+            const guideLines = fr.wave
+              ? [{ A2: fr.A2, dir2: fr.dir2, isStart: true },
+                 ...fr.creaseList.map(ck => ({ A2: ck.A2, dir2: fr.dir2, faint: true }))]
+              : (fr.mode === 'fold'
               ? fr.creaseList
-              : [{ A2: fr.A2, dir2: fr.dir2 }];
+              : (fr.mode === 'wrap' && fr.wrapChain
+                ? fr.creaseList.map(ck => ({ A2: ck.A2, dir2: fr.dir2, wArc: ck.wArc }))
+                : [{ A2: fr.A2, dir2: fr.dir2 }]));
+            // CREASE NUMBERS (v20260821a, PLAN-fold-crease-numbers.md): with
+            // several creases every guide looks alike, so the canvas cannot
+            // say which panel row drives which line. Numbered only from TWO
+            // creases up (a lone "1" is clutter, owner decision) and only in
+            // fold mode (wrap/curl draw a single line). Anchors that project
+            // to the same pixel stack their labels instead of overprinting —
+            // the showVertexIndex coincidence trick.
+            const numOn = !fr.wave && (fr.mode === 'fold' || fr.mode === 'wrap') && guideLines.length >= 2;
+            const numSeen = numOn ? new Map() : null;
             guideLines.forEach((ck, li) => {
-              const isCrease = fr.mode === 'fold';
+              const isCrease = fr.mode === 'fold' && !fr.wave;
+              if (ck.faint) { // WAVE: generated line, no handles
+                drawGuideLine(ck.A2, ck.dir2, 'foldCreaseGuide_w' + li, 1, 4, 4, 0.45, null, undefined);
+                return;
+              }
               drawGuideLine(ck.A2, ck.dir2, li ? 'foldCreaseGuide_' + li : 'foldCreaseGuide', 1.5, 6, 4, 1,
                 isCrease ? [ck.extentA ?? 0, ck.extentB ?? 1] : null, // CREASE EXTENT (v20260818d)
                 isCrease ? li : undefined); // v20260818g: tick handles carry the crease index
-              // ANCHOR HANDLE (v20260818g): a draggable dot at the crease
+              // ANCHOR HANDLE (v20260818g): a draggable handle at the crease
               // anchor — drags Position U/V (curved modes too: crease 1).
+              // v20260821b: a BAR, not a dot. The r=5 dot was unreachable
+              // whenever the move gizmo's r=10 FILLED centre disc covered it
+              // (selectionGizmoGroup is declared after pathHighlightGroup, so
+              // it paints on top and takes the hit) — and an anchor defaults
+              // to the frame's bbox centre, which for a plain group IS the
+              // gizmo origin, so crease 1 lands under it by construction.
+              // A capsule ALONG the projected crease keeps the handle where
+              // the anchor really is while putting grabbable area outside the
+              // disc: the reachable region runs (half-length + hit-radius)
+              // from the centre, so each exposed lobe is half-length long
+              // whatever the hit width. Priority is deliberately unchanged —
+              // the gizmo still wins where they overlap, because stealing it
+              // would break moving the object in the same configuration.
               {
                 const p = [0, 0, 0];
                 p[fr.AX[0]] = fr.SG[0] * ck.A2[0];
@@ -68318,25 +68921,95 @@
                 p[fr.AX[2]] = fr.wMid;
                 const sc = transformVertex(p, guideMVP);
                 if (sc) {
-                  const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                  dot.id = 'foldCreaseGuideAnchor_' + li;
-                  dot.setAttribute('cx', (sc[0] * FRAME_SIZE) / 2);
-                  dot.setAttribute('cy', (-sc[1] * FRAME_SIZE) / 2);
-                  dot.setAttribute('r', 5 / scale);
-                  dot.setAttribute('fill', _highlightColor);
-                  dot.setAttribute('stroke', '#ffffff');
-                  dot.setAttribute('stroke-width', 1.2 / scale);
-                  dot.style.pointerEvents = 'all';
-                  dot.style.cursor = 'move';
-                  dot.dataset.foldHandle = 'anchor';
-                  dot.dataset.foldIdx = li;
-                  pathHighlightGroup.appendChild(dot);
+                  const sx = (sc[0] * FRAME_SIZE) / 2, sy = (-sc[1] * FRAME_SIZE) / 2;
+                  // The crease's own direction in SCREEN space — the bar lies
+                  // along it and the number label sits perpendicular to it, so
+                  // both read it from here (one projection per crease).
+                  let ax = 1, ay = 0, aOk = false;
+                  {
+                    const stepUV = 0.05 * (Math.hypot(fr.uMax - fr.uMin, fr.vMax - fr.vMin) || 1);
+                    const pd3 = [0, 0, 0];
+                    pd3[fr.AX[0]] = fr.SG[0] * (ck.A2[0] + ck.dir2[0] * stepUV);
+                    pd3[fr.AX[1]] = fr.SG[1] * (ck.A2[1] + ck.dir2[1] * stepUV);
+                    pd3[fr.AX[2]] = fr.wMid;
+                    const sd = transformVertex(pd3, guideMVP);
+                    if (sd) {
+                      const dx = (sd[0] * FRAME_SIZE) / 2 - sx, dy = (-sd[1] * FRAME_SIZE) / 2 - sy;
+                      const dl = Math.hypot(dx, dy);
+                      // End-on crease: no direction to lie along — the fixed
+                      // horizontal keeps a grabbable bar instead of collapsing
+                      // to a zero-length line.
+                      if (dl > 1e-6) { ax = dx / dl; ay = dy / dl; aOk = true; }
+                    }
+                  }
+                  const hL = 15 / scale; // half-length: also the exposed lobe past the gizmo disc
+                  const bx0 = sx - ax * hL, by0 = sy - ay * hL;
+                  const bx1 = sx + ax * hL, by1 = sy + ay * hL;
+                  const mkBar = (sid, w, col, op) => {
+                    const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    ln.id = sid;
+                    ln.setAttribute('x1', bx0); ln.setAttribute('y1', by0);
+                    ln.setAttribute('x2', bx1); ln.setAttribute('y2', by1);
+                    ln.setAttribute('stroke', col);
+                    ln.setAttribute('stroke-width', w / scale);
+                    ln.setAttribute('stroke-linecap', 'round');
+                    if (op !== undefined) ln.setAttribute('stroke-opacity', op);
+                    pathHighlightGroup.appendChild(ln);
+                    return ln;
+                  };
+                  // White capsule under the accent one — the dot's white ring
+                  // affordance, kept: the handle stays visible on dark art.
+                  mkBar('foldCreaseGuideAnchor_' + li + '_bg', 13, '#ffffff').style.pointerEvents = 'none';
+                  const bar = mkBar('foldCreaseGuideAnchor_' + li, 10, _highlightColor); // 10 = the old dot's DIAMETER
+                  bar.style.pointerEvents = 'none'; // the hit twin below owns the grab
+                  // Invisible hit twin (the extent ticks' pattern), wider than
+                  // the ink so the bar is grabbable along its whole length.
+                  const hit = mkBar('foldCreaseGuideAnchor_' + li + '_hit', 22, '#000', 0);
+                  hit.style.pointerEvents = 'all';
+                  hit.style.cursor = 'move';
+                  hit.dataset.foldHandle = 'anchor';
+                  hit.dataset.foldIdx = li;
+                  // The crease's NUMBER, beside its own bar. Offset
+                  // PERPENDICULAR to the line as PROJECTED (not a fixed
+                  // corner offset like the vertex labels): a fixed offset
+                  // drops the glyph onto the dashes whenever the crease runs
+                  // diagonally on screen, while the perpendicular keeps it
+                  // clear at every camera angle. Sides tie-break to screen-UP
+                  // so the numbers read consistently above their lines.
+                  if (numOn) {
+                    let ox = 0.7071, oy = -0.7071;
+                    if (aOk) {
+                      let px = -ay, py = ax;
+                      if (py > 0) { px = -px; py = -py; } // the screen-UP side
+                      ox = px; oy = py;
+                    }
+                    const nKey = Math.round(sx * 2) + ',' + Math.round(sy * 2);
+                    const nDup = numSeen.get(nKey) || 0;
+                    numSeen.set(nKey, nDup + 1);
+                    const nOff = (16 + nDup * 13) / scale; // clears the 13px-wide capsule
+                    const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    lbl.id = 'foldCreaseGuideNum_' + li; // swept by the [id^="foldCreaseGuide"] teardown
+                    lbl.classList.add('fold-crease-label');
+                    lbl.setAttribute('x', sx + ox * nOff);
+                    lbl.setAttribute('y', sy + oy * nOff);
+                    lbl.setAttribute('font-size', 11 / scale);
+                    lbl.setAttribute('stroke-width', 2.5 / scale);
+                    lbl.setAttribute('fill', _highlightColor);
+                    lbl.textContent = String(li + 1); // the panel's numbering (rows print ci + 1)
+                    pathHighlightGroup.appendChild(lbl);
+                  }
                 }
               }
             });
             // WRAP (v20260720u): fainter second line marks the bend-zone end
             // (s = wArc in SOURCE space — where the flat tail begins).
-            if (fr.mode === 'wrap' && fr.wArc > 1e-9) {
+            if (fr.mode === 'wrap' && fr.wrapChain) {
+              // WRAP CHAINS: each zone's bend-zone end, along crease 1's normal
+              guideLines.forEach((gl, gi) => {
+                if (gl.wArc > 1e-9) drawGuideLine([gl.A2[0] + fr.n2[0] * gl.wArc, gl.A2[1] + fr.n2[1] * gl.wArc],
+                  fr.dir2, 'foldCreaseGuideEnd_' + gi, 1, 3, 3, 0.55);
+              });
+            } else if (fr.mode === 'wrap' && fr.wArc > 1e-9) {
               drawGuideLine([fr.A2[0] + fr.n2[0] * fr.wArc, fr.A2[1] + fr.n2[1] * fr.wArc],
                 fr.dir2, 'foldCreaseGuideEnd', 1, 3, 3, 0.55);
             }
@@ -80725,6 +81398,7 @@
     const _foldParams = [
       { prop: 'fdScaleU', label: 'Scale U', fsKey: 'scaleU', precision: 2, step: 0.1 },
       { prop: 'fdScaleV', label: 'Scale V', fsKey: 'scaleV', precision: 2, step: 0.1 },
+      { prop: 'fdWaveSize', label: 'Wave Size', fsKey: 'waveSize', precision: 3, step: 0.05 }, // WAVE (v20260821g)
       { prop: 'fdPosition', label: 'Position U', foldKey: 'position', precision: 2, step: 0.01 },
       { prop: 'fdPositionV', label: 'Position V', foldKey: 'positionV', precision: 2, step: 0.01 }, // 2D anchor (v20260817d)
       { prop: 'fdExtentA', label: 'Extent A', foldKey: 'extentA', precision: 2, step: 0.01 }, // segment creases (v20260818d)
@@ -80743,7 +81417,7 @@
       // defaults here — callers fall back with `?? 0`, which would snap an
       // auto-keyed crease to the sheet edge (positionV) or to ZERO LENGTH
       // (extentB — its default is 1, the full line).
-      const _fdDef = { positionV: 0.5, extentA: 0, extentB: 1 };
+      const _fdDef = { positionV: 0.5, extentA: 0, extentB: 1, radius: 0.5 }; // radius: WRAP CHAINS (v20260821f) — creases 2..N now read it
       return obj.foldSettings.creases?.[def.creaseIdx || 0]?.[def.foldKey]
         ?? (def.foldKey in _fdDef ? _fdDef[def.foldKey] : null);
     };
@@ -80778,21 +81452,49 @@
         precision: meta[m2[2]][0], step: meta[m2[2]][1]
       };
     };
+    // ALL fold params an object can carry (every mode; the PLAYBACK loop
+    // applies whatever tracks exist so a mode switch never strands a value).
+    // v20260822a: per-crease Radius was missing - a keyed wrap-chain radius
+    // (fdNRadius, emitted by the crease-list input + Auto-Key) never played.
     const _foldDynamicParams = (obj) => {
       const out = _foldParams.slice();
       const crs = obj?.foldSettings?.creases;
       if (Array.isArray(crs)) {
         for (let ci = 1; ci < crs.length; ci++) {
-          out.push(_foldParamOf(`fd${ci + 1}Position`), _foldParamOf(`fd${ci + 1}PositionV`), _foldParamOf(`fd${ci + 1}ExtentA`), _foldParamOf(`fd${ci + 1}ExtentB`), _foldParamOf(`fd${ci + 1}Rotation`), _foldParamOf(`fd${ci + 1}Angle`));
+          out.push(_foldParamOf(`fd${ci + 1}Position`), _foldParamOf(`fd${ci + 1}PositionV`), _foldParamOf(`fd${ci + 1}ExtentA`), _foldParamOf(`fd${ci + 1}ExtentB`), _foldParamOf(`fd${ci + 1}Rotation`), _foldParamOf(`fd${ci + 1}Angle`), _foldParamOf(`fd${ci + 1}Radius`));
         }
       }
       return out;
     };
-    const _getFoldParamsForObj = (obj) => {
+    // MODE-RELEVANT subset (v20260822a): what the timeline LISTS and what
+    // "key all" keys. Each mode reads a different set of fields - fold:
+    // position/extents/rotation/angle (+ per-crease); wrap: position,
+    // rotation, angle, radius (+ per-crease position/angle/radius - rotation
+    // and extents are inherited/unread in a chain); curl: position, rotation,
+    // angle (sign), radius, pitch, tighten; wave: position, rotation, angle,
+    // radius, wave size. Scale U/V always. Tracks that already HAVE keys stay
+    // listed whatever the mode (so a stale track can be seen and deleted).
+    const _foldModeParams = (obj, objTracks) => {
+      const all = _foldDynamicParams(obj);
+      const fs = obj && obj.foldSettings;
+      const mode = fs && (fs.mode === 'wrap' || fs.mode === 'curl' || fs.mode === 'wave') ? fs.mode : 'fold';
+      const keyOf = (d) => d.fsKey || d.foldKey;
+      const top = (d) => d.creaseIdx === undefined; // crease 1 / settings-level
+      const ok = (d) => {
+        const k = keyOf(d);
+        if (k === 'scaleU' || k === 'scaleV') return true;
+        if (mode === 'fold') return ['position', 'positionV', 'extentA', 'extentB', 'rotation', 'angle'].includes(k);
+        if (mode === 'wrap') return top(d) ? ['position', 'positionV', 'rotation', 'angle', 'radius'].includes(k) : ['position', 'positionV', 'angle', 'radius'].includes(k);
+        if (mode === 'curl') return top(d) && ['position', 'positionV', 'rotation', 'angle', 'radius', 'pitch', 'tighten'].includes(k);
+        return top(d) && ['position', 'positionV', 'rotation', 'angle', 'radius', 'waveSize'].includes(k); // wave
+      };
+      return all.filter(d => d && (ok(d) || (objTracks && objTracks.has(d.prop))));
+    };
+    const _getFoldParamsForObj = (obj, objTracks) => {
       // GROUP FOLD (v20260721g, stage G2): groups keyframe fold params too —
       // all six dispatch sites are object-generic via _foldParamOf.
       if (!obj || !obj.foldSettings || !obj.foldSettings.enabled) return null;
-      return _foldDynamicParams(obj);
+      return _foldModeParams(obj, objTracks);
     };
 
     // 3D Settings animatable parameter definitions (per feature)
@@ -83364,7 +84066,7 @@
         }
 
         // --- Fold params sub-group (v20260720m) ---
-        const fdParams = obj ? _getFoldParamsForObj(obj) : null;
+        const fdParams = obj ? _getFoldParamsForObj(obj, objTracks) : null; // v20260822a: mode-relevant + keyed
         if (fdParams) {
           const fdCollapsed = addSubGroupHeader(objectName, 'fold', 'Fold');
           if (!fdCollapsed) {

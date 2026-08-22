@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260822b -->
+<!-- dim v20260822f -->
 
 <!--
   MIT License
@@ -40301,7 +40301,7 @@
         // WAVE: the synthetic crease array (positions as chord fractions of
         // THIS frame, so the rest of the build is untouched).
         const crs = isWave
-          ? Path._foldWaveCreases(fs, cr, engine, A2, [sideSign * Math.cos(rho), sideSign * Math.sin(rho)], uMin, uMax - uMin, vMin, vMax - vMin)
+          ? Path._foldWaveCreases(fs, cr, engine, A2, [sideSign * Math.cos(rho), sideSign * Math.sin(rho)], uMin, uMax - uMin, vMin, vMax - vMin, SG[2])
           : fs.creases;
         // WRAP CHAINS (v20260821f, PLAN-wrap-chains.md): wrap is on when ANY
         // crease has a real bend zone (crease 1 alone decided before - a
@@ -40529,11 +40529,27 @@
       // Rounded corners are zones CENTRED on the corner (a zone starts at its
       // anchor and extends +s, so the synthetic anchor sits r·|τ|/2 before
       // the corner, whichever side the crease folds).
-      static _foldWaveCreases(fs, cr, engine, A2, n2, uMin, uRange, vMin, vRange) {
+      static _foldWaveCreases(fs, cr, engine, A2, n2, uMin, uRange, vMin, vRange, nSign) {
         const N = Math.max(1, Math.round(fs.waveCount ?? 3));
         const L = Math.max(1e-6, Math.abs(fs.waveSize ?? 0.5));
+        // v20260822c (owner report): Shape owns the DIRECTION, absolutely.
+        // "Up" = the POSITIVE normal-axis side of the sheet (the same front
+        // Backside View defines: +Z for an XY sheet, +Y for XZ), whatever the
+        // axis pair's handedness. The fold engine's sign pin ("+angle folds
+        // toward −(U×V)") is up only for the X/Z pair (X×Z = −Y); for X/Y it
+        // is −Z, so a pair-blind σ·angle read "Up" as down there. And the
+        // Angle is taken as a MAGNITUDE (sharpness): a typed −90 with Shape
+        // Down used to come out UP (two signs fighting - the jabara scene).
+        // nSign = SG[2] = the sign of U×V along the world axis: +angle goes
+        // toward −nSign·axis, so Up needs turn sign −nSign.
+        // v20260822e (owner): the angle's SIGN is meaningful again, on top of
+        // the axis-absolute Shape - Up + positive → +axis, Up + negative →
+        // −axis, Down flips both; for the symmetric Wave the sign flips the
+        // PHASE (which way the first flank leaves the plane), so a wave can
+        // stick toward either side. (v20260822c's magnitude clamp had made
+        // ±angle identical.)
         const alpha = cr.angle || 0;
-        const sigma = (fs.waveShape || 'up') === 'down' ? -1 : 1;
+        const sigma = ((fs.waveShape || 'up') === 'down' ? -1 : 1) * ((nSign || -1) > 0 ? -1 : 1);
         const shape = fs.waveShape || 'up';
         const ext = fs.waveExtend || 'forward';
         const r = engine === 'wrap' ? Math.abs(cr.radius ?? 0) : 0;

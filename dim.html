@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260822f -->
+<!-- dim v20260823b -->
 
 <!--
   MIT License
@@ -40498,6 +40498,11 @@
           // by shifting the pattern in paper space (see _foldWaveCreases).
           wrapAnchor: (isWave && fs.waveExtend === 'backward') ? Infinity : undefined,
           wave: isWave ? { count: Math.max(1, Math.round(fs.waveCount ?? 3)), size: fs.waveSize, shape: fs.waveShape || 'up', extend: fs.waveExtend || 'forward', engine } : null,
+          // v20260823a: Both's paper translation as a uv vector (see
+          // _foldWaveCreases); null = no translation (byte-identical).
+          paperShift2: (isWave && Math.abs(crs.paperShift || 0) > 1e-12)
+            ? [crs.paperShift * sideSign * Math.cos(rho), crs.paperShift * sideSign * Math.sin(rho)]
+            : null,
           allParallel: allParallel || (wrapOn && crs.length > 1) // a wrap chain is parallel BY CONSTRUCTION (rotation inherited)
         };
       }
@@ -40554,6 +40559,7 @@
         const ext = fs.waveExtend || 'forward';
         const r = engine === 'wrap' ? Math.abs(cr.radius ?? 0) : 0;
         const rot = cr.rotation || 0;
+        let paperShift = 0; // v20260823a: Both's centring translation (paper units along n̂)
         // forward corner list: [s, turnDeg]
         const fwd = [];
         if (shape === 'wave') {
@@ -40582,6 +40588,22 @@
           }
           const shift = -F;
           for (const c of fwd) corners.push([c[0] + shift, c[1], 'right']);
+          // v20260823a (owner: "objects move when Extend is Both and bumps >
+          // 2"): centring the PATTERN is not centring the PAPER. With the
+          // corners at −F + k·L the folded centre lands on the start, but the
+          // paper under the start line sits F into the pattern, not N·L, so
+          // its content folds to x = −F + F·cos α = −N·L·cos α·(1 − cos α) —
+          // 0.83 units for 4 bumps × size 1 × 45°, growing with N and angle.
+          // The paper must ride along by T = N·L − F (the pattern's paper
+          // half-length minus its folded half-width): the source is
+          // translated by +T along n̂ BEFORE the split (PRE matrix), so the
+          // start-line paper lands on the pattern's centre corner and the
+          // folded centre lands on the start bar - a rigid in-plane
+          // translation of the whole folded result (bases included), exactly
+          // the symmetric accordion closing in on its centre. T = 0 at
+          // angle 0 (continuous with the pristine 2D path) and for every
+          // other mode/extend (byte-identical).
+          paperShift = N * L - F;
         }
         const out = [];
         for (const [sc, turn, side] of corners) {
@@ -40597,6 +40619,7 @@
         out.forEach((o, i) => { o._absS = Math.abs(corners[i][0]); });
         out.sort((a, b) => a._absS - b._absS);
         out.forEach(o => { delete o._absS; });
+        out.paperShift = paperShift; // read once by _foldFrameCore (v20260823a)
         return out;
       }
 
@@ -42490,7 +42513,19 @@
         // Inherited mode composes child→group FIRST, then the group-space
         // scale (the frame's bounds are group-space, pre-scale).
         const S = this._foldScaleMatrix(fr);
-        const PRE = inh ? (S ? matrixMultiply(S, inh.sourceRel) : inh.sourceRel) : S;
+        let PRE = inh ? (S ? matrixMultiply(S, inh.sourceRel) : inh.sourceRel) : S;
+        // WAVE Both (v20260823a): the centring paper translation rides the
+        // same pre-split matrix (after the uv scale - the frame's crease
+        // positions are in scaled uv), so the crease pattern, the cuts, the
+        // roles and the flat-fold layer map all see the translated paper
+        // and stay exact against the untouched frame + eye.
+        if (fr.paperShift2) {
+          const t3 = [0, 0, 0];
+          t3[fr.AX[0]] = fr.SG[0] * fr.paperShift2[0];
+          t3[fr.AX[1]] = fr.SG[1] * fr.paperShift2[1];
+          const T = createTranslationMatrix(t3[0], t3[1], t3[2]);
+          PRE = PRE ? matrixMultiply(T, PRE) : T;
+        }
         if (PRE) {
           segs = segs.map(sg => ({
             type: sg.type, command: sg.command,

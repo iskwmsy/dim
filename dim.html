@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260825b -->
+<!-- dim v20260825g -->
 
 <!--
   MIT License
@@ -7600,6 +7600,10 @@
                           <input type="number" id="extrudeStackCountInput" min="2" max="1024" step="1" value="16" />
                         </div>
                       </div>
+                      <div class="style-row">
+                        <label class="ui-checkbox-label">Snap to Anchors</label>
+                        <input type="checkbox" id="extrudeStackSnapInput" class="ui-checkbox" />
+                      </div>
                       <div class="xyz-row">
                         <label>Axis</label>
                         <div class="xyz-inputs">
@@ -7785,6 +7789,10 @@
                           <input type="number" id="revolveStackCountInput" min="2" max="1024" step="1" value="16" />
                         </div>
                       </div>
+                      <div class="style-row">
+                        <label class="ui-checkbox-label">Snap to Anchors</label>
+                        <input type="checkbox" id="revolveStackSnapInput" class="ui-checkbox" />
+                      </div>
                     </div>
                     <div class="style-row" id="revolveDrawPointsRow">
                       <label class="ui-checkbox-label">Draw Points</label>
@@ -7952,6 +7960,10 @@
                         <div class="xyz-inputs">
                           <input type="number" id="sweepStackCountInput" min="2" max="1024" step="1" value="16" />
                         </div>
+                      </div>
+                      <div class="style-row">
+                        <label class="ui-checkbox-label">Snap to Anchors</label>
+                        <input type="checkbox" id="sweepStackSnapInput" class="ui-checkbox" />
                       </div>
                       <div class="xyz-row">
                         <label>Axis</label>
@@ -40438,10 +40450,22 @@
         const angle = cr.angle || 0;
         const radius = Math.abs(cr.radius ?? 0);
         const engine = isWave ? (radius > 1e-6 ? 'wrap' : 'fold') : fs.mode;
+        // SHARP WAVE STRETCH (v20260825c, the v20260825a successor): Paper =
+        // Stretch on a radius-0 wave runs the FOLD chain with per-cell
+        // SHEARS instead of rigid rotations - same curve as conserve
+        // (corners at the profile's footprint x = s·cos α, flank slope
+        // ±tan α), zero transport. Gated |angle| < 89.9 like the rounded
+        // path (tan blows up at 90; the ±90° accordion always conserves,
+        // which also keeps shear cells away from the exact-180 flat-fold
+        // layer sim - its rigid plane carry never sees them). Computed
+        // BEFORE the generator (it needs the flag to place corners at
+        // footprint); the rounded gate below still needs crs/wrapOn.
+        const waveShear = isWave && engine === 'fold' && fs.wavePaper === 'stretch'
+          && Math.abs(angle) < 89.9;
         // WAVE: the synthetic crease array (positions as chord fractions of
         // THIS frame, so the rest of the build is untouched).
         const crs = isWave
-          ? Path._foldWaveCreases(fs, cr, engine, A2, [sideSign * Math.cos(rho), sideSign * Math.sin(rho)], uMin, uMax - uMin, vMin, vMax - vMin, SG[2])
+          ? Path._foldWaveCreases(fs, cr, engine, A2, [sideSign * Math.cos(rho), sideSign * Math.sin(rho)], uMin, uMax - uMin, vMin, vMax - vMin, SG[2], waveShear)
           : fs.creases;
         // WRAP CHAINS (v20260821f, PLAN-wrap-chains.md): wrap is on when ANY
         // crease has a real bend zone (crease 1 alone decided before - a
@@ -40453,10 +40477,11 @@
         // Stretch reads the source coordinate as the FOOTPRINT x instead of
         // arc length - the bump keeps its exact shape but nothing is
         // transported (the flanks stretch instead of drawing paper in), so a
-        // keyframed Position U waves the sheet IN PLACE. Rounded chains only
-        // (the fold chain is rigid cells; a stretch flank is affine) and
-        // |angle| < 89.9 (a vertical flank is not a height field - x(s)
-        // must stay monotone). Falls back to conserve outside the gate.
+        // keyframed Position U waves the sheet IN PLACE. This flag is the
+        // ROUNDED (wrap-chain) arm - the sharp (radius-0) arm is waveShear
+        // above (v20260825c: affine cells) - and |angle| < 89.9 (a vertical
+        // flank is not a height field - x(s) must stay monotone). Falls
+        // back to conserve outside the gate.
         const waveStretch = isWave && wrapOn && fs.wavePaper === 'stretch'
           && Math.abs(angle) < 89.9;
         const curlOn = engine === 'curl' && radius > 1e-6;
@@ -40651,8 +40676,11 @@
           // v20260823a: Both's paper translation as a uv vector (see
           // _foldWaveCreases); null = no translation (byte-identical).
           // (Stretch never transports, so Both needs no paper translation -
-          // the centre corner's footprint x is 0 by the -F placement.)
+          // the centre corner's footprint x is 0 by the -F placement; the
+          // sharp arm's generator emits paperShift 0 under waveShear, so the
+          // !waveStretch guard alone stays sufficient.)
           waveStretch,
+          waveShear, // v20260825c: sharp-stretch arm (shear cells in the fold chain)
           paperShift2: (isWave && !waveStretch && Math.abs(crs.paperShift || 0) > 1e-12)
             ? [crs.paperShift * sideSign * Math.cos(rho), crs.paperShift * sideSign * Math.sin(rho)]
             : null,
@@ -40687,7 +40715,7 @@
       // Rounded corners are zones CENTRED on the corner (a zone starts at its
       // anchor and extends +s, so the synthetic anchor sits r·|τ|/2 before
       // the corner, whichever side the crease folds).
-      static _foldWaveCreases(fs, cr, engine, A2, n2, uMin, uRange, vMin, vRange, nSign) {
+      static _foldWaveCreases(fs, cr, engine, A2, n2, uMin, uRange, vMin, vRange, nSign, waveShear) {
         const N = Math.max(1, Math.round(fs.waveCount ?? 3));
         const L = Math.max(1e-6, Math.abs(fs.waveSize ?? 0.5));
         // v20260822c (owner report): Shape owns the DIRECTION, absolutely.
@@ -40707,11 +40735,21 @@
         // stick toward either side. (v20260822c's magnitude clamp had made
         // ±angle identical.)
         const alpha = cr.angle || 0;
+        const aRad = Math.abs(alpha) * Math.PI / 180;
         const sigma = ((fs.waveShape || 'up') === 'down' ? -1 : 1) * ((nSign || -1) > 0 ? -1 : 1);
         const shape = fs.waveShape || 'up';
         const ext = fs.waveExtend || 'forward';
         const r = engine === 'wrap' ? Math.abs(cr.radius ?? 0) : 0;
         const rot = cr.rotation || 0;
+        // SHARP WAVE STRETCH (v20260825c): under shear the sheet coordinate
+        // IS the footprint, so the corners land at the CONSERVE profile's
+        // footprint x - every flank contributes L·cos α of footprint, i.e. a
+        // uniform ·cos α on the paper positions (the r→0 limit of the wrap
+        // arm's xOf, so rounded stretch converges to sharp exactly). Turns
+        // and the flank slopes (±tan α, built in _foldCreaseRoles) are
+        // untouched: the drawn curve is IDENTICAL to conserve, only the
+        // material parameterization changes - the v20260825a contract.
+        const scS = waveShear ? Math.cos(aRad) : 1;
         let paperShift = 0; // v20260823a: Both's centring translation (paper units along n̂)
         // forward corner list: [s, turnDeg]
         const fwd = [];
@@ -40729,9 +40767,12 @@
         else if (ext === 'backward') for (const c of fwd) corners.push([-c[0], c[1], 'left']);
         else {
           // both = centred: folded x of the pattern's paper centre (N·L from
-          // the first corner), then shift the pattern so it lands on s = 0
-          const aRad = Math.abs(alpha) * Math.PI / 180;
-          let F = N * L * Math.cos(aRad);
+          // the first corner), then shift the pattern so it lands on s = 0.
+          // Under waveShear F = N·L (a stretched pattern never compresses),
+          // so shift = -N·L and paperShift lands exactly 0 - the ·cos α at
+          // emit then centres the FOOTPRINT pattern symmetrically about the
+          // start with no paper translation (stretch never transports).
+          let F = waveShear ? N * L : N * L * Math.cos(aRad);
           if (r > 0) {
             const zones = fwd.filter(c => Math.abs(c[1]) > 1e-9).map(c => {
               const w = r * Math.abs(c[1]) * Math.PI / 180;
@@ -40760,7 +40801,9 @@
         }
         const out = [];
         for (const [sc, turn, side] of corners) {
-          const sA = sc - (r > 0 ? r * Math.abs(turn) * Math.PI / 180 / 2 : 0);
+          // scS: paper→footprint under waveShear (r is 0 there, so the zone
+          // bias below never composes with it); 1 otherwise - bit-identical.
+          const sA = sc * scS - (r > 0 ? r * Math.abs(turn) * Math.PI / 180 / 2 : 0);
           const au = A2[0] + n2[0] * sA, av = A2[1] + n2[1] * sA;
           out.push({
             position: (au - uMin) / (uRange || 1), positionV: (av - vMin) / (vRange || 1),
@@ -41766,9 +41809,48 @@
           return [ck.A2[0] + ck.dir2[0] * tm, ck.A2[1] + ck.dir2[1] * tm];
         };
         const Wk = [], Winv = [];
+        // SHARP WAVE STRETCH (v20260825c): under fr.waveShear the cells take
+        // per-crease SHEARS about their own hinge lines instead of rigid
+        // rotations - identity on the footprint (in-sheet) coordinates,
+        // displacement along the sheet normal linear in the flap distance.
+        // Parallel shears along one normal COMMUTE, so the H conjugation is
+        // the identity and is skipped (fold order is irrelevant by
+        // construction). Coefficients are tan DIFFERENCES, not angles:
+        // rotations compose additively in angle, shears in SLOPE, so crease
+        // k carries tan(Φk) − tan(Φk − θk) where Φk is the cumulative
+        // signed angle over the creases whose flap contains a point just
+        // past k (spatial nesting - NOT list order; Both's fold order
+        // interleaves the two sides). The out-of-plane sign is probed from
+        // the crease's own ROTATION (sin θ · handedness), so the flank
+        // lands on exactly the side conserve puts it. The rotation twins
+        // keep being built below: roles classify on them (conserve
+        // geometry - facing signs are identical, overlap wedges err
+        // conservative) and _foldChainCells reads flank NORMALS through
+        // them (a shear maps the sheet normal to itself, so
+        // point-differencing it would report every flank as sheet-flat).
+        const SWk = fr.waveShear ? [] : null, SWinv = fr.waveShear ? [] : null;
+        let phiK = null;
+        if (SWk) {
+          const tolP = 1e-9 * Math.max(fr.uMax - fr.uMin, fr.vMax - fr.vMin);
+          phiK = fr.creaseList.map((ck) => {
+            if (Math.abs(ck.angle) < 1e-12) return 0;
+            let phi = 0;
+            for (const cj of fr.creaseList) {
+              if (Math.abs(cj.angle) < 1e-12) continue;
+              const d = (ck.A2[0] - cj.A2[0]) * cj.n2[0] + (ck.A2[1] - cj.A2[1]) * cj.n2[1];
+              const dn = ck.n2[0] * cj.n2[0] + ck.n2[1] * cj.n2[1];
+              if (d > tolP || (d > -tolP && dn > 0)) phi += cj.sideSign * cj.angle * Math.PI / 180;
+            }
+            return phi;
+          });
+        }
         for (let k = 0; k < fr.creaseList.length; k++) {
           const ck = fr.creaseList[k];
-          if (Math.abs(ck.angle) < 1e-12) { Wk.push(null); Winv.push(null); continue; }
+          if (Math.abs(ck.angle) < 1e-12) {
+            Wk.push(null); Winv.push(null);
+            if (SWk) { SWk.push(null); SWinv.push(null); }
+            continue;
+          }
           const d3 = [0, 0, 0], A3 = [0, 0, 0];
           d3[AXu] = sgU * ck.dir2[0]; d3[AXv] = sgV * ck.dir2[1];
           A3[AXu] = sgU * ck.A2[0]; A3[AXv] = sgV * ck.A2[1]; A3[fr.AX[2]] = fr.wMid;
@@ -41792,6 +41874,22 @@
           }
           Wk.push(H ? matrixMultiply(matrixMultiply(H, R), Hi) : R);
           Winv.push(H ? matrixMultiply(matrixMultiply(H, Ri), Hi) : Ri);
+          if (SWk) {
+            const W2 = fr.AX[2];
+            const n3w = [0, 0, 0];
+            n3w[AXu] = sgU * ck.n2[0]; n3w[AXv] = sgV * ck.n2[1];
+            const p1 = [A3[0] + n3w[0], A3[1] + n3w[1], A3[2] + n3w[2]];
+            const h3 = (Math.sign(pointApplyMatrix(p1, R)[W2] - p1[W2]) * Math.sign(Math.sin(th))) || 1;
+            const cc = h3 * (Math.tan(phiK[k]) - Math.tan(phiK[k] - th));
+            const shM = (c4) => { // p' = p + ê(W2)·c4·((p − A3)·n̂3): its own line is fixed pointwise (seam-safe)
+              const Mh = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]];
+              Mh[W2][AXu] += c4 * n3w[AXu];
+              Mh[W2][AXv] += c4 * n3w[AXv];
+              Mh[W2][3] -= c4 * (A3[AXu] * n3w[AXu] + A3[AXv] * n3w[AXv]);
+              return Mh;
+            };
+            SWk.push(shM(cc)); SWinv.push(shM(-cc)); // n̂3 has no W2 component, so Sh(−c) is the exact inverse
+          }
         }
         const roles = fr.creaseList.map(ck => Math.abs(ck.angle) < 1e-12 ? 'skip' : 'cut');
         // NON-PARALLEL chains (mixed crease rotations, v20260722f): the
@@ -41941,7 +42039,9 @@
             }
           } catch (e) { /* conservative: all remaining roles stay 'cut' */ }
         }
-        return { roles, Wk, Winv };
+        // Under waveShear the SPLITTER gets the shears (Wk) while the
+        // rotation twins ride along as WkN, the normal/facing authority.
+        return SWk ? { roles, Wk: SWk, Winv: SWinv, WkN: Wk } : { roles, Wk, Winv, WkN: null };
       }
 
       _foldChainCells(fr, rings, openRuns, roleInfo, drawCrease, creaseShowAt0) {
@@ -42380,6 +42480,24 @@
           tMemo.set(bits, T);
           return T;
         };
+        // SHARP WAVE STRETCH (v20260825c): under fr.waveShear Wk are SHEARS,
+        // and a shear maps the sheet normal to ITSELF - point-differencing
+        // the normal through them would report every flank as sheet-flat,
+        // corrupting the backside vote and plane separation. The flank PLANE
+        // still makes the exact conserve angle with the sheet (only in-plane
+        // lengths change), so normals read through the ROTATION twins.
+        const WkN = roleInfo.WkN || null;
+        const tMemoN = WkN ? new Map() : null;
+        const tOfBitsN = !WkN ? tOfBits : (bits) => {
+          let T = tMemoN.get(bits);
+          if (T !== undefined) return T;
+          T = null;
+          for (let k = 0; k < bits.length; k++) {
+            if (bits[k] === '1' && WkN[k]) T = T ? matrixMultiply(WkN[k], T) : WkN[k];
+          }
+          tMemoN.set(bits, T);
+          return T;
+        };
         const hasBend = roles.some(r => r === 'bend');
         const bands = [];
         for (const cell of cells) {
@@ -42462,7 +42580,7 @@
           const opensM = cell.opens.map(run => run.map(mapEnt));
           const bandCells = [];
           for (const [bits, P] of subPts) {
-            const T = tOfBits(bits);
+            const T = tOfBitsN(bits); // rotation twin under waveShear (v20260825c), tOfBits otherwise
             let nrm = [0, 0, 0];
             nrm[fr.AX[2]] = 1;
             if (T) {
@@ -46738,6 +46856,7 @@
           cleanRender: cleanRender,
           layerCount: rs.layerCount || 16,
           stackCount: rs.stackCount || 16,   // Stacks mode (v20260824a): rings along the axis
+          stackSnap: rs.stackSnap || false,  // Stacks: stations at profile anchors (v20260825f)
           showCapStart: rs.capStart !== false,
           showCapEnd: rs.capEnd !== false,
           drawPoints: rs.drawPoints || false,
@@ -46798,6 +46917,7 @@
           cleanRender: false,
           layerCount: es.layerCount || 16,
           stackCount: es.stackCount || 16,          // Stacks (v20260824c): slabs through the profile
+          stackSnap: es.stackSnap || false,         // Stacks: stations at profile anchors (v20260825f)
           stackAxis: es.stackAxis || 'y',
           stackAngle: es.stackAngle || 0,           // degrees, rotates the stack axis in the profile plane (v20260824e)
           showCapStart: es.capFront !== false,
@@ -47124,12 +47244,23 @@
               }
               return true;
             }
-            // Tapered: the ring is a spiral ramp, not a circle - sampled polyline (still vector).
+            // Tapered: the ring is a spiral ramp, not a circle - an exact
+            // circle/arc fit is IMPOSSIBLE (r and h both vary with azimuth, the
+            // station leaves its plane), so the honest form is the house one
+            // (v20260825e, the sweep-ribbon/loft-edge precedent): a chordal
+            // Catmull-Rom cubic chain through the exact spiral samples
+            // (Path._stacksSmoothD) - every sample stays on the spiral, the
+            // export carries true cubics, and the sample-corner faceting the
+            // raw L chain showed at grazing views is gone. The opener keeps
+            // the M/L-per-`first` contract (the L IS the sector's radial
+            // chord and stays sharp - _stacksSmoothD preserves it).
             const n = Math.max(32, ss.cleanSegsU || 32);
+            const ep = [];
             for (let i = 0; i <= n; i++) {
               const s = W(P3(r, h, a0 + (a1 - a0) * i / n)); if (!s) return false; _push(s);
-              acc.d += (i === 0 ? (first ? 'M' : 'L') : 'L') + `${s.x},${s.y}`;
+              ep.push(s);
             }
+            acc.d += Path._stacksSmoothD(ep, first);
             return true;
           };
 
@@ -47139,18 +47270,62 @@
             ? Array.from({ length: swM + 1 }, (_, k) => SurfaceMapper.getFrameAtU(railPath._frameData, k / swM))
             : null;
 
-          for (let i = 0; i < N; i++) {
-            let h = hmin + (N > 1 ? i / (N - 1) : 0) * range;
-            if (i === 0) h += nudge; else if (i === N - 1) h -= nudge;
-
-            // crossings: signed radial distance from the axis, all subpaths pooled
+          // SNAP TO ANCHORS (v20260825f, PLAN-stacks-completions.md slice 2):
+          // ss.stackSnap (lazy - absent = off = byte-identical) derives the
+          // station list from the profile's AUTHORED anchor heights instead of
+          // the uniform stackCount subdivision - a ring at every profile
+          // vertex, so the stations land on the silhouette's feature lines.
+          // Anchors are the segment ENDPOINTS of segLists (p0/p3 only -
+          // handles are not anchors; the synthetic closing chord adds none by
+          // construction), read in ROTATED profile space so stackAngle is
+          // honoured. The axial EXTREMES stay present even when no anchor
+          // sits there (owner decision D2 - a curve can bulge past its
+          // anchors through a critical point), with the same 1e-7 end-nudge
+          // as the uniform list.
+          const snapOn = !!ss.stackSnap;
+          let stations = null;
+          if (snapOn) {
+            const tolA = 1e-9 * range;
+            const hsA = [];
+            for (const list of segLists) for (const { ax } of list) hsA.push(_evalC(ax, 0), _evalC(ax, 1));
+            hsA.sort((a, b) => a - b);
+            stations = [];
+            for (const hv of hsA) if (!stations.length || hv - stations[stations.length - 1] > tolA) stations.push(hv);
+            if (stations[0] > hmin + tolA) stations.unshift(hmin);
+            if (stations[stations.length - 1] < hmax - tolA) stations.push(hmax);
+            stations[0] += nudge;
+            stations[stations.length - 1] -= nudge;
+          }
+          const NS = snapOn ? stations.length : N;
+          // crossings at one height: signed radial distance from the axis, all subpaths pooled
+          const solveAt = (h) => {
             const radii = [];
             for (const list of segLists) for (const { s, ax } of list) {
               if (Math.abs(ax[0] - h) < 1e-12 && Math.abs(ax[1]) < 1e-12 && Math.abs(ax[2]) < 1e-12 && Math.abs(ax[3]) < 1e-12) continue;   // flat run AT h
               for (const t of _rootsAt(ax, h)) radii.push(_evalPt(s, t, RD) + offset);
             }
-            if (!radii.length) continue;
             radii.sort((a, b) => a - b);
+            return radii;
+          };
+          for (let i = 0; i < NS; i++) {
+            let h;
+            if (snapOn) h = stations[i];
+            else {
+              h = hmin + (N > 1 ? i / (N - 1) : 0) * range;
+              if (i === 0) h += nudge; else if (i === N - 1) h -= nudge;
+            }
+            let radii = solveAt(h);
+            // Snap-only parity fallback: an interior anchor at a LOCAL axial
+            // extreme is a TANGENCY - the crossing set degenerates to odd on a
+            // closed profile. Re-solve one nudge toward mid-range; the tiny
+            // ring that appears is the true section just inside the tangent
+            // (the zero-width-ring philosophy of the rim/foot stations).
+            if (snapOn && allSubpathsClosed && radii.length % 2) {
+              const h2 = h + (h < (hmin + hmax) / 2 ? nudge : -nudge);
+              const r2 = solveAt(h2);
+              if (r2.length % 2 === 0) { h = h2; radii = r2; }
+            }
+            if (!radii.length) continue;
             _dbg.push({ h, radii: radii.slice() });
 
             acc.d = ''; acc.sumZ = 0; acc.n = 0; acc.pts = [];
@@ -47218,7 +47393,7 @@
             const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             el.setAttribute('d', acc.d);
             el.setAttribute('fill-rule', 'evenodd');
-            const stFill = surfPal ? paletteColorAt(surfPal, i, N, ss.paletteMode) : fillColor;
+            const stFill = surfPal ? paletteColorAt(surfPal, i, NS, ss.paletteMode) : fillColor;   // NS = stations.length under snap (v20260825f)
             el.setAttribute('fill', allSubpathsClosed ? (stFill || 'none') : 'none');
             if (strokeColor) { el.setAttribute('stroke', strokeColor); el.setAttribute('stroke-width', strokeWidth); }
             else el.setAttribute('stroke', 'none');
@@ -47239,6 +47414,18 @@
             const entry = { element: el, z: sc ? sc.z : acc.sumZ / acc.n };
             if (this._collectIx && acc.pts.length >= 3) {
               const plane = RenderIntersections.planeFromPoints(acc.pts);
+              // TAPERED-REVOLVE GATE REFUTED (v20260825e, measured): a tapered
+              // station's spiral leaves its plane (hh = h*s(a)), so extending
+              // the sweep residual gate to it looked like fixing a
+              // wrong-by-construction ix. Measured on a tapered stacks vase
+              // (scaleEnd 0.5) + slab in a zSort+maskRender group: the gate
+              // rejected EVERY ring (entries 8 -> 0, masks 4 -> 0) and
+              // referee() went 1,398 -> 4,973 bad texels - an ix-less face
+              // falls to paint order, which is exactly what the mask exists
+              // to correct, and the least-squares plane, though inexact,
+              // carries the verdicts far better than none. The approximate
+              // plane stays accepted; do not re-gate without a repro it
+              // demonstrably fixes.
               if (plane && isSweepStacks) {
                 // A curved ribbon has no true plane: accept the fit only when
                 // the residual is small vs the station's own depth span (the
@@ -60753,6 +60940,12 @@
       if (extrudeStackAxisInput && document.activeElement !== extrudeStackAxisInput) {
         extrudeStackAxisInput.value = extrudable ? (selectedObject.extrudeSettings?.stackAxis || 'y') : 'y';
       }
+      const extrudeStackSnapInput = document.getElementById('extrudeStackSnapInput');
+      if (extrudeStackSnapInput && document.activeElement !== extrudeStackSnapInput) {
+        extrudeStackSnapInput.checked = extrudable ? !!selectedObject.extrudeSettings?.stackSnap : false;
+      }
+      // Snap owns the station list - the Count input greys (reserved, never hidden)
+      if (extrudeStackCountInput) extrudeStackCountInput.disabled = !!(extrudable && selectedObject.extrudeSettings?.stackSnap);
       const extrudeStackAngleInput = document.getElementById('extrudeStackAngleInput');
       if (extrudeStackAngleInput && document.activeElement !== extrudeStackAngleInput) {
         extrudeStackAngleInput.value = extrudable ? (selectedObject.extrudeSettings?.stackAngle || 0) : 0;
@@ -60997,6 +61190,11 @@
       if (revolveStackCountInput && document.activeElement !== revolveStackCountInput) {
         revolveStackCountInput.value = isPath ? (selectedObject.revolveSettings?.stackCount || 16) : 16;
       }
+      const revolveStackSnapInput = document.getElementById('revolveStackSnapInput');
+      if (revolveStackSnapInput && document.activeElement !== revolveStackSnapInput) {
+        revolveStackSnapInput.checked = isPath ? !!selectedObject.revolveSettings?.stackSnap : false;
+      }
+      if (revolveStackCountInput) revolveStackCountInput.disabled = !!(isPath && selectedObject.revolveSettings?.stackSnap);
       // M1 (PLAN-more-simple-sides): three-state Sides select. FILES keep the
       // legacy simpleSides boolean (true for BOTH Simple and More Simple, so
       // old builds degrade to the nearest render they know) plus the new
@@ -61238,6 +61436,11 @@
         if (sweepStackAxisInput && document.activeElement !== sweepStackAxisInput) {
           sweepStackAxisInput.value = isPath ? (selectedObject.sweepSettings?.stackAxis || 'y') : 'y';
         }
+        const sweepStackSnapInput = document.getElementById('sweepStackSnapInput');
+        if (sweepStackSnapInput && document.activeElement !== sweepStackSnapInput) {
+          sweepStackSnapInput.checked = isPath ? !!selectedObject.sweepSettings?.stackSnap : false;
+        }
+        if (sweepStackCountInput) sweepStackCountInput.disabled = !!(isPath && selectedObject.sweepSettings?.stackSnap);
         const sweepStackAngleInput = document.getElementById('sweepStackAngleInput');
         if (sweepStackAngleInput && document.activeElement !== sweepStackAngleInput) {
           sweepStackAngleInput.value = isPath ? (selectedObject.sweepSettings?.stackAngle || 0) : 0;
@@ -63373,10 +63576,12 @@
       document.getElementById('foldWaveExtendInput')?.addEventListener('change', (e) => {
         fdApply(fd => { const v = e.target.value; fd.waveExtend = (v === 'backward' || v === 'both') ? v : 'forward'; });
       });
-      // WAVE STRETCH (v20260825a): Paper = Conserve (physical - a travelling
-      // wave transports the sheet) / Stretch (footprint-preserving - the
-      // sheet waves in place; needs Radius > 0 and |Angle| < 90, else the
-      // engine falls back to conserve).
+      // WAVE STRETCH (v20260825a; sharp arm v20260825c): Paper = Conserve
+      // (physical - a travelling wave transports the sheet) / Stretch
+      // (footprint-preserving - the sheet waves in place; any Radius: the
+      // rounded chain remaps by footprint, the sharp chain runs shear
+      // cells; needs |Angle| < 90, else the engine falls back to conserve -
+      // the ±90° accordion always conserves).
       document.getElementById('foldWavePaperInput')?.addEventListener('change', (e) => {
         fdApply(fd => { const v = e.target.value; fd.wavePaper = v === 'stretch' ? 'stretch' : 'conserve'; });
       });
@@ -65278,6 +65483,8 @@
           obj.extrudeSettings.cleanRender = (extRenderMode === 'clean'); // backward compat
           obj.extrudeSettings.layerCount = parseInt(document.getElementById('extrudeLayerCountInput')?.value) || 16;
           obj.extrudeSettings.stackCount = parseInt(document.getElementById('extrudeStackCountInput')?.value) || 16;
+          const extSnapCb = document.getElementById('extrudeStackSnapInput');
+          if (extSnapCb) { if (extSnapCb.checked) obj.extrudeSettings.stackSnap = true; else delete obj.extrudeSettings.stackSnap; }
           obj.extrudeSettings.stackAxis = document.getElementById('extrudeStackAxisInput')?.value === 'x' ? 'x' : 'y';
           obj.extrudeSettings.stackAngle = parseFloat(document.getElementById('extrudeStackAngleInput')?.value) || 0;
           obj.extrudeSettings.divisionsU = extDivsU;
@@ -65326,6 +65533,8 @@
           obj.revolveSettings.cleanRender = revolveCleanRender; // backward compat
           obj.revolveSettings.layerCount = parseInt(document.getElementById('revolveLayerCountInput')?.value) || 16;
           obj.revolveSettings.stackCount = parseInt(document.getElementById('revolveStackCountInput')?.value) || 16;
+          const revSnapCb = document.getElementById('revolveStackSnapInput');
+          if (revSnapCb) { if (revSnapCb.checked) obj.revolveSettings.stackSnap = true; else delete obj.revolveSettings.stackSnap; }
           obj.revolveSettings.divsV = revolveDivsV;
           obj.revolveSettings.divsU = revolveDivsU;
           obj.revolveSettings.silhouetteSplit = true;  // always on
@@ -65396,6 +65605,8 @@
           if (swpLcInput) obj.sweepSettings.layerCount = parseInt(swpLcInput.value) || 16;
           const swpScInput = document.getElementById('sweepStackCountInput');
           if (swpScInput) obj.sweepSettings.stackCount = parseInt(swpScInput.value) || 16;
+          const swpSnapCb = document.getElementById('sweepStackSnapInput');
+          if (swpSnapCb) { if (swpSnapCb.checked) obj.sweepSettings.stackSnap = true; else delete obj.sweepSettings.stackSnap; }
           const swpSaxInput = document.getElementById('sweepStackAxisInput');
           if (swpSaxInput) obj.sweepSettings.stackAxis = swpSaxInput.value === 'x' ? 'x' : 'y';
           const swpSangInput = document.getElementById('sweepStackAngleInput');
@@ -65703,6 +65914,7 @@
     });
     document.getElementById('extrudeLayerCountInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('extrudeStackCountInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('extrudeStackSnapInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('extrudeStackAxisInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('extrudeStackAngleInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('extrudeDivisionsUInput').addEventListener('input', updateStyleFromInput);
@@ -65758,6 +65970,7 @@
     });
     document.getElementById('revolveLayerCountInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('revolveStackCountInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('revolveStackSnapInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('revolveSidesInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('revolveStreamlineInput')?.addEventListener('change', updateStyleFromInput);  // S1
     document.getElementById('revolveStreamShouldersInput')?.addEventListener('change', updateStyleFromInput);  // S4
@@ -65999,6 +66212,7 @@
     });
     document.getElementById('sweepLayerCountInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('sweepStackCountInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('sweepStackSnapInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('sweepStackAxisInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('sweepStackAngleInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('sweepSidesInput').addEventListener('change', updateStyleFromInput);            // W1-5

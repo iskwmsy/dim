@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260825g -->
+<!-- dim v20260826f -->
 
 <!--
   MIT License
@@ -3536,14 +3536,18 @@
        a 24x24 icon square; this grows to its text. Colour drops to the header's
        own --text-secondary so the label sits in the same register as the checkbox
        labels and read-outs it shares the bar with — the icon plus the hover
-       background are what still read it as a button. Placed ABOVE
-       .tl-key-shape-mode (same 0,2,0 specificity), so the armed accent colour
-       still wins on source order. */
+       background are what still read it as a button. Weight drops to normal for
+       the same reason (v20260826d, owner report): the base class declares 500
+       (buttons don't inherit the page font), while .tl-checkbox-label declares
+       none and renders at the body's 400 — so "Key Selected" sat visibly bolder
+       than "Auto-Key" beside it. Placed ABOVE .tl-key-shape-mode (same 0,2,0
+       specificity), so the armed accent colour still wins on source order. */
     .tl-transport-btn.tl-transport-btn-text {
       width: auto;
       padding: 0 8px;
       gap: 5px;
       color: var(--text-secondary);
+      font-weight: 400;
     }
 
     .tl-transport-btn:hover {
@@ -3649,9 +3653,19 @@
       line-height: 1;
     }
 
+    /* 44px -> 40px at v20260826e, and this is a WIDTH BUDGET, not a taste change.
+       The timeline header is a nowrap flex row of fixed-width controls; measured at
+       innerWidth 1180 it had EXACTLY 0 px of slack before this release (scrollWidth
+       == clientWidth), so the play-range START field pushed it 6 px into overflow.
+       These three fields hold at most three digits ("360" is 20 px at 11 px tabular,
+       against 24 px of text room at 40 px wide with the 12/4 padding), so 4 px each
+       is free — and taking it from all three keeps the row of fields uniform, which
+       is the thing a reader actually notices. tlFrameInput stays wider on purpose:
+       it is the field you type in. */
     .tl-frame-display .num-spin-wrap>input[type="number"]#tlPlaybackRange,
+    .tl-frame-display .num-spin-wrap>input[type="number"]#tlPlaybackStart,
     .tl-frame-display .num-spin-wrap>input[type="number"]#tlFpsInput {
-      width: 44px;
+      width: 40px;
     }
 
     /* Range-is-unplayable pulse (v20260809j). Specificity has to beat
@@ -3659,7 +3673,9 @@
        both set background — the documented trap for state colours on these fields
        (state report §11, v20260731d). */
     .tl-frame-display .num-spin-wrap>input[type="number"]#tlPlaybackRange.range-alert,
-    .tl-frame-display .num-spin-wrap>input[type="number"]#tlPlaybackRange.range-alert:hover {
+    .tl-frame-display .num-spin-wrap>input[type="number"]#tlPlaybackRange.range-alert:hover,
+    .tl-frame-display .num-spin-wrap>input[type="number"]#tlPlaybackStart.range-alert,
+    .tl-frame-display .num-spin-wrap>input[type="number"]#tlPlaybackStart.range-alert:hover {
       background: #c0392b;
       color: #fff;
       box-shadow: inset 0 0 0 1.5px #c0392b;
@@ -4216,6 +4232,19 @@
       color: var(--accent-color);
     }
 
+    /* LISTEN KEYING (v20260826a): the selection holds an ARMED pending pose —
+       edits are being listened for, so the state must be unmissable. Accent
+       text plus a hollow accent ring, rhyming with the hollow ghost diamond
+       (.tl-kf-pending). Deliberately NOT the red .tl-autokey-armed treatment:
+       red means "every edit everywhere records"; this is scoped to the armed
+       objects and one-shot per channel. The sync in tlRenderTracks keeps this
+       and .tl-key-shape-mode mutually exclusive, so their source order is
+       inert. */
+    .tl-transport-btn.tl-key-listen-armed {
+      color: var(--accent-color);
+      box-shadow: inset 0 0 0 1px var(--accent-color);
+    }
+
     /* SHAPE KEYFRAMES (v20260731f) — the drill-down's vertex rows.
        A VECTOR ROW packs a pinned-narrow name plus three house inputs into the
        220px label column; the name ellipsizes with its full text on hover
@@ -4717,6 +4746,31 @@
       opacity: 0.22;
       z-index: 0;
       pointer-events: none;
+    }
+
+    /* LISTEN KEYING (v20260826a) — an armed pending pose shows as ONE hollow
+       accent diamond at its armed frame on the object's header row. Same class
+       rules as the loop ghosts above: NEVER .tl-keyframe (the marquee, the
+       selection highlighter and both drag handlers query that selector) and
+       pointer-events:none. Hollow accent = "will become a key on the first
+       edit", visually distinct from the filled grey of a real one. No fill
+       override on the svg — the glyph is authored hollow. */
+    .tl-kf-pending {
+      position: absolute;
+      top: 50%;
+      width: 10px;
+      height: 10px;
+      color: var(--accent-color);
+      transform: translate(-50%, -50%);
+      opacity: 0.85;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .tl-kf-pending>svg {
+      display: block;
+      width: 100%;
+      height: 100%;
     }
 
     /* --- Marquee (drag-box) keyframe selection ---
@@ -8926,22 +8980,6 @@
         </svg>
       </button>
       <div class="tl-separator"></div>
-      <!-- Clear Animation -->
-      <button class="tl-transport-btn" id="tlClearAnimation" title="Clear Animation">
-        <!-- The two slots are REAL STROKES. They used to be rectangles painted in the
-             panel background colour, so they stayed dark while the button lightened
-             on hover — the defect flagged on the icon sheet. v20260810f added the lid
-             bar and handle and dropped the body to y=5, so it reads as a bin rather
-             than a bar chart. Primitives are kept as the artwork drew them (polyline
-             + line, not flattened to paths) — see the v20260810d rect-vs-path note. -->
-        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
-          <polyline points="3 5 3 10 9 10 9 5" />
-          <line x1="2" y1="3" x2="10" y2="3" />
-          <line x1="6" y1="1" x2="6" y2="3" />
-          <line x1="7" y1="5" x2="7" y2="9" />
-          <line x1="5" y1="5" x2="5" y2="9" />
-        </svg>
-      </button>
       <!-- Export SVG Sequence -->
       <button class="tl-transport-btn" id="tlExportSVGBtn" title="Export SVG Sequence (1 file per frame)">
         <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
@@ -8963,19 +9001,38 @@
         </svg>
       </button>
       <div class="tl-separator"></div>
-      <!-- Show Keyframed Only (v20260728v: + the selected layer, keyframed or not) -->
-      <label class="tl-checkbox-label" title="Show only layers with keyframes — plus the selected layer, so you can key a fresh object without turning the filter off">
-        <input type="checkbox" id="tlShowKeyframed" class="ui-checkbox"> Show keyframed and selected layers
-      </label>
-      <!-- Auto-Key (v20260721q: any edit anywhere records at the playhead,
-           creating tracks on first touch; camera NAVIGATION exempt) -->
-      <label class="tl-checkbox-label" id="tlAutoKeyLabel"
-        title="Record a keyframe at the playhead for every property you edit — from any panel, tool, or drag. Creates the track on first edit. Camera orbit/truck/zoom only re-key an already-animated camera; camera panel fields always record.">
-        <input type="checkbox" id="tlAutoKeyframing" class="ui-checkbox"> Auto-Key
-      </label>
-      <!-- Key Selected: snapshot the full transform of ALL selected objects -->
+      <!-- Clear Animation -->
+      <button class="tl-transport-btn" id="tlClearAnimation" title="Clear Animation">
+        <!-- The two slots are REAL STROKES. They used to be rectangles painted in the
+             panel background colour, so they stayed dark while the button lightened
+             on hover — the defect flagged on the icon sheet. v20260810f added the lid
+             bar and handle and dropped the body to y=5, so it reads as a bin rather
+             than a bar chart. Primitives are kept as the artwork drew them (polyline
+             + line, not flattened to paths) — see the v20260810d rect-vs-path note. -->
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+          <polyline points="3 5 3 10 9 10 9 5" />
+          <line x1="2" y1="3" x2="10" y2="3" />
+          <line x1="6" y1="1" x2="6" y2="3" />
+          <line x1="7" y1="5" x2="7" y2="9" />
+          <line x1="5" y1="5" x2="5" y2="9" />
+        </svg>
+      </button>
+      <!-- Remove Static Channels (v20260826b): the house key diamond struck
+           through — "these keyframes do nothing". Deletes every track whose
+           keyframes are all equal; one anim-undo entry. -->
+      <button class="tl-transport-btn" id="tlCleanStaticBtn"
+        title="Remove static channels — delete every track whose keyframes are all equal (single-key tracks included). Acts on the selection when something is selected, else the whole timeline. Undoable with ⌥X.">
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
+          <rect x="3.525" y="3.525" width="4.95" height="4.95" transform="rotate(45 6 6)" />
+          <line x1="1.75" y1="10.25" x2="10.25" y2="1.75" />
+        </svg>
+      </button>
+      <!-- Key Selected: LISTEN KEYING since v20260826a — channels with tracks
+           key now, trackless channels ARM a pending pose that records a
+           keyframe pair on first edit; ⌥ click = legacy key-all-now. The
+           title is kept in sync (3 states) at the tail of tlRenderTracks. -->
       <button class="tl-transport-btn tl-transport-btn-text" id="tlKeySelectedBtn"
-        title="Keyframe the full transform of all selected objects at the current frame">
+        title="Start animating: channels with tracks key at the playhead now; trackless channels ARM and record on their first edit. ⌥ click keys the full transform immediately (the old behavior).">
         <!-- Kept as a rotated RECT rather than flattened to a path: measured at icon
              size the two differ on every ink pixel (v20260810d). -->
         <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">
@@ -8983,6 +9040,16 @@
         </svg>
         <span>Key Selected</span>
       </button>
+      <!-- Auto-Key (v20260721q: any edit anywhere records at the playhead,
+           creating tracks on first touch; camera NAVIGATION exempt) -->
+      <label class="tl-checkbox-label" id="tlAutoKeyLabel"
+        title="Record a keyframe at the playhead for every property you edit — from any panel, tool, or drag. Creates the track on first edit. Camera orbit/truck/zoom only re-key an already-animated camera; camera panel fields always record.">
+        <input type="checkbox" id="tlAutoKeyframing" class="ui-checkbox"> Auto-Key
+      </label>
+      <!-- Show Keyframed Only (v20260728v: + the selected layer, keyframed or not) -->
+      <label class="tl-checkbox-label" title="Show only layers with keyframes — plus the selected layer, so you can key a fresh object without turning the filter off">
+        <input type="checkbox" id="tlShowKeyframed" class="ui-checkbox"> Show keyframed and selected layers
+      </label>
       <!-- Interpolation Type removed -->
       <div class="tl-separator"></div>
 
@@ -9003,7 +9070,12 @@
         <span id="tlDropStat" class="tl-drop-stat"
           title="Playback speed appears here once a run is under way.">realtime</span>
         <input type="number" id="tlFrameInput" value="0" min="0" max="359" step="1" title="Current Frame">
-        / <input type="number" id="tlPlaybackRange" value="360" min="1" max="360" step="1" title="Playback Range">
+        <!-- PLAY RANGE START (v20260826e). The display reads `current / start–end`:
+             the play range no longer has to begin at frame 0. The start bounds
+             PLAYBACK, Go Start, both exporters and the render cache — it does NOT
+             constrain scrubbing, so tlFrameInput keeps min 0 and the playhead may be
+             dragged anywhere in 0..playbackRange-1. -->
+        / <input type="number" id="tlPlaybackStart" value="0" min="0" max="359" step="1" title="Play range START — the first frame played. Playback, Go Start, the SVG exports and the render cache all begin here. Scrubbing is not limited by it. Once set, it is also draggable on the ruler; dragged to 0 the handle parks, and this field brings it back.">–<input type="number" id="tlPlaybackRange" value="360" min="1" max="360" step="1" title="Play range END — the length of the range, so the last frame played is this number minus one.">
         &nbsp;
         <input type="number" id="tlFpsInput" value="24" min="1" max="120" step="1" title="FPS"> fps
         &nbsp;
@@ -13788,6 +13860,23 @@
           for (const [key, val] of Object.entries(state.holdFraming)) {
             if (TL_HOLD_FRAMING_MODES.has(val)) _tlHoldFraming.set(key, val);
           }
+        }
+      }
+      // LISTEN KEYING (v20260826a): pending poses are deliberately NOT in the
+      // snapshots (an armed intent is not animation data), so an anim-undo of
+      // an unrelated edit does not drop an armed pose. What must not survive
+      // is a STALE entry: after the tracks rebuild above, sweep any pending
+      // prop whose track now exists — the tlAddKeyframe seam's invariant is
+      // that a pending entry never outlives its track (redo of a
+      // materialization re-creates the track without consuming the entry).
+      if (typeof _tlPendingPose !== 'undefined') {
+        for (const [key, pend] of _tlPendingPose) {
+          const objTracks = animationTimeline.tracks.get(key);
+          if (!objTracks) continue;
+          for (const prop of [...pend.values.keys()]) {
+            if (objTracks.has(prop)) pend.values.delete(prop);
+          }
+          if (pend.values.size === 0) _tlPendingPose.delete(key);
         }
       }
       // Re-apply current frame to scene (playback position is NOT restored —
@@ -63982,6 +64071,10 @@
         // (this runs over scene objects). Wiring it would be unreachable code. If a
         // per-camera timeline ever makes cameras duplicable, add the same
         // prefix-copy shape as the loop modes above — the storage already allows it.
+        // LISTEN KEYING (v20260826a): _tlPendingPose is deliberately NOT copied
+        // either — an armed pose is transient intent ("I am about to animate
+        // THIS object"), not animation data; the copy starts unarmed like any
+        // fresh object. Press Key Selected on it to arm it.
       }
     };
     // --- CROSS-OBJECT REFERENCE REMAP (v20260726n) --------------------------
@@ -67799,7 +67892,13 @@
         if (this._captureDeclined && this._frames.size) return false;
         if (this.stale() || !this._frames.size) return true;
         const end = animationTimeline.playbackRange - 1;
-        return !(this._range && this._range[0] === 0 && this._range[1] >= end);
+        // v20260826e: the test is CONTAINMENT of the play range, not equality with
+        // frame 0. `_range[0] <= start` rather than `=== start` so that raising the
+        // start after a full capture does not throw away a cache that already covers
+        // the narrower window. With playbackStart 0 the two forms are identical —
+        // _range[0] is never negative.
+        const start = animationTimeline.playbackStart;
+        return !(this._range && this._range[0] <= start && this._range[1] >= end);
       },
 
       // Every id in a captured frame is rewritten into its own namespace.
@@ -67935,7 +68034,9 @@
       async capture(from, to, opts = {}) {
         const t0 = performance.now();
         const pg = this._pg();
-        const start = (from === undefined) ? 0 : from;
+        // Both defaults are the PLAY RANGE (v20260826e), so an argument-less
+        // capture() from the console covers exactly what a Play would.
+        const start = (from === undefined) ? animationTimeline.playbackStart : from;
         const end = (to === undefined) ? animationTimeline.playbackRange - 1 : to;
         const budget = (opts.budgetBytes === undefined) ? this.BUDGET_BYTES : opts.budgetBytes;
         const wasFrame = animationTimeline.currentFrame;
@@ -68025,7 +68126,9 @@
       // CAPTURE ON FIRST PLAY (owner decision). Called from tlStartPlayback when the
       // box is ticked and there is nothing usable cached for the current range.
       async captureForPlayback() {
-        return this.capture(0, animationTimeline.playbackRange - 1);
+        // v20260826e — the play range, which now begins at playbackStart. Capturing
+        // from 0 regardless would spend the whole budget on frames Play never shows.
+        return this.capture(animationTimeline.playbackStart, animationTimeline.playbackRange - 1);
       },
 
       // Put the LIVE tree back on screen, freshly drawn for the current frame, and
@@ -79233,6 +79336,12 @@
     const animationTimeline = {
       totalFrames: 360,
       playbackRange: 360,
+      // PLAY RANGE START (v20260826e). The played span is
+      // [playbackStart, playbackRange-1]. Default 0, and LAZY on the wire —
+      // tlSerialize omits it while it is 0, so every existing scene serializes
+      // byte-identically and a legacy file deserializes to 0. It bounds playback,
+      // Go Start, both exporters and the render cache; it does NOT bound scrubbing.
+      playbackStart: 0,
       fps: 24,
       currentFrame: 0,
       isPlaying: false,
@@ -79340,6 +79449,7 @@
     const tlClearAnimation = document.getElementById('tlClearAnimation');
     const tlFrameInput = document.getElementById('tlFrameInput');
     const tlPlaybackRange = document.getElementById('tlPlaybackRange');
+    const tlPlaybackStart = document.getElementById('tlPlaybackStart');   // v20260826e
     const tlFpsInput = document.getElementById('tlFpsInput');
     const tlPingPong = document.getElementById('tlPingPong');
     const tlCacheAnim = document.getElementById('tlCacheAnim');   // v20260809h
@@ -80344,6 +80454,24 @@
     // --- Original value storage for revert on keyframe removal ---
     const _tlOriginalValues = new Map(); // key: "objectName::prop", value: original value
 
+    // LISTEN KEYING (v20260826a) — the pending pose behind "Key Selected".
+    // Pressing the button on trackless channels ARMS them here instead of
+    // committing 12 single-key tracks: {frame, values: Map<prop, number>,
+    // psh: [x,y,z]} keyed by trackKey (obj id, the tlKeyOf space). The first
+    // later edit of an armed channel materializes exactly TWO keys — the
+    // armed frame with the armed value, the edit frame with the new value —
+    // at the ONE seam inside tlAddKeyframe's isNewTrack branch, which every
+    // creation path (Auto-Key, track inputs, diamonds, key-all) funnels
+    // through. `psh` is the ARM-time pivotShift: pivot-track creation
+    // snapshots the pshX/Y/Z rest baselines, and by materialization time the
+    // live pivotShift may already hold frame-B state.
+    // Session-transient BY DESIGN: never serialized, never in the anim-undo
+    // snapshots (an armed intent is not animation data — like selection).
+    // Cleared wherever _tlOriginalValues is cleared for a scene swap; id-keyed
+    // entries of deleted objects are inert orphans (tlObjOf misses, no call
+    // path can materialize them) and revive if the deletion is undone.
+    const _tlPendingPose = new Map();
+
     // TRACK LOOPING (v20260802b) — per-track extrapolation, set in the curve
     // editor. Key "trackKey::prop" (same convention as _tlOriginalValues),
     // value {before?: mode, after?: mode} with mode in
@@ -80651,6 +80779,32 @@
       const isNewTrack = !objTracks.has(property);
       if (isNewTrack) {
         objTracks.set(property, []);
+        // LISTEN KEYING (v20260826a): an armed pending pose materializes here,
+        // the one seam every creation path funnels through. Seed the original
+        // values from the ARMED pose FIRST — the snapshot code below reads the
+        // LIVE object, which at materialization time already holds the
+        // post-edit value; the has()-guards make first-write win. Then plant
+        // the armed-frame key directly (the requested key is appended by the
+        // normal tail below). Consumed per prop, so a pending entry can never
+        // outlive its track — which is what keeps the drag/nudge re-add paths
+        // (remove-then-re-add on an EXISTING track) unable to fire this.
+        const pending = _tlPendingPose.get(objectName);
+        if (pending && pending.values.has(property)) {
+          const armedVal = pending.values.get(property);
+          const origKey0 = objectName + '::' + property;
+          if (!_tlOriginalValues.has(origKey0)) _tlOriginalValues.set(origKey0, armedVal);
+          if ((property === 'pivX' || property === 'pivY' || property === 'pivZ') && pending.psh) {
+            ['pshX', 'pshY', 'pshZ'].forEach((k, i) => {
+              const shKey = objectName + '::' + k;
+              if (!_tlOriginalValues.has(shKey)) _tlOriginalValues.set(shKey, pending.psh[i]);
+            });
+          }
+          if (pending.frame !== frame) {
+            objTracks.get(property).push({ frame: pending.frame, value: armedVal, interp: 'linear' });
+          }
+          pending.values.delete(property);
+          if (pending.values.size === 0) _tlPendingPose.delete(objectName);
+        }
         // Snapshot the original value before any animation is applied
         const origKey = objectName + '::' + property;
         if (!_tlOriginalValues.has(origKey)) {
@@ -81829,12 +81983,19 @@
       // fully responsive) and currentFrame never left 0. What made it read as a hang
       // is that the button still flipped to Pause, so the UI claimed to be playing.
       // Refuse, and put the eye on the field that is wrong.
-      if (animationTimeline.playbackRange < 2) {
-        console.warn('[timeline] Playback range is 1 frame — there is nothing to play. '
-          + 'Raise it with the number beside the frame counter, or the handle on the ruler.');
-        if (tlPlaybackRange) {
-          tlPlaybackRange.classList.add('range-alert');
-          setTimeout(() => tlPlaybackRange.classList.remove('range-alert'), 900);
+      // v20260826e: the span is measured from playbackStart, not from 0 — a start of
+      // 359 against a range of 360 is exactly as unplayable as a range of 1, and for
+      // the same reason. With playbackStart 0 this is the original test unchanged.
+      if (animationTimeline.playbackRange - animationTimeline.playbackStart < 2) {
+        console.warn('[timeline] The play range is 1 frame — there is nothing to play. '
+          + 'Widen it with the two numbers beside the frame counter, or the handle on the ruler.');
+        // Pulse the field that is actually wrong: if a start was set, that is the
+        // one the user last touched and the one to look at.
+        const _alertEl = (animationTimeline.playbackStart > 0 && tlPlaybackStart)
+          ? tlPlaybackStart : tlPlaybackRange;
+        if (_alertEl) {
+          _alertEl.classList.add('range-alert');
+          setTimeout(() => _alertEl.classList.remove('range-alert'), 900);
         }
         return;
       }
@@ -81890,6 +82051,19 @@
       tlClearKfSelection();
 
       animationTimeline._playDirection = 1;
+      // PLAY BEGINS INSIDE THE PLAY RANGE (v20260826e). The realtime branch below is
+      // a pure function of elapsed wall time and therefore starts at playbackStart on
+      // its own, but the review branch steps from currentFrame — so a playhead parked
+      // outside the range (scrubbing is deliberately not constrained by the start)
+      // would walk through frames that are not in the range at all. Snapping here,
+      // once, keeps "press Play mid-range and it continues from here" intact while
+      // making the two branches agree about where a run begins. With playbackStart 0
+      // and the playhead in range this is a no-op, i.e. the old behaviour exactly.
+      if (animationTimeline.currentFrame < animationTimeline.playbackStart
+        || animationTimeline.currentFrame > animationTimeline.playbackRange - 1) {
+        animationTimeline.currentFrame = animationTimeline.playbackStart;
+        tlApplyFrame(animationTimeline.currentFrame);
+      }
       // Start the speed clock HERE, not at the top of this function: the capture and
       // audit branches above can take seconds, and counting that as playback time
       // would report a slowdown that never happened (v20260809n).
@@ -81909,6 +82083,11 @@
       const _pollMs = Math.max(4, Math.min(_framePeriod / 4, 16));
       animationTimeline._playInterval = setInterval(() => {
         const rangeEnd = animationTimeline.playbackRange;
+        // PLAY RANGE START (v20260826e). Read per tick for the same reason rangeEnd
+        // is: both fields are live and the user may edit either mid-run. Clamped
+        // defensively here too — the setters guarantee the invariant, but this tick
+        // must never be able to compute a negative span.
+        const rangeStart = Math.max(0, Math.min(rangeEnd - 1, animationTimeline.playbackStart | 0));
         let next, skipped = 0;
         const realtime = _tlRealtimeMode();
 
@@ -81919,17 +82098,24 @@
           // in between are SKIPPED — which is the honest behaviour when the point
           // is to see the real duration.
           const advance = Math.max(0, Math.floor((performance.now() - _tlPlayStartMs) / _framePeriod));
-          const span = Math.max(1, rangeEnd - 1);
+          // v20260826e: the frame is rangeStart + f(advance) over the span of the
+          // play range, so advance 0 lands on rangeStart and the run begins there.
+          // `span` is the number of STEPS from first to last frame (one less than the
+          // frame count), which is what pingpong reflects around; the same
+          // Math.max(1, …) floor as before keeps a degenerate range from dividing by
+          // zero. With rangeStart 0, span is rangeEnd-1 and every arm below reduces
+          // to the original expression exactly.
+          const span = Math.max(1, rangeEnd - 1 - rangeStart);
           if (animationTimeline.pingPong) {
             const cyc = advance % (2 * span);
-            next = cyc <= span ? cyc : (2 * span - cyc);
+            next = rangeStart + (cyc <= span ? cyc : (2 * span - cyc));
           } else if (animationTimeline.loop) {
-            next = advance % rangeEnd;
+            next = rangeStart + (advance % (span + 1));
           } else {
-            if (advance >= rangeEnd) { tlStopPlayback(); return; }
-            next = advance;
+            if (advance > span) { tlStopPlayback(); return; }
+            next = rangeStart + advance;
           }
-          next = Math.max(0, Math.min(rangeEnd - 1, next));
+          next = Math.max(rangeStart, Math.min(rangeEnd - 1, next));
           // Skips are counted off the MONOTONIC advance, not off the frame index —
           // a pingpong turnaround changes the index direction without skipping
           // anything, and differencing indices would score that as a drop.
@@ -81958,24 +82144,34 @@
           // running late IS its contract.
           if (_tlLastAdvanceMs < _now - _framePeriod) _tlLastAdvanceMs = _now;
           next = animationTimeline.currentFrame + animationTimeline._playDirection;
+          // v20260826e: every former literal 0 here is rangeStart — the turnaround
+          // frame, the rewind target and the underflow floor are all the bottom of
+          // the PLAY RANGE, which used to be frame 0 by definition. The shape of the
+          // logic is unchanged, including the two "if the bounce lands outside the
+          // range anyway, pin it" guards that make a two-frame range behave.
           if (animationTimeline.pingPong) {
             if (next >= rangeEnd) {
               animationTimeline._playDirection = -1;
               next = rangeEnd - 2;
-              if (next < 0) next = 0;
-            } else if (next < 0) {
+              if (next < rangeStart) next = rangeStart;
+            } else if (next < rangeStart) {
               animationTimeline._playDirection = 1;
-              next = 1;
-              if (next >= rangeEnd) next = 0;
+              next = rangeStart + 1;
+              if (next >= rangeEnd) next = rangeStart;
             }
           } else {
             if (next >= rangeEnd) {
               if (animationTimeline.loop) {
-                next = 0;
+                next = rangeStart;
               } else {
                 tlStopPlayback();
                 return;
               }
+            } else if (next < rangeStart) {
+              // The playhead was below the range when the tick ran (a scrub during
+              // playback — scrubbing is not bounded by the start). Rejoin at the
+              // start rather than crawling up through out-of-range frames.
+              next = rangeStart;
             }
           }
         }
@@ -82131,6 +82327,13 @@
       tlFrameInput.value = f;
       tlFrameInput.max = animationTimeline.playbackRange - 1;
       tlPlaybackRange.value = animationTimeline.playbackRange;
+      // PLAY RANGE START (v20260826e). Its max tracks the range so the spinner
+      // cannot walk it past the end; tlFrameInput.max above is deliberately NOT
+      // mirrored by a min — scrubbing is not constrained by the play range start.
+      if (tlPlaybackStart) {
+        tlPlaybackStart.value = animationTimeline.playbackStart;
+        tlPlaybackStart.max = Math.max(0, animationTimeline.playbackRange - 1);
+      }
       tlFpsInput.value = animationTimeline.fps;
       tlPingPong.checked = animationTimeline.pingPong;
       tlCacheAnim.checked = RenderCache.enabled;      // v20260809h (session-only state)
@@ -82589,6 +82792,26 @@
     const _tlGroupCollapsed = new Map(); // objectName -> boolean
     const _tlSubGroupCollapsed = new Map(); // "objectName:subGroup" -> boolean
 
+    // EFFECTIVE object-group collapse. The keyframed filter force-expands a
+    // group so the keys it kept are actually visible — the same rule
+    // addSubGroupHeader has applied to SUB-groups since v20260728v, and
+    // conditional the same way: only a group that HAS keyframes opens, so the
+    // selected-but-unkeyed object the filter also shows still reads as one
+    // header instead of dumping every empty param row. objectName is the TRACK
+    // KEY, so the reserved '__camera__' / '__workplane__' groups get the same
+    // treatment, which is what the filter is for.
+    // RENDER-TIME OVERRIDE ONLY — it never writes _tlGroupCollapsed, so turning
+    // the filter off restores the user's own folds. Every site that reads the
+    // group's collapse state must go through this (the header class + chevron,
+    // addSubTrack, addSubGroupHeader's parentCollapsed, and the Camera group's
+    // Hold Framing row): the label and track columns are parallel lists, and a
+    // disagreement misaligns every row below it.
+    const _tlGroupCollapsedEff = (objectName) => {
+      const kfs = animationTimeline.tracks.get(objectName);
+      if (_tlShowKeyframedOnly && kfs && kfs.size > 0) return false;
+      return _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : true; // v20260730c: every group starts COLLAPSED (was: camera only) — the scene-tree fold precedent; _tlGroupCollapsed remembers what the user opened, per session
+    };
+
     // Inline input references for updating values
     let _tlTrackInputs = []; // { objectName, prop, inputs: [HTMLInputElement], type: 'scalar', keyBtn: HTMLButtonElement }
     let _tlFocusedTrack = null; // { objectName, prop } — tracks last-focused timeline input for context-aware trash
@@ -82946,9 +83169,17 @@
       if (tlPlayhead) tlPlayhead.style.left = x + 'px';
     };
 
-    // --- Playback-range handle (draggable boundary on the ruler) ---
-    let tlRangeDragging = false;   // true while dragging the range handle
-    let _tlRangeHot = false;       // hovered near the handle or dragging → accent color
+    // --- Playback-range handles (draggable boundaries on the ruler) ---
+    let tlRangeDragging = false;        // true while dragging the range END handle
+    let _tlRangeHot = false;            // hovered near the end handle or dragging → accent
+    // Play range START handle (v20260826f). PARKED WHILE start === 0: not drawn
+    // and not grabbable, so the leftmost sliver of the ruler keeps scrubbing to
+    // frame 0 — the exact v20260809j failure a permanently-grabbable handle at
+    // x≈1 would reintroduce. A start set via the number input (or a previous
+    // drag) unparks it; dragging it back to 0 re-parks it, and the input is
+    // then the way to unpark — stated in the input's tooltip.
+    let tlRangeStartDragging = false;   // true while dragging the range START handle
+    let _tlRangeStartHot = false;       // hovered near the start handle or dragging → accent
 
     // --- Ruler Drawing (canvas) ---
     const tlDrawRuler = () => {
@@ -83026,6 +83257,15 @@
         ctx.fillStyle = 'rgba(0,0,0,0.06)';
         ctx.fillRect(rangeX, 0, w - rangeX, h);
       }
+      // ...and its MIRROR for the play range START (v20260826e): frames before the
+      // start are dimmed with the same 0.06 black, so the two ends of the play range
+      // read as one band.
+      const pbStart = animationTimeline.playbackStart;
+      if (pbStart > 0) {
+        const startX = (pbStart / (total - 1)) * w;
+        ctx.fillStyle = 'rgba(0,0,0,0.06)';
+        ctx.fillRect(0, 0, startX, h);
+      }
       // Draggable range handle — always visible (clamped just inside the right edge
       // when the range is full). Grey by default, accent-blue when hovered/dragged.
       const hx = Math.max(1, Math.min(rangeX, w - 1));
@@ -83037,6 +83277,28 @@
       ctx.moveTo(hx, 0);
       ctx.lineTo(hx, h);
       ctx.stroke();
+      // Draggable START handle (v20260826f) — drawn ONLY while a start is set,
+      // which is also exactly when it is grabbable (_tlRangeStartHandleX returns
+      // null while parked). v20260826e deferred this because a handle parked
+      // permanently at x≈1 would re-own the leftmost sliver (the v20260809j
+      // lesson); park-while-zero is the disambiguation: at 0 there is nothing to
+      // draw, nothing to grab, and no dim band — the ruler is exactly the
+      // pre-feature ruler. Same stroke treatment as the end handle, its own hot.
+      // Computed INLINE like hx above, not via _tlRangeStartHandleX: that const is
+      // declared ~2,500 lines below with the pointer handlers, and this function
+      // runs during init (the v20260731j TDZ discipline — same reason hx does not
+      // call _tlRangeHandleX). The two expressions must stay in lockstep.
+      const shx = pbStart > 0 ? Math.max(1, Math.min((pbStart / (total - 1)) * w, w - 1)) : null;
+      if (shx !== null) {
+        ctx.strokeStyle = _tlRangeStartHot
+          ? (getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#2645d2')
+          : 'rgba(0,0,0,0.35)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(shx, 0);
+        ctx.lineTo(shx, h);
+        ctx.stroke();
+      }
     };
 
     // --- Track Rendering ---
@@ -83176,10 +83438,20 @@
     // on the re-key-only tlAutoKeyCamera above — looking around is viewing,
     // not editing; deliberate camera-panel numeric edits DO route here.
     const tlAutoKeyProps = (objectName, props) => {
-      if (!_tlAutoKeyframing) return false;
       if (!animationEnabled) return false;   // v20260812p: the gate, not a checkbox
       if (animationTimeline.isPlaying) return false;
       if (!objectName || !props || !props.length) return false;
+      // LISTEN KEYING (v20260826a): an ARMED pending pose records with the
+      // Auto-Key checkbox OFF — arming is the explicit "I am animating this
+      // object now" intent, scoped to the object and one-shot per channel, so
+      // it cannot cause the scene-wide surprise the red Auto-Key tint guards
+      // against. Unarmed-and-unchecked keeps today's early-out exactly.
+      if (!_tlAutoKeyframing) {
+        const pending = _tlPendingPose.get(objectName);
+        if (!pending) return false;
+        props = props.filter(p => pending.values.has(p));
+        if (!props.length) return false;
+      }
       const frame = animationTimeline.currentFrame;
       let changed = false;
       for (const prop of props) {
@@ -83262,10 +83534,25 @@
       return [...set].filter(o => _tlShapeEligible(o));
     };
 
-    // "Key Selected": snapshot the full transform of every selected object at
-    // the current frame in ONE undo step. The robust way to keyframe a
-    // multi-selection pose (orbit-correct — see above). Works regardless of
-    // the Auto-Keyframing checkbox (this is how you START animating).
+    // "Key Selected": the way you START animating — and since v20260826a that
+    // means LISTEN KEYING, not a 12-track snapshot. Per selected object, per
+    // transform channel:
+    //   - track EXISTS  → key it at the playhead NOW (the legitimate
+    //     mid-animation "snapshot this multi-object pose" use, orbit-correct,
+    //     one anim-undo entry — unchanged from the old behavior);
+    //   - track ABSENT  → ARM it in _tlPendingPose instead of creating a
+    //     single dead key. The first later edit of an armed channel
+    //     materializes the {armed frame, edit frame} pair at the tlAddKeyframe
+    //     seam; untouched channels never grow tracks. Works with the Auto-Key
+    //     checkbox OFF (arming IS the recording intent — see tlAutoKeyProps).
+    // Pressing while every selected object is already armed DISARMS them
+    // (one-click exit from an accidental arm; press again to re-arm — which
+    // REPLACES the entry, fresh frame + values). ⌥-press = the legacy
+    // key-all-transform-now via tlKeyframeObjectsTransform; any armed
+    // channels materialize their armed-frame key too through the seam, which
+    // is coherent: the user armed deliberately, ⌥ says "commit now".
+    // Accepted limitation (help.html): undoing a materialized pair does not
+    // re-arm — the pending entry was consumed; press Key Selected again.
     //
     // SHAPE-AWARE since v20260731j (owner report): while the A tool holds a
     // VERTEX selection the button keys those paths' SHAPE instead. That is what
@@ -83278,7 +83565,7 @@
     // explicit intent. Falls through to the transform path when the vertex
     // selection has no shape-eligible owner (a parametric primitive, say), so
     // the button always does something.
-    const tlKeySelected = () => {
+    const tlKeySelected = (ev) => {
       const frame = animationTimeline.currentFrame;
       const shapeTargets = _tlShapeSelectionTargets();
       if (shapeTargets.length) {
@@ -83296,12 +83583,137 @@
         ? selectedObjects
         : (selectedObject ? [selectedObject] : []);
       if (!targets.length) return;
-      pushAnimUndoState('Key selected');
-      if (tlKeyframeObjectsTransform(targets, frame)) {
+      // ⌥ = legacy key-all-transform-now (armed channels materialize their
+      // armed-frame key too, through the tlAddKeyframe seam).
+      if (ev && ev.altKey) {
+        pushAnimUndoState('Key selected');
+        if (tlKeyframeObjectsTransform(targets, frame)) {
+          tlApplyFrame(frame);
+          tlRenderTracks();
+          tlUpdateTrackInputs();
+        }
+        return;
+      }
+      // Disarm toggle: every target already armed → clear and stop.
+      const armedKeys = targets.filter(o => o && o.name).map(o => tlKeyOf(o));
+      if (armedKeys.length && armedKeys.every(k => _tlPendingPose.has(k))) {
+        armedKeys.forEach(k => _tlPendingPose.delete(k));
+        tlRenderTracks();
+        return;
+      }
+      // Split per channel: existing tracks key now, trackless channels arm.
+      // Arming mutates only _tlPendingPose (outside the undo stacks), so the
+      // lazy undo push before the first real key is still a pre-mutation
+      // snapshot. Value reads mirror tlKeyframeObjectsTransform exactly.
+      let keyedAny = false;
+      let armedAny = false;
+      for (const obj of targets) {
+        if (!obj || !obj.name) continue;
+        const k = tlKeyOf(obj);
+        const objTracks = animationTimeline.tracks.get(k);
+        const euler = obj.rotationEuler || matrixToEuler(obj.rotationMatrix);
+        const scale = obj.scale || [1, 1, 1];
+        const pivot = obj.pivot || [0, 0, 0];
+        let entry = null;
+        for (const paramDef of _objParams) {
+          let val;
+          if (paramDef.vecProp === 'position') val = obj.position[paramDef.vecIdx];
+          else if (paramDef.vecProp === 'rotation') val = euler[paramDef.vecIdx];
+          else if (paramDef.vecProp === 'scale') val = scale[paramDef.vecIdx];
+          else if (paramDef.vecProp === 'pivot') val = pivot[paramDef.vecIdx];
+          if (val === undefined) continue;
+          if (objTracks && objTracks.has(paramDef.prop)) {
+            if (!keyedAny) pushAnimUndoState('Key selected');
+            keyedAny = true;
+            tlAddKeyframe(k, paramDef.prop, frame, val);
+          } else {
+            if (!entry) {
+              entry = { frame, values: new Map(), psh: [...(obj.pivotShift || [0, 0, 0])] };
+              _tlPendingPose.set(k, entry);   // re-press REPLACES an old entry
+            }
+            entry.values.set(paramDef.prop, val);
+            armedAny = true;
+          }
+        }
+      }
+      if (keyedAny) {
         tlApplyFrame(frame);
         tlRenderTracks();
         tlUpdateTrackInputs();
+      } else if (armedAny) {
+        tlRenderTracks();   // the ghost diamond + button tint need the render
       }
+    };
+
+    // REMOVE STATIC CHANNELS (v20260826b) — delete every track whose keyframes
+    // are all equal (Maya's command name; single-key tracks qualify — a lone
+    // key IS a constant, and the button title says so). Retroactive medicine
+    // for scenes polluted by the pre-v20260826a key-everything Key Selected.
+    // Scope: the selection when one exists, else the whole map including the
+    // reserved Camera / Workplane keys. One anim-undo entry; ⌥X restores.
+    //
+    // VISUALLY INERT BY RULE: a static track contributes exactly its constant,
+    // so removing it must not move anything. That is why this does NOT route
+    // per-key through tlRemoveKeyframe — its empty-track cleanup restores
+    // _tlOriginalValues (the PRE-animation rest), which snaps the object
+    // whenever the constant differs from rest. Instead the track is deleted
+    // directly, the constant is written as the live value, and the
+    // original-value entry is dropped — the constant becomes the new rest, so
+    // what the user sees is what serializes. Shape tracks skip the write (the
+    // live buffer already holds the applied constant pose; there is no scalar
+    // write path for 'shape'). Equality is JSON-compare — conservative on
+    // purpose for a delete command: a "5"-vs-5 storage mismatch reads as
+    // non-static and survives rather than being guessed at. Loop modes of a
+    // removed track are dropped too, or they would silently re-attach if the
+    // track were ever re-created. Empty top-level entries are left for
+    // tlRenderTracks' once-per-render prune (the v20260723d convention).
+    const tlRemoveStaticChannels = () => {
+      const selTargets = (typeof selectedObjects !== 'undefined' && selectedObjects && selectedObjects.length)
+        ? selectedObjects
+        : (typeof selectedObject !== 'undefined' && selectedObject ? [selectedObject] : []);
+      const scopeKeys = selTargets.length
+        ? new Set(selTargets.filter(o => o && o.name).map(o => tlKeyOf(o)))
+        : null;   // null = whole map, reserved keys included
+      // Compute first, push undo only if something will actually be removed.
+      const doomed = [];
+      for (const [key, objTracks] of animationTimeline.tracks) {
+        if (scopeKeys && !scopeKeys.has(key)) continue;
+        for (const [prop, kfs] of objTracks) {
+          if (!kfs || !kfs.length) { doomed.push({ key, prop, val: undefined }); continue; }
+          const first = JSON.stringify(kfs[0].value);
+          if (kfs.every(k => JSON.stringify(k.value) === first)) {
+            doomed.push({ key, prop, val: kfs[0].value });
+          }
+        }
+      }
+      if (!doomed.length) {
+        console.log('[tlRemoveStaticChannels] nothing to remove — no static tracks'
+          + (scopeKeys ? ' in the selection.' : '.'));
+        return 0;
+      }
+      pushAnimUndoState('Remove static channels');
+      for (const { key, prop, val } of doomed) {
+        const objTracks = animationTimeline.tracks.get(key);
+        if (!objTracks) continue;
+        objTracks.delete(prop);
+        // Adopt the constant as the live value + the new rest (inertness rule).
+        if (val !== undefined && prop !== 'shape') _tlWritePropertyValue(key, prop, val);
+        _tlOriginalValues.delete(key + '::' + prop);
+        _tlLoopModes.delete(key + '::' + prop);
+        // When the LAST pivot track goes, keep the CURRENT pivotShift and drop
+        // the psh* baselines (same inertness rule; mirrors tlRemoveKeyframe's
+        // pivot block, which instead RESTORES them — wrong here by design).
+        if ((prop === 'pivX' || prop === 'pivY' || prop === 'pivZ')
+          && !['pivX', 'pivY', 'pivZ'].some(p => objTracks.has(p))) {
+          ['pshX', 'pshY', 'pshZ'].forEach(p => _tlOriginalValues.delete(key + '::' + p));
+        }
+      }
+      console.log('[tlRemoveStaticChannels] removed ' + doomed.length + ' static track(s)'
+        + (scopeKeys ? ' from the selection.' : '.'));
+      tlApplyFrame(animationTimeline.currentFrame);
+      tlRenderTracks();
+      tlUpdateTrackInputs();
+      return doomed.length;
     };
 
     // --- LAYER BAR (v20260729a) ------------------------------------------------
@@ -83900,7 +84312,7 @@
       const addSubTrack = (objectName, prop, labelText, keyframes, precision, inputOpts) => {
         // Filter: skip tracks without keyframes when "Keyframed" filter is on
         if (_tlShowKeyframedOnly && (!keyframes || keyframes.length === 0)) return;
-        const collapsed = _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : true; // v20260730c: every group starts COLLAPSED (was: camera only) — the scene-tree fold precedent; _tlGroupCollapsed remembers what the user opened, per session
+        const collapsed = _tlGroupCollapsedEff(objectName);
 
         // Label
         const label = document.createElement('div');
@@ -84613,7 +85025,14 @@
 
       // Helper: create a group header (collapsible)
       const addGroupHeader = (objectName, displayName, isSelected, onKeyAll) => {
-        const collapsed = _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : true; // v20260730c: every group starts COLLAPSED (was: camera only) — the scene-tree fold precedent; _tlGroupCollapsed remembers what the user opened, per session
+        // Effective (filter-overridden) state — see _tlGroupCollapsedEff. Used
+        // for the header's .collapsed class and chevron too, so the fold arrow
+        // agrees with what the rows below it are doing. The toggle click writes
+        // the negation of the EFFECTIVE value, exactly as the sub-group toggle
+        // does: while the filter force-expands this group the click stores
+        // "collapsed" and the override keeps it open, so it reads as inert
+        // until the filter is turned off — one rule, both header levels.
+        const collapsed = _tlGroupCollapsedEff(objectName);
 
         // Header label
         const header = document.createElement('div');
@@ -84714,6 +85133,22 @@
         headerRow.className = 'tl-track-row';
         const barObj = tlObjOf(objectName);
         if (barObj) _tlBuildLayerBar(headerRow, barObj, objectName, areaW, total);
+        // LISTEN KEYING (v20260826a): an armed pending pose draws ONE hollow
+        // diamond at its armed frame — the same rotated-rect glyph as the Key
+        // Selected button (v20260810d), authored hollow. Class .tl-kf-pending
+        // with pointer-events:none, NEVER .tl-keyframe (the loop-ghost rule:
+        // the marquee, the selection highlighter and both drag handlers query
+        // that selector).
+        if (barObj && _tlPendingPose.has(objectName)) {
+          const pend = _tlPendingPose.get(objectName);
+          const ghost = document.createElement('div');
+          ghost.className = 'tl-kf-pending';
+          ghost.innerHTML = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1">'
+            + '<rect x="3.525" y="3.525" width="4.95" height="4.95" transform="rotate(45 6 6)"/>'
+            + '<' + '/svg>';
+          ghost.style.left = ((pend.frame / Math.max(1, total - 1)) * areaW) + 'px';
+          headerRow.appendChild(ghost);
+        }
         tlTracksArea.appendChild(headerRow);
       };
 
@@ -84753,7 +85188,7 @@
         // beats hidden, which would read as "the feature is missing".
         {
           const persp = (activeCamera?.projectionType || projectionType) === 'perspective';
-          const collapsedCam = _tlGroupCollapsed.has('__camera__') ? _tlGroupCollapsed.get('__camera__') : true;
+          const collapsedCam = _tlGroupCollapsedEff('__camera__');
           const label = document.createElement('div');
           label.className = 'tl-track-label tl-sub-track tl-holdframing-row'
             + (collapsedCam ? ' tl-collapsed' : '');
@@ -84834,7 +85269,7 @@
         const _kfSub = animationTimeline.tracks.get(objectName);
         const _forceOpen = _tlShowKeyframedOnly && !!_kfSub && _kfSub.size > 0;
         const collapsed = _forceOpen ? false : (_tlSubGroupCollapsed.has(key) ? _tlSubGroupCollapsed.get(key) : true);
-        const parentCollapsed = _tlGroupCollapsed.has(objectName) ? _tlGroupCollapsed.get(objectName) : true; // v20260730c: every group starts COLLAPSED (was: camera only) — the scene-tree fold precedent; _tlGroupCollapsed remembers what the user opened, per session
+        const parentCollapsed = _tlGroupCollapsedEff(objectName); // same override the object header uses, or a force-expanded group's sub-rows would stay hidden by their parent
 
         const header = document.createElement('div');
         header.className = 'tl-subgroup-header' + (collapsed ? ' collapsed' : '') + (parentCollapsed ? ' tl-collapsed' : '');
@@ -84880,8 +85315,11 @@
         // v20260729a: a trimmed LAYER RANGE is animation data too, so a layer with
         // a bar but no keyframes stays visible under the filter — otherwise the
         // one control that lives on this row would hide the row that carries it.
+        // v20260826a: same reasoning for an ARMED pending pose — the ghost
+        // diamond is the armed state's visible evidence and must not hide.
         if (_tlShowKeyframedOnly && !isSelected && (!objTracks || objTracks.size === 0)
-          && !_tlHasLayerRange(tlObjOf(objectName))) return;
+          && !_tlHasLayerRange(tlObjOf(objectName))
+          && !_tlPendingPose.has(objectName)) return;
         renderedNames.add(objectName);
         const obj = tlObjOf(objectName);
 
@@ -85154,13 +85592,16 @@
       // keyframed filter is on; renderedNames keeps it from double-rendering.
       {
         const walkRanges = (obj) => {
-          // Deliberately layerRanges ONLY: the timeline lists camera +
-          // workplane + selection + animated layers by design (state report
-          // §10), and an unselected layer dropping out of the list is WANTED
-          // behaviour. A layer bar earns its exception because it is a control
-          // that can only be operated ON this row.
-          if (_tlHasLayerRange(obj)) {
-            const k = tlKeyOf(obj);
+          // Deliberately layerRanges (+ armed pending poses, v20260826a) ONLY:
+          // the timeline lists camera + workplane + selection + animated
+          // layers by design (state report §10), and an unselected layer
+          // dropping out of the list is WANTED behaviour. A layer bar earns
+          // its exception because it is a control that can only be operated
+          // ON this row; an armed pose earns it because the ghost diamond is
+          // the armed state's only visible evidence, and deselecting must not
+          // hide that edits are being listened for.
+          const k = tlKeyOf(obj);
+          if (_tlHasLayerRange(obj) || _tlPendingPose.has(k)) {
             renderObjectGroup(k, animationTimeline.tracks.get(k) || null);
           }
           if (obj.children) obj.children.forEach(walkRanges);
@@ -85171,18 +85612,28 @@
       tlUpdatePlayheadPosition();
       tlUpdateTrackInputs();
 
-      // "Key Selected" announces which of its two behaviours is armed
-      // (v20260731j). Resolved by getElementById rather than the module-level
-      // const, which is declared further down and would be in its TDZ on the
-      // render that runs during init.
+      // "Key Selected" announces which of its behaviours is armed
+      // (v20260731j; three states since v20260826a: shape > listening >
+      // default, kept mutually exclusive here so the CSS source order between
+      // the two armed classes is inert). Resolved by getElementById rather
+      // than the module-level const, which is declared further down and would
+      // be in its TDZ on the render that runs during init.
       {
         const ksBtn = document.getElementById('tlKeySelectedBtn');
         if (ksBtn) {
           const shapeMode = _tlShapeSelectionTargets().length > 0;
+          const selTargets = (typeof selectedObjects !== 'undefined' && selectedObjects && selectedObjects.length)
+            ? selectedObjects
+            : (typeof selectedObject !== 'undefined' && selectedObject ? [selectedObject] : []);
+          const listening = !shapeMode
+            && selTargets.some(o => o && o.name && _tlPendingPose.has(tlKeyOf(o)));
           ksBtn.title = shapeMode
             ? 'Keyframe the SHAPE (all vertex positions) of the path whose vertices are selected'
-            : 'Keyframe the full transform of all selected objects at the current frame';
+            : listening
+              ? 'Listening — edits to armed channels record a keyframe pair from the armed pose (hollow diamond). Click to cancel; ⌥ click to commit every transform channel now.'
+              : 'Start animating: channels with tracks key at the playhead now; trackless channels ARM and record on their first edit. ⌥ click keys the full transform immediately (the old behavior).';
           ksBtn.classList.toggle('tl-key-shape-mode', shapeMode);
+          ksBtn.classList.toggle('tl-key-listen-armed', listening);
         }
       }
 
@@ -85212,9 +85663,45 @@
       val = Math.max(1, Math.min(360, Math.round(val)));
       animationTimeline.playbackRange = val;
       tlPlaybackRange.value = val;
+      // INVERSE GUARD (v20260826e): the control being edited wins. Pulling the END
+      // below the START would leave an empty play range, so the start follows it
+      // down. Written directly rather than through tlSetPlaybackStart to avoid the
+      // two setters calling each other — the clamp here is the same one.
+      if (animationTimeline.playbackStart > val - 1) {
+        animationTimeline.playbackStart = Math.max(0, val - 1);
+      }
+      if (tlPlaybackStart) {
+        tlPlaybackStart.value = animationTimeline.playbackStart;
+        tlPlaybackStart.max = Math.max(0, val - 1);
+      }
       // Clamp current frame if beyond the new range
       if (animationTimeline.currentFrame >= val) tlSetFrame(val - 1);
       tlFrameInput.max = val - 1;
+      tlDrawRuler();
+      tlRenderTracks();
+    };
+
+    // --- Play range START: shared setter (v20260826e) ---
+    // Same NaN discipline as tlSetPlaybackRange above: Math.max/min PROPAGATE NaN
+    // rather than clamping it, so a non-finite value would reach the field and every
+    // later comparison against it would be false — playback would die silently.
+    const tlSetPlaybackStart = (val) => {
+      val = Number(val);
+      if (!Number.isFinite(val)) return;
+      // Clamped into [0, playbackRange-1]. The upper bound is the LAST PLAYABLE
+      // FRAME, not the range length: a start equal to the range would name a frame
+      // that is already out of range. A start of exactly playbackRange-1 is allowed
+      // and legal — it is a one-frame range, which tlStartPlayback refuses to play
+      // for the same reason a playbackRange of 1 is refused, and which still exports.
+      val = Math.max(0, Math.min(animationTimeline.playbackRange - 1, Math.round(val)));
+      animationTimeline.playbackStart = val;
+      if (tlPlaybackStart) {
+        tlPlaybackStart.value = val;
+        tlPlaybackStart.max = Math.max(0, animationTimeline.playbackRange - 1);
+      }
+      // The PLAYHEAD IS NOT MOVED and tlFrameInput.min is not raised — the start
+      // bounds playback, not scrubbing (owner decision). The user may still scrub
+      // anywhere in 0..playbackRange-1 to inspect frames before the play range.
       tlDrawRuler();
       tlRenderTracks();
     };
@@ -85224,6 +85711,30 @@
       const total = animationTimeline.totalFrames;
       const range = animationTimeline.playbackRange;
       return Math.max(1, Math.min(((range - 1) / (total - 1)) * w, w - 1));
+    };
+
+    // Pixel X of the play range START handle, or null while it is PARKED
+    // (start === 0) — parked means not drawn and not grabbable, so the leftmost
+    // sliver keeps scrubbing to frame 0 (the v20260809j lesson; see the flag
+    // declarations). Matches tlDrawRuler's inline expression.
+    const _tlRangeStartHandleX = (w) => {
+      const start = animationTimeline.playbackStart;
+      if (!(start > 0)) return null;
+      return Math.max(1, Math.min((start / (animationTimeline.totalFrames - 1)) * w, w - 1));
+    };
+
+    // Set the play range START from a pointer position on the ruler. The drag is
+    // CEILINGED at range-2 — the mirror of _tlRangeFromEvent's floor-at-2 below,
+    // and for the same reason: a drag must not silently create an unplayable
+    // one-frame range (the number input still can, deliberately — a one-frame
+    // range exports). Dragging to 0 re-parks the handle; unpark via the input.
+    // Unlike the end handle's inverse guard the start CLAMPS rather than shoving
+    // the end along — the end handle is the legacy control and keeps its shove.
+    const _tlRangeStartFromEvent = (e) => {
+      const rect = tlRuler.getBoundingClientRect();
+      const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+      const frame = Math.round((x / rect.width) * (animationTimeline.totalFrames - 1));
+      tlSetPlaybackStart(Math.min(frame, animationTimeline.playbackRange - 2));
     };
 
     // Set playback range from a pointer position on the ruler.
@@ -85273,43 +85784,76 @@
     tlRuler.addEventListener('mousedown', (e) => {
       tlStopPlayback(); // Stop playback when the user interacts with the ruler
       const rect = tlRuler.getBoundingClientRect();
-      // Grab the range handle if the click lands within a few px of it.
-      if (Math.abs((e.clientX - rect.left) - _tlRangeHandleX(rect.width)) <= 5) {
-        tlRangeDragging = true;
-        _tlRangeHot = true;
-        _tlRangeFromEvent(e);
+      // Grab a range handle if the click lands within a few px of one. Two handles
+      // since v20260826f: NEAREST WINS, and an exact tie goes to the END handle
+      // (the legacy control). The start handle is null while parked (start 0), so
+      // this reduces to the original single-handle test exactly.
+      const px = e.clientX - rect.left;
+      const dEnd = Math.abs(px - _tlRangeHandleX(rect.width));
+      const sX = _tlRangeStartHandleX(rect.width);
+      const dStart = sX === null ? Infinity : Math.abs(px - sX);
+      if (dEnd <= 5 || dStart <= 5) {
+        if (dStart < dEnd) {
+          tlRangeStartDragging = true;
+          _tlRangeStartHot = true;
+          _tlRangeStartFromEvent(e);
+        } else {
+          tlRangeDragging = true;
+          _tlRangeHot = true;
+          _tlRangeFromEvent(e);
+        }
         return;
       }
       tlScrubbing = true;
       tlScrubFromEvent(e);
     });
 
-    // Hover: highlight the handle (accent) + show the resize cursor when near it.
+    // Hover: highlight the near handle (accent) + show the resize cursor.
     tlRuler.addEventListener('mousemove', (e) => {
-      if (tlRangeDragging || tlScrubbing) return; // active drags handled on window
+      if (tlRangeDragging || tlRangeStartDragging || tlScrubbing) return; // active drags handled on window
       const rect = tlRuler.getBoundingClientRect();
-      const near = Math.abs((e.clientX - rect.left) - _tlRangeHandleX(rect.width)) <= 5;
-      tlRuler.style.cursor = near ? 'ew-resize' : '';
-      if (near !== _tlRangeHot) { _tlRangeHot = near; tlDrawRuler(); }
+      const px = e.clientX - rect.left;
+      const dEnd = Math.abs(px - _tlRangeHandleX(rect.width));
+      const sX = _tlRangeStartHandleX(rect.width);
+      const dStart = sX === null ? Infinity : Math.abs(px - sX);
+      // Mirror the mousedown arbitration exactly, so the handle that lights up is
+      // the one a click would grab — the affordance must not disagree with the action.
+      const nearEnd = dEnd <= 5 && dEnd <= dStart;
+      const nearStart = dStart <= 5 && dStart < dEnd;
+      tlRuler.style.cursor = (nearEnd || nearStart) ? 'ew-resize' : '';
+      if (nearEnd !== _tlRangeHot || nearStart !== _tlRangeStartHot) {
+        _tlRangeHot = nearEnd; _tlRangeStartHot = nearStart; tlDrawRuler();
+      }
     });
     tlRuler.addEventListener('mouseleave', () => {
-      if (!tlRangeDragging && _tlRangeHot) { _tlRangeHot = false; tlDrawRuler(); }
+      if (!tlRangeDragging && !tlRangeStartDragging && (_tlRangeHot || _tlRangeStartHot)) {
+        _tlRangeHot = false; _tlRangeStartHot = false; tlDrawRuler();
+      }
       tlRuler.style.cursor = '';
     });
 
     window.addEventListener('mousemove', (e) => {
       if (tlRangeDragging) { _tlRangeFromEvent(e); return; }
+      if (tlRangeStartDragging) { _tlRangeStartFromEvent(e); return; }
       if (tlScrubbing) tlScrubFromEvent(e);
     });
     window.addEventListener('mouseup', (e) => {
       tlScrubbing = false;
-      if (tlRangeDragging) {
+      if (tlRangeDragging || tlRangeStartDragging) {
+        const wasStart = tlRangeStartDragging;
         tlRangeDragging = false;
-        // Keep accent color only if released still on/near the handle.
+        tlRangeStartDragging = false;
+        // Keep accent color only if released still on/near the dragged handle. A
+        // start handle dragged to 0 is parked (X is null) and simply goes cold.
         const rect = tlRuler.getBoundingClientRect();
-        const near = e.clientX >= rect.left && e.clientX <= rect.right &&
-          Math.abs((e.clientX - rect.left) - _tlRangeHandleX(rect.width)) <= 5;
-        if (near !== _tlRangeHot) { _tlRangeHot = near; tlDrawRuler(); }
+        const inRuler = e.clientX >= rect.left && e.clientX <= rect.right;
+        const hX = wasStart ? _tlRangeStartHandleX(rect.width) : _tlRangeHandleX(rect.width);
+        const near = inRuler && hX !== null &&
+          Math.abs((e.clientX - rect.left) - hX) <= 5;
+        if (wasStart ? (near !== _tlRangeStartHot) : (near !== _tlRangeHot)) {
+          if (wasStart) _tlRangeStartHot = near; else _tlRangeHot = near;
+          tlDrawRuler();
+        }
       }
     });
 
@@ -85326,7 +85870,10 @@
     tlGoStart.addEventListener('click', (e) => {
       e.stopPropagation();
       tlStopPlayback();
-      tlSetFrame(0);
+      // "Start" means the start of the PLAY RANGE (v20260826e), not frame 0 — the
+      // mirror of Go End, which has always meant the end of the play range rather
+      // than totalFrames-1. With playbackStart 0 this is the old behaviour exactly.
+      tlSetFrame(animationTimeline.playbackStart);
     });
 
     tlGoEnd.addEventListener('click', (e) => {
@@ -85398,6 +85945,7 @@
       }
       _tlOriginalValues.clear();
       animationTimeline.tracks.clear();
+      _tlPendingPose.clear();   // v20260826a: armed poses go with the animation
       _tlGroupCollapsed.clear();
       _tlSubGroupCollapsed.clear();
       tlRenderTracks();
@@ -85417,6 +85965,15 @@
       tlSetPlaybackRange(parseInt(tlPlaybackRange.value) || 360);
     });
     tlPlaybackRange.addEventListener('click', (e) => e.stopPropagation());
+
+    // Play range START input (v20260826e). Same two listeners, same 'change' event
+    // as tlPlaybackRange and tlFrameInput above — the timeline header fields commit
+    // on change, not on input, and the click stopPropagation is what keeps a click
+    // in the field from being read as a header click by the panel.
+    tlPlaybackStart.addEventListener('change', () => {
+      tlSetPlaybackStart(parseInt(tlPlaybackStart.value) || 0);
+    });
+    tlPlaybackStart.addEventListener('click', (e) => e.stopPropagation());
 
     // FPS input
     tlFpsInput.addEventListener('change', () => {
@@ -85493,10 +86050,15 @@
     });
     tlAutoKeyframingCb.addEventListener('click', (e) => e.stopPropagation());
 
-    // Key Selected: snapshot the full transform of all selected objects
+    // Key Selected: listen keying since v20260826a (see tlKeySelected)
     const tlKeySelectedBtn = document.getElementById('tlKeySelectedBtn');
     if (tlKeySelectedBtn) {
-      tlKeySelectedBtn.addEventListener('click', (e) => { e.stopPropagation(); tlKeySelected(); });
+      tlKeySelectedBtn.addEventListener('click', (e) => { e.stopPropagation(); tlKeySelected(e); });
+    }
+    // Remove Static Channels (v20260826b)
+    const tlCleanStaticBtn = document.getElementById('tlCleanStaticBtn');
+    if (tlCleanStaticBtn) {
+      tlCleanStaticBtn.addEventListener('click', (e) => { e.stopPropagation(); tlRemoveStaticChannels(); });
     }
 
 
@@ -85739,6 +86301,15 @@
         pingPong: animationTimeline.pingPong,
         tracks: {},
       };
+      // PLAY RANGE START — LAZY ON THE WIRE (v20260826e). Written only when it is
+      // actually set, so every scene that never touched it serializes BYTE-IDENTICAL
+      // to what pre-v20260826e builds wrote, and the whole scene corpus is unmoved
+      // by this feature. Placed after the literal so the key lands at the end of the
+      // object rather than shifting the existing ones. A missing key deserializes to
+      // 0, which is the same thing an explicit 0 would have meant.
+      if (animationTimeline.playbackStart > 0) {
+        data.playbackStart = animationTimeline.playbackStart;
+      }
       // WIRE FORMAT = NAMES (v20260726o). Runtime keys are object IDS; the file
       // keeps names so existing scenes load unchanged, scene JSON stays legible,
       // and archived builds can still open files written here. Names are unique
@@ -85835,8 +86406,10 @@
       if (!data) {
         // No animation data — clear everything
         animationTimeline.currentFrame = 0;
+        animationTimeline.playbackStart = 0;   // v20260826e — BOTH branches must reset it
         animationTimeline.tracks.clear();
         _tlOriginalValues.clear();
+        _tlPendingPose.clear(); // v20260826a — session-transient, dies on scene swap
         _tlLoopModes.clear();   // v20260802b — else loops leak into a scene with no animation
         _tlHoldFraming.clear(); // v20260802h — same reason; BOTH branches must clear
         _tlGroupCollapsed.clear();
@@ -85876,6 +86449,17 @@
         animationTimeline.playbackRange = Number.isFinite(_pr) && _pr > 0
           ? Math.max(1, Math.min(360, Math.round(_pr)))
           : 360;
+      }
+      // PLAY RANGE START (v20260826e). Absent from every file written before this
+      // release and from every file that never set it — absent means 0, which is the
+      // pre-feature behaviour. Validated exactly like tlSetPlaybackStart, the
+      // interactive writer, and clamped AFTER playbackRange has been restored above
+      // so a short saved range can never admit a start past its own end.
+      {
+        const _ps = Number(data.playbackStart);
+        animationTimeline.playbackStart = Number.isFinite(_ps) && _ps > 0
+          ? Math.max(0, Math.min(animationTimeline.playbackRange - 1, Math.round(_ps)))
+          : 0;
       }
       animationTimeline.fps = data.fps || 24;
       animationTimeline.loop = data.loop !== undefined ? data.loop : true;
@@ -85938,6 +86522,7 @@
       // Restore rest-value baselines. A fresh import must not inherit baselines
       // from the previously loaded scene (same-named objects would collide).
       _tlOriginalValues.clear();
+      _tlPendingPose.clear();   // v20260826a — same reason; BOTH branches clear
       if (data.originalValues) {
         for (const [key, val] of Object.entries(data.originalValues)) {
           // "<wireName>::<prop>" -> "<trackKey>::<prop>" (v20260726o).
@@ -86043,6 +86628,16 @@
       // export's whole life (released in the finally).
       SubView._exportHold = true;
       const total = animationTimeline.playbackRange;
+      // PLAY RANGE START (v20260826e). The export writes the PLAY RANGE, which is
+      // the whole point of having one — `from` is the first frame written, `count`
+      // the number of files. FILE NAMES STAY ABSOLUTE: frame N is always
+      // frame_<N+1>.svg, so a range starting at 100 writes frame_0101.svg …
+      // frame_0360.svg. That keeps a frame's name stable no matter what range it was
+      // exported in, and the sequence is still contiguous, which is all an image-
+      // sequence import needs. Renumbering from 0001 was rejected: two exports of
+      // different ranges would then produce the same file names for different frames.
+      const from = Math.max(0, Math.min(total - 1, animationTimeline.playbackStart | 0));
+      const count = total - from;
       const originalFrame = animationTimeline.currentFrame;
 
       // --- Progress overlay ---
@@ -86085,12 +86680,13 @@
       };
 
       try {
-        for (let i = 0; i < total; i++) {
+        for (let i = from; i < total; i++) {
           if (cancelled) break;
 
-          // Update progress
-          progressLabel.textContent = `Exporting frame ${i + 1} / ${total}`;
-          progressBar.style.width = `${((i) / total) * 100}%`;
+          // Update progress — counted within the exported range, so the bar fills
+          // over the files actually being written (v20260826e).
+          progressLabel.textContent = `Exporting frame ${i - from + 1} / ${count}`;
+          progressBar.style.width = `${((i - from) / count) * 100}%`;
 
           // Apply frame state
           animationTimeline.currentFrame = i;
@@ -86126,7 +86722,7 @@
         // Show completion briefly then close overlay
         if (!cancelled) {
           progressBar.style.width = '100%';
-          progressLabel.textContent = `Export complete — ${total} frames saved.`;
+          progressLabel.textContent = `Export complete — ${count} frames saved.`;
           await new Promise(r => setTimeout(r, 900));
         }
         if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
@@ -86152,6 +86748,13 @@
 
       tlStopPlayback();
       const total = animationTimeline.playbackRange;
+      // PLAY RANGE START (v20260826e) — same contract as the sequence exporter above:
+      // the file holds the PLAY RANGE, one layer per frame in it, and LAYER NAMES
+      // STAY ABSOLUTE (frame N is layer "Frame <N+1>"). A range starting at 100
+      // therefore opens in Illustrator with layers Frame 0101…Frame 0360, which is
+      // what the timeline says those frames are.
+      const from = Math.max(0, Math.min(total - 1, animationTimeline.playbackStart | 0));
+      const count = total - from;
       const fps = animationTimeline.fps;
       const originalFrame = animationTimeline.currentFrame;
       // Same subwindow hold as the sequence exporter (released in the finally).
@@ -86209,17 +86812,17 @@
       outSVG.setAttribute('height', FRAME_SIZE);
       outSVG.setAttribute('viewBox', `0 0 ${FRAME_SIZE} ${FRAME_SIZE}`);
       // Embed FPS as a metadata comment
-      outSVG.appendChild(document.createComment(` dim animation — ${total} frames @ ${fps} fps `));
+      outSVG.appendChild(document.createComment(` dim animation — ${count} frames @ ${fps} fps `));
 
       // Offset to shift content from center-origin (-500..500) to 0-based (0..1000)
       const halfFrame = FRAME_SIZE / 2;
 
       try {
-        for (let i = 0; i < total; i++) {
+        for (let i = from; i < total; i++) {
           if (cancelled) break;
 
-          progressLabel.textContent = `Building frame ${i + 1} / ${total}`;
-          progressBar.style.width = `${(i / total) * 100}%`;
+          progressLabel.textContent = `Building frame ${i - from + 1} / ${count}`;
+          progressBar.style.width = `${((i - from) / count) * 100}%`;
 
           // Apply frame + draw
           animationTimeline.currentFrame = i;
@@ -86241,8 +86844,11 @@
           layer.setAttributeNS(adobeNS, 'i:layer', 'yes');
           layer.setAttributeNS(inkNS, 'inkscape:label', `Frame ${framePadded}`);
           layer.setAttributeNS(inkNS, 'inkscape:groupmode', 'layer');
-          // Only frame 0 is visible; all others hidden (for Illustrator / Inkscape layer workflow)
-          layer.style.display = (i === 0) ? 'inline' : 'none';
+          // Only the FIRST EXPORTED frame is visible; all others hidden (for the
+          // Illustrator / Inkscape layer workflow). v20260826e:
+          // that is the range's first frame, not literally frame 0, which is not in
+          // the file at all when the play range starts later.
+          layer.style.display = (i === from) ? 'inline' : 'none';
 
           // Wrap content in a translate group to shift from center-origin to 0-based coords.
           // The per-frame SVG uses viewBox "-500 -500 1000 1000" (center origin),
@@ -86288,14 +86894,14 @@
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `dim_anim_layers_${total}f_${fps}fps_${Date.now()}.svg`;
+          a.download = `dim_anim_layers_${count}f_${fps}fps_${Date.now()}.svg`;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
           setTimeout(() => URL.revokeObjectURL(url), 1000);
 
           progressBar.style.width = '100%';
-          progressLabel.textContent = `Export complete — ${total} frames in one SVG.`;
+          progressLabel.textContent = `Export complete — ${count} frames in one SVG.`;
           await new Promise(r => setTimeout(r, 900));
         }
         if (overlay.parentNode) overlay.parentNode.removeChild(overlay);

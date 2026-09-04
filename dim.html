@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260827a -->
+<!-- dim v20260904n -->
 
 <!--
   MIT License
@@ -5724,7 +5724,7 @@
           </div>
         </div>
         <div class="prop-row prop-inline">
-          <label for="keepGridOnHideCheckbox" class="ui-checkbox-label">Keep grid when hiding (Tab)</label>
+          <label for="keepGridOnHideCheckbox" class="ui-checkbox-label">Keep grid when hiding (Tab) &amp; export</label>
           <input type="checkbox" id="keepGridOnHideCheckbox" class="ui-checkbox" />
         </div>
 
@@ -11417,6 +11417,7 @@
         if (typeof resetMoveToolSession === 'function') resetMoveToolSession();
         if (typeof resetRotateToolSession === 'function') resetRotateToolSession();
         if (typeof resetScaleToolSession === 'function') resetScaleToolSession();
+        if (typeof resetShearToolSession === 'function') resetShearToolSession();   // v20260904h
         if (typeof resetPivotToolSession === 'function') resetPivotToolSession();
 
         // Auto-Confirm Pending Shape
@@ -11549,6 +11550,7 @@
       if (typeof resetMoveToolSession === 'function') resetMoveToolSession();
       if (typeof resetRotateToolSession === 'function') resetRotateToolSession();
       if (typeof resetScaleToolSession === 'function') resetScaleToolSession();
+      if (typeof resetShearToolSession === 'function') resetShearToolSession();   // v20260904h
       if (typeof resetPivotToolSession === 'function') resetPivotToolSession();
 
       currentTool = tool;
@@ -12273,11 +12275,12 @@
 
       if (moveToolSession.mode === 'object') {
         if (!selectedObject) return;
-        selectedObject.position = [
-          moveToolSession.startPos[0] + dX_final,
-          moveToolSession.startPos[1] + dY_final,
-          moveToolSession.startPos[2] + dZ_final
-        ];
+        // The Delta fields are WORLD units; `position` is parent-relative
+        // (v20260904h — v20260807p fixed the drags and the nudge, not this
+        // panel). A child of a rotated group used to move along the PARENT's
+        // axes. No-op at the root.
+        selectedObject.position = vectorAdd(moveToolSession.startPos,
+          _worldDeltaToParent(selectedObject, [dX_final, dY_final, dZ_final]));
         // AUTO-KEY (v20260721q): Move-tool numeric edits record like drags.
         // Vertex modes stay unkeyed — vertices are not animatable.
         if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(selectedObject), ['posX', 'posY', 'posZ']);
@@ -12582,7 +12585,12 @@
           startEuler: [...selectedObject.rotationEuler],
           // 'origin' mode orbits the object's position about world [0,0,0], so
           // remember it to restore on Cancel (other modes leave position alone).
-          startPos: [...selectedObject.position]
+          startPos: [...selectedObject.position],
+          // Per-object baselines for a multi-aware Cancel (v20260904h; the Scale
+          // session's precedent): applyGroupRotation moved EVERY selected
+          // object, Cancel restored the primary alone.
+          startAll: (selectedObjects && selectedObjects.length ? selectedObjects : [selectedObject])
+            .map(o => ({ obj: o, matrix: o.rotationMatrix.map(row => [...row]), position: [...o.position] }))
         };
         // Mark session start; undo push only reads truthiness (v20260725c).
         rotateToolSession.undoSnapshot = true;
@@ -12680,11 +12688,21 @@
       rotateCancelBtn.addEventListener('click', () => {
         if (!rotateToolSession || !selectedObject) return;
 
-        // Revert to Session Start
-        selectedObject.rotationMatrix = rotateToolSession.startMatrix.map(row => [...row]); // Deep copy back
-        selectedObject.rotationEuler = matrixToEuler(selectedObject.rotationMatrix);
-        // 'origin' mode may have orbited the primary's position — restore it.
-        if (rotateToolSession.startPos) selectedObject.position = [...rotateToolSession.startPos];
+        // Revert to Session Start — every object the session touched (v20260904h).
+        if (rotateToolSession.startAll && rotateToolSession.startAll.length) {
+          rotateToolSession.startAll.forEach(sx => {
+            if (!sx.obj) return;
+            sx.obj.rotationMatrix = sx.matrix.map(row => [...row]);
+            sx.obj.rotationEuler = matrixToEuler(sx.obj.rotationMatrix);
+            sx.obj.position = [...sx.position];
+            notifyPathUpdated(sx.obj);
+          });
+        } else {
+          selectedObject.rotationMatrix = rotateToolSession.startMatrix.map(row => [...row]); // Deep copy back
+          selectedObject.rotationEuler = matrixToEuler(selectedObject.rotationMatrix);
+          // 'origin' mode may have orbited the primary's position — restore it.
+          if (rotateToolSession.startPos) selectedObject.position = [...rotateToolSession.startPos];
+        }
 
         updatePropertiesPanel();
         updateRotateToolUI();
@@ -12759,9 +12777,21 @@
       }
     };
 
+    // Session delta, on the session's OWN target (v20260904h) — the other four
+    // sessions' pattern. Without it a typed shear followed by a reselect was
+    // absorbed by setSelectedObject's baseline re-sync: un-undoable.
+    const _shearSessionHasDelta = () => {
+      if (!shearToolSession || !shearToolSession.targetObject) return false;
+      const cur = shearToolSession.targetObject.shear || [0, 0, 0, 0, 0, 0];
+      return shearToolSession.startShear.some((v, i) => Math.abs(v - (cur[i] || 0)) > 1e-6);
+    };
     const resetShearToolSession = () => {
+      // Auto-commit: if outgoing session has a delta, push its stored "before" snapshot
+      if (shearToolSession && _shearSessionHasDelta() && shearToolSession.undoSnapshot) {
+        _pushUndoSnapshot(shearToolSession.undoSnapshot);
+      }
       shearToolSession = selectedObject
-        ? { startShear: [...(selectedObject.shear || [0, 0, 0, 0, 0, 0])] }
+        ? { targetObject: selectedObject, startShear: [...(selectedObject.shear || [0, 0, 0, 0, 0, 0])], undoSnapshot: true }
         : null;
       updateShearToolUI();
     };
@@ -13299,7 +13329,7 @@
     // --- Snapshot Capture ---
     const captureSceneState = () => {
       return {
-        objects: sceneObjects.map(obj => serializeObject(obj)),
+        objects: sceneObjects.map(obj => serializeObject(obj, { undo: true })),   // v20260904e: snapshots keep disabled blocks
         backgroundColor: _currentBackgroundColor,
         frameGuide: _currentFrameGuide,
         // Reference image (v20260724h Phase 2): enters the scene undo diff so
@@ -13357,6 +13387,16 @@
     const pushUndoStateCoalesced = (delay = 300) => {
       renderCacheEpoch++;   // ANIMATION RENDER CACHE: undo:scene-coalesced
       if (!_sceneCoalesceBeforeState && !_sceneCoalesceTimer) {
+        // FLUSH BEFORE BASELINING (v20260904e). The before-state used to be the
+        // LIVE scene, so any mutation sitting between _lastSceneState and now
+        // — a push-BEFORE-mutate producer such as bakeToPath (`pushUndoState();
+        // delete obj.primitiveData; …`) — was never diffed into any entry and
+        // silently became the new baseline: un-undoable. An empty flush is a
+        // no-op (the v20260718e argument), so the no-drift path is unchanged.
+        // A flush that DID push is a new edit, so it clears redo like every
+        // other push would (the flush itself never clears it — performUndo
+        // relies on that).
+        if (_flushSceneOutstanding()) sceneRedoHistory.length = 0;
         _sceneCoalesceBeforeState = deepClone(captureSceneState());
       }
       if (_sceneCoalesceTimer) {
@@ -13399,6 +13439,7 @@
     const pushCameraUndoStateCoalesced = (delay = 300) => {
       renderCacheEpoch++;   // ANIMATION RENDER CACHE: undo:camera-coalesced
       if (!_cameraCoalesceBeforeState && !_cameraCoalesceTimer) {
+        if (_flushCameraOutstanding()) cameraRedoHistory.length = 0;   // v20260904e — see the scene twin
         _cameraCoalesceBeforeState = deepClone(captureCameraState());
       }
       if (_cameraCoalesceTimer) {
@@ -13435,7 +13476,7 @@
 
       if (state.objects) {
         state.objects.forEach(objData => {
-          sceneObjects.push(deserializeObject(objData));
+          sceneObjects.push(deserializeObject(objData, { undo: true }));
         });
       }
       if (state.workplane) {
@@ -13552,8 +13593,10 @@
           if (sceneUndoHistory.length > HISTORY_MAX) sceneUndoHistory.shift();
           _lastSceneState = deepClone(current);
           _scheduleHistoryUpdate();
+          return true;                       // pushed (v20260904e: the coalesced pushers read this)
         }
       }
+      return false;
     };
 
     const _flushCameraOutstanding = () => {
@@ -13564,45 +13607,21 @@
           cameraUndoHistory.push(diffs);
           if (cameraUndoHistory.length > HISTORY_MAX) cameraUndoHistory.shift();
           _lastCameraState = deepClone(current);
+          return true;
         }
       }
+      return false;
     };
 
     // --- Scene Undo / Redo ---
     const performUndo = () => {
 
-      // If a shape is currently being drawn (pending), cancel it instead of undoing.
-      // This prevents the pending shape from becoming an orphan and gives the user
-      // a clean "cancel creation" action before they start undoing previous operations.
-      if (pendingPolygon) {
-        // Remove the pending shape from the scene and clean up its SVG element
-        if (pendingPolygon.destroy) pendingPolygon.destroy();
-        const idx = sceneObjects.indexOf(pendingPolygon);
-        if (idx > -1) sceneObjects.splice(idx, 1);
-        // Restore the baseline from BEFORE the shape was created
-        if (pendingPolygon._preCreationSceneState) {
-          _lastSceneState = pendingPolygon._preCreationSceneState;
-        } else {
-          // Fallback: re-capture from live scene (shape already removed)
-          _lastSceneState = deepClone(captureSceneState());
-        }
-        pendingPolygon = null;
-        activePath = null;
-        dragMode = 'none';
-        const creationPanel = document.getElementById('polygonCreationPanel');
-        if (creationPanel) creationPanel.style.display = 'none';
-        const _hint = document.getElementById('toolHintText');
-        if (_hint && (currentTool === 'polygon' || currentTool === 'star' || currentTool === 'ellipse' || currentTool === 'spiral' || currentTool === 'cycloid' || currentTool === 'lissajous' || currentTool === 'text')) {
-          _hint.style.display = 'block';
-        }
-        selectedObject = null;
-        selectedObjects = [];
-        updateTreeView();
-        updatePropertiesPanel();
-        updateStylePanel();
-        requestRender();
-        return;
-      }
+      // If a shape is currently pending, cancel it instead of undoing — a clean
+      // "cancel" before the history moves. Since v20260904e this is the shared
+      // cancelPendingShape(): a pending CREATION is removed, a pending RE-EDIT
+      // is rolled back to its pre-edit snapshot (it used to be DELETED — the
+      // object was treated as an unconfirmed creation).
+      if (pendingPolygon) { cancelPendingShape(); return; }
 
       // Flush coalesced timer
       if (_sceneCoalesceTimer) {
@@ -13640,6 +13659,10 @@
 
     const performRedo = () => {
       if (sceneRedoHistory.length === 0) return;
+      // A pending shape cannot survive the whole-scene restore below
+      // (restoreSceneFromState destroys every object; `pendingPolygon` would
+      // keep pointing at a dead one). Same rule as performUndo (v20260904e).
+      if (pendingPolygon) cancelPendingShape();
 
       // Commit any uncommitted drift (a pending coalesced change and/or
       // outstanding diffs since the last push) BEFORE the redo restore.
@@ -13912,6 +13935,7 @@
     const pushAnimUndoStateCoalesced = (delay = 300) => {
       renderCacheEpoch++;   // ANIMATION RENDER CACHE: undo:anim-coalesced
       if (!_animCoalesceBeforeState && !_animCoalesceTimer) {
+        if (_flushAnimOutstanding()) animRedoHistory.length = 0;   // v20260904e — see the scene twin
         _animCoalesceBeforeState = deepClone(captureAnimationState());
       }
       if (_animCoalesceTimer) {
@@ -13944,9 +13968,11 @@
           animUndoHistory.push(diffs);
           if (animUndoHistory.length > HISTORY_MAX) animUndoHistory.shift();
           _lastAnimState = deepClone(current);
+          return true;
           _scheduleHistoryUpdate();
         }
       }
+      return false;
     };
 
     // --- Animation Undo / Redo ---
@@ -14608,11 +14634,13 @@
         msgEl.textContent = message;
         okBtn.textContent = (opts && opts.okLabel) || 'OK';
         cancelBtn.textContent = (opts && opts.cancelLabel) || 'Cancel';
+        cancelBtn.style.display = (opts && opts.okOnly) ? 'none' : '';   // one-button notice (v20260904j)
         overlay.classList.add('visible');
         const cleanup = (result) => {
           overlay.classList.remove('visible');
           okBtn.textContent = 'OK';
           cancelBtn.textContent = 'Cancel';
+          cancelBtn.style.display = '';
           okBtn.removeEventListener('click', onOk);
           cancelBtn.removeEventListener('click', onCancel);
           overlay.removeEventListener('click', onOverlay);
@@ -14725,6 +14753,62 @@
 
     // Wire Confirm Shape button
     document.getElementById('confirmShapeBtn').addEventListener('click', confirmPendingShape);
+
+    // CANCEL A PENDING SHAPE — the one path behind ⌘Z, Escape and redo
+    // (v20260904e). Two cases that used to be treated as one:
+    //   · a pending CREATION (draw-* tools) is removed from the scene and the
+    //     undo baseline goes back to the pre-creation snapshot, exactly as
+    //     performUndo did;
+    //   · a pending RE-EDIT (enterPrimitiveEditMode sets `_isReEditing` on an
+    //     EXISTING object) is rolled back to the pre-edit snapshot the same
+    //     function captured — the drawer edits geometry live, so the snapshot
+    //     is the only record of the pre-edit shape. Before this the three
+    //     cancel paths ran the creation branch on it: destroy() + splice, i.e.
+    //     double-click a star, press Escape, the star is gone — and for a
+    //     group child (not in sceneObjects) an svgElement-less ghost row.
+    // Returns true when something was cancelled.
+    const cancelPendingShape = () => {
+      if (!pendingPolygon) return false;
+      const p = pendingPolygon;
+      const pre = p._preCreationSceneState || null;
+      const reEdit = !!p._isReEditing;
+      delete p._preCreationSceneState;
+      delete p._isReEditing;
+      pendingPolygon = null;
+      activePath = null;
+      dragMode = 'none';
+      if (reEdit) {
+        if (pre) {
+          restoreSceneFromState(pre);
+          _lastSceneState = deepClone(captureSceneState());   // re-sync as performUndo does
+        }
+        // no snapshot: nothing to roll back to; the object stays as it is
+      } else {
+        if (p.destroy) p.destroy();
+        const idx = sceneObjects.indexOf(p);
+        if (idx > -1) sceneObjects.splice(idx, 1);
+        else if (p.parent && Array.isArray(p.parent.children)) {
+          const ci = p.parent.children.indexOf(p);
+          if (ci > -1) p.parent.children.splice(ci, 1);
+        }
+        _lastSceneState = pre || deepClone(captureSceneState());
+      }
+      const creationPanel = document.getElementById('polygonCreationPanel');
+      if (creationPanel) creationPanel.style.display = 'none';
+      const _reTag = document.getElementById('toolDrawerReEditTag');
+      if (_reTag) _reTag.textContent = '';
+      const _hint = document.getElementById('toolHintText');
+      if (_hint && (currentTool === 'polygon' || currentTool === 'star' || currentTool === 'ellipse' || currentTool === 'spiral' || currentTool === 'cycloid' || currentTool === 'lissajous' || currentTool === 'text')) {
+        _hint.style.display = 'block';
+      }
+      selectedObject = null;
+      selectedObjects = [];
+      updateTreeView();
+      updatePropertiesPanel();
+      updateStylePanel();
+      requestRender();
+      return true;
+    };
 
     // --- Confirm Pen Path ---
     // Finalize the current pen-drawn path and deactivate drawing mode.
@@ -33784,8 +33868,9 @@
         // --- LEGACY FLATTEN STROKES (clip-first M5) — BEGIN -----------------
         // THE STROKE HALF OF THIS FUNCTION, and only this half. The fill half —
         // ring walk, group text, exact-arc recovery, the one-edge chord guard —
-        // is what clipExport calls (with ownCount 0) and it must survive any
-        // sweep. Marked pieces below: this block, the `eown` lines in the edge
+        // is what clipExport calls (with ownCount NULL since v20260904c, 0
+        // before — null is what actually switches this half off) and it must
+        // survive any sweep. Marked pieces below: this block, the `eown` lines in the edge
         // classifier, the `groups` record, the ownership demotion, and the
         // `if (wantStroke)` assembly at the end of the ring loop.
         //
@@ -34047,6 +34132,13 @@
             //     this was armed — it takes only `.d` and gets `strokeD: null`
             //     by the same reasoning. Proven, not argued: the clip export of
             //     three scenes is byte-identical across this flag (v20260814x).
+            //     SINCE v20260904c the default path passes NULL, not 0 — the
+            //     clip export's eff recovery, the piece emitter's pieces and
+            //     its stroke-level union — so `wantStroke` is false there and
+            //     this whole half is skipped, not merely inert. The fill `d`
+            //     was shown identical across 0 / real / null on 690 corpus
+            //     calls before the switch. flattenExport (legacy) still passes
+            //     the real count and is the only caller that classifies.
             if (this.FLATTEN_DASH_BRIDGE) {
             const G = groups.length;
             let gi = 0;
@@ -34456,7 +34548,14 @@
             } catch (err) { st.failed++; continue; }
             if (!eff.length) { st.emptyEff++; continue; }
             let rec = null;
-            try { rec = this._exportRingsToD(eff, srcSegs, 0); }
+            // NO OWNERSHIP ARGUMENT (v20260904c): only `.d` is read here, and
+            // the stroke half of _exportRingsToD (ownership classification,
+            // taxonomy, demotion, strokeD assembly) ran for nothing on every
+            // call — `0` still switched it on. Passing null switches it off;
+            // the fill text is built from the global nearest-segment walk
+            // alone and cannot see the argument. Proven, not argued: 690 calls
+            // over the 12-scene corpus, 0 differing `d` (see the changelog).
+            try { rec = this._exportRingsToD(eff, srcSegs, null); }
             catch (err) { st.failed++; continue; }
             if (!rec || !rec.d) { st.failed++; continue; }
             comps.push(rec.d);
@@ -34572,9 +34671,10 @@
           // every wrapper single-child again. Visual output is unchanged by
           // construction; only the nesting shape differs.
           let bandAnchor = outer;
+          const clip1 = { id: null };          // one clip-1 def for all of F's bands (v20260904c)
           for (const job of bandJobs) {
             const og = this._clipStrokeOverlay(job.occGeo, job.clipEls, el, clonedRoot, defs,
-                                               function () { return 'cvc' + (++seq); }, ordNode);
+                                               function () { return 'cvc' + (++seq); }, ordNode, clip1);
             if (!og) { st.bandsSkipped++; continue; }
             // A BAND STACK IS DEEPER THAN THE FACE IT SERVES, so it needs its own
             // budget. Its shape is FIX + (copy of F's chain) + the overlay's own
@@ -34649,8 +34749,13 @@
             if (g.children.length > 1) mc++;
           }
           st.multiChildClips = mc;
+          // THE BYTE COUNT IS A VERIFY-ONLY NUMBER (v20260904c). Serialising the
+          // whole clone here cost a second full XMLSerializer pass on every
+          // export and Cmd+C for a field nothing on the seam reads (the seam
+          // serialises again itself); the differs and probes that want it
+          // pass opts.verify, as they already do for overlapPairs.
+          st.bytes = new XMLSerializer().serializeToString(clonedRoot).length;
         }
-        st.bytes = new XMLSerializer().serializeToString(clonedRoot).length;
         st.ms = +(performance.now() - t0).toFixed(2);
         return st;
       },
@@ -34767,18 +34872,22 @@
           g.push(rings[i]);
         }
 
-        // Own segs FIRST so `ownCount` separates authored outline from cut, then
-        // every occluder's and clip's — the same srcSegs contract the flatten
-        // and the chain's eff recovery both use.
+        // Own segs FIRST, then every occluder's and clip's — the same srcSegs
+        // contract the flatten and the chain's eff recovery both use (the order
+        // is also the nearest-segment tie-break, so it stays). The pieces are
+        // FILL ONLY — the stroke is the authored outline under one clip below —
+        // so the recovery is asked for `.d` alone: no ownership argument, and
+        // the stroke half of _exportRingsToD stays off (v20260904c; it used to
+        // receive ownSegs.length and classify every edge for a strokeD nobody
+        // read. 221 such calls on the corpus, 0 differing `d` either way).
         const ownSegs = RI._sourceSegs(src) || [];
         const segs = ownSegs.slice();
         for (const s of occSegs) segs.push(s);
-        const ownCount = ownSegs.length;
 
         const recs = [];
         for (const g of groups.values()) {
           let rec = null;
-          try { rec = this._exportRingsToD(g, segs, ownCount); } catch (err) { rec = null; }
+          try { rec = this._exportRingsToD(g, segs, null); } catch (err) { rec = null; }
           if (!rec || !rec.d) { st.skipGeom++; return false; }
           recs.push(rec);
         }
@@ -34805,7 +34914,7 @@
           // because the fat black stroke covers it.
           if (!this._unionCoversInputs(effs, uni)) { st.skipUnion++; return false; }
           let urec = null;
-          try { urec = this._exportRingsToD(uni, occSegs, 0); } catch (err) { urec = null; }
+          try { urec = this._exportRingsToD(uni, occSegs, null); } catch (err) { urec = null; }   // fill text only (v20260904c)
           if (!urec || !urec.d) { st.skipGeom++; return false; }
           const cid = ctx.nextId();
           const cpn = document.createElementNS(NS, 'clipPath');
@@ -34872,9 +34981,10 @@
         if (ctx.bandJobs && !ctx.noBands && ctx.bandJobs.length) {
           const fake = document.createElementNS(NS, 'path');
           fake.setAttribute('d', pieceDs.join(' '));
+          const clip1 = { id: null };          // one clip-1 def for all of this face's bands (v20260904c)
           for (const job of ctx.bandJobs) {
             const og = this._clipStrokeOverlay(job.occGeo, job.clipEls, fake, ctx.root,
-                                               ctx.defs, ctx.nextId, ctx.ordNode);
+                                               ctx.defs, ctx.nextId, ctx.ordNode, clip1);
             if (!og) { st.bandsSkipped++; continue; }
             og.setAttribute('data-mr-band', '1');
             if (parent) parent.insertBefore(og, anchor);
@@ -35177,7 +35287,7 @@
         const segs = [];
         for (const it of items) for (const s of it.segs) segs.push(s);
         let rec = null;
-        try { rec = this._exportRingsToD(rings, segs, 0); } catch (err) { return null; }
+        try { rec = this._exportRingsToD(rings, segs, null); } catch (err) { return null; }   // fill text only (v20260904c)
         if (!rec || !rec.d) return null;
         return rec.d.trim() + ' ';
       },
@@ -35409,7 +35519,7 @@
       // BOUNDED BY F'S AUTHORED OUTLINE TOO: inside F's chain the overlay would
       // otherwise ink the whole BIGRECT wherever the chain allows, i.e. far
       // outside F. Clip 1 is F's own `d`, the region F could ever have painted.
-      _clipStrokeOverlay(occGeo, clipEls, faceEl, root, defs, nextId, ordNode) {
+      _clipStrokeOverlay(occGeo, clipEls, faceEl, root, defs, nextId, ordNode, clip1) {
         const NS = 'http://www.w3.org/2000/svg';
         const geoD = (n) => {
           if (!n) return null;
@@ -35449,16 +35559,31 @@
         // is not one", so an unclipped wrapper here would make the band's first
         // level look like a new face chain and move the hash. It did, on 9 of 12
         // corpus scenes, before this was corrected — the M1 gate caught it.
-        const cid1 = nextId();
-        const cp1 = document.createElementNS(NS, 'clipPath');
-        cp1.setAttribute('id', cid1);
-        cp1.setAttribute('clipPathUnits', 'userSpaceOnUse');
-        const cpp = document.createElementNS(NS, 'path');
-        cpp.setAttribute('d', fd);
-        cpp.setAttribute('clip-rule', 'evenodd');
-        cpp.setAttribute('fill-rule', 'evenodd');
-        cp1.appendChild(cpp);
-        defs.appendChild(cp1);
+        //
+        // ONE CLIP-1 PER FACE, NOT PER BAND (v20260904c). Clip 1 is F's own
+        // geometry, identical for every band F is owed, yet each band minted
+        // its own <clipPath> copy of it — on the vase 88 bands carried 88
+        // copies of 30-odd outlines. `clip1` is a per-face memo the caller
+        // owns ({ id }); the first band that gets this far mints the def and
+        // records the id, later bands reuse it. Minted HERE, after the paint
+        // and bounds prechecks, so a face whose bands all decline still mints
+        // nothing. Same geometry under one id: the wrapper stays single-child
+        // and the picture cannot move. The levelIds memo in clipExport is the
+        // precedent for sharing defs across a face's wrappers.
+        let cid1 = clip1 && clip1.id;
+        if (!cid1) {
+          cid1 = nextId();
+          const cp1 = document.createElementNS(NS, 'clipPath');
+          cp1.setAttribute('id', cid1);
+          cp1.setAttribute('clipPathUnits', 'userSpaceOnUse');
+          const cpp = document.createElementNS(NS, 'path');
+          cpp.setAttribute('d', fd);
+          cpp.setAttribute('clip-rule', 'evenodd');
+          cpp.setAttribute('fill-rule', 'evenodd');
+          cp1.appendChild(cpp);
+          defs.appendChild(cp1);
+          if (clip1) clip1.id = cid1;
+        }
         const g = document.createElementNS(NS, 'g');
         g.setAttribute('data-mr-band', '1');
         g.setAttribute('clip-path', 'url(#' + cid1 + ')');
@@ -39225,7 +39350,7 @@
         // v20260729a: eye toggle AND layer bar, exactly as in Path.draw. A group
         // out of range takes its whole subtree with it through the existing
         // recursive hide; children keep their OWN ranges, so nesting intersects.
-        if (!this.visible || this._tlOutOfRange) {
+        if (!this.visible || _tlOutOfRangeNow(this)) {
           // Recursive Hide
           const hideRecursive = (obj) => {
             if (obj.svgElement) obj.svgElement.style.display = 'none';
@@ -44288,7 +44413,7 @@
         // v20260729a: the eye toggle (authoring intent, serialized) AND the
         // timeline layer bar (_tlOutOfRange, per-frame derived) must BOTH allow
         // the object to draw. Undefined = no range set = always allowed.
-        if (!this.visible || this._tlOutOfRange) {
+        if (!this.visible || _tlOutOfRangeNow(this)) {
           this.svgElement.style.display = 'none';
           return;
         } else {
@@ -55903,10 +56028,15 @@
               const rY_scaled = ry * SCALE;
 
               // Helper for Arc -> Bezier
+              // x-axis-rotation is NEGATED like the sweep flag (v20260904k):
+              // reflecting Y negates the ellipse's rotation, so a rotated
+              // elliptical arc was built on the wrong ellipse (endpoints
+              // matched, bulge wrong). Illustrator never emits `A`; the
+              // in-house rounded rect uses rot 0 — exposure was other tools.
               const curves = this._arcToCubic(
                 curr[0], curr[1],
                 rX_scaled, rY_scaled,
-                rot,
+                -rot,
                 largeArc,
                 sweep,
                 dest[0], dest[1]
@@ -58095,13 +58225,69 @@
      * For compound clip paths (multiple shapes), returns the union approximated as the
      * first shape's polygon (most SVGs use a single shape per clipPath).
      */
+    // Signed (shoelace) area in raw SVG coordinates — the space sutherlandHodgmanClip
+    // runs in, where "inside" is LEFT of every edge, i.e. the clip polygon must
+    // have POSITIVE signed area (v20260904j; see the orientation note below).
+    const _polySignedArea = (poly) => {
+      let a = 0;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) a += poly[j][0] * poly[i][1] - poly[i][0] * poly[j][1];
+      return a / 2;
+    };
+    const _applyDomMatrixToPoly = (poly, m) => (m ? poly.map(p => [m.a * p[0] + m.c * p[1] + m.e, m.b * p[0] + m.d * p[1] + m.f]) : poly);
+    // The element's OWN `transform` attribute as a matrix (works on unrendered
+    // <clipPath> content, where getCTM is not available).
+    const _ownTransformMatrix = (el) => {
+      try {
+        const list = el.transform && el.transform.baseVal;
+        if (!list || !list.numberOfItems) return null;
+        const c = list.consolidate();
+        return c ? c.matrix : null;
+      } catch (e) { return null; }
+    };
+
     const clipPathShapeToPolygon = (clipPathEl) => {
-      const shapes = clipPathEl.querySelectorAll('rect, circle, ellipse, polygon, path, polyline');
+      let shapes = clipPathEl.querySelectorAll('rect, circle, ellipse, polygon, path, polyline');
+      let viaUse = null;
+      if (shapes.length === 0) {
+        // <clipPath><use xlink:href="#SVGID_1_"/></clipPath> — Illustrator's
+        // Save-As form, with the referenced shape placed OUTSIDE <defs>
+        // (v20260904j). Resolve the href within the pasted document.
+        const useEl = clipPathEl.querySelector('use');
+        const href = useEl && (useEl.getAttribute('href') || useEl.getAttribute('xlink:href') || useEl.getAttributeNS('http://www.w3.org/1999/xlink', 'href'));
+        const root = clipPathEl.ownerSVGElement || clipPathEl.closest('svg') || clipPathEl.getRootNode();
+        const target = href && href.startsWith('#') && root && root.querySelector ? root.querySelector('#' + CSS.escape(href.slice(1))) : null;
+        if (target && /^(rect|circle|ellipse|polygon|path|polyline)$/i.test(target.tagName)) { shapes = [target]; viaUse = useEl; }
+      }
       if (shapes.length === 0) return null;
 
       // Use the first shape (most common case; compound clips are rare)
       const shape = shapes[0];
       const tag = shape.tagName.toLowerCase();
+      // The raw polygon, then the shape's own transform (+ the <use>'s and the
+      // <clipPath>'s) and the orientation rule — see _clipPolyFinish.
+      const raw = _clipShapeRawPolygon(shape, tag);
+      if (!raw) return null;
+      let poly = raw;
+      poly = _applyDomMatrixToPoly(poly, _ownTransformMatrix(shape));
+      if (viaUse) {
+        const ux = parseFloat(viaUse.getAttribute('x') || 0), uy = parseFloat(viaUse.getAttribute('y') || 0);
+        poly = _applyDomMatrixToPoly(poly, _ownTransformMatrix(viaUse));
+        if (ux || uy) poly = poly.map(p => [p[0] + ux, p[1] + uy]);
+      }
+      poly = _applyDomMatrixToPoly(poly, _ownTransformMatrix(clipPathEl));
+      return _clipPolyFinish(poly);
+    };
+    // ORIENTATION-FREE CLIPS (v20260904j). The rect/circle/ellipse generators
+    // below always wind positive, but a <path>/<polygon> clip is whatever
+    // direction the designer drew; with the opposite winding every point failed
+    // every S-H edge, the clipper returned [], and the closed artwork VANISHED
+    // ("fully clipped — skipping") while open subpaths (even-odd, orientation-
+    // free) survived — "only my closed shapes disappeared". Reverse to positive.
+    const _clipPolyFinish = (poly) => {
+      if (!poly || poly.length < 3) return null;
+      return _polySignedArea(poly) < 0 ? poly.slice().reverse() : poly;
+    };
+    const _clipShapeRawPolygon = (shape, tag) => {
 
       if (tag === 'rect') {
         const x = parseFloat(shape.getAttribute('x') || 0);
@@ -58159,6 +58345,8 @@
         // SVGParser returns vertices in app space (scaled and Y-flipped).
         // For clip polygon comparison we need raw SVG coordinates,
         // so we reverse the transform: x_svg = v[0] / S, y_svg = -v[1] / S
+        // A bezier clip path is flattened by control-polygon sampling here
+        // (the same approximation the old code made).
         const S = getImportScale();
         return subpaths[0].vertices.map(v => [v[0] / S, -v[1] / S]);
       }
@@ -58375,6 +58563,15 @@
       pushUndoState(); // Flush any outstanding diffs
       const _svgPreImportState = _lastSceneState ? deepClone(_lastSceneState) : null;
       const svgp = new SVGParser();
+      // The import root, hoisted so the exception path can discard its <g>
+      // (v20260904j). `imported` flips once something reached sceneObjects.
+      let rootGroup = null, imported = false;
+      const _discardGroupEl = (g) => { if (g && g.svgElement && g.svgElement.parentNode) g.svgElement.parentNode.removeChild(g.svgElement); };
+      // A PASTE THAT PRODUCED NOTHING SAYS SO (v20260904j): before this every
+      // empty result ended in console.log/error only — no dialog, no undo
+      // entry, no selection change — and the owner's Illustrator "Preserve
+      // Editing" export imported as exactly that.
+      const _notice = (title, msg) => { try { return showAppConfirm(title, msg, { okOnly: true }); } catch (e) { return Promise.resolve(false); } };
 
       // Create a hidden container to render the SVG and compute styles
       const hiddenContainer = document.createElement('div');
@@ -58410,22 +58607,21 @@
 
         if (svgRoot) {
           processed = true;
-          const rootGroup = new Group(mintObjectName("Imported_SVG", pasteTaken));
+          rootGroup = new Group(mintObjectName("Imported_SVG", pasteTaken));
 
-          // --- Parse <clipPath> definitions from <defs> ---
-          const clipPathMap = new Map(); // id → [[x,y], ...] polygon in SVG coords
-          const defsEl = svgRoot.querySelector('defs');
-          if (defsEl) {
-            defsEl.querySelectorAll('clipPath').forEach(cp => {
-              const id = cp.getAttribute('id');
-              if (!id) return;
-              const polygon = clipPathShapeToPolygon(cp);
-              if (polygon && polygon.length >= 3) {
-                clipPathMap.set(id, polygon);
-                console.log(`[SVG Import] Found clipPath #${id} with ${polygon.length} points`);
-              }
-            });
-          }
+          // --- Parse <clipPath> definitions — EVERY one in the document, not
+          // only the first <defs> (v20260904j; Illustrator writes several
+          // <defs> and sometimes a <clipPath> outside them) ---
+          const clipPathMap = new Map(); // id → [[x,y], ...] polygon in SVG coords (positive winding)
+          svgRoot.querySelectorAll('clipPath').forEach(cp => {
+            const id = cp.getAttribute('id');
+            if (!id) return;
+            const polygon = clipPathShapeToPolygon(cp);
+            if (polygon && polygon.length >= 3) {
+              clipPathMap.set(id, polygon);
+              console.log(`[SVG Import] Found clipPath #${id} with ${polygon.length} points`);
+            }
+          });
 
           // If clip-paths were found, ask the user what to do
           let applyClipping = false;
@@ -58465,37 +58661,83 @@
             const match = clipRef.match(/url\(["']?#([^"')]+)["']?\)/);
             if (!match) return null;
 
-            return clipPathMap.get(match[1]) || null;
+            const poly = clipPathMap.get(match[1]) || null;
+            if (!poly) return null;
+            // THE CLIP LIVES IN THE REFERENCING ELEMENT'S USER SPACE
+            // (clipPathUnits=userSpaceOnUse, the default and Illustrator's
+            // only form), while the artwork is compared in ROOT coordinates
+            // (post-CTM vertices ÷ S). Carry the polygon through this node's
+            // CTM so a clip referenced from a transformed <g> lands in the
+            // right frame (v20260904j), and re-apply the orientation rule —
+            // a mirroring transform flips the winding.
+            let m = null; try { m = node.getCTM && node.getCTM(); } catch (e) { m = null; }
+            return _clipPolyFinish(_applyDomMatrixToPoly(poly, m)) || null;
           };
 
-          // Helper using getComputedStyle
-          const getComputedSVGStyle = (el) => {
+          // PAINT SERVERS (v20260904k): a gradient/pattern fill arrives as
+          // url("#SVGID_1_"); setSvgColor wrote it verbatim — no fill on the
+          // canvas and a dangling reference in every export. Fall back to the
+          // gradient's FIRST stop colour so the object has a paint (a flat
+          // colour beats a dangling reference); a pattern or an unresolvable
+          // reference falls back to mid grey. The original url() is kept
+          // nowhere on purpose.
+          const _paintFallback = (val) => {
+            const m = /^url\(["']?#([^"')]+)["']?\)/.exec(val || '');
+            if (!m) return val;
+            let target = null;
+            try { target = svgRoot.querySelector('#' + CSS.escape(m[1])); } catch (e) { target = null; }
+            const stop = target && target.querySelector && target.querySelector('stop');
+            if (stop) {
+              const sc = window.getComputedStyle(stop).stopColor;
+              if (sc && sc !== 'none') return sc;
+            }
+            return 'rgb(128, 128, 128)';
+          };
+          // Helper using getComputedStyle. `inheritedOpacity` is the product of
+          // every ancestor container's OWN opacity (v20260904k): `opacity`
+          // does not inherit in CSS, so a layer/group opacity never reached the
+          // children although Group opacity is live since v20260816r. Folded
+          // ONCE, here at the leaf — never set on the created Group (that
+          // would double under getEffectiveStyle's replacement semantics).
+          const getComputedSVGStyle = (el, inheritedOpacity) => {
             const comp = window.getComputedStyle(el);
 
-            let sw = parseFloat(comp.strokeWidth) || 1;
+            // Honour an authored 0 (was `|| 1`) — v20260904k.
+            const _swRaw = parseFloat(comp.strokeWidth);
+            let sw = Number.isFinite(_swRaw) ? _swRaw : 1;
 
-            let dashArray = comp.strokeDasharray !== 'none' ? comp.strokeDasharray : undefined;
+            // The app's form is "6 3": strip px, commas → spaces (v20260904k).
+            let dashArray = comp.strokeDasharray !== 'none'
+              ? comp.strokeDasharray.replace(/px/g, '').replace(/,/g, ' ').replace(/\s+/g, ' ').trim()
+              : undefined;
 
             // Decompose element-level CSS opacity into fill/stroke opacities.
             // SVG's `opacity` property affects the entire element (fill + stroke)
             // as a compositing operation. We fold it into the per-channel opacities
             // so imported shapes render correctly without adding a new data model field.
-            const elementOpacity = parseFloat(comp.opacity) || 1;
+            const elementOpacity = (parseFloat(comp.opacity) || 1) * (inheritedOpacity || 1);
 
             // Read mix-blend-mode (CSS property, not SVG attribute)
             const blendMode = comp.mixBlendMode || 'normal';
 
             const result = {
-              stroke: comp.stroke !== 'none' ? comp.stroke : 'none',
-              fill: comp.fill !== 'none' ? comp.fill : 'none',
+              stroke: comp.stroke !== 'none' ? _paintFallback(comp.stroke) : 'none',
+              fill: comp.fill !== 'none' ? _paintFallback(comp.fill) : 'none',
               'stroke-width': sw,
               'stroke-opacity': parseFloat(comp.strokeOpacity) * elementOpacity,
               'fill-opacity': parseFloat(comp.fillOpacity) * elementOpacity,
               'stroke-linejoin': comp.strokeLinejoin,
               'stroke-linecap': comp.strokeLinecap,
               'stroke-dasharray': dashArray,
+              // The authored rule (v20260904k). The draw's `|| 'evenodd'` and the
+              // load/edit backfills only fire when the key is absent; the
+              // mapping packager's `useNonzero` correctness flag keeps winning.
+              'fill-rule': comp.fillRule || 'nonzero',
               display: comp.display
             };
+            // A key with an undefined value is not "absent": the style writer
+            // emits it as stroke-dasharray="undefined" (v20260904k).
+            if (dashArray === undefined) delete result['stroke-dasharray'];
 
             // Only store non-default blend mode to keep style dict clean
             if (blendMode && blendMode !== 'normal') {
@@ -58505,15 +58747,49 @@
             return result;
           };
 
-          const traverseSVG = (node, parentGroup, inheritedClipPoly) => {
+          // Template containers whose children are NOT artwork (v20260904j):
+          // the skip list grows, never shrinks — a <symbol> is reached only
+          // through a <use> clone, a <clipPath> only through clipPathMap.
+          const _SVG_SKIP = new Set(['defs', 'style', 'metadata', 'desc', 'title', 'clippath', 'mask',
+            'pattern', 'marker', 'symbol', 'lineargradient', 'radialgradient', 'filter',
+            'foreignobject', 'script', 'font', 'font-face', 'glyph']);
+          // SVG's <switch> rule: the FIRST child that carries none of the
+          // conditional attributes wins. Illustrator's "Preserve Illustrator
+          // Editing Capabilities" export wraps the whole artwork in
+          // <switch><foreignObject requiredExtensions="…"/><g i:extraneous="self">…</g></switch>,
+          // and the old traversal treated <switch> as a primitive with d='' and
+          // never visited its subtree — that file imported as NOTHING. The
+          // foreignObject twin holds the artwork again in AI-private form, so
+          // only the chosen child may be traversed (else every object doubles).
+          const _switchChoice = (node) => {
+            for (const ch of Array.from(node.children)) {
+              if (ch.nodeType !== 1) continue;
+              if (ch.hasAttribute('requiredExtensions') || ch.hasAttribute('systemLanguage') || ch.hasAttribute('requiredFeatures')) continue;
+              return ch;
+            }
+            return null;
+          };
+          const _resolveHref = (node) => {
+            const href = node.getAttribute('href') || node.getAttribute('xlink:href') || node.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+            if (!href || !href.startsWith('#')) return null;
+            try { return svgRoot.querySelector('#' + CSS.escape(href.slice(1))); } catch (e) { return null; }
+          };
+          const traverseSVG = (node, parentGroup, inheritedClipPoly, inheritedOpacity) => {
             if (node.nodeType !== 1) return; // Element Node only
 
             // Skip hidden elements or non-graphic elements
             const tagName = node.tagName.toLowerCase();
-            if (tagName === 'defs' || tagName === 'style' || tagName === 'metadata' || tagName === 'desc') return;
+            if (_SVG_SKIP.has(tagName)) return;
 
-            const style = getComputedSVGStyle(node);
+            const style = getComputedSVGStyle(node, inheritedOpacity);
             if (style.display === 'none') return;
+            // `display` was the visibility GATE only; stored on the style it
+            // shipped as a redundant display="inline" attribute in canvas and
+            // export (v20260904k).
+            delete style.display;
+            // Containers hand their own opacity down; the leaf folds the product.
+            const _ownOp = parseFloat(window.getComputedStyle(node).opacity);
+            const childOpacity = (inheritedOpacity || 1) * (Number.isFinite(_ownOp) ? _ownOp : 1);
 
             // Resolve clip-path for this element (own or inherited)
             let activeClipPoly = inheritedClipPoly || null;
@@ -58522,9 +58798,9 @@
 
             let currentContainer = parentGroup;
 
-            if (tagName === 'g' || tagName === 'svg') {
-              // Only create a new Group for <g>
-              // For <svg> passed as root, we use the rootGroup (passed as parentGroup initially)
+            if (tagName === 'g' || tagName === 'svg' || tagName === 'switch' || tagName === 'a') {
+              // Only create a new Group for <g>. <svg> (root or nested), <switch>
+              // and <a> are transparent containers: recursed, no Group of their own.
               if (tagName === 'g') {
                 const gId = node.getAttribute('id') || `Group_${Math.floor(Math.random() * 1000)}`;
                 const newGroup = new Group(mintObjectName(gId, pasteTaken));
@@ -58533,10 +58809,50 @@
                 currentContainer = newGroup;
               }
 
-              Array.from(node.children).forEach(child => {
-                traverseSVG(child, currentContainer, activeClipPoly);
-              });
+              if (tagName === 'switch') {
+                const pick = _switchChoice(node);
+                if (pick) traverseSVG(pick, currentContainer, activeClipPoly, childOpacity);
+              } else {
+                Array.from(node.children).forEach(child => {
+                  traverseSVG(child, currentContainer, activeClipPoly, childOpacity);
+                });
+              }
 
+            } else if (tagName === 'use') {
+              // <use>: traverse a CLONE of the referenced element, placed as a
+              // sibling right after the <use> inside a wrapper <g> that carries
+              // the use's x/y translate and its presentation attributes, so
+              // getCTM() and getComputedStyle() on the clone are the instance's
+              // own (v20260904j). A <symbol> becomes a plain <g> (its viewBox /
+              // width / height are not applied — the common Illustrator symbol
+              // has none). The clone's ids are stripped so names cannot collide
+              // with the definition's; it is removed after the traversal.
+              const target = _resolveHref(node);
+              if (target) {
+                const NSVG = 'http://www.w3.org/2000/svg';
+                const wrap = document.createElementNS(NSVG, 'g');
+                const ux = parseFloat(node.getAttribute('x') || 0), uy = parseFloat(node.getAttribute('y') || 0);
+                const parts = [];
+                if (node.getAttribute('transform')) parts.push(node.getAttribute('transform'));
+                if (ux || uy) parts.push(`translate(${ux} ${uy})`);
+                if (parts.length) wrap.setAttribute('transform', parts.join(' '));
+                for (const a of ['style', 'class', 'fill', 'stroke', 'stroke-width', 'opacity', 'fill-opacity', 'stroke-opacity', 'clip-path']) {
+                  const v = node.getAttribute(a); if (v !== null) wrap.setAttribute(a, v);
+                }
+                let clone;
+                if (target.tagName.toLowerCase() === 'symbol') {
+                  clone = document.createElementNS(NSVG, 'g');
+                  for (const ch of Array.from(target.childNodes)) clone.appendChild(ch.cloneNode(true));
+                } else {
+                  clone = target.cloneNode(true);
+                }
+                clone.removeAttribute('id');
+                clone.querySelectorAll && clone.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+                wrap.appendChild(clone);
+                node.parentNode.insertBefore(wrap, node.nextSibling);
+                try { traverseSVG(clone, currentContainer, activeClipPoly, childOpacity); }
+                finally { wrap.remove(); }
+              }
             } else {
               // Primitives
               let d = '';
@@ -58650,6 +58966,19 @@
 
                   if (ctm) {
                     const S = getImportScale(); // Must match SVGParser SCALE
+                    // THE STROKE FOLLOWS THE GEOMETRY (v20260904k). Vertices are
+                    // CTM-baked below, but stroke-width / dasharray were taken in
+                    // the element's LOCAL units, so a <g transform="scale(2)"> or
+                    // a pt/mm-sized root (width="1000pt" → CTM 1.3333) imported
+                    // strokes at the unscaled width. Non-uniform scale is
+                    // approximated by the geometric mean sqrt(|det|).
+                    const _k = Math.sqrt(Math.abs(ctm.a * ctm.d - ctm.b * ctm.c)) || 1;
+                    if (Math.abs(_k - 1) > 1e-9) {
+                      style['stroke-width'] = style['stroke-width'] * _k;
+                      if (style['stroke-dasharray']) {
+                        style['stroke-dasharray'] = style['stroke-dasharray'].split(' ').map(t => { const n = parseFloat(t); return Number.isFinite(n) ? String(+(n * _k).toFixed(4)) : t; }).join(' ');
+                      }
+                    }
                     // Apply CTM to all vertices in all subpaths
                     // Vertices from SVGParser are already scaled by S and Y-flipped:
                     // v_app = [ x_svg * S, -y_svg * S ]
@@ -58781,6 +59110,13 @@
           };
           collectPaths(rootGroup);
 
+          if (allPaths.length === 0) {
+            // Nothing drawable: discard the root's <g> (it was appended to
+            // #pathGroup by the Group constructor) and say so (v20260904j).
+            _discardGroupEl(rootGroup);
+            console.warn('[SVG Import] The SVG contained no drawable paths.');
+            await _notice('Nothing imported', 'The pasted SVG contained no drawable paths (only containers, text, images or unsupported elements).');
+          }
           if (allPaths.length > 0) {
             console.log(`[SVG Import] Imported ${allPaths.length} paths.`);
 
@@ -58892,10 +59228,21 @@
               // Accumulate parent position into child
               child.position = vectorAdd(importTarget.position, child.position);
               child.parent = null; // Detach from parent group
+              // RE-HOME THE CHILD'S <g> (v20260904j). The Group constructor
+              // appended the wrapper's svgElement to #pathGroup and `add` moved
+              // the child's <g> INTO it; detaching the data parent alone left the
+              // child's element a GRANDCHILD of #pathGroup — skipped by the
+              // root-level z-order sync until reload, one extra nesting level in
+              // every export (Illustrator's 14-level budget), and a leaked empty
+              // <g> per paste.
+              if (child.svgElement && pathGroup) pathGroup.appendChild(child.svgElement);
+              importTarget.children.length = 0;
+              _discardGroupEl(importTarget);
               importTarget = child;
             }
 
             sceneObjects.push(importTarget);
+            imported = true;
             // Restore pre-import baseline and push, so the import is a single undo entry
             if (_svgPreImportState) _lastSceneState = _svgPreImportState;
             pushUndoState('Import SVG');
@@ -58931,7 +59278,7 @@
               }
             });
 
-            const rootGroup = new Group(mintObjectName("Pasted_PathData", pasteTaken));
+            rootGroup = new Group(mintObjectName("Pasted_PathData", pasteTaken));
             let allNewPaths = [];
 
             if (allVertices.length > 0) {
@@ -59000,6 +59347,7 @@
 
               rootGroup.position = [0, 0, 0];
               sceneObjects.push(rootGroup);
+              imported = true;
               // Restore pre-import baseline and push, so the import is a single undo entry
               if (_svgPreImportState) _lastSceneState = _svgPreImportState;
               pushUndoState('Import SVG');
@@ -59010,8 +59358,19 @@
           }
         }
 
+        if (!processed) {
+          // Neither SVG markup nor path data — the old code fell through in
+          // silence (v20260904j).
+          console.warn('[SVG Import] Clipboard text is neither SVG markup nor path data.');
+          await _notice('Nothing to paste', 'The clipboard did not contain SVG markup or path data.');
+        } else if (!imported && rootGroup) {
+          _discardGroupEl(rootGroup);
+        }
+
       } catch (e) {
         console.error("Error parsing SVG paste:", e);
+        if (!imported) _discardGroupEl(rootGroup);
+        await _notice('Import failed', 'The SVG could not be imported: ' + (e && e.message ? e.message : String(e)));
       } finally {
         // Cleanup
         if (hiddenContainer.parentNode) {
@@ -60032,23 +60391,13 @@
 
           // 4. Compensate transform to preserve world position (v20260517b)
           if (newParent !== oldParent) {
-            if (newParent) {
-              // Moving into a group: newLocal = inv(newParentWorld) × oldWorld
-              const invNewParentWorld = matrixInverse(newParent.getWorldMatrix());
-              const newLocalMatrix = matrixMultiply(invNewParentWorld, oldWorldMatrix);
-              const decomposed = decomposeMatrix(newLocalMatrix);
-              draggedTreeObj.rotationEuler = decomposed.rotation;
-              draggedTreeObj.rotationMatrix = decomposed.rotationMatrix;
-              draggedTreeObj.scale = decomposed.scale;
-              draggedTreeObj.position = positionFromMatrixTranslation(draggedTreeObj, decomposed.position);
-            } else {
-              // Moving to root: local = world
-              const decomposed = decomposeMatrix(oldWorldMatrix);
-              draggedTreeObj.rotationEuler = decomposed.rotation;
-              draggedTreeObj.rotationMatrix = decomposed.rotationMatrix;
-              draggedTreeObj.scale = decomposed.scale;
-              draggedTreeObj.position = positionFromMatrixTranslation(draggedTreeObj, decomposed.position);
-            }
+            // ONE call, the group/ungroup path's own (v20260904h). The two
+            // decomposeMatrix branches this replaces kept the OLD shear and
+            // pivot rotation while re-deriving rotation/scale from a matrix
+            // that already contained them — a sheared or pivot-rotated object
+            // drifted on every reparent. Zero-shear objects take the identical
+            // path inside the helper.
+            setLocalFromWorld(draggedTreeObj, newParent ? newParent.getWorldMatrix() : null, oldWorldMatrix);
           }
 
           // 5. Reattach at new location
@@ -61691,7 +62040,7 @@
             // Event handler: update middleIds array on change
             sel.addEventListener('change', function () {
               if (!selectedObject || !selectedObject.loftSettings) return;
-              pushUndoStateCoalesced('loftMiddle');
+              pushUndoStateCoalesced();   // v20260904e: the delay param took a label string → setTimeout(fn, NaN)
               const idx = parseInt(this.dataset.middleIndex);
               const newVal = this.value || null;
               const ids = selectedObject.loftSettings.middleIds || [];
@@ -62671,6 +63020,7 @@
 
     const mergeVerticesToFirst = () => {
       if (selectedVertices.length < 2) return;
+      pushUndoState();   // v20260904h: the merge was un-undoable and never notified the paths
 
       // Target is the first selected vertex (index 0)
       const targetV = selectedVertices[0];
@@ -62707,11 +63057,13 @@
         if (newLocal) {
           // Update Internal Vertex Data
           obj.localVertices[vInfo.vertexIndex] = [newLocal[0], newLocal[1], newLocal[2]];
+          notifyPathUpdated(obj);
 
           // Update Cached World Position in vInfo (so subsequent logic is consistent)
           vInfo.worldPosition = [...targetWorldPos];
         }
       }
+      pushUndoState('Merge vertices');
 
       // Request Render
       requestRender();
@@ -62765,9 +63117,18 @@
       pushUndoStateCoalesced();
     });
 
-    const updateObjectFromInput = () => {
+    // ONE FIELD, ONE CHANNEL (v20260904h). This handler rewrote position, scale
+    // AND shear from all nine displayed strings on every keystroke, so typing
+    // in Pos X quantised a scale of 1.2347 to the displayed 1.23 — and because
+    // that change exceeds 1e-9 it AUTO-KEYED sclX/Y/Z, the opposite of the
+    // v20260721q rule. Channels other than the edited field now read the
+    // object's own value; a call with no event (programmatic) keeps the old
+    // read-everything behaviour.
+    const updateObjectFromInput = (e) => {
       if (!selectedObject) return;
       pushUndoStateCoalesced(); // Coalesced undo for property edits
+      const _src = (e && e.target && e.target.id) || null;
+      const _pick = (id, parsed, own) => (_src && _src !== id) ? own : parsed;
 
       // AUTO-KEY (v20260721q): snapshot before mutating — this handler
       // applies BOTH position and scale every call, so only the channels
@@ -62777,9 +63138,9 @@
       const prevScale = [...(selectedObject.scale || [1, 1, 1])];
 
       const newPos = [
-        fromDisplay(parseFloat(document.getElementById('posXInput').value) || 0),
-        fromDisplay(parseFloat(document.getElementById('posYInput').value) || 0),
-        fromDisplay(parseFloat(document.getElementById('posZInput').value) || 0)
+        _pick('posXInput', fromDisplay(parseFloat(document.getElementById('posXInput').value) || 0), prevPos[0]),
+        _pick('posYInput', fromDisplay(parseFloat(document.getElementById('posYInput').value) || 0), prevPos[1]),
+        _pick('posZInput', fromDisplay(parseFloat(document.getElementById('posZInput').value) || 0), prevPos[2])
       ];
       if (selectedObjects && selectedObjects.length > 1) {
         // Multi: the field is the PRIMARY's absolute position; apply the same
@@ -62792,9 +63153,9 @@
       }
 
       const newScale = [
-        clampScale(parseFloat(document.getElementById('scaleXInput').value) || 0),
-        clampScale(parseFloat(document.getElementById('scaleYInput').value) || 0),
-        clampScale(parseFloat(document.getElementById('scaleZInput').value) || 0)
+        _pick('scaleXInput', clampScale(parseFloat(document.getElementById('scaleXInput').value) || 0), prevScale[0]),
+        _pick('scaleYInput', clampScale(parseFloat(document.getElementById('scaleYInput').value) || 0), prevScale[1]),
+        _pick('scaleZInput', clampScale(parseFloat(document.getElementById('scaleZInput').value) || 0), prevScale[2])
       ];
       selectedObject.scale = newScale;
 
@@ -62804,7 +63165,7 @@
       const _shEl = ['shearXYInput', 'shearXZInput', 'shearYXInput', 'shearYZInput', 'shearZXInput', 'shearZYInput'].map(id => document.getElementById(id));
       const prevShear = [...(selectedObject.shear || [0, 0, 0, 0, 0, 0])];
       const newShear = _shEl.every(Boolean)
-        ? _shEl.map(el => parseFloat(el.value) || 0)
+        ? _shEl.map((el, i) => _pick(el.id, parseFloat(el.value) || 0, prevShear[i]))
         : prevShear;
       selectedObject.shear = _shearClamped(newShear);
 
@@ -62829,12 +63190,16 @@
     document.getElementById('posYInput').addEventListener('input', updateObjectFromInput);
     document.getElementById('posZInput').addEventListener('input', updateObjectFromInput);
 
-    const updateRotationFromInput = () => {
+    const updateRotationFromInput = (e) => {
       if (selectedObject) {
         pushUndoStateCoalesced();
-        const x = parseFloat(document.getElementById('rotXInput').value) || 0;
-        const y = parseFloat(document.getElementById('rotYInput').value) || 0;
-        const z = parseFloat(document.getElementById('rotZInput').value) || 0;
+        // One field, one channel (v20260904h): the other two read the object's
+        // own euler, not the Math.round'ed display strings.
+        const _src = (e && e.target && e.target.id) || null;
+        const _cur = selectedObject.rotationEuler || matrixToEuler(selectedObject.rotationMatrix);
+        const x = (_src && _src !== 'rotXInput') ? _cur[0] : (parseFloat(document.getElementById('rotXInput').value) || 0);
+        const y = (_src && _src !== 'rotYInput') ? _cur[1] : (parseFloat(document.getElementById('rotYInput').value) || 0);
+        const z = (_src && _src !== 'rotZInput') ? _cur[2] : (parseFloat(document.getElementById('rotZInput').value) || 0);
         if (selectedObjects && selectedObjects.length > 1) {
           // Multi: the field sets the PRIMARY's absolute orientation; apply
           // the same WORLD delta rotation R = new · primaryOld⁻¹ to every
@@ -63055,7 +63420,9 @@
         const basis = calculateSelectionBasis(relevantVertices, selectedObject);
 
         if (basis) {
+          pushUndoState();   // v20260904h: commit drift, then a labelled entry after the write
           setObjectPivot(selectedObject, basis.position);
+          if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(selectedObject), ['pivX', 'pivY', 'pivZ']);
 
           // Only update rotation if 2+ points were used to define a valid basis
           if (relevantVertices.length >= 2) {
@@ -63063,6 +63430,7 @@
             requestRender();
           }
 
+          pushUndoState('Set pivot');
           // Switch to Select (V) tool so the pivot change is visible
           setTool('select');
         }
@@ -63071,6 +63439,7 @@
 
     const updatePivotRotationFromInput = () => {
       if (!selectedObject) return;
+      pushUndoStateCoalesced();   // v20260904h: was un-undoable (absorbed on reselect)
 
       const newPivotRotEuler = [
         parseFloat(document.getElementById('pivotRotXInput').value) || 0,
@@ -63952,12 +64321,15 @@
     if (resetPivotBtn) {
       resetPivotBtn.addEventListener('click', () => {
         if (selectedObject) {
+          pushUndoState();   // v20260904h
           // Use helper to reset Pivot Coordinate with position compensation
           // This prevents the object from visually moving
           setObjectPivot(selectedObject, [0, 0, 0]);
 
           // Reset Pivot Rotation directly (assumes uniform scale or user intent)
           selectedObject.pivotRotation = [0, 0, 0];
+          if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(selectedObject), ['pivX', 'pivY', 'pivZ']);
+          pushUndoState('Reset pivot');
 
           updatePropertiesPanel();
           requestRender();
@@ -64456,6 +64828,26 @@
           );
 
           newPath.rotationMatrix = obj.rotationMatrix.map(row => [...row]);
+          // EVERY TRANSFORM CHANNEL AND EVERY MODIFIER RIDES ALONG (v20260904h).
+          // The pieces used to get position/euler/scale/style only, so a
+          // pivoted, sheared or extruded compound came apart flat and moved.
+          // Decision, recorded: modifier settings are deep-copied per piece —
+          // a purged extruded compound stays extruded piece by piece; a
+          // mapping/flow constraint keeps its target ids (copied, like
+          // Duplicate does).
+          const _cp = (v) => (v === undefined || v === null) ? v : JSON.parse(JSON.stringify(v));
+          if (obj.pivot) newPath.pivot = [...obj.pivot];
+          if (obj.pivotRotation) newPath.pivotRotation = [...obj.pivotRotation];
+          if (obj.pivotShift) newPath.pivotShift = [...obj.pivotShift];
+          if (obj.shear) newPath.shear = [...obj.shear];
+          newPath.visible = obj.visible; newPath.lock = obj.lock;
+          if (obj.faceCamera !== undefined) newPath.faceCamera = obj.faceCamera;
+          if (obj.mode2D) newPath.mode2D = true;
+          if (_tlHasLayerRange(obj)) newPath.layerRanges = obj.layerRanges.map(sg => ({ in: sg.in, out: sg.out }));
+          for (const key of ['extrudeSettings', 'revolveSettings', 'sweepSettings', 'loftSettings',
+                             'vertexPointSettings', 'foldSettings', 'motionPathSettings', 'surfaceConstraint']) {
+            if (obj[key] !== undefined && obj[key] !== null) newPath[key] = _cp(obj[key]);
+          }
           allNewObjects.push(newPath);
 
           if (obj.parent) {
@@ -65169,10 +65561,10 @@
       // we should update it.
       const newLocal = object.localVertices[newIndex];
 
-      // Recalc world pos
-      const T = createTranslationMatrix(object.position[0], object.position[1], object.position[2]);
-      const modelMatrix = matrixMultiply(T, object.rotationMatrix);
-      selectedVertexInfo.worldPosition = transformVertex(newLocal, modelMatrix);
+      // Recalc world pos through the REAL world matrix (v20260904h — T·R
+      // ignored scale, pivot, shear and the parent chain, so the gizmo
+      // landed off the vertex on any scaled or grouped object).
+      selectedVertexInfo.worldPosition = pointApplyMatrix(newLocal, object.getWorldMatrix());
 
       updatePropertiesPanel();
       requestRender();
@@ -65191,10 +65583,8 @@
 
       const newLocal = object.localVertices[newIndex];
 
-      // Recalc world pos
-      const T = createTranslationMatrix(object.position[0], object.position[1], object.position[2]);
-      const modelMatrix = matrixMultiply(T, object.rotationMatrix);
-      selectedVertexInfo.worldPosition = transformVertex(newLocal, modelMatrix);
+      // Recalc world pos (v20260904h — see prevVertexBtn)
+      selectedVertexInfo.worldPosition = pointApplyMatrix(newLocal, object.getWorldMatrix());
 
       updatePropertiesPanel();
       requestRender();
@@ -66485,12 +66875,17 @@
       // Retrieve Keep Size Checkbox
       const keepSizeComp = document.getElementById('camFovCompensateCheckbox') ? document.getElementById('camFovCompensateCheckbox').checked : false;
 
-      // Mode
+      // Mode — written to the camera the PANEL shows (v20260904h). It wrote the
+      // ACTIVE camera and the global mirror while every other field here writes
+      // `cam`, so changing Mode on a selected non-active camera switched the
+      // viewport's projection instead and bypassed the active camera's lock.
+      // The global mirror follows only when `cam` IS the active camera.
       const newMode = camModeInput.value;
-      if (newMode !== projectionType) {
-        projectionType = newMode;
-        activeCamera.projectionType = newMode; // Store on camera object
+      if (newMode !== cam.projectionType) {
+        cam.projectionType = newMode;
+        if (cam === activeCamera) projectionType = newMode;
       }
+      const _camProj = cam.projectionType || 'perspective';
 
       // Position
       const px = parseFloat(camPosXInput.value) || 0;
@@ -66506,7 +66901,7 @@
       const dist = parseFloat(camDistInput.value) || 10;
 
       // FOV/Size
-      const fovSize = parseFloat(camFovInput.value) || (projectionType === 'perspective' ? 60 : 10);
+      const fovSize = parseFloat(camFovInput.value) || (_camProj === 'perspective' ? 60 : 10);
 
       // Rotation (Azimuth/Elevation)
       const az = parseFloat(camAzimuthInput.value) || 0;
@@ -66531,7 +66926,7 @@
       if (activeId === 'camModeInput') {
         // Already handled mode change
       } else if (activeId === 'camFovInput') {
-        if (projectionType === 'perspective') {
+        if (_camProj === 'perspective') {
           if (keepSizeComp) {
             // Compensate Distance to maintain visual size at target plane
             const oldFovRad = (cam.fovDegrees * Math.PI) / 180;
@@ -66572,7 +66967,7 @@
       } else if (activeId === 'camDistInput') {
         // Change distance along current view vector
         const currentDir = vectorNormalize(vectorSubtract(cam.position, cam.target));
-        if (keepSizeComp && projectionType === 'perspective' && dist > 0.01) {
+        if (keepSizeComp && _camProj === 'perspective' && dist > 0.01) {
           // Compensate FOV to maintain visual size at target plane
           // size ~ dist * tan(fov/2)
           // dist_new * tan(new/2) = dist_old * tan(old/2)
@@ -69590,6 +69985,16 @@
       // requestRender() above. Clearing it here forked a render chain on every
       // direct call (v20260809g).
       renderInProgress = true;
+      // EXPORT HOLD (v20260904a). Both animation SVG exporters drive obj.draw()
+      // themselves, frame by frame, with a setTimeout(0) yield between frames —
+      // and tlApplyFrame calls requestRender(), so this continuous loop used to
+      // interleave a full scene draw between every exported frame (each frame
+      // drawn twice, and a loop draw possibly mid-flight on the same persistent
+      // svgElements when the exporter cloned #pathGroup). While the hold is up
+      // the loop only keeps itself alive; the exporter's finally releases it and
+      // requests a render. Only the two exporters raise this flag (grep
+      // _exportHold = true).
+      if (SubView._exportHold) { renderInProgress = false; requestRender(); return; }
       // CAMERA SUBWINDOW (Phase 2): the ONE seam. It must run BEFORE the main
       // scene draw and inside the same rAF callback — the sub pass draws the
       // live tree from camera B, and the main draw below is what puts camera A
@@ -75160,8 +75565,15 @@
       } else if (dragMode === 'translate-radial') {
         const subject = selectedVertexInfo || selectedObject;
         if (!subject) return;
-        // 2D MODE (v20260727c): radial = camera-depth motion — inert.
-        if (isIn2DMode(selectedVertexInfo ? selectedVertexInfo.object : selectedObject)) return;
+        // 2D MODE (v20260727c): radial = camera-depth motion — inert. The
+        // early return must still advance previousMousePosition (v20260904g):
+        // the translate chain above applies the frame-plane delta measured
+        // from it, so leaving it stale re-applied the cumulative delta on
+        // every move — D+drag on a 2D subject RAN AWAY.
+        if (isIn2DMode(selectedVertexInfo ? selectedVertexInfo.object : selectedObject)) {
+          previousMousePosition = { x: event.clientX, y: event.clientY };
+          return;
+        }
 
         const startPosition = dragStartWorldPosition;
         if (!startPosition) return;
@@ -75696,6 +76108,16 @@
         }
 
         // --- General vertex drag mouseup ---
+        // UNDOABLE (v20260904g). Nothing pushed for a pen point drag: the
+        // mouseup fell through to `setSelectedObject(activePath)` below, whose
+        // baseline re-sync ABSORBED the move. Push the labelled entry first
+        // — except while the path is still a pending CREATION (it carries
+        // _preCreationSceneState): there the whole creation is one undo step
+        // committed on Confirm, and a mid-creation entry would overlap it.
+        if (dragMode === 'draw-pen' && (_penDraggingVertexIdx >= 0 || _penDraggingHandle)
+          && activePath && !activePath._preCreationSceneState) {
+          pushUndoState('Move point');
+        }
         if (dragMode === 'draw-pen' && _penDraggingVertexIdx >= 0) {
           _penDraggingVertexIdx = -1;
           _penHoveredVertexIdx = -1;
@@ -75766,11 +76188,32 @@
         const isTranslate = translateModes.includes(_prevDragMode);
         const isRotate = rotateModes.includes(_prevDragMode);
         const isScale = _prevDragMode === 'scale';
+        const isShear = _prevDragMode === 'shear';
+        // A VERTEX DRAG IS A SHAPE EDIT, NOT A MOVE (v20260904g). The A tool
+        // drags a vertex under dragMode 'translate' (or 'translate-radial'
+        // with D), so the object branch below caught it and created
+        // posX/Y/Z tracks holding the UNCHANGED position, while the shape
+        // branch tested `_prevDragMode === 'edit-polygon'` — a mode no
+        // mouseup ever sees (every onMouseDown resets dragMode; that value
+        // is only set after draw-* mouseups). Born dead in v20260731f, whose
+        // verification listed the arrow nudge only. Decided on the SELECTION,
+        // not the mode: a translate-class gesture that ends with vertices
+        // selected was a vertex drag.
+        const _vtxOwners = new Set();
+        if (isTranslate) {
+          if (selectedVertexInfo && selectedVertexInfo.object) _vtxOwners.add(selectedVertexInfo.object);
+          if (selectedVertices && selectedVertices.length) for (const v of selectedVertices) if (v && v.object) _vtxOwners.add(v.object);
+        }
         if (cameraModes.includes(_prevDragMode)) {
           // Camera NAVIGATION: re-key-only, never creates tracks (v20260721q
           // carve-out — looking around is viewing, not editing).
           tlAutoKeyCamera();
-        } else if ((isTranslate || isRotate || isScale) && selectedObject) {
+        } else if (_vtxOwners.size) {
+          for (const o of _vtxOwners) if (_tlShapeEligible(o)) tlAutoKeyProps(tlKeyOf(o), ['shape']);
+        } else if ((isTranslate || isRotate || isScale || isShear) && selectedObject) {
+          // isShear joined the gate in v20260904g: the `_prevDragMode ===
+          // 'shear'` arm below sat INSIDE a translate/rotate/scale gate and
+          // was unreachable since v20260812j — a shear drag never auto-keyed.
           // v20260721q: channel-scoped CREATION — the dragged channels get
           // tracks on first touch (Auto-Key v2, Blender-style). Orbit-style
           // pivot modes move position too, so those include position. Then
@@ -75801,6 +76244,8 @@
           // ended — record the pose at the playhead. Same convention as the
           // translate branches above: no did-it-move test, because
           // tlAutoKeyProps re-reads the live value through the resolver chain.
+          // (Kept as a fallback; the live vertex-drag path is the selection
+          // branch above — v20260904g.)
           tlAutoKeyProps(tlKeyOf(selectedObject), ['shape']);
         }
       }
@@ -75871,145 +76316,33 @@
 
 
 
-      // 2. Clone attributes (Must happen BEFORE removing hidden elements from clonedGroup to maintain index sync with originalLines)
-      const originalLines = mainGroup.querySelectorAll('line');
-      const clonedLines = clonedGroup.querySelectorAll('line');
-      originalLines.forEach((original, index) => {
-        const cloned = clonedLines[index];
-        if (cloned) {
-          const strokeValue = original.getAttribute('stroke');
-          if (strokeValue) {
-            const rgbaMatch = strokeValue.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-
-            if (rgbaMatch) {
-              const r = rgbaMatch[1];
-              const g = rgbaMatch[2];
-              const b = rgbaMatch[3];
-              const a = rgbaMatch[4] || '1';
-
-              cloned.setAttribute('stroke', `rgb(${r}, ${g}, ${b})`);
-              if (a !== '1') {
-                cloned.setAttribute('stroke-opacity', a);
-              }
-            } else {
-              cloned.setAttribute('stroke', strokeValue);
-            }
-          }
-
-          if (original.hasAttribute('stroke-width')) cloned.setAttribute('stroke-width', original.getAttribute('stroke-width'));
-          if (original.hasAttribute('x1')) cloned.setAttribute('x1', original.getAttribute('x1'));
-          if (original.hasAttribute('y1')) cloned.setAttribute('y1', original.getAttribute('y1'));
-          if (original.hasAttribute('x2')) cloned.setAttribute('x2', original.getAttribute('x2'));
-          if (original.hasAttribute('y2')) cloned.setAttribute('y2', original.getAttribute('y2'));
-
-          // Copy display style (important for Step 3)
-          if (original.style.display === 'none') {
-            cloned.style.display = 'none';
-          }
-        }
-      });
-
-      // Clone text attributes...
-      // (Similar to lines, better to do before removal?)
-      // Actually text usually doesn't have the index-sync issue as robustly as lines (grid has variable lines).
-      // But for safety, move text logic up too? 
-      // The original code had removing vertexGizmoGroup FIRST.
-      // But vertexGizmoGroup doesn't contain the grid lines.
-      // The bug was removing hidden elements generically which messed up indices.
-
-      // Let's finish the logic for "Remove hidden elements" AT THE END.
-
-
-
-
-      // Clone text
-      const originalTexts = mainGroup.querySelectorAll('text');
-      const clonedTexts = clonedGroup.querySelectorAll('text');
-      originalTexts.forEach((original, index) => {
-        const cloned = clonedTexts[index];
-        if (cloned) {
-          if (original.hasAttribute('x')) cloned.setAttribute('x', original.getAttribute('x'));
-          if (original.hasAttribute('y')) cloned.setAttribute('y', original.getAttribute('y'));
-          if (original.hasAttribute('fill')) cloned.setAttribute('fill', original.getAttribute('fill'));
-          if (original.hasAttribute('font-size')) cloned.setAttribute('font-size', original.getAttribute('font-size'));
-          cloned.textContent = original.textContent;
-
-          const computedStyle = window.getComputedStyle(original);
-          let styleString = 'font-family: Arial, sans-serif; ';
-          styleString += `font-weight: ${computedStyle.fontWeight}; `;
-          styleString += `paint-order: ${computedStyle.paintOrder}; `;
-          styleString += `stroke: ${computedStyle.stroke}; `;
-          styleString += `stroke-width: ${computedStyle.strokeWidth}; `;
-          styleString += `text-anchor: ${computedStyle.textAnchor}; `;
-          styleString += `dominant-baseline: ${computedStyle.dominantBaseline}; `;
-
-          cloned.setAttribute('style', styleString);
-
-          if (original.style.display === 'none') {
-            cloned.style.display = 'none';
-          }
-        }
-      });
-
-      // Clone Paths
-      const originalPaths = mainGroup.querySelectorAll('path');
-      const clonedPaths = clonedGroup.querySelectorAll('path');
-      originalPaths.forEach((original, index) => {
-        const cloned = clonedPaths[index];
-        if (cloned) {
-          if (original.hasAttribute('d')) cloned.setAttribute('d', original.getAttribute('d'));
-
-          const styleAttrs = ['stroke-width', 'stroke-linecap', 'stroke-linejoin'];
-          styleAttrs.forEach((attr) => {
-            if (original.hasAttribute(attr)) {
-              cloned.setAttribute(attr, original.getAttribute(attr));
-            }
-          });
-
-          if (original.hasAttribute('fill')) {
-            const fillValue = original.getAttribute('fill');
-            if (fillValue !== 'none') {
-              const fillMatch = fillValue.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-              if (fillMatch) {
-                cloned.setAttribute('fill', `rgb(${fillMatch[1]}, ${fillMatch[2]}, ${fillMatch[3]})`);
-                if (fillMatch[4] !== undefined && fillMatch[4] !== '1') {
-                  cloned.setAttribute('fill-opacity', fillMatch[4]);
-                }
-              } else {
-                cloned.setAttribute('fill', fillValue);
-              }
-            } else {
-              cloned.setAttribute('fill', 'none');
-            }
-          }
-          // If no fill attribute, do NOT force black. Let it inherit.
-
-          if (original.hasAttribute('stroke')) {
-            const strokeValue = original.getAttribute('stroke');
-            if (strokeValue !== 'none') {
-              const strokeMatch = strokeValue.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-              if (strokeMatch) {
-                cloned.setAttribute('stroke', `rgb(${strokeMatch[1]}, ${strokeMatch[2]}, ${strokeMatch[3]})`);
-                if (strokeMatch[4] !== undefined && strokeMatch[4] !== '1') {
-                  cloned.setAttribute('stroke-opacity', strokeMatch[4]);
-                }
-              } else {
-                cloned.setAttribute('stroke', strokeValue);
-              }
-            } else {
-              cloned.setAttribute('stroke', 'none');
-            }
-          }
-
-          if (original.hasAttribute('fill-opacity')) {
-            cloned.setAttribute('fill-opacity', original.getAttribute('fill-opacity'));
-          }
-          if (original.hasAttribute('stroke-opacity')) {
-            cloned.setAttribute('stroke-opacity', original.getAttribute('stroke-opacity'));
-          }
-
-          if (original.style.display === 'none') {
-            cloned.style.display = 'none';
+      // PAINT NORMALISATION FOR THE FILE (v20260904b). cloneNode(true) already
+      // carries every attribute, so the only thing the export has to do to a
+      // paint value is split `rgba(r,g,b,a)` into `rgb(r,g,b)` + `-opacity`
+      // (Illustrator's importer does not read rgba). This used to be three
+      // index-paired loops (line / text / path) that re-copied ~15 attributes
+      // from the LIVE element onto the clone by querySelectorAll position —
+      // a scheme that only stayed in sync as long as nothing was removed from
+      // either tree first, which is why the hidden-element sweep had to be
+      // pushed below it. The walk is over the CLONE alone: nothing to desync.
+      // Scope stays `path, line` on purpose — an rgba on a <g> is NOT split,
+      // because `fill-opacity` inherits differently from an rgba fill (a
+      // child with its own opaque fill would pick up the group's opacity),
+      // and the old loops never touched groups either. An explicit
+      // `fill-opacity` / `stroke-opacity` attribute wins over the rgba alpha,
+      // as before. The <text> branch is gone with its producers: the only
+      // <text> in #mainGroup are gizmo labels, vertex-index labels and crease
+      // numbers, all of which live in groups removed below.
+      const _RGBA_RE = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/;
+      clonedGroup.querySelectorAll('path, line').forEach(el => {
+        for (const attr of ['fill', 'stroke']) {
+          const v = el.getAttribute(attr);
+          if (!v || v === 'none') continue;
+          const m = _RGBA_RE.exec(v);
+          if (!m) continue;
+          el.setAttribute(attr, `rgb(${m[1]}, ${m[2]}, ${m[3]})`);
+          if (m[4] !== undefined && m[4] !== '1' && !el.hasAttribute(attr + '-opacity')) {
+            el.setAttribute(attr + '-opacity', m[4]);
           }
         }
       });
@@ -76037,9 +76370,13 @@
         frame.setAttribute('fill', 'none');
       }
 
-      frame.setAttribute('stroke', 'rgb(0, 0, 0)');
-      frame.setAttribute('stroke-opacity', '0.5');
-      frame.setAttribute('stroke-width', '2');
+      // NO BORDER (v20260904b). The live #frameRect carries stroke-width 0 — it
+      // never draws a border — but the export used to hard-code a 2-unit 50%
+      // black stroke here, so every file and every Cmd+C paste arrived in
+      // Illustrator with a frame the owner then deleted by hand. The rect stays
+      // (it carries the background fill when one is set); a border would be a
+      // new, explicit option, never a silent default.
+      frame.setAttribute('stroke', 'none');
       exportSVG.appendChild(frame); // Append background FIRST
 
       // Final Cleanup: Remove Hidden Elements AND UI Groups
@@ -76047,10 +76384,23 @@
       const hiddenElements = Array.from(clonedGroup.querySelectorAll('*')).filter(el => el.style.display === 'none');
       hiddenElements.forEach(el => el.parentNode && el.parentNode.removeChild(el));
 
-      // 2. Remove UI/Gizmo Groups explicitly
-      // Note: We REMOVED gridGroup, gridGroupXY, gridGroupYZ from this list so that strict 'showGuides' logic handles them via 'display:none' check (Step 1)
+      // 2. Remove UI/Gizmo Groups explicitly. GUIDES DO NOT EXPORT (v20260904b):
+      // the grid groups and the axis gizmo used to ride on the display:none
+      // sweep above, i.e. they exported whenever Show Guides was ON — a vase
+      // export with guides on shipped 75 <line>s of grid and gizmo. They are
+      // editor chrome, not artwork; the frame guide appended at the end is the
+      // one deliberate overlay that does export (v20260723a).
+      // EXCEPT THE GRID, ON REQUEST (v20260904n, owner): "Keep grid when hiding
+      // (Tab) & export" — the one checkbox says the grid is part of the picture,
+      // so it survives Tab on the canvas AND ships in every export (Cmd+C, the
+      // file, both animation exports; all through this seam). Only the grid: the
+      // axis gizmo never exports. The hidden-element sweep above already
+      // dropped the lines of the inactive grid planes, so what ships is what
+      // the canvas shows.
       const idsToRemove = ['vertexGizmoGroup', 'pathHighlightGroup', 'targetGizmoGroup', 'selectionGizmoGroup', 'refImageGroup',
+        'gizmoGroup',
         'rasterHelperViewImage' /* RASTER HELPER — the aligned debug overlay never exports */];
+      if (!keepGridOnHide) idsToRemove.push('gridGroup', 'gridGroupXY', 'gridGroupYZ');
       idsToRemove.forEach(id => {
         const el = clonedGroup.querySelector(`#${id}`);
         if (el) el.parentNode.removeChild(el);
@@ -76063,12 +76413,14 @@
       // masks. All export paths share this call site.
       if (typeof MaskRender !== 'undefined') {
         if (clonedGroup.querySelector('mask[id^="mrm"]')) {
-          // CLIP-FIRST EXPORT (plan M2) is opt-in — see MaskRender.CLIP_EXPORT for
-          // what it routes and why it is off. The two producers are
-          // interchangeable here BY CONTRACT: each takes the clone and leaves it
-          // mask-free, so everything downstream (the dangling-mask sweep, the
-          // rid strip, the frame guide, the serializer) is untouched by the
-          // choice. With the flag off this branch is not entered.
+          // CLIP-FIRST EXPORT is THE DEFAULT (MaskRender.CLIP_EXPORT, ON since
+          // v20260814v; this comment said "opt-in / off" from M2 until
+          // v20260904d). CLIP_EXPORT=false is the fallback to the legacy
+          // flatten, not the normal path. The two producers are interchangeable
+          // here BY CONTRACT: each takes the clone and leaves it mask-free, so
+          // everything downstream (the dangling-mask sweep, the rid strip, the
+          // session-mark strip and seam-id renumbering, the frame guide, the
+          // serializer) is untouched by the choice.
           if (MaskRender.CLIP_EXPORT) {
             // FOLD THE CHAINS FOR THE FILE, not for the canvas — see
             // MaskRender.CLIP_FOLD_EXPORT. This is the only seam that asks:
@@ -76109,6 +76461,42 @@
         // faces and emits no <mask>, so the flatten never runs and the stamps
         // would ship. This strip is ungated for that reason.
         clonedGroup.querySelectorAll('[data-mr-rid]').forEach(el => el.removeAttribute('data-mr-rid'));
+      }
+
+      // SESSION-ONLY MARKS NEVER LEAVE THE APP (v20260904b). data-mr-band tags
+      // the planner's band groups, data-mr-stroke stashes a muted stroke,
+      // data-mss / data-mss-stroke are _SILH_DEBUG keys, data-axis is gizmo
+      // hit-testing — all of them are read by the live app only, and none of
+      // them mean anything to Illustrator or After Effects. (data-name is NOT
+      // in this list: the multi-layer exporter writes it on its frame layers
+      // as Illustrator's own layer-name attribute.)
+      clonedGroup.querySelectorAll('[data-mr-band],[data-mr-stroke],[data-mss],[data-mss-stroke],[data-axis]').forEach(el => {
+        for (const a of ['data-mr-band', 'data-mr-stroke', 'data-mss', 'data-mss-stroke', 'data-axis']) el.removeAttribute(a);
+      });
+      // DETERMINISTIC SEAM IDS (v20260904b). Seam ink is wrapped in
+      // <g clip-path="url(#mrs<N>)"> where N comes from MaskRender._seq, a
+      // SESSION counter that grows every frame — so two exports of an
+      // untouched scene differed in every seam id and nothing else, and a
+      // plain file diff could not tell "nothing changed" from "everything
+      // changed". The ids cannot be dropped (they ARE referenced); they are
+      // renumbered 1..k in document order in the clone, with every reference
+      // rewritten from the same map. cvc ids (clipExport) already restart at 1
+      // per export, so this makes the whole file a pure function of the scene.
+      {
+        const seamMap = new Map();
+        clonedGroup.querySelectorAll('clipPath[id^="mrs"]').forEach(cp => {
+          const id = cp.getAttribute('id');
+          if (/^mrs\d+$/.test(id) && !seamMap.has(id)) seamMap.set(id, 'mrs' + (seamMap.size + 1));
+        });
+        if (seamMap.size) {
+          seamMap.forEach((nid, id) => {
+            clonedGroup.querySelectorAll('clipPath[id="' + id + '"]').forEach(cp => cp.setAttribute('id', nid));
+          });
+          clonedGroup.querySelectorAll('[clip-path^="url(#mrs"]').forEach(el => {
+            const m = /^url\(#(mrs\d+)\)$/.exec((el.getAttribute('clip-path') || '').trim());
+            if (m && seamMap.has(m[1])) el.setAttribute('clip-path', 'url(#' + seamMap.get(m[1]) + ')');
+          });
+        }
       }
 
       exportSVG.appendChild(clonedGroup);
@@ -76163,8 +76551,13 @@
     };
 
     const onKeyDown = (event) => {
-      // Ignore shortcuts if typing in an input field
-      if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+      // Ignore shortcuts if typing in an input field. SELECT too (v20260904h —
+      // a focused Fill Rule dropdown let Backspace DELETE the object; the
+      // timeline's own Delete handler already guarded it), and Space on a
+      // focused BUTTON (activation, not the app's Space shortcut).
+      const _tag = event.target && event.target.tagName;
+      if (_tag === 'INPUT' || _tag === 'TEXTAREA' || _tag === 'SELECT'
+        || (_tag === 'BUTTON' && event.key === ' ')) {
         return;
       }
 
@@ -76183,7 +76576,7 @@
         const f = animationTimeline.currentFrame;
         const lastF = Math.max(0, animationTimeline.totalFrames - 1);
         const isIn = event.code === 'BracketLeft';
-        pushUndoState(isIn ? 'Trim layer in' : 'Trim layer out');
+        pushUndoState();   // commit drift; the labelled entry follows the write (v20260904h, the ⌘G pattern)
         for (const o of targets) {
           // An untrimmed layer starts as the full timeline, so the first press
           // trims one edge and leaves the other at the end it already had.
@@ -76200,6 +76593,7 @@
           // about merging or about clearing a full-span trim.
           _tlSetLayerSegs(o, cur);
         }
+        pushUndoState(isIn ? 'Trim layer in' : 'Trim layer out');
         tlApplyFrame(animationTimeline.currentFrame);
         tlRenderTracks();
         requestRender();
@@ -76625,28 +77019,9 @@
           case 'Escape':
             event.preventDefault();
             if (pendingPolygon) {
-              // Cancel Creation — destroy SVG element and remove from scene
-              if (pendingPolygon.destroy) pendingPolygon.destroy();
-              const idx = sceneObjects.indexOf(pendingPolygon);
-              if (idx > -1) sceneObjects.splice(idx, 1);
-              pendingPolygon = null;
-              activePath = null;
-              dragMode = 'none';
-              selectedObject = null;
-              selectedObjects = [];
-              document.getElementById('polygonCreationPanel').style.display = 'none';
-              const _hint2 = document.getElementById('toolHintText');
-              if (_hint2 && (currentTool === 'polygon' || currentTool === 'star' || currentTool === 'ellipse' || currentTool === 'spiral' || currentTool === 'cycloid' || currentTool === 'lissajous' || currentTool === 'text')) {
-                _hint2.style.display = 'block';
-              }
-              updateTreeView();
-              updatePropertiesPanel();
-              updateStylePanel();
-              requestRender();
-              // Re-sync _lastSceneState: the cancelled shape was removed from sceneObjects
-              // but never went through pushUndoState. Without this, _lastSceneState still
-              // contains the cancelled shape, creating a phantom diff on next undo.
-              if (_lastSceneState) _lastSceneState = deepClone(captureSceneState());
+              // Cancel — creation removed, re-edit rolled back (v20260904e,
+              // shared with ⌘Z / redo; see cancelPendingShape).
+              cancelPendingShape();
             } else if (currentTool === 'pen') {
               activePath = null;
               resetPenBezierState();
@@ -78753,7 +79128,15 @@
 
       // MOTION PATH (v20260719f): Paths and Groups; written only when enabled
       // so pre-feature files stay byte-identical.
-      if (obj.motionPathSettings && obj.motionPathSettings.enabled) {
+      // UNDO SNAPSHOTS ARE NOT FILES (v20260904e). captureSceneState shares
+      // this serializer and restoreSceneFromState rebuilds every object from
+      // the snapshot, so an only-when-enabled block is LOST across any undo
+      // taken while the feature is off: disable Fold, undo an unrelated move,
+      // and the authored creases are replaced by the default. `opts.undo`
+      // (passed by captureSceneState alone; the file writers pass `prune`)
+      // writes these blocks whenever the object carries them. Files stay
+      // byte-identical by construction — no file writer passes `undo`.
+      if (obj.motionPathSettings && (obj.motionPathSettings.enabled || opts.undo)) {
         data.motionPathSettings = obj.motionPathSettings;
       }
 
@@ -78777,18 +79160,18 @@
         // the picture it produces, so these are written only when they can
         // actually take effect. In-session toggling is untouched — the flags
         // stay on the object, so turning z-sort back on restores the method.
-        if (obj.zSortChildren) {
+        if (obj.zSortChildren || opts.undo) {        // undo: keep the in-session flag (v20260904e)
           if (obj.renderIntersections) data.renderIntersections = true;
           if (obj.pathRender) data.pathRender = true;
           if (obj.maskRender) data.maskRender = true;
         }
         // GROUP EXTRUDE (v20260719b): written only when meaningful so files
         // from before the feature (and groups not using it) stay byte-identical.
-        if (obj.extrudeSettings && (obj.extrudeSettings.enabled || obj.extrudeSettings.overrideChildren)) {
+        if (obj.extrudeSettings && (obj.extrudeSettings.enabled || obj.extrudeSettings.overrideChildren || opts.undo)) {
           data.extrudeSettings = obj.extrudeSettings;
         }
         // GROUP FOLD (v20260721g, stage G2): same only-when-enabled rule.
-        if (obj.foldSettings && obj.foldSettings.enabled) {
+        if (obj.foldSettings && (obj.foldSettings.enabled || opts.undo)) {
           data.foldSettings = obj.foldSettings;
         }
       } else {
@@ -78819,8 +79202,8 @@
         }
         data.vertexPointSettings = obj.vertexPointSettings;
         // FOLD / WRAP (v20260720m): written only when enabled so pre-feature
-        // files stay byte-identical.
-        if (obj.foldSettings && obj.foldSettings.enabled) {
+        // files stay byte-identical (undo snapshots always — v20260904e).
+        if (obj.foldSettings && (obj.foldSettings.enabled || opts.undo)) {
           data.foldSettings = obj.foldSettings;
         }
         if (obj._pixelEllipse) data._pixelEllipse = true;
@@ -78874,7 +79257,7 @@
     };
 
 
-    const deserializeObject = (data) => {
+    const deserializeObject = (data, opts = {}) => {
       let obj;
       if (data.type === 'Group') {
         obj = new Group(data.name);
@@ -78906,7 +79289,7 @@
         // run, and mask mode in particular can never clear a stale `mask`
         // attribute it left behind. Nothing is lost: the group draws
         // identically either way.
-        if (data.zSortChildren) {
+        if (data.zSortChildren || opts.undo) {       // undo restore keeps the in-session flag (v20260904e)
           if (data.renderIntersections) obj.renderIntersections = true;
           // v20260807g: `smoothSeams` / `faithfulSeams` are no longer read.
           // They were PAINTER options - F1 refit SPLIT-FRAGMENT polylines to
@@ -79056,7 +79439,7 @@
 
       if (data.type === 'Group' && data.children) {
         data.children.forEach(childData => {
-          const child = deserializeObject(childData);
+          const child = deserializeObject(childData, opts);
           obj.add(child);
         });
       }
@@ -80594,6 +80977,27 @@
     };
 
     // Read the current live value of a property from the scene
+    // ONE READER FOR THE TRANSFORM CHANNELS (v20260904f). _objParams has
+    // eighteen rows over five vecProps. Six hand-rolled `if (vecProp === …)`
+    // chains each copied FOUR of them and forgot shear: v20260812j added the
+    // six Shr rows and taught the shipped reader, the writer and tlApplyFrame,
+    // but the diamond (addSubTrack), Key Selected, the key-all header button,
+    // tlKeyframeObjectsTransform, tlAutoKeyObject and the live row value in
+    // tlUpdateTrackInputs all fell through their chains with `val` undefined
+    // — ◇ on a Shr row did nothing, a shear track never auto-keyed. Every one
+    // of those sites reads through here now; adding a vecProp is one case.
+    const _tlObjRead = (obj, paramDef) => {
+      const i = paramDef.vecIdx;
+      switch (paramDef.vecProp) {
+        case 'position': return obj.position[i];
+        case 'rotation': return (obj.rotationEuler || matrixToEuler(obj.rotationMatrix))[i];
+        case 'scale':    return (obj.scale || [1, 1, 1])[i];
+        case 'shear':    return (obj.shear || [0, 0, 0, 0, 0, 0])[i];
+        case 'pivot':    return (obj.pivot || [0, 0, 0])[i];
+      }
+      return undefined;
+    };
+
     const _tlReadPropertyValue = (objectName, prop) => {
       if (objectName === '__camera__') {
         const camState = getCameraOrbitalState(activeCamera);
@@ -80608,12 +81012,8 @@
       // Transform param
       const paramDef = _objParams.find(p => p.prop === prop);
       if (paramDef) {
-        if (paramDef.vecProp === 'position') return obj.position[paramDef.vecIdx];
-        if (paramDef.vecProp === 'rotation') return (obj.rotationEuler || matrixToEuler(obj.rotationMatrix))[paramDef.vecIdx];
-        if (paramDef.vecProp === 'scale') return (obj.scale || [1, 1, 1])[paramDef.vecIdx];
-        if (paramDef.vecProp === 'shear') return (obj.shear || [0, 0, 0, 0, 0, 0])[paramDef.vecIdx];
-        if (paramDef.vecProp === 'pivot') return (obj.pivot || [0, 0, 0])[paramDef.vecIdx];
-        return null;
+        const v = _tlObjRead(obj, paramDef);
+        return v === undefined ? null : v;
       }
       // Primitive param
       const primParams = _getPrimitiveParamsForObj(obj);
@@ -80657,9 +81057,38 @@
       if (objectName === '__camera__') {
         if (prop === 'fov') { activeCamera.fovDegrees = val; return; }
         if (prop === 'orthoZoom') { activeCamera.orthoZoom = val; return; }
+        // FRAMING (v20260904f): a derived quantity with no write arm before —
+        // it fell into the orbital rebuild below, which ignores it and snaps
+        // the camera to the stored rest. Written the way tlApplyFrame's hold
+        // solves it: under "FOV follows Dist" the lens moves, under "Dist
+        // follows FOV" the camera dollies along its own offset; under Free /
+        // ortho framing IS the derived channel and there is nothing to write.
+        if (prop === 'framing') {
+          const drv = _tlDerivedCamProp();
+          const rel = vectorSubtract(activeCamera.position, activeCamera.target);
+          const distNow = vectorLength(rel);
+          if (drv === 'fov') {
+            const sol = camFovForFraming(val, distNow);
+            if (sol.fov !== null) activeCamera.fovDegrees = sol.fov;
+          } else if (drv === 'distance') {
+            const nd = camDistForFraming(val, activeCamera.fovDegrees);
+            if (nd !== null && distNow > 1e-9) {
+              activeCamera.position = vectorAdd(activeCamera.target, vectorScale(rel, nd / distNow));
+            }
+          }
+          return;
+        }
         // For orbital params, rebuild camera from all stored original values
-        // Collect full original orbital state from _tlOriginalValues, falling back to current
+        // Collect full original orbital state from _tlOriginalValues, falling
+        // back to current — EXCEPT the prop being written, which takes `val`
+        // (v20260904f). Before this the writer ignored `val` for every orbital
+        // prop, so tlRemoveStaticChannels — which writes the track's constant
+        // BEFORE deleting the original — snapped the camera to REST whenever
+        // the constant differed from it (v20260826b's check keyed the constant
+        // AT rest, so it could not see this). The restore callers pass the
+        // original as `val`, so they are unchanged by construction.
         const origOrGet = (p) => {
+          if (p === prop) return val;
           const key = '__camera__::' + p;
           if (_tlOriginalValues.has(key)) return _tlOriginalValues.get(key);
           return getCameraOrbitalState(activeCamera)[p];
@@ -81618,6 +82047,17 @@
     // bake "hidden" into the file at whatever frame the user happened to save.
     // The two controls stay independent and AND together at draw time; the
     // underscore keeps this out of every serializer.
+    // DERIVED AT DRAW TIME (v20260904h). `_tlOutOfRange` was written only by
+    // _tlApplyLayerRanges inside tlApplyFrame, so it went stale after a scene
+    // undo/redo, an import and Duplicate (all of which rebuild objects with
+    // the flag undefined = visible) until the playhead next moved. The two
+    // draw gates ask this instead — no ordering to get wrong. The stamp is
+    // still written per applied frame for anything else that reads it.
+    const _tlOutOfRangeNow = (obj) => {
+      if (!obj || !_tlHasLayerRange(obj)) return false;
+      const f = animationTimeline.currentFrame;
+      return !_tlLayerSegs(obj).some(sg => f >= sg.in && f <= sg.out);
+    };
     const _tlApplyLayerRanges = (frame) => {
       const walk = (obj) => {
         // Visible inside ANY segment (v20260729c) — one layer, several
@@ -82770,6 +83210,16 @@
 
     // Helper: get 3D settings params for a scene object (or null)
     // Returns { params, settingsObj, label } or null
+    // ONE FAMILY ONLY — a recorded limitation, not an oversight (v20260904f,
+    // PLAN-undo-and-keying-integrity slice B). The modifiers enable
+    // independently, but the timeline exposes the FIRST enabled family in
+    // extrude → revolve → sweep → loft order: with extrude and revolve both
+    // on, the rv* rows are not offered and any rv* track already recorded
+    // is skipped by tlApplyFrame without a message. Concatenating the
+    // enabled families changes this function's return shape for its eight
+    // callers (the sub-group key is `settingsObj`, so rows would not
+    // collide) — an owner decision, deferred; until then only one modifier
+    // per object is animatable and that is the documented rule.
     const _get3dSettingsParamsForObj = (obj) => {
       if (!obj) return null;
       if (obj.extrudeSettings?.enabled) return { params: _extrudeParams, settingsObj: 'extrudeSettings', label: 'Extrude' };
@@ -83066,11 +83516,8 @@
             // Show live object value
             const obj = tlObjOf(objectName);
             if (obj) {
-              const { vecProp, vecIdx } = paramDef;
-              if (vecProp === 'position') val = obj.position[vecIdx];
-              else if (vecProp === 'rotation') val = (obj.rotationEuler || matrixToEuler(obj.rotationMatrix))[vecIdx];
-              else if (vecProp === 'scale') val = (obj.scale || [1, 1, 1])[vecIdx];
-              else if (vecProp === 'pivot') val = (obj.pivot || [0, 0, 0])[vecIdx];
+              const v = _tlObjRead(obj, paramDef);   // v20260904f: shear rows too
+              if (v !== undefined) val = v;
             }
           }
           // Primitive param fallback
@@ -83411,18 +83858,11 @@
       if (!objTracks || objTracks.size === 0) return;
       // Object has tracks — auto-record properties that have keyframes
       const frame = animationTimeline.currentFrame;
-      const euler = obj.rotationEuler || matrixToEuler(obj.rotationMatrix);
-      const scale = obj.scale || [1, 1, 1];
-      const pivot = obj.pivot || [0, 0, 0];
       let changed = false;
       for (const paramDef of _objParams) {
         const kfs = objTracks.get(paramDef.prop);
         if (!kfs || kfs.length === 0) continue;
-        let val;
-        if (paramDef.vecProp === 'position') val = obj.position[paramDef.vecIdx];
-        else if (paramDef.vecProp === 'rotation') val = euler[paramDef.vecIdx];
-        else if (paramDef.vecProp === 'scale') val = scale[paramDef.vecIdx];
-        else if (paramDef.vecProp === 'pivot') val = pivot[paramDef.vecIdx];
+        const val = _tlObjRead(obj, paramDef);   // v20260904f: one reader, shear included
         if (val !== undefined) {
           tlAddKeyframe(tlKeyOf(obj), paramDef.prop, frame, val);
           changed = true;
@@ -83507,20 +83947,16 @@
     // model); only the user-facing pivot is. Returns whether anything was
     // keyed. Reads current values exactly like tlAutoKeyObject.
     const tlKeyframeObjectsTransform = (objects, frame, channels) => {
-      const chan = channels || new Set(['position', 'rotation', 'scale', 'pivot']);
+      // Default = every transform channel, shear included (v20260904f; it was
+      // the four pre-shear families, so the "already keyed" arm of Key Selected
+      // keyed 12 channels where the pending-pose arm arms 18).
+      const chan = channels || new Set(['position', 'rotation', 'scale', 'shear', 'pivot']);
       let changed = false;
       for (const obj of objects) {
         if (!obj || !obj.name) continue;
-        const euler = obj.rotationEuler || matrixToEuler(obj.rotationMatrix);
-        const scale = obj.scale || [1, 1, 1];
-        const pivot = obj.pivot || [0, 0, 0];
         for (const paramDef of _objParams) {
           if (!chan.has(paramDef.vecProp)) continue;
-          let val;
-          if (paramDef.vecProp === 'position') val = obj.position[paramDef.vecIdx];
-          else if (paramDef.vecProp === 'rotation') val = euler[paramDef.vecIdx];
-          else if (paramDef.vecProp === 'scale') val = scale[paramDef.vecIdx];
-          else if (paramDef.vecProp === 'pivot') val = pivot[paramDef.vecIdx];
+          const val = _tlObjRead(obj, paramDef);
           if (val !== undefined) { tlAddKeyframe(tlKeyOf(obj), paramDef.prop, frame, val); changed = true; }
         }
       }
@@ -83620,16 +84056,9 @@
         if (!obj || !obj.name) continue;
         const k = tlKeyOf(obj);
         const objTracks = animationTimeline.tracks.get(k);
-        const euler = obj.rotationEuler || matrixToEuler(obj.rotationMatrix);
-        const scale = obj.scale || [1, 1, 1];
-        const pivot = obj.pivot || [0, 0, 0];
         let entry = null;
         for (const paramDef of _objParams) {
-          let val;
-          if (paramDef.vecProp === 'position') val = obj.position[paramDef.vecIdx];
-          else if (paramDef.vecProp === 'rotation') val = euler[paramDef.vecIdx];
-          else if (paramDef.vecProp === 'scale') val = scale[paramDef.vecIdx];
-          else if (paramDef.vecProp === 'pivot') val = pivot[paramDef.vecIdx];
+          const val = _tlObjRead(obj, paramDef);   // v20260904f: 18 channels, shear included
           if (val === undefined) continue;
           if (objTracks && objTracks.has(paramDef.prop)) {
             if (!keyedAny) pushAnimUndoState('Key selected');
@@ -84438,11 +84867,7 @@
               }
               const paramDef = _objParams.find(p => p.prop === prop);
               if (paramDef && obj) {
-                let val;
-                if (paramDef.vecProp === 'position') val = obj.position[paramDef.vecIdx];
-                else if (paramDef.vecProp === 'rotation') val = (obj.rotationEuler || matrixToEuler(obj.rotationMatrix))[paramDef.vecIdx];
-                else if (paramDef.vecProp === 'scale') val = (obj.scale || [1, 1, 1])[paramDef.vecIdx];
-                else if (paramDef.vecProp === 'pivot') val = (obj.pivot || [0, 0, 0])[paramDef.vecIdx];
+                const val = _tlObjRead(obj, paramDef);   // v20260904f: ◇ on a Shr row keys it
                 if (val !== undefined) {
                   tlAddKeyframe(objectName, prop, frame, val);
                 }
@@ -85338,15 +85763,8 @@
           if (!obj) return;
           pushAnimUndoState('Add keyframe');
           const frame = animationTimeline.currentFrame;
-          const euler = obj.rotationEuler || matrixToEuler(obj.rotationMatrix);
-          const scale = obj.scale || [1, 1, 1];
-          const pivot = obj.pivot || [0, 0, 0];
           for (const paramDef of _objParams) {
-            let val;
-            if (paramDef.vecProp === 'position') val = obj.position[paramDef.vecIdx];
-            else if (paramDef.vecProp === 'rotation') val = euler[paramDef.vecIdx];
-            else if (paramDef.vecProp === 'scale') val = scale[paramDef.vecIdx];
-            else if (paramDef.vecProp === 'pivot') val = pivot[paramDef.vecIdx];
+            const val = _tlObjRead(obj, paramDef);   // v20260904f
             if (val !== undefined) {
               tlAddKeyframe(objectName, paramDef.prop, frame, val);
             }
@@ -86632,9 +87050,17 @@
       }
 
       tlStopPlayback();
+      // A cached frame may still be PRESENTED (clone tree on screen, live tree
+      // stale); the per-frame obj.draw below writes the live nodes, so restore
+      // them first exactly as Copy / Export SVG do (v20260809h). No-op otherwise.
+      await RenderCache.withLiveTree();
       // A sub pass interleaving between this loop's draw and its serialize
       // would hand the file camera-B geometry — hold the subwindow for the
-      // export's whole life (released in the finally).
+      // export's whole life (released in the finally). Since v20260904a the same
+      // flag also FREEZES render() (see the check at its top): the loop is
+      // continuous and tlApplyFrame requests a render, so without it every
+      // exported frame was drawn twice and a loop draw could be mid-flight on
+      // the same svgElements when the clone was taken.
       SubView._exportHold = true;
       const total = animationTimeline.playbackRange;
       // PLAY RANGE START (v20260826e). The export writes the PLAY RANGE, which is
@@ -86756,6 +87182,7 @@
       }
 
       tlStopPlayback();
+      await RenderCache.withLiveTree();   // v20260904a — see the sequence exporter
       const total = animationTimeline.playbackRange;
       // PLAY RANGE START (v20260826e) — same contract as the sequence exporter above:
       // the file holds the PLAY RANGE, one layer per frame in it, and LAYER NAMES
@@ -86874,11 +87301,19 @@
 
           layer.appendChild(wrapper);
 
-          // De-duplicate IDs: prefix every id with the frame number
-          // so that multiple frames in one SVG don't collide
-          layer.querySelectorAll('[id]').forEach(el => {
-            el.setAttribute('id', `f${framePadded}_${el.getAttribute('id')}`);
-          });
+          // De-duplicate IDs: prefix every id with the frame number so that
+          // multiple frames in one SVG don't collide — AND REWRITE THE REFERENCES
+          // (v20260904a). The loop this replaced renamed only the id attributes;
+          // since the clip-first export became the default (v20260814v) every
+          // frame carries <clipPath id="cvcN"> + clip-path="url(#cvcN)", so the
+          // rename left every url(#cvcN) dangling and browsers rendered the faces
+          // UNCLIPPED (an unresolvable clip-path is "unspecified"). Before that,
+          // flattenExport shipped id-free geometry, which is why v20260630b never
+          // had to rewrite references. svgNamespaceIds is the one owner of this
+          // rewrite (RenderCache, SubView, FlattenPreview all use it): ids, url(#…)
+          // in any attribute, and whole-value #id (href). It skips the root, so
+          // the layer keeps its own frame_NNNN id.
+          svgNamespaceIds(layer, `f${framePadded}_`);
 
           outSVG.appendChild(layer);
 

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260904n -->
+<!-- dim v20260904y -->
 
 <!--
   MIT License
@@ -12311,6 +12311,7 @@
       }
 
       updatePropertiesPanel();
+      requestRender();   // v20260904q: same — a Delta edit must draw on its own frame
     };
 
     const processMoveToolInput = () => {
@@ -17229,7 +17230,22 @@
     // Recursively search sceneObjects (and all nested Group children) by ID.
     // Used by loft, sweep, spline flow, and surface mapping to resolve
     // cross-referenced paths that may be inside groups.
+    // MEMOISED (v20260904r, idle-frame plan stage 4.2). 24 call sites; per
+    // frame up to four O(N) walks per Path in Path.draw, more in the mapping
+    // branch, one per mapped child in _buildSurfaceMappedRC, and one per
+    // getLocalMatrix call on a motion-pathed object. The memo needs NO
+    // invalidation hook (29 structural mutation sites would each be a place
+    // to forget): a HIT is validated by walking the object's parent chain to a
+    // root and checking that root is still in sceneObjects (O(depth), cheap),
+    // so a removed or undo-replaced instance (same id, new object) misses and
+    // falls through to the fresh search; a MISS always searches, so a newly
+    // added object is found. Wrong answers are therefore impossible; only the
+    // hit rate is at stake.
+    const _fobMemo = new Map();
+    const _fobAttached = (o) => { let p = o; let guard = 0; while (p.parent && guard++ < 256) p = p.parent; return sceneObjects.indexOf(p) !== -1; };
     const findObjectById = (id) => {
+      const hit = _fobMemo.get(id);
+      if (hit && hit.id === id && _fobAttached(hit)) return hit;
       const search = (objects) => {
         for (const obj of objects) {
           if (obj.id === id) return obj;
@@ -17240,7 +17256,10 @@
         }
         return null;
       };
-      return search(sceneObjects);
+      const found = search(sceneObjects);
+      if (found) _fobMemo.set(id, found); else _fobMemo.delete(id);
+      if (_fobMemo.size > 4096) _fobMemo.clear();
+      return found;
     };
 
     // --- SELECT CHILD: resolving the LEAF object under a hit element ---------
@@ -23585,6 +23604,10 @@
           SurfaceMapper._rcMatKey(options.vpMatrix),
           SurfaceMapper._rcMatKey(options.sourceMatrix),
           SurfaceMapper._rcVertsChecksum(sourcePath.localVertices),
+          // v20260904r: the source's STRUCTURE — nothing clears _rcFragCache, and
+          // the Loop checkbox / an algorithm change left stale fragments until
+          // the camera moved.
+          sourcePath.algorithm + (sourcePath.loop ? 'L' : 'O') + (sourcePath.subPathData ? sourcePath.subPathData.map(sp => sp.count + (sp.closed ? 'c' : 'o')).join(',') : ''),
           JSON.stringify([options.offsetU, options.offsetV, options.offsetN,
           options.mappingMode, options.scaleU, options.scaleV, options.rotation,
           options.axisU, options.axisV, options.overflowModeU, options.overflowModeV,
@@ -24221,6 +24244,7 @@
           SurfaceMapper._rcMatKey(ctx.tgtWorldMatrix),
           SurfaceMapper._rcVertsChecksum(sourcePath.localVertices),
           SurfaceMapper._rcVertsChecksum(targetPath.localVertices),
+          sourcePath.algorithm + (sourcePath.loop ? 'L' : 'O') + (sourcePath.subPathData ? sourcePath.subPathData.map(sp => sp.count + (sp.closed ? 'c' : 'o')).join(',') : ''),   // v20260904r
           JSON.stringify([options.hOffset, options.targetOffset, options.scaleU,
           options.scaleV, options.rotation, options.rotationX, options.rotationY,
           options.overflowMode, options.matchTarget, options.bendAlong,
@@ -26794,7 +26818,13 @@
           if (rec) { rec.listIdx = k; rec._rhId = recs.length; idOf.set(e.element, recs.length); recs.push(rec); }
         }
         const N = R * R;
-        const buf = this._acquire(R, recs.length);
+        // TILES ARE OPT-IN (v20260904o): `.tiles` had no reader outside this
+        // function except selfTest fixture 1g, yet every build assembled the
+        // TR² lists (O(recs·TR²)) and every span marked them. opts.tiles
+        // restores both; the default build carries tiles: null.
+        const wantTiles = !!(opts && opts.tiles);
+        const buf = this._acquire(R, recs.length, wantTiles);
+        buf.wantTiles = wantTiles;
         const { z0, z1, id0, id1, tag0, tag1, flags, cov } = buf;
         const tPool = performance.now();
         let tris = 0, filled = 0;
@@ -26820,10 +26850,13 @@
         }
         // tiles: 8×8 face lists from the raster-time tile marks — O(recs·TR²).
         const TS = 8, TR = R / TS;
-        const tiles = Array.from({ length: TR * TR }, () => []);
-        for (let ri = 0; ri < recs.length; ri++) {
-          const marks = buf.tileMark[ri];
-          for (let k = 0; k < marks.length; k++) if (marks[k]) tiles[k].push(ri);
+        let tiles = null;
+        if (wantTiles) {
+          tiles = Array.from({ length: TR * TR }, () => []);
+          for (let ri = 0; ri < recs.length; ri++) {
+            const marks = buf.tileMark[ri];
+            for (let k = 0; k < marks.length; k++) if (marks[k]) tiles[k].push(ri);
+          }
         }
         const out = {
           R, N, z0, z1, id0, id1, tag0, tag1, flags, cov, tiles, TS, recs, idOf,
@@ -26851,33 +26884,37 @@
       },
 
       // Buffer arena — allocate once per (R, recCount) growth; reuse across builds.
-      _arena: null,
-      _acquire(R, nRecs) {
+      // ONE ARENA PER RESOLUTION (v20260904o). Keyed on a single R, the 256²
+      // debug-lens build and the 1024² mask build alternated and reallocated
+      // ~36 MB per frame with Show Raster Image on. A Map keeps one per R.
+      _arenas: null,
+      get _arena() { return this._arenas ? (this._arenas.get(this._lastR) || null) : null; },
+      _acquire(R, nRecs, wantTiles) {
         const N = R * R;
-        let a = this._arena;
-        if (!a || a.R !== R) {
-          a = this._arena = {
+        if (!this._arenas) this._arenas = new Map();
+        let a = this._arenas.get(R);
+        if (!a) {
+          a = {
             R,
             z0: new Float64Array(N), z1: new Float64Array(N),
             id0: new Int32Array(N), id1: new Int32Array(N),
             tag0: new Uint32Array(N), tag1: new Uint32Array(N),
             flags: new Uint8Array(N), cov: [],
           };
+          this._arenas.set(R, a);
         }
+        this._lastR = R;
         a.z0.fill(Infinity); a.z1.fill(Infinity);
         a.id0.fill(-1); a.id1.fill(-1);
         a.tag0.fill(0); a.tag1.fill(0); a.flags.fill(0);
         while (a.cov.length < nRecs) a.cov.push(new Uint8Array((N >> 3) + 1));
         for (let i = 0; i < nRecs; i++) a.cov[i].fill(0);
-        // per-rec touched-tile marks, maintained by _insert — building the
-        // tile face lists from these is O(recs·TR²); the first cut re-scanned
-        // recs×N texels (25M reads on ix_03, HALF the build — measured G1)
         const TRn = R >> 3;
         if (!a.tileMark) a.tileMark = [];
-        while (a.tileMark.length < nRecs) a.tileMark.push(new Uint8Array(TRn * TRn));
-        for (let i = 0; i < nRecs; i++) a.tileMark[i].fill(0);
-        // view transform: the global buffer spans the full ±500 frame
-        // ((x+500)·R/1000 — bit-identical to the pre-R2 fixed mapping)
+        if (wantTiles) {
+          while (a.tileMark.length < nRecs) a.tileMark.push(new Uint8Array(TRn * TRn));
+          for (let i = 0; i < nRecs; i++) a.tileMark[i].fill(0);
+        }
         a.vx0 = -FRAME_SIZE / 2; a.vy0 = -FRAME_SIZE / 2; a.vw = FRAME_SIZE; a.vh = FRAME_SIZE;
         return a;
       },
@@ -26941,6 +26978,7 @@
 
       // mark every 8x8 tile touched by the span y, [x0..x1] — shifts only
       _markTiles(buf, id, y, x0, x1) {
+        if (!buf.wantTiles) return;                       // v20260904o: opt-in
         const TRn = buf.R >> 3, row = (y >> 3) * TRn, tm = buf.tileMark[id];
         for (let tx = x0 >> 3, tx1 = x1 >> 3; tx <= tx1; tx++) tm[row + tx] = 1;
       },
@@ -27144,12 +27182,34 @@
       // graze noise (near-tie over the whole overlap: the kiss class).
       pairMaxGap(a, bId, buf) {
         const b = buf || this._last; if (!b) return 0;
+        // BBOX-BOUNDED (v20260904o): this scanned the whole R² buffer per
+        // mixed pair while _frontCounts / minorityBlob / frontSamples restrict
+        // to the pair's bbox intersection (±1 texel). Outside that
+        // intersection neither id can be in the top two, so the result is
+        // unchanged by construction.
+        const ra = b.recs && b.recs[a], rb = b.recs && b.recs[bId];
+        let y0 = 0, y1 = b.R - 1, x0 = 0, x1 = b.R - 1;
+        if (ra && rb && ra.bb && rb.bb) {
+          const ix0 = Math.max(ra.bb.minX, rb.bb.minX), ix1 = Math.min(ra.bb.maxX, rb.bb.maxX);
+          const iy0 = Math.max(ra.bb.minY, rb.bb.minY), iy1 = Math.min(ra.bb.maxY, rb.bb.maxY);
+          if (!(ix1 > ix0) || !(iy1 > iy0)) return 0;
+          y0 = Math.max(0, Math.floor(this._bty(b, iy0)) - 1);
+          y1 = Math.min(b.R - 1, Math.ceil(this._bty(b, iy1)) + 1);
+          x0 = Math.max(0, Math.floor(this._btx(b, ix0)) - 1);
+          x1 = Math.min(b.R - 1, Math.ceil(this._btx(b, ix1)) + 1);
+          if (y0 > y1) { const t = y0; y0 = y1; y1 = t; }
+          if (x0 > x1) { const t = x0; x0 = x1; x1 = t; }
+        }
         let gap = 0;
-        for (let i = 0; i < b.N; i++) {
-          const i0 = b.id0[i], i1 = b.id1[i];
-          if ((i0 === a && i1 === bId) || (i0 === bId && i1 === a)) {
-            const d = b.z1[i] - b.z0[i];
-            if (d > gap) gap = d;
+        for (let y = y0; y <= y1; y++) {
+          const base = y * b.R;
+          for (let x = x0; x <= x1; x++) {
+            const i = base + x;
+            const i0 = b.id0[i], i1 = b.id1[i];
+            if ((i0 === a && i1 === bId) || (i0 === bId && i1 === a)) {
+              const d = b.z1[i] - b.z0[i];
+              if (d > gap) gap = d;
+            }
           }
         }
         return gap;
@@ -27563,7 +27623,7 @@
           // A is in front (min z) where x < 0; B in front where x > 0.
           const eA = { element: mkEl('M -100 -100 L 100 -100 L 100 100 L -100 100 Z'), z: 0.5, ix: { plane: [0.001, 0, 0.5], pts: [], splits: 0, owner: null } };
           const eB = { element: mkEl('M -100 -100 L 100 -100 L 100 100 L -100 100 Z'), z: 0.5, ix: { plane: [-0.001, 0, 0.5], pts: [], splits: 0, owner: null } };
-          const b1 = this.build([eA, eB]);
+          const b1 = this.build([eA, eB], { tiles: true });   // tiles opt-in (v20260904o); 1g reads them
           const wL = this.winnerAt(-60, 0), wRt = this.winnerAt(60, 0);
           t('1a planar winners', wL && wRt && wL.id === 0 && wRt.id === 1, { wL, wRt });
           t('1b flipsBetween', this.flipsBetween(0, 1) === true);
@@ -28293,6 +28353,26 @@
       //   buffer can tell, so a "mixed" verdict there is noise, not a crossing.
       //   Measured band: false pairs top out at 5.2e-7, the lowest real one is
       //   1.7e-5. See the classifier comment for the full table.
+      SURFACE_RANK: true,     // v20260904w (PLAN-ink-occlusion-v2, the crease-repro slice):
+      //   a cross-owner pair with shared coverage but NO shared front texel
+      //   (c.a + c.b === 0, the "undecidedZero" exit) cannot be ranked by
+      //   front counts - a third face owns every shared texel - nor, for the
+      //   patches behind the crease repro's picture, by the buffer's second
+      //   layer (a bar face AND the column are both in front of them). It CAN
+      //   be ranked by the earlier-painted face D's OWN surface: at N's
+      //   outline samples inside D's coverage, D's front depth there comes
+      //   from D's plane or its xr grid (nearest points, minimum z = the front
+      //   sheet at a silhouette), and N's nearest depth (zMin) must lie behind
+      //   it by more than COINCIDENT_GAP at >= 2 samples with no contrary
+      //   sample - then a constant entry (N masked by D's whole clone) is
+      //   exactly right for the fill and takes the stroke with it. Conservative
+      //   by construction: zMin is N's nearest point anywhere, so a deep curved
+      //   N that merely grazes D stays undecided. Supersedes v20260904u's
+      //   SLIVER_DEPTH gate (same test with z0 in D's place and a coverage
+      //   cap), which could only see slivers under a front-most D: measured on
+      //   the repro, that gate changed 0 px at the authored pose - the
+      //   culprits sit below the two-layer window. Same-owner pairs excluded
+      //   (an object's own back faces vs its front faces - separate policy).
       SAME_OWNER_CONST: true, // v20260805j: let an object's OWN faces mask each
       SAME_OWNER_MIN: 8,      //   other when the raster says the emitter's paint
       //   order is decisively wrong — constant order only, never a region.
@@ -28633,7 +28713,7 @@
           flattenBitesHealed: 0, flattenRingsDropped: 0, flattenStrokeOverlays: 0,
           depthRetry: 0, depthTagSeed: 0, depthRaster: 0, depthMissCovered: 0,
           groupEmit: 0, pocketFill: 0, antiFill: 0,
-          curvedGrazeSkipped: 0, noGeom: 0, pruned: 0, masks: 0, entries: 0, seamInk: 0,
+          curvedGrazeSkipped: 0, surfaceConst: 0, noGeom: 0, pruned: 0, masks: 0, entries: 0, seamInk: 0,
           seamTrimmed: 0, seamDropped: 0, seamNotCrossing: 0, seamInkDeduped: 0,
           rimSnapped: 0, rimSnapMiss: 0, seamChained: 0, arcRingsDropped: 0,
           arcRepaired: 0, arcRepairFail: 0, arcBorderRepaired: 0, arcBorderFail: 0,
@@ -28701,6 +28781,10 @@
             gp.setAttribute('stroke', gp.getAttribute('data-mr-stroke'));
             gp.removeAttribute('data-mr-stroke');
           }
+          // INK ENTRIES ARE NEVER RECS (v20260904t): they cost no pairs and can
+          // never become an occluder's black clone; they receive their fill's
+          // mask after the plan (see the inkOf pass below).
+          if (e.inkOf) { stats.inkEntries = (stats.inkEntries || 0) + 1; continue; }
           let gEl = e.element;
           if (!gEl.getAttribute('d') && gEl.firstElementChild) gEl = gEl.firstElementChild;
           const rings = RI.ringsFromElement(gEl);
@@ -29114,7 +29198,19 @@
             } else if (buf) {
               // Curved member(s): raster verdict. Mixed ⇒ M2 scope (counted).
               const a = idOfEl(D.el), b = idOfEl(N.el);
-              if (a === undefined || b === undefined || a === b) { stats.curvedUndecided++; continue; }
+              // SLICE-2 INSTRUMENT (v20260904u, PLAN-ink-occlusion-v2): under
+              // PLAN_DEBUG every curved pair logs the gate that ended it into
+              // stats.pairLog ({a, b, dOwner, nOwner, ca, cb, shared, verdict})
+              // so a diagnosis is one render + one tabulation, not a probe per
+              // gate. Default-inert: PLAN_DEBUG false costs one null test.
+              const logPair = !this.PLAN_DEBUG ? null : (verdict, c, extra) => {
+                (stats.pairLog || (stats.pairLog = [])).push(Object.assign({ a, b,
+                  dOwner: D.owner && D.owner.name, nOwner: N.owner && N.owner.name,
+                  ca: c ? c.a : -1, cb: c ? c.b : -1, shared: c ? c.shared : -1, verdict }, extra || {}));
+              };
+              if (a === undefined || b === undefined || a === b) {
+                stats.curvedUndecided++; if (logPair) logPair('undecidedId', null); continue;
+              }
               // Flip-fraction classification (M2): the raster's visible-front
               // counts decide the pair's CHARACTER, not just its order. A
               // substantial minority = a genuine crossing (region mask); a
@@ -29126,7 +29222,18 @@
               // a mask picks which COLOR paints a region — visible at any
               // gap — unlike a seam, whose worth polish-1 judged by gap.
               const c = RasterHelper._frontCounts(a, b, buf);
-              if (!c || c.a + c.b === 0) { stats.curvedUndecided++; continue; }
+              if (!c || c.a + c.b === 0) {
+                // THE SURFACE RANK (v20260904w, see SURFACE_RANK): no shared front
+                // texel at all - the buffer cannot rank the pair, but D's own
+                // surface depth at N's outline can.
+                if (c && c.shared > 0 && this.SURFACE_RANK && !sameOwner && this._behindBySurface(a, b, buf)) {
+                  (N.maskEntries || (N.maskEntries = [])).push({ el: D.el, dg: D.gEl, half: null });
+                  stats.surfaceConst++;
+                  if (logPair) logPair('surfaceConst', c);
+                  continue;
+                }
+                stats.curvedUndecided++; if (logPair) logPair('undecidedZero', c); continue;
+              }
               const minority = Math.min(c.a, c.b);
               // The fraction is scaled by the pair's TOTAL front area, so a
               // large partner buries a genuinely visible small crossing (the
@@ -29208,7 +29315,7 @@
               // not let the buffer decide. Leave them to the order that came
               // from exact arithmetic.
               if (mixed && (RasterHelper.pairMaxGap(a, b, buf) || 0) < this.COINCIDENT_GAP) {
-                stats.coincidentPairs++; continue;
+                stats.coincidentPairs++; if (logPair) logPair('coincident', c); continue;
               }
               // THE REVERSE ENTRY, for the STROKE only (v20260805zn). Whichever
               // face the raster says loses gets one, whatever the pair's kind —
@@ -29237,7 +29344,7 @@
                   stats.strokeClip++;
                 }
               }
-              if (mixed && sameOwner) { stats.sameOwnerMixedSkipped++; continue; }
+              if (mixed && sameOwner) { stats.sameOwnerMixedSkipped++; if (logPair) logPair('sameOwnerMixedSkipped', c); continue; }
               if (mixed) {
                 // genuine mixed crossing — the painter's own field machinery
                 // yields the closed screen region where the HOST is in
@@ -29251,6 +29358,7 @@
                 if (entry) {
                   (N.maskEntries || (N.maskEntries = [])).push(entry);
                   stats.curvedMixed++;
+                  if (logPair) logPair('mixedRegion', c);
                   // THE REVERSE IS DERIVED, NOT REBUILT (v20260805zp). Where D
                   // wins is exactly where N does not, so the stroke's reverse
                   // entry is this same region with `complement` flipped and the
@@ -29314,6 +29422,34 @@
                 (N.maskEntries || (N.maskEntries = [])).push({ el: D.el, dg: D.gEl, half: null });
                 stats.curvedConst++;
                 if (sameOwner) stats.sameOwnerConst++;
+                if (logPair) logPair(mixed ? 'mixedToConst' : 'const', c);
+              } else if (c.a > 0) {
+                // THE SILENT BAND (v20260904u): the earlier-painted face D wins
+                // SOME texels of the shared area but not enough for the constant
+                // floor (3, or SAME_OWNER_MIN) nor the mixed fraction - no
+                // entry, so N paints over D there. Below 3 texels that is
+                // usually right (raster noise); the case it hides is an
+                // edge-on SLIVER of N that is wholly behind D and whose STROKE
+                // still draws across D (the crease repro's teal-over-red, see
+                // PLAN-ink-occlusion-v2 slice 2). The counter was declared in
+                // stats since v20260805 and never incremented until now; the
+                // `else if (false)` record below is the SEPARATE v20260805zi
+                // reverse-stroke idea, superseded by STROKE_CLIP above.
+                // THE SURFACE RANK REACHES HERE TOO (v20260904w): a front count
+                // below both floors is noise, not a verdict - the crease
+                // repro's last tick was a patch the bar face beat on 2 of 5
+                // shared texels. D's own surface at N's outline decides it the
+                // same way as the undecidedZero exit; mixed pairs whose region
+                // failed stay silent (their evidence is contradictory, not
+                // scarce).
+                if (!mixed && c.shared > 0 && this.SURFACE_RANK && !sameOwner && this._behindBySurface(a, b, buf)) {
+                  (N.maskEntries || (N.maskEntries = [])).push({ el: D.el, dg: D.gEl, half: null });
+                  stats.surfaceConst++;
+                  if (logPair) logPair('surfaceConst', c);
+                } else {
+                  stats.curvedGrazeSkipped++;
+                  if (logPair) logPair(mixed ? 'mixedToSilent' : 'silent', c);
+                }
               } else if (false) {
                 // THE REVERSE ENTRY (v20260805zi) — for the STROKE, not the fill.
                 //
@@ -29333,7 +29469,7 @@
                 // only thing it can remove is ink that should not be there.
                 (D.maskEntries || (D.maskEntries = [])).push({ el: N.el, dg: N.gEl, half: null });
                 stats.strokeClip++;
-              }
+              } else if (logPair) logPair('nearerWins', c);   // c.a === 0: paint order already right
             }
           }
         }
@@ -29713,6 +29849,21 @@
         }
         // Now that every seam has read its style, hand the strokes to the
         // stroke siblings.
+        // INK INHERITS ITS FILL'S MASK (v20260904t). One `mrm` id referenced by
+        // two siblings is safe: maskUnits=userSpaceOnUse with absolute x/y/w/h,
+        // both elements in the same user space after the commit. Two caveats:
+        // the mask rect is the FILL's bbox ±12 units, so ink wider than 24
+        // units is cut at the extremes (the owner's widths are 9–13.7 — safe);
+        // and a copied mask hides ink only where an occluder that paints EARLIER
+        // than the fill wins — the ink is pushed right after its fill at the
+        // same z, so that is exactly the fill's own verdict set.
+        stats.inkMasked = 0;
+        for (const e of faceList) {
+          if (!e || !e.inkOf || !e.element || !e.inkOf.element) continue;
+          const m = e.inkOf.element.getAttribute('mask');
+          if (m) { e.element.setAttribute('mask', m); stats.inkMasked++; }
+          else e.element.removeAttribute('mask');
+        }
         for (const el of strokeMutes) {
           el.setAttribute('data-mr-stroke', el.getAttribute('stroke'));
           el.setAttribute('stroke', 'none');
@@ -29737,6 +29888,74 @@
       // Full RI rec for a face, built lazily and cached per apply() — the
       // field evaluators need real xr/plane records, not the lightweight
       // bbox recs above.
+      // SURFACE RANK (v20260904w). `a` = the earlier-painted rec (D), `b` = the
+      // later-painted rec (N). True when, at >= 2 sampled outline points of N
+      // that lie inside D's raster coverage, N's nearest depth (zMin) is behind
+      // D's own front surface there by more than COINCIDENT_GAP, and at no
+      // sample is it at or in front. D's surface depth at a screen point: its
+      // plane for a planar rec; for an xr/sr rec the MINIMUM z among the grid
+      // points within reach of the point (nearest distance, at least one grid
+      // spacing) - the front sheet where front and back project together.
+      // Smaller z is nearer (z1 - z0 is the pair gap everywhere else here).
+      _surfaceFrontZ(rec, x, y) {
+        if (rec.plane) return RenderIntersections.planeZ(rec.plane, x, y);
+        if (!rec.xr) return null;
+        const RI = RenderIntersections;
+        const grid = RI._xrEnsureGrid(rec);
+        const pts = grid && grid.pts; if (!pts || !pts.length) return null;
+        if (rec._gridSpacing === undefined) {
+          const bb = rec.bb; const area = bb ? Math.max(1e-9, (bb.maxX - bb.minX) * (bb.maxY - bb.minY)) : 1;
+          rec._gridSpacing = Math.sqrt(area / pts.length);
+        }
+        // Seeds: the nearest grid points in screen space. A curved sheet that
+        // folds over itself (a cylinder side: front and back project together)
+        // has seeds on BOTH sheets near the point; Newton converges to the
+        // sheet its seed lies on, so refine from several and keep the nearest
+        // converged depth - the front sheet. Measured before this (v20260904w
+        // first pass): the grid-minimum shortcut reported the column's surface
+        // 6-9e-4 DEEPER than the torus patch behind it at every sample.
+        const K = 6, reach = 3 * rec._gridSpacing, reach2 = reach * reach;
+        const near = [];
+        for (let i = 0; i < pts.length; i++) {
+          const q = pts[i]; const d2 = (q.x - x) * (q.x - x) + (q.y - y) * (q.y - y);
+          if (d2 > reach2) continue;
+          if (near.length < K) { near.push({ d2, q }); if (near.length === K) near.sort((u, v) => u.d2 - v.d2); }
+          else if (d2 < near[K - 1].d2) { near[K - 1] = { d2, q }; near.sort((u, v) => u.d2 - v.d2); }
+        }
+        if (!near.length) return null;
+        let z = Infinity;
+        for (const n of near) {
+          const hint = { ok: true, t: n.q.t, w: n.q.w };
+          let zz = null;
+          try { zz = RI._xrRayDepth(rec, x, y, hint); } catch (err) { zz = null; }
+          if (zz !== null && zz < z) z = zz;
+        }
+        return isFinite(z) ? z : null;
+      },
+      _behindBySurface(a, b, buf) {
+        const RH = RasterHelper;
+        const ra = buf.recs && buf.recs[a], rb = buf.recs && buf.recs[b], cov = buf.cov && buf.cov[a];
+        if (!ra || !rb || !rb.ringsPC || !cov || !isFinite(rb.zMin)) return false;
+        let hits = 0;
+        const gapMin = this.COINCIDENT_GAP;
+        for (const ring of rb.ringsPC) {
+          const pts = ring && ring.pts; if (!pts) continue;
+          const step = Math.max(1, Math.floor(pts.length / 48));
+          for (let k = 0; k < pts.length; k += step) {
+            const p = pts[k];
+            const tx = Math.floor(RH._btx(buf, p[0])), ty = Math.floor(RH._bty(buf, p[1]));
+            if (tx < 0 || ty < 0 || tx >= buf.R || ty >= buf.R) continue;
+            const i = ty * buf.R + tx;
+            if (!(cov[i >> 3] & (1 << (i & 7)))) continue;      // outside D's footprint: no evidence
+            const zD = this._surfaceFrontZ(ra, p[0], p[1]);
+            if (zD === null) continue;
+            if (rb.zMin - zD < gapMin) return false;             // N could be at or in front of D here
+            hits++;
+          }
+        }
+        return hits >= 2;
+      },
+
       _riRecOf(r) {
         if (r.riRec !== undefined) return r.riRec;
         const RI = RenderIntersections;
@@ -34611,26 +34830,50 @@
           const chainFor = (budget) => {
             if (comps.length <= budget) return fullChain();
             if (!(budget >= 1)) return null;
-            const ids = [];
-            for (let i = 0; i < budget - 1; i++) ids.push(levelId(i));
-            let mid = mergedIds.get(budget);
-            if (mid === undefined) {
+            let cached = mergedIds.get(budget);
+            if (cached === undefined) {
               let merged = null;
               try { merged = this._clipUnionLevels(comps.slice(budget - 1), st); }
               catch (err) { merged = null; }
-              mid = merged ? mkClip(merged) : null;
-              mergedIds.set(budget, mid);
-              if (merged) st.capMerged += comps.length - budget; else st.capFailed++;
+              if (merged) {
+                const ids = [];
+                for (let i = 0; i < budget - 1; i++) ids.push(levelId(i));
+                ids.push(mkClip(merged));
+                cached = ids; st.capMerged += comps.length - budget;
+              } else {
+                st.capFailed++;
+                // THE PACK (v20260904y). The union fold refused (its coverage
+                // check failed - measured on the crease repro: 32 ADJACENT torus
+                // patches masking the bar's top face, the snap-rounded union
+                // leaves uncovered slivers along shared edges). Before this the
+                // exporter then emitted the FULL chain, 35 levels deep, and
+                // Illustrator did not drop it: it LIFTED the 33 elements to the
+                // top of the layer, unclipped - the bar face and 32 torus
+                // strokes painted over everything (the owner's red arc inside
+                // the yellow bar end, and the teal line across the column).
+                // Holes whose INTERIORS are disjoint can share one level exactly
+                // under both fill rules (rect +1, each hole -1, never -2), so
+                // pack them; touching is fine. Only if even packing needs more
+                // levels than the budget does the cap drop the smallest holes -
+                // counted in st.capDropped, a bounded loss instead of an
+                // unreadable file.
+                let packed = null;
+                try { packed = this._clipPackLevels(comps, budget, st); } catch (err) { packed = null; }
+                cached = packed ? packed.map(dd => mkClip(dd)) : null;
+                if (packed) st.capPacked = (st.capPacked || 0) + 1;
+              }
+              mergedIds.set(budget, cached);
             }
-            if (!mid) return null;
-            ids.push(mid);
-            return ids;
+            return cached;
           };
           const parent = el.parentNode, anchor = el.nextSibling;
           // F's levels, reused by each band's own stack when the band can afford
-          // them. A failed fold emits the FULL chain rather than a wrong picture:
-          // too deep is a dropped face in one importer, wrong geometry is wrong
-          // everywhere (st.capFailed is the number that must stay 0).
+          // them. A failed fold used to emit the FULL chain "rather than a wrong
+          // picture" - measured wrong in v20260904y: Illustrator does not drop
+          // an over-deep chain, it lifts the content to the top of the layer
+          // unclipped, which IS a wrong picture. chainFor now packs (see THE
+          // PACK) and never returns null for a budget >= 1; the fullChain
+          // fallback below is reached only with the cap off.
           // THE LADDER (v20260815h). Ask for the export's aggressive fold; if
           // that fold cannot verify itself, drop to the SAFETY cap's budget —
           // today's shape, which is known good — and only then to the full
@@ -35023,6 +35266,86 @@
       //
       // Returns the merged hole geometry as one `d` (to be prefixed with the
       // BIGRECT by the caller), or null if it cannot be built soundly.
+      // THE PACK (v20260904y): distribute hole comps over <= maxLevels clip
+      // levels so that no two holes on one level have overlapping interiors
+      // (largest holes placed first). Exact under evenodd and nonzero alike.
+      // Returns one d string per level (the caller prepends the keep-field
+      // rect), or null when a comp cannot be parsed. When packing needs more
+      // levels than the budget, the smallest holes are dropped and counted.
+      _clipPackLevels(comps, maxLevels, st) {
+        const NS = 'http://www.w3.org/2000/svg';
+        const RI = RenderIntersections;
+        if (!(maxLevels >= 1) || !comps || !comps.length) return null;
+        const items = [];
+        for (const d of comps) {
+          const el = document.createElementNS(NS, 'path');
+          el.setAttribute('d', d);
+          const rr = RI.ringsFromElement(el);
+          if (!rr || !rr.length) return null;
+          const rings = rr.map(r => ({ pts: r, srcs: null }));
+          let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, area = 0;
+          for (const r of rings) {
+            const P = r.pts;
+            for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+              const p = P[i], q = P[j];
+              if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+              if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+              area += q[0] * p[1] - p[0] * q[1];
+            }
+          }
+          if (!(x1 > x0) || !(y1 > y0)) return null;
+          items.push({ d, rings, bb: [x0, y0, x1, y1], area: Math.abs(area) / 2 });
+        }
+        const order = items.map((_, i) => i).sort((a, b) => items[b].area - items[a].area);
+        const levels = [];
+        for (const i of order) {
+          let placed = false;
+          for (const lv of levels) {
+            let ok = true;
+            for (const j of lv) { if (this._clipInteriorsOverlap(items[i], items[j])) { ok = false; break; } }
+            if (ok) { lv.push(i); placed = true; break; }
+          }
+          if (!placed) levels.push([i]);
+        }
+        if (st) st.capPackedLevels = Math.max(st.capPackedLevels || 0, levels.length);
+        if (levels.length > maxLevels) {
+          let dropped = 0;
+          for (let k = maxLevels; k < levels.length; k++) dropped += levels[k].length;
+          if (st) st.capDropped = (st.capDropped || 0) + dropped;
+          levels.length = maxLevels;
+        }
+        return levels.map(lv => lv.map(i => items[i].d.trim() + ' ').join(''));
+      },
+      // Interiors overlap: a robustly-interior sample of one (the point and
+      // its four eps-neighbours all inside) lies robustly inside the other.
+      // Touching along an edge is NOT overlap. A comp too thin to yield any
+      // robust sample falls back to the conservative meet test.
+      _clipInteriorsOverlap(a, b) {
+        const A = a.bb, B = b.bb;
+        if (A[2] <= B[0] || B[2] <= A[0] || A[3] <= B[1] || B[3] <= A[1]) return false;
+        const probe = (src, dst) => {
+          const bb = src.bb, w = bb[2] - bb[0], h = bb[3] - bb[1];
+          const eps = Math.max(1e-3, Math.hypot(w, h) * 2e-3);
+          const solid = (x, y, rings) => PolyClip._evenOddInside(x, y, rings) &&
+            PolyClip._evenOddInside(x + eps, y, rings) && PolyClip._evenOddInside(x - eps, y, rings) &&
+            PolyClip._evenOddInside(x, y + eps, rings) && PolyClip._evenOddInside(x, y - eps, rings);
+          const N = 8; let any = false;
+          for (let i = 1; i < N; i++) for (let j = 1; j < N; j++) {
+            const x = bb[0] + w * i / N, y = bb[1] + h * j / N;
+            if (!solid(x, y, src.rings)) continue;
+            any = true;
+            if (solid(x, y, dst.rings)) return true;
+          }
+          return any ? false : null;                      // null: no robust sample
+        };
+        const r1 = probe(a, b);
+        if (r1 === true) return true;
+        const r2 = probe(b, a);
+        if (r2 === true) return true;
+        if (r1 === null || r2 === null) return this._clipFillsMeet(a, b);
+        return false;
+      },
+
       _clipUnionLevels(comps, st) {
         const NS = 'http://www.w3.org/2000/svg';
         const RI = RenderIntersections;
@@ -39193,6 +39516,31 @@
       // content's local bounds is the normal (tie → Z, an XY sheet), and the
       // walk mirrors _foldGroupFrame's per-draw traversal (accepted cost —
       // runs only when Backside: View is on and no fold frame is threaded).
+      // Projected depth of the centre of the subtree's vertex bounds, in this
+      // group's space through `mvp` (v20260904u, slice 3). null when no visible
+      // descendant has vertices.
+      _subtreeCentreZ(mvp) {
+        const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+        const walk = (obj, M) => {
+          if (!obj.visible) return;
+          const m2 = M ? matrixMultiply(M, obj.getLocalMatrix()) : obj.getLocalMatrix();
+          if (obj.isGroup) { obj.children.forEach(c => walk(c, m2)); return; }
+          if (!obj.localVertices) return;
+          for (const p of obj.localVertices) {
+            if (!p) continue;
+            const t = pointApplyMatrix(p, m2);
+            for (let i = 0; i < 3; i++) {
+              if (t[i] < mn[i]) mn[i] = t[i];
+              if (t[i] > mx[i]) mx[i] = t[i];
+            }
+          }
+        };
+        this.children.forEach(c => walk(c, null));
+        if (!isFinite(mn[0])) return null;
+        const c = transformVertex([(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2], mvp);
+        return c ? c[2] : null;
+      }
+
       _backsideTriangle(foldThread) {
         const fr = foldThread && foldThread.frame;
         if (fr) {
@@ -39895,8 +40243,17 @@
             }
             this._applyBacksideView(currentMVP, foldThread, activeMapping); // BACKSIDE: VIEW (v20260817a)
             // Compute z of group's position for sorting
-            const groupWorldPos = transformVertex(this.position, parentMVP);
-            const groupZ = groupWorldPos ? groupWorldPos[2] : 0;
+            // BLOCK DEPTH = the subtree's projected bounds centre (v20260904u,
+            // PLAN-ink-occlusion-v2 slice 3). The block used to sort at the
+            // GROUP ORIGIN's depth - wherever the author left the pivot - so a
+            // group whose only content sat 5 units toward the camera sorted as
+            // if it were at its origin. Same walk as _backsideTriangle (visible
+            // Paths' localVertices through the local-matrix chain) in this
+            // group's space, projected through currentMVP; the origin stays the
+            // fallback for an empty subtree.
+            const blockZ = this._subtreeCentreZ(currentMVP);
+            const groupWorldPos = blockZ === null ? transformVertex(this.position, parentMVP) : null;
+            const groupZ = blockZ !== null ? blockZ : (groupWorldPos ? groupWorldPos[2] : 0);
             externalFaceList.push({ element: this.svgElement, z: groupZ });
           }
         } else {
@@ -43004,7 +43361,7 @@
           ? Path._foldCreaseRoles(fr, eyeL || null, !!fs.forceSplit)
           : null;
         const roleSig = roleInfo ? `|R:${roleInfo.roles.map(r => r[0]).join('')}|DC:${fs.drawCrease ? 1 : 0}${fs.creaseShowAt0 ? 1 : 0}` : '';
-        const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.autoExtent ? 'AE|' : ''}${fs.mode}|${fs.mode === 'wave' ? [fs.waveCount, fs.waveSize, fs.waveShape, fs.waveExtend, fs.wavePaper || 'conserve'].join(',') + '|' : ''}${fs.creases.map(c2 => [c2.position, c2.positionV, c2.rotation, c2.angle, c2.extentA, c2.extentB, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}${inhSig}${roleSig}`;
+        const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.autoExtent ? 'AE:' + fr.creaseList.map(ck => (ck.extentA ?? 0) + ',' + (ck.extentB ?? 1)).join(';') + '|' : ''}${fs.mode}|${fs.mode === 'wave' ? [fs.waveCount, fs.waveSize, fs.waveShape, fs.waveExtend, fs.wavePaper || 'conserve'].join(',') + '|' : ''}${fs.creases.map(c2 => [c2.position, c2.positionV, c2.rotation, c2.angle, c2.extentA, c2.extentB, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}${inhSig}${roleSig}`;
         const fdHit = this._foldCache ? this._foldCache.get(key) : null;
         if (fdHit) return fdHit.val;
 
@@ -45651,9 +46008,32 @@
 
           // If in a z-sorted group, render normally then add as single face entry
           if (externalFaceList) {
-            // Compute z-depth of this object's position for sorting
-            const worldPos = transformVertex(this.position, vpMatrix);
-            const zDepth = worldPos ? worldPos[2] : 0;
+            // DEPTH = the projected centre of the path's own vertex bounds, not
+            // its origin (v20260904u, PLAN-ink-occlusion-v2 slice 3). A flat
+            // path inside a z-sorted group sorted at transformVertex(position),
+            // so a rect authored around a distant origin - the plan-5 demo slab
+            // at position [0,0,0] with its vertices 4.5 units toward the camera
+            // - painted BEHIND everything. The origin stays the fallback for a
+            // path with no vertices.
+            let zDepth = 0;
+            {
+              const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+              let any = false;
+              if (this.localVertices && this.localVertices.length) {
+                const lm = this.getLocalMatrix();
+                for (const p of this.localVertices) {
+                  if (!p) continue;
+                  const t = pointApplyMatrix(p, lm); any = true;
+                  for (let i = 0; i < 3; i++) {
+                    if (t[i] < mn[i]) mn[i] = t[i];
+                    if (t[i] > mx[i]) mx[i] = t[i];
+                  }
+                }
+              }
+              const src = any ? [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2] : this.position;
+              const worldPos = transformVertex(src, vpMatrix);
+              zDepth = worldPos ? worldPos[2] : 0;
+            }
             // Render the 2D path into its own svgElement (below), then register it
             // as a single face so the parent Group can interleave it with 3D faces.
             // We use a deferred push after the 2D rendering code below sets up svgElement.
@@ -51009,6 +51389,19 @@
           _mark('emitChain');
           const avgZ = silh.zCount > 0 ? silh.zSum / silh.zCount : 0;
           let _mssNearZ = null;   // nearest piece z (band merge) — the stroke element paints after it
+          // INK INHERITS ITS FILL'S MASK (v20260904t, PLAN-ink-occlusion-v2 slice
+          // 1). The Silhouette outline and the Streamline strokes are stroke-only
+          // elements pushed at their fill's z; the mask planner never gave them
+          // an ix, so they could not be masked and painted over whatever was
+          // nearer. Attaching an ix to a stroke-only sibling is REFUTED
+          // (v20260816g: +384 px, a third rec at the fill's depth pushes the real
+          // occluder out of the raster's top-two window). Instead each ink entry
+          // names its fill (`inkOf`); MaskRender.apply never builds a rec for an
+          // ink entry (the plan is untouched) and, after the plan, copies the
+          // fill's `mask` onto the ink. Exact here: the Silhouette outline lies on
+          // the union fill's outline, and a Streamline stroke belongs to exactly
+          // one piece.
+          let silhEntry = null;
           if (bandMerge && silh.rings && silh.rings.length) {
             // --- M1 (PLAN-more-simple-sides): per-(subpath x band x facing) fills ---
             // Bands = maximal profile spans between corners, using THE SAME
@@ -51725,6 +52118,7 @@
               // order probes). Debug-only so shipped DOM stays attribute-free.
               if (window._SILH_DEBUG) el.setAttribute('data-mss', p.key);
               const pieceEntry = { element: el, z };
+              p._entry = pieceEntry;                     // v20260904t: the piece's stroke names it (inkOf)
               // S2 (PLAN-simple-mode-intersections): per-piece composite
               // sidecar sr record over exactly THIS piece's rings — same
               // guard-band construction and srComposite host rule as S1's
@@ -51795,7 +52189,7 @@
               // pushed at the piece's own z AFTER every fill push: the stable
               // z-sort keeps it above its fill and any equal-z sibling fill,
               // while genuinely nearer pieces still cover it.
-              faceList.push({ element: se, z: p._z });
+              faceList.push({ element: se, z: p._z, inkOf: p._entry || null });   // v20260904t
             }
             if (window._SILH_DEBUG) window._mssDbg = {
               bounds: _bandBounds.map(b => ({ bounds: b.bounds.slice(), closed: b.closed })),
@@ -51823,7 +52217,7 @@
           fillEl.setAttribute('fill-rule', 'nonzero');
           fillEl.setAttribute('fill-opacity', _effSurface['fill-opacity']);
           fillEl.setAttribute('stroke', 'none');
-          const silhEntry = { element: fillEl, z: avgZ };
+          silhEntry = { element: fillEl, z: avgZ };
           // S1 (PLAN-simple-mode-intersections): composite sidecar sr record
           // — the owner's "calculate the intersection before cleaning" as
           // data. Chain i owns t ∈ [2i, 2i+1]; the odd intervals are NULL
@@ -51970,9 +52364,11 @@
               strokeEl.setAttribute('stroke-opacity', _effSurface['stroke-opacity']);
             }
             // Same z, pushed after the fill: the z-sort is stable, so the outline
-            // always paints on top of its own fill. Band merge (M1): nudged
-            // under the NEAREST piece so the outline paints after every piece.
-            faceList.push({ element: strokeEl, z: _mssNearZ !== null ? _mssNearZ - 1e-6 : avgZ });
+            // always paints on top of its own fill. (The old `_mssNearZ` nudge
+            // was dead here — band merge empties silh.strokes, so this push is
+            // Silhouette-only; v20260904t.) `inkOf` hands the outline its fill's
+            // mask.
+            faceList.push({ element: strokeEl, z: avgZ, inkOf: silhEntry });
           }
           _mark(null);
         }
@@ -54461,26 +54857,12 @@
         line.setAttribute('stroke-width', isAxis ? gridWeight * 2 : gridWeight);
       };
 
-      // XZ Grid
-      for (let i = start; i <= GRID_EXTENT; i += spacing) {
-        // Avoid floating point drift
-        const val = Math.round(i * 1000) / 1000;
-        if (val > GRID_EXTENT) break;
-
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        _styleBase(line);
-        gridGroup.appendChild(line);
-        gridLines.push({ line: line, v1: [val, 0, -GRID_EXTENT], v2: [val, 0, GRID_EXTENT] });
-      }
-      for (let j = start; j <= GRID_EXTENT; j += spacing) {
-        const val = Math.round(j * 1000) / 1000;
-        if (val > GRID_EXTENT) break;
-
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        _styleBase(line);
-        gridGroup.appendChild(line);
-        gridLines.push({ line: line, v1: [-GRID_EXTENT, 0, val], v2: [GRID_EXTENT, 0, val] });
-      }
+      // THE XZ GRID IS GONE (v20260904o, idle-frame plan stage 1). `gridLines` /
+      // #gridGroup were the legacy XZ grid: populated here, restyled by
+      // restyleGridOpacity, hidden by render() every frame — and never drawn,
+      // because drawGrid had no caller. Every frame paid a querySelectorAll
+      // over its lines plus a display write per line. The <g id="gridGroup">
+      // node stays (three DOM refs + the export id list name it); it is empty.
 
       // XY Grid (Workplane XY)
       for (let i = start; i <= GRID_EXTENT; i += spacing) {
@@ -54534,7 +54916,6 @@
     const restyleGridOpacity = () => {
       const base = gridOpacity;
       const axis = Math.min(1, gridOpacity * 2.5);
-      for (const g of gridLines) g.line.setAttribute('stroke-opacity', base);
       for (const g of gridLinesXY) g.line.setAttribute('stroke-opacity', base);
       for (const g of gridLinesYZ) {
         // _styleAxis(line, val) tests |val| < 0.001, where val is whichever
@@ -54562,21 +54943,7 @@
     };
 
     // --- Grid/Gizmo Drawing ---
-    const drawGrid = (matrix) => {
-      gridLines.forEach(({ line, v1, v2 }) => {
-        const p1 = project(v1, matrix);
-        const p2 = project(v2, matrix);
-        if (p1 && p2) {
-          line.setAttribute('x1', p1[0]);
-          line.setAttribute('y1', p1[1]);
-          line.setAttribute('x2', p2[0]);
-          line.setAttribute('y2', p2[1]);
-          line.style.display = 'inline';
-        } else {
-          line.style.display = 'none';
-        }
-      });
-    };
+    // drawGrid (the XZ grid) was deleted in v20260904o: zero callers.
 
     const drawXYGrid = (matrix) => {
       gridLinesXY.forEach(({ line, v1, v2 }) => {
@@ -63974,7 +64341,13 @@
     (function () {
       const fdTargets = () => selectedObjects.length > 0 ? selectedObjects : (selectedObject ? [selectedObject] : []);
       // v20260721r: akProps = animatable timeline props this edit touched
-      const fdApply = (fn, akProps) => {
+      // A CANVAS DRAG SYNCS THE PANEL ONCE PER FRAME (v20260904r, stage 4.6):
+      // updateStylePanel is ~300 getElementById, four populateRefSelect tree
+      // walks, four syncPaletteList and a loft-middle innerHTML rebuild with
+      // fresh listeners — per mousemove, on the fold handle drag. The drag
+      // passes { deferPanel: true }; typed edits keep the synchronous sync.
+      let _fdPanelRaf = 0;
+      const fdApply = (fn, akProps, opts) => {
         pushUndoStateCoalesced();
         fdTargets().forEach(o => {
           // GROUP FOLD (v20260721g, stage G2): groups carry foldSettings too
@@ -63996,7 +64369,11 @@
           }
         });
         if (akProps) _akSel(akProps); // AUTO-KEY (v20260721r)
-        updateStylePanel();
+        if (opts && opts.deferPanel) {
+          if (!_fdPanelRaf) _fdPanelRaf = requestAnimationFrame(() => { _fdPanelRaf = 0; updateStylePanel(); });
+        } else {
+          updateStylePanel();
+        }
         requestRender();
       };
       const fdAxisOk = (v) => ['X', 'Y', 'Z', '-X', '-Y', '-Z'].includes(v);
@@ -64286,7 +64663,7 @@
             if (!cr) return;
             cr.position = pu;
             cr.positionV = pv;
-          }, [akN('Position'), akN('PositionV')]);
+          }, [akN('Position'), akN('PositionV')], { deferPanel: true });   // v20260904r
         } else {
           const ck = fr.creaseList && fr.creaseList[ci];
           if (!ck) return;
@@ -64310,7 +64687,7 @@
             if (!cr) return;
             if (isA) cr.extentA = Math.min(f, (cr.extentB ?? 1) - 0.02);
             else cr.extentB = Math.max(f, (cr.extentA ?? 0) + 0.02);
-          }, [akN(isA ? 'ExtentA' : 'ExtentB')]);
+          }, [akN(isA ? 'ExtentA' : 'ExtentB')], { deferPanel: true });   // v20260904r
         }
       });
       window.addEventListener('mouseup', () => { _fhDrag = null; });
@@ -66279,6 +66656,7 @@
 
       // Refresh timeline tracks when feature toggles (extrude, spline flow, etc.) change subgroup visibility
       if (typeof tlRenderTracks === 'function') tlRenderTracks();
+      requestRender();   // v20260904q: the style panel relied on the continuous loop; under the idle skip it must ask
     };
 
     document.getElementById('strokeEnabledInput').addEventListener('change', updateStyleFromInput);
@@ -67947,6 +68325,20 @@
       _sig: 0,                  // 0 = "nothing observed yet"
       _changeAt: 0,
       _attempted: false,        // one attempt per settled signature
+      // M4b (v20260904p): SETTLED MEANS THE SAME SIGNATURE WAS SEEN ON A LATER
+      // FRAME, not merely that 120 ms passed since it was first seen. `_changeAt`
+      // is stamped at the top of the frame that first observed a change; when
+      // that frame's own draw costs more than DELAY, frameEnd() of the SAME
+      // frame saw the delay elapsed and presented a picture that moved this
+      // very frame — and repeated every frame under load (measured
+      // presentedDuringOrbit 17–20 of 30, v20260814w). `_stable` counts the
+      // frames the current signature has been observed unchanged; a present
+      // needs at least one. Not a timer (the loop is continuous, so "120 ms
+      // after the last render" never fires) and not a PACE_K pacing layer (the
+      // producer simply never runs while the picture moves).
+      _stable: 0,               // frames the current signature has been observed unchanged
+      presents: 0,              // instrumentation — total presents this session
+      attempts: 0,              // instrumentation — presents + stand-downs + throws
       _gen: 0,
       _warned: false,
 
@@ -68024,6 +68416,7 @@
           this.teardown();
           this._sig = 0;
           this._attempted = false;
+          this._stable = 0;
           return;
         }
         const t0 = performance.now();
@@ -68034,6 +68427,9 @@
           this._sig = sig;
           this._changeAt = t0;
           this._attempted = false;
+          this._stable = 0;
+        } else {
+          this._stable++;
         }
         // THE CLOAK GOES LAST, because `teardown()` above restores the opacity
         // it sets — and an import ALWAYS changes the signature, so the teardown
@@ -68052,6 +68448,10 @@
           if (this.enabled && !this._held() && !this.group && this._sig) {
             this._attempted = true;
             this._present();
+            // ONE PRESENT PER IMPORT (v20260904o): the arm presented from a
+            // PRE-draw hash, so the next frame's post-draw hash differed →
+            // teardown → a second full producer run. Re-read it now.
+            this._sig = this._signature();
           }
           if (!this.group && pathGroup && pathGroup.style.opacity !== '') pathGroup.style.opacity = '';
           return;
@@ -68059,12 +68459,14 @@
         if (!this.enabled || this.group || this._attempted || !this._sig) return;
         if (this._held()) return;
         if ((performance.now() - this._changeAt) < this.DELAY) return;
+        if (this._stable < 1) return;      // M4b: moved this very frame — a refused frame does NOT set _attempted
         this._attempted = true;            // one shot per settled signature
         this._present();
       },
 
       _present() {
         if (typeof MaskRender === 'undefined' || !pathGroup) return;
+        this.attempts++;
         const t0 = performance.now();
         const clone = pathGroup.cloneNode(true);
         clone.removeAttribute('id');
@@ -68139,6 +68541,7 @@
         // #renderCacheGroup sits there.
         pathGroup.parentNode.insertBefore(clone, pathGroup.nextSibling);
         pathGroup.style.opacity = '0';
+        this.presents++;
         this.group = clone;
         this.lastMs = +(performance.now() - t0).toFixed(2);
       },
@@ -69934,7 +70337,21 @@
     })();
     // =================== END CAMERA SUBWINDOW (Phase 3) ======================
 
-    const requestRender = () => {
+    // THE DIRTY SIGNAL (v20260904q, idle-frame plan stage 3). The loop is
+    // continuous, so every one of the ~247 requestRender() call sites was a
+    // no-op — and the only honest INPUT signal the app has is exactly those
+    // calls: every mutation path already makes one. The two meanings are
+    // split here: the loop's own tail call passes `true` and sets nothing;
+    // any other call marks the scene dirty. render() then draws the scene
+    // when the flag is set, when its own header (pose, size, epoch, frame,
+    // projection, guide state) moved, during playback / capture / a sub-view
+    // pass, or every 30th idle frame as a BELT so a mutation site that forgot
+    // its requestRender() degrades to ≤0.5 s staleness instead of freezing.
+    // A DIRECT render() call (harnesses, dimCorpusHash, Mode2D.selfTest)
+    // always draws — only the rAF callback passes { loop: true }.
+    let sceneDirty = true;
+    const requestRender = (fromLoop) => {
+      if (fromLoop !== true) sceneDirty = true;
       if (renderInProgress) {
         // A render is already running (awaiting GPU). The continuous rAF loop at
         // the end of render() re-schedules the next frame, so just return.
@@ -69968,7 +70385,7 @@
       if (renderRafId) return;              // a callback is already pending
       renderRafId = requestAnimationFrame(() => {
         renderRafId = 0;                    // cleared BEFORE the call, so a throw cannot strand it
-        render().catch((err) => {
+        render({ loop: true }).catch((err) => {
           // A crashed render must release the async guards, otherwise every
           // future requestRender() becomes a silent no-op (frozen canvas until
           // reload) and the failure is invisible. Log loudly, release, and let
@@ -69980,7 +70397,8 @@
       });
     };
 
-    const render = async () => {
+    const render = async (opts) => {
+      const _fromLoop = !!(opts && opts.loop);   // v20260904q: only the rAF callback says so
       // NOTE: the pending-rAF state is deliberately NOT touched here — see
       // requestRender() above. Clearing it here forked a render chain on every
       // direct call (v20260809g).
@@ -69994,7 +70412,16 @@
       // the loop only keeps itself alive; the exporter's finally releases it and
       // requests a render. Only the two exporters raise this flag (grep
       // _exportHold = true).
-      if (SubView._exportHold) { renderInProgress = false; requestRender(); return; }
+      if (SubView._exportHold) { renderInProgress = false; requestRender(true); return; }
+      const _lapT0 = performance.now();
+      const _camPose = (c) => c ? (c.position.join(',') + '|' + c.target.join(',') + '|' + c.up.join(',') + '|' + c.fovDegrees + '|' + c.orthoZoom + '|' + c.projectionType + '|' + c.obliqueAngle + '|' + c.obliqueScale + '|' + c.name + '|' + c.lock) : '-';
+      // THE SETTLE HASH IS TAKEN BEFORE THE SUBWINDOW PASS (v20260904o). It
+      // used to run after `SubView.refreshIfNeeded()`, so on every sub-camera
+      // pass the signature was read off the camera-B picture: teardown, then a
+      // re-present 120 ms later — a full producer run (vase 90 ms) although the
+      // main picture never moved. Here it reads the previous camera-A picture;
+      // the teardown still precedes the draw and any paint.
+      FlattenPreview.frameStart();
       // CAMERA SUBWINDOW (Phase 2): the ONE seam. It must run BEFORE the main
       // scene draw and inside the same rAF callback — the sub pass draws the
       // live tree from camera B, and the main draw below is what puts camera A
@@ -70003,7 +70430,8 @@
       // when the window is not open, and a string compare when it is but
       // nothing changed; it stands down entirely while RenderCache captures or
       // presents, because that path skips the restoring main draw.
-      await SubView.refreshIfNeeded();
+      const _subPass = await SubView.refreshIfNeeded();   // true = a camera-B pass drew the live tree; the main draw MUST follow
+      const _lapT1 = performance.now();
       const viewMatrix = activeCamera.createViewMatrix();
       const projectionMatrix = activeCamera.createProjectionMatrix();
       const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
@@ -70014,23 +70442,24 @@
       const translateX = width / 2 + CANVAS_OFFSET_X;
       const translateY = height / 2;
 
-      mainGroup.setAttribute('transform', `translate(${translateX}, ${translateY}) scale(${scale})`);
+      {
+        const _mgT = `translate(${translateX}, ${translateY}) scale(${scale})`;
+        if (_mgT !== render._mgT) { render._mgT = _mgT; mainGroup.setAttribute('transform', _mgT); }   // v20260904o: write on change
+      }
 
       // Tab hides guides. With keepGridOnHide, the GRID (and only the grid) survives
       // the hide while all annotation gizmos still disappear. showGrid drives the grid
       // groups + per-mode grid dispatch; showGuides still drives every gizmo.
       const showGrid = showGuides || keepGridOnHide;
 
-      gridGroup.style.display = showGrid ? 'block' : 'none';
-      gridGroupXY.style.display = showGrid ? 'block' : 'none';
       gizmoGroup.style.display = showGuides ? 'block' : 'none';
       targetGizmoGroup.style.display = showGuides ? 'block' : 'none';
 
       // --- Grid Rendering Logic ---
-      const linesXZ = gridGroup.querySelectorAll('line');
-      linesXZ.forEach((l) => (l.style.display = 'none'));
-
-      // Reset all
+      // Reset all; the showGrid branch below re-shows the one active plane.
+      // (v20260904o: the two `showGrid ? 'block' : 'none'` writes that used to
+      // precede this were overwritten here every frame, and the per-line sweep
+      // over the legacy XZ grid is gone with that grid.)
       gridGroup.style.display = 'none';
       gridGroupXY.style.display = 'none';
       gridGroupYZ.style.display = 'none';
@@ -70569,16 +70998,41 @@
       // instant the drawn picture moves, so it comes down HERE — in the same
       // frame that redraws, before the browser gets a paint opportunity — and
       // goes back up at the end of render() once the picture has settled.
-      FlattenPreview.frameStart();
+      const _lapT2 = performance.now();
       const _drawnFrame = animationTimeline.currentFrame;
-      if (!RenderCache.step(_drawnFrame)) {
-        await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix, camera: activeCamera })));
+      // DRAW OR SKIP (v20260904q). See the dirty-signal note at requestRender.
+      const _drawHdr = _camPose(activeCamera) + '|' + width + 'x' + height + '|' + CANVAS_OFFSET_X + '|' + renderCacheEpoch + '|' + _drawnFrame + '|' + projectionType + '|' + showGuides + '|' + keepGridOnHide + '|' + (typeof scaleStrokeWithZoom !== 'undefined' ? scaleStrokeWithZoom : '');
+      render._idleTick = (render._idleTick || 0) + 1;
+      const _mustDraw = !_fromLoop || sceneDirty || _drawHdr !== render._drawHdr
+        || animationTimeline.isPlaying || _subPass === true
+        || RenderCache.active() || RenderCache._capturing || RenderCache._presenting
+        || (render._idleTick % 30 === 0);
+      if (_mustDraw) {
+        sceneDirty = false;
+        render._drawHdr = _drawHdr;
+        if (!RenderCache.step(_drawnFrame)) {
+          await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix, camera: activeCamera })));
+        }
       }
+      const _lapT3 = performance.now();
       // This frame reached the screen, so the tick that asked for it is satisfied.
       if (_tlAwaitingFrame === _drawnFrame) _tlAwaitingFrame = null;
 
       const frameX = (width - FRAME_SIZE * scale) / 2 + CANVAS_OFFSET_X;
       const frameY = (height - FRAME_SIZE * scale) / 2;
+      // PER-FRAME CHROME IS A PURE FUNCTION OF POSE + SIZE (v20260904o). The
+      // frame rect, the frame guide, the axis indicator, the HUD bar layout
+      // (a getComputedStyle for --timeline-height + ~16 style writes) and the
+      // camera panel (~19 toFixed input writes + a lock sweep) were rewritten
+      // on every one of ~60 idle frames. They run when this header changes,
+      // and unconditionally every 30th frame as a belt (≤0.5 s staleness for
+      // anything the header does not name). updateCameraPanel keeps its own
+      // activeElement guard, so typing is never fought.
+      const _chromeHdr = width + '|' + height + '|' + CANVAS_OFFSET_X + '|' + _camPose(activeCamera) + '|' + (selectedCamera === activeCamera ? 'same' : _camPose(selectedCamera)) + '|' + cameras.indexOf(selectedCamera) + '|' + tlExpanded + '|' + _tlExpandedHeight + '|' + _currentFrameGuide + '|' + projectionType;
+      render._chromeTick = (render._chromeTick || 0) + 1;
+      const _chromeDirty = (_chromeHdr !== render._chromeHdr) || (render._chromeTick % 30 === 0);
+      if (_chromeDirty) render._chromeHdr = _chromeHdr;
+      if (_chromeDirty) {
       frameRect.setAttribute('x', frameX);
       frameRect.setAttribute('y', frameY);
       frameRect.setAttribute('width', FRAME_SIZE * scale);
@@ -70601,14 +71055,15 @@
       const indicatorY = height / 2 + FRAME_SIZE / 2 * scale - 80;
       axisIndicatorGroup.setAttribute('transform', `translate(${indicatorX}, ${indicatorY})`);
       axisIndicator.update(viewMatrix);
+      }   // end of the chrome gate (frame rect … axis indicator)
 
       // --- Canvas HUD position update ---
-      if (typeof updateHudBarPositions === 'function') {
+      if (_chromeDirty && typeof updateHudBarPositions === 'function') {
         updateHudBarPositions(frameX, frameY, FRAME_SIZE * scale);
       }
 
       // --- Camera Info ---
-      updateCameraPanel(); // Update the sidebar camera panel
+      if (_chromeDirty) updateCameraPanel(); // Update the sidebar camera panel (gated, see above)
 
       // --- Flush render-cycle debug log ---
       if (_debugRenderActive && _debugRenderBuffer.length > 0) {
@@ -70637,7 +71092,7 @@
       // whose target is not in the document means nothing, so remove it.
       // Costs one querySelectorAll over the masked elements only — normally
       // a handful, and zero when nothing is masked.
-      if (typeof pathGroup !== 'undefined' && pathGroup) {
+      if (_mustDraw && typeof pathGroup !== 'undefined' && pathGroup) {   // drawn frames only (v20260904q)
         const _masked = pathGroup.querySelectorAll('[mask]');
         for (const el of _masked) {
           const m = /^url\(#(.+)\)$/.exec((el.getAttribute('mask') || '').trim());
@@ -70650,9 +71105,23 @@
       // except the first settled one after a change.
       FlattenPreview.frameEnd();
 
+      // FRAME LAPS (v20260904o, the idle-frame plan's instrument): a ring of
+      // the last 240 frames, {total, subview, chrome1, draw, tail, mask,
+      // raster, chrome}. Read it in the console as window._dimFrameLaps;
+      // report medians and p95 within ONE session — never absolute ms across
+      // sessions.
+      {
+        const _lapT4 = performance.now();
+        const ring = (window._dimFrameLaps = window._dimFrameLaps || []);
+        ring.push({ total: _lapT4 - _lapT0, subview: _lapT1 - _lapT0, chrome1: _lapT2 - _lapT1, draw: _lapT3 - _lapT2, tail: _lapT4 - _lapT3,
+          mask: (typeof MaskRender !== 'undefined' && MaskRender.stats) ? MaskRender.stats.ms : 0,
+          raster: (typeof RasterHelper !== 'undefined' && RasterHelper.stats) ? RasterHelper.stats.ms : 0, chrome: _chromeDirty, drawn: _mustDraw });
+        if (ring.length > 240) ring.splice(0, ring.length - 240);
+      }
+
       // --- End of render: release async guard and schedule next frame ---
       renderInProgress = false;
-      requestRender();        // Continuous render loop
+      requestRender(true);    // Continuous render loop — the loop's own tick, never a dirty mark
     };
 
     // --- Canvas HUD — Azimuth Bar ---
@@ -71654,6 +72123,10 @@
           // Nothing else needed here for now, unless we have specific dependency graphs.
         }
       });
+      // GEOMETRY CHANGED = SCENE DIRTY (v20260904q). This is the one hook every
+      // geometry mutation already calls, so marking here covers applyGroupRotation,
+      // the vertex writers, the tool panels and every future caller at once.
+      requestRender();
     };
 
     // --- Pixel Art Helpers ---
@@ -76346,6 +76819,43 @@
           }
         }
       });
+
+      // DEGENERATE FILL-ONLY PATHS DO NOT EXPORT (v20260904y). An edge-on
+      // patch whose outline collapsed to a curve traversed out and back (zero
+      // area, stroke suppressed by suppressRetracedStrokes) is invisible in
+      // every browser, so the canvas is right - and Illustrator paints a
+      // HAIRLINE for a zero-area filled path, which is the teal line across
+      // the red column in the owner's paste (crease repro, four such paths,
+      // two coincident pairs). Measured on the file: |area| 0.0 against a
+      // perimeter of 51 and 133 units. Dropped when the path's own stroke is
+      // none (or absent with no stroked ancestor) and the ring area is under
+      // a fiftieth of a unit per unit of perimeter, i.e. a mean width no
+      // browser would fill either; counted in MaskRender.stats.exportDegenerateDropped.
+      {
+        let dropped = 0;
+        const RI = (typeof RenderIntersections !== 'undefined') ? RenderIntersections : null;
+        if (RI && RI.ringsFromElement) {
+          clonedGroup.querySelectorAll('path').forEach(el => {
+            let n = el, stroke = null;
+            while (n && n !== clonedGroup) { const v = n.getAttribute && n.getAttribute('stroke'); if (v) { stroke = v; break; } n = n.parentNode; }
+            if (stroke && stroke !== 'none') return;
+            let rings = null;
+            try { rings = RI.ringsFromElement(el); } catch (err) { rings = null; }
+            if (!rings || !rings.length) return;
+            let area = 0, per = 0;
+            for (const r of rings) {
+              for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+                const a = r[j], b = r[i];
+                area += a[0] * b[1] - b[0] * a[1];
+                per += Math.hypot(b[0] - a[0], b[1] - a[1]);
+              }
+            }
+            if (!(per > 0) || Math.abs(area) / 2 >= per * 0.02) return;
+            el.parentNode.removeChild(el); dropped++;
+          });
+        }
+        if (typeof MaskRender !== 'undefined' && MaskRender.stats) MaskRender.stats.exportDegenerateDropped = dropped;
+      }
 
       const frame = document.createElementNS(svgNS, 'rect');
       frame.setAttribute('x', -FRAME_SIZE / 2);

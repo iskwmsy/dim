@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260904y -->
+<!-- dim v20260905h -->
 
 <!--
   MIT License
@@ -73,7 +73,6 @@
 
       /* Theme Variables */
       --base-color: #f5f5f5;
-      --surface-color: oklch(from var(--base-color) calc(l * 1.2) c h);
       --accent-color: #2645d2;
       --accent-color-hover: oklch(from var(--accent-color) calc(l * 1.15) c h);
 
@@ -87,17 +86,74 @@
       --bg-app: #f5f5f5;
       --bg-panel: #fafafa;
       --bg-input: #ffffff;
+      /* ALWAYS applied as background-COLOR, never the `background` shorthand
+         (v20260905b). The shorthand resets background-image, and a select's
+         chevron IS a background-image — that is exactly how v20260812zd broke
+         the chevron on all 30 .ui-selects. At that point 5 of the 12 hover
+         declarations used the longhand and 7 still used the shorthand; they
+         were safe only because those elements happened to carry no image. */
+      --bg-input-hover: rgba(255, 255, 255, 0.95);
       --bg-toggle-off: #e0e0e0;
 
+      /* ── LINES and TINTS ARE TWO RAMPS THAT SHARE THREE NUMBERS ─────────
+         (v20260905c.) .04, .06 and .08 each do more than one job in this
+         sheet: .04 is a list-row hover AND the timeline's row rules; .06 is
+         the panel border AND the tool-rail button hover; .08 is --border-light
+         AND a selected row. Nothing named the difference, so "darken the
+         selection" was silently also a decision about every border.
+         Same values, separate names — no pixel moved. */
+      --line-faint: rgba(0, 0, 0, 0.04);
+      /* timeline row rules, .ui-hr */
+      --line-hairline: rgba(0, 0, 0, 0.06);
+      /* outer border of every floating panel and bar */
       --border-light: rgba(0, 0, 0, 0.08);
-      --border-focus: rgba(0, 0, 0, 0.15);
+      /* the third LINE step: dividers, separators, .xyz-inputs' 1px gaps */
+      --tint-hover: rgba(0, 0, 0, 0.04);
+      /* Row/target hover: scene tree, history, object tabs — and, since
+         v20260905e, the tool rail. The rail had hovered at .06, one step
+         darker than every list row in the app; the owner ruled on it and it
+         now matches. This is the ONLY value change in the whole
+         v20260905a-e token campaign. */
+      --tint-selected: rgba(0, 0, 0, 0.08);
+      /* selected row. NOT the accent: on a 20px row an accent fill would
+         shout louder than the active tool does at 34px. */
+
+      /* SIX SITES STAY LITERAL because they are neither a line nor a row tint,
+         and folding them in would be a lie: .slider-fill::before uses .06 as a
+         FILL; .tl-out-of-range and the two
+         .tl-key-*-btn:hover backgrounds use .08 as timeline state; and the
+         #toolDrawer / .app-modal shadows carry .06/.08 inside a box-shadow. */
 
       --text-main: rgba(0, 0, 0, 0.85);
       --text-secondary: rgba(0, 0, 0, 0.65);
       --text-muted: rgba(0, 0, 0, 0.45);
+      /* Opaque tertiary text — the timeline read-outs. It shares a value with
+         --ink-icon-idle by coincidence, not by meaning: this one is TEXT.
+         DECLARED in v20260905c: it was referenced twice as
+         `var(--text-tertiary, #999)` and defined NOWHERE, so both sites rode
+         the fallback. Harmless until someone declared the name for something
+         else, at which point two timeline colours would have moved silently. */
+      --text-tertiary: #999;
+
+      /* OPAQUE icon greys — deliberately NOT the alpha ramp above (v20260905a,
+         was 4 literals). An icon whose own strokes overlap double-composites
+         alpha where the paths cross and renders blotchy, so the tab icons take
+         an opaque idle/hover pair. --ink-icon-hover is the opaque equivalent of
+         --text-main on white. Do not "unify" these with --text-*. */
+      --ink-icon-idle: #999;
+      --ink-icon-hover: #262626;
 
       --accent-a: var(--accent-color);
-      --marquee-color: #0000FF;
+
+      /* THE FOCUS RING (v20260905b, was 15 pasted copies). The ring is an
+         INSET box-shadow and not an `outline` because .xyz-inputs sets
+         overflow:hidden and would clip an outline. The two lines this token
+         CANNOT carry are the other half of the recipe, and they are the half a
+         copied rule drops: every :focus rule must also set
+             position: relative;  z-index: 1;
+         or the ring paints under the adjacent cell across .xyz-inputs' 1px
+         gaps. A new field family needs all four lines, not just this one. */
+      --focus-ring: inset 0 0 0 1.5px var(--accent-color);
       --snap-indicator-radius: 15;
 
       /* Gizmo Axis Colors */
@@ -135,8 +191,6 @@
       /* Subsection: Pivot, Face Camera, Move Delta */
       --font-size-field: 11px;
       /* Field labels, input text, toggles */
-      --font-size-header-small: 12px;
-      /* Legacy alias → subsection */
       --font-size-label: 11px;
       /* Legacy alias → field */
       --font-size-small: 10px;
@@ -146,13 +200,13 @@
       --line-height-tight: 1.2;
       --line-height-normal: 1.5;
 
-      /* Spacing Scale */
-      --space-xxs: 2px;
+      /* Spacing Scale — generic ramp, 21 uses. THE ROW RHYTHM IS SEMANTIC:
+         sidebar rows use the --row-* set below, not these. Reach for --row-*
+         first; these three remain only for the non-row uses that have them.
+         (v20260905a dropped --space-xxs / -lg / -xl: zero references.) */
       --space-xs: 4px;
       --space-sm: 8px;
       --space-md: 12px;
-      --space-lg: 16px;
-      --space-xl: 24px;
 
       /* Semantic Spacing — Sidebar vertical rhythm */
       --row-height: 32px;
@@ -167,16 +221,68 @@
       /* total gap at section boundaries (via ui-hr) */
 
       /* Layout */
+      /* A CHROME ICON IS 20px SQUARE — 24 declarations across 12 elements, and
+         every one of them sets width AND height (v20260905c). On a 34px tool
+         button that is a 7px optical gutter; on a 32px tab, 6px. */
+      --icon-size: 20px;
+      /* A LIST ROW IS 20px. .scene-tree-item and .history-entry agree, and that
+         agreement is why the two lists read as one family. */
+      --row-h-list: 20px;
+      /* THE COMPACT CONTROL, 24px — the quick-style bar and the transport,
+         where the 32px row contract is deliberately broken for density.
+         NOT the HUD pills: those are also 24, but their 12px radius is exactly
+         half their height, so the two must move together. They stay literal. */
+      --control-h-compact: 24px;
       --toolbar-width: 48px;
+      /* THE SIDEBAR SPINE (v20260905a, was a bare literal in 4 rules). Four
+         unrelated row families — .prop-inline, .style-row, .xyz-row and
+         .slider-fill — pin their label column to this, and that is the only
+         reason Position / Fill / Algorithm / Opacity read as one column down
+         a 280px panel. Two of the four gate it behind a :has(); those
+         conditions are load-bearing (v20260725i) and must not be simplified. */
+      --label-col: 68px;
       --timeline-height: 0px;
 
-      /* Dimensions */
-      --radius-sm: 2px;
-      --radius-md: 2px;
-      --radius-lg: 2px;
+      /* Dimensions — the radii that actually ship, named for their job
+         (v20260905b: --radius-sm and --radius-md both held 2px and are folded
+         into one). The app is otherwise square: `border-radius: 0` appears 36
+         times, and MEASUREMENT SAYS THOSE ARE NOT TOKEN OVERRIDES —
+         border-radius does not inherit and only 6 rules reference a radius
+         token at all. 25 of the 36 sit on form controls, where they are
+         defensive resets of the UA sheet.
+         DO NOT DELETE THEM. v20260905b could only test Chromium, where every
+         control's UA default is already 0px, so they looked like no-ops and
+         the deletion was refused pending a Safari check. v20260905d ran that
+         check on the owner's Safari 26.6.2 (probe:
+         _tests/_probes/safari_radius_probe.html, self-running — open it):
+         a <select> with `appearance: none` — which is EXACTLY what every
+         select family in this app sets — carries a 5px UA radius there.
+         Deleting these zeros would round every dropdown in dim, in Safari
+         only, in an interface whose whole identity is square corners.
+         One of thirteen control types differed, and it was the one that
+         matters. The other 11 of the 36 sit on plain boxes and are inert in
+         both engines; they stay for consistency.
+         The pill radii (toggle 9px, HUD bar 12px, swatch 50%) are genuinely
+         different values and are deliberately NOT tokenized into one. */
+      --radius-chip: 2px;
       --radius-btn: 8px;
       --panel-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
       --row-bg: transparent;
+
+      /* MOTION (v20260905a, was 35 literals across 5 spellings — one of them
+         `120ms`, the same value written a different way). Four durations, and
+         ONE easing curve that is deliberately an exception: --ease-spring is
+         the toggle knob and nothing else. Everything not listed here uses the
+         browser default ease. */
+      --dur-fast: 0.1s;
+      /* direct-manipulation feedback — slider fill, gizmo label, keyframe drag */
+      --dur-reveal: 0.12s;
+      /* affordance reveal — spinner handles, scrub grip, drop stat */
+      --dur: 0.15s;
+      /* the house duration — hover, colour, collapse, fade */
+      --dur-slow: 0.2s;
+      /* larger state changes — toggle track, panel height, HUD fade */
+      --ease-spring: cubic-bezier(0.25, 1, 0.5, 1);
 
       /* Buttons — define base colors in HSL; hovers are derived via color-mix */
       --btn-bg: hsl(0, 0%, 94%);
@@ -326,7 +432,7 @@
       opacity: 0.8;
       user-select: none;
       -webkit-user-select: none;
-      transition: background 0.15s, opacity 0.2s ease;
+      transition: background var(--dur), opacity var(--dur-slow) ease;
     }
 
     .canvas-hud-bar.hud-hidden {
@@ -378,8 +484,8 @@
     }
 
     .canvas-hud-bar-circle svg {
-      width: 20px;
-      height: 20px;
+      width: var(--icon-size);
+      height: var(--icon-size);
       pointer-events: none;
     }
 
@@ -390,8 +496,8 @@
       left: 50%;
       transform: translateX(-50%);
       margin-bottom: 2px;
-      width: 20px;
-      height: 20px;
+      width: var(--icon-size);
+      height: var(--icon-size);
       color: var(--hud-label-color);
       pointer-events: none;
     }
@@ -403,8 +509,8 @@
       top: 50%;
       transform: translateY(-50%);
       margin-right: 2px;
-      width: 20px;
-      height: 20px;
+      width: var(--icon-size);
+      height: var(--icon-size);
       color: var(--hud-label-color);
       pointer-events: none;
     }
@@ -416,8 +522,8 @@
       left: 50%;
       transform: translateX(-50%);
       margin-top: 2px;
-      width: 20px;
-      height: 20px;
+      width: var(--icon-size);
+      height: var(--icon-size);
       color: var(--hud-label-color);
       pointer-events: none;
     }
@@ -438,7 +544,6 @@
       top: 50%;
       transform: translate(-50%, -50%);
       color: var(--hud-bar-text);
-      font-family: var(--font-family-sans);
       font-size: 12px;
       font-weight: 400;
       font-variant-numeric: tabular-nums;
@@ -649,11 +754,11 @@
       justify-content: center;
       padding: 0;
       color: var(--text-secondary);
-      transition: background 0.15s, color 0.15s;
+      transition: background var(--dur), color var(--dur);
     }
 
     #toolToolbar button:hover {
-      background: rgba(0, 0, 0, 0.06);
+      background-color: var(--tint-hover);
       color: var(--text-main);
     }
 
@@ -663,8 +768,8 @@
     }
 
     #toolToolbar button svg {
-      width: 20px;
-      height: 20px;
+      width: var(--icon-size);
+      height: var(--icon-size);
     }
 
     .toolbar-divider {
@@ -725,7 +830,7 @@
       left: calc(var(--toolbar-width) + 70px);
       width: 280px;
       background-color: var(--bg-panel);
-      border: 1px solid rgba(0, 0, 0, 0.08);
+      border: 1px solid var(--border-light);
       border-top: none;
       border-bottom: none;
       border-left: none;
@@ -759,8 +864,8 @@
     }
 
     #toolDrawerIcon {
-      width: 20px;
-      height: 20px;
+      width: var(--icon-size);
+      height: var(--icon-size);
       flex-shrink: 0;
       color: #fff;
     }
@@ -796,6 +901,8 @@
     #toolDrawerReEditTag svg {
       width: 13px;
       height: 13px;
+      /* 20-unit grid at 13px — 20/13 (v20260905g). */
+      stroke-width: 1.538;
       flex-shrink: 0;
     }
 
@@ -847,7 +954,7 @@
       outline: none;
       text-overflow: ellipsis;
       overflow: hidden;
-      transition: border-color 0.15s, background 0.15s;
+      transition: border-color var(--dur), background var(--dur);
     }
 
     #selectedObjectHeader #objectNameInput:hover {
@@ -910,7 +1017,7 @@
       /* Container becomes the visual panel */
       background-color: var(--bg-panel);
       box-shadow: var(--panel-shadow);
-      border: 1px solid rgba(0, 0, 0, 0.06);
+      border: 1px solid var(--line-hairline);
     }
 
     /* Flatten corners on the side touching the viewport edge */
@@ -936,7 +1043,7 @@
       padding: 0;
       pointer-events: auto;
       background-color: var(--bg-panel);
-      border: 1px solid rgba(0, 0, 0, 0.06);
+      border: 1px solid var(--line-hairline);
       border-top: none;
       border-left: none;
       border-radius: 0;
@@ -954,22 +1061,32 @@
       box-shadow: none;
     }
 
-    .left-tab {
+    /* THE ICON TAB. .left-tab (sidebar) and .obj-tab (selected-object panel)
+       are the same control in two places and declared the same ten properties
+       twice (v20260905h). A tab says "active" by colouring its icon accent —
+       no background, no underline — so the idle colour is the OPAQUE
+       --ink-icon-idle, never the alpha ramp (§8.18a). Only the transition
+       differs: .obj-tab also tints its background on hover. */
+    .left-tab,
+    .obj-tab {
       flex: 1;
       display: flex;
       align-items: center;
       justify-content: center;
-      height: 32px;
+      height: var(--row-height);
       border: none;
       background: transparent;
       cursor: pointer;
-      color: #999;
-      transition: color 0.15s;
+      color: var(--ink-icon-idle);
       padding: 0;
     }
 
+    .left-tab {
+      transition: color var(--dur);
+    }
+
     .left-tab:hover {
-      color: #262626; /* opaque equiv. of --text-main on white (no alpha stacking) */
+      color: var(--ink-icon-hover);
     }
 
     .left-tab.active {
@@ -977,8 +1094,8 @@
     }
 
     .left-tab svg {
-      width: 20px;
-      height: 20px;
+      width: var(--icon-size);
+      height: var(--icon-size);
     }
 
     /* Hide panel headers in left sidebar — tabs replace them */
@@ -1068,7 +1185,7 @@
       font-size: 10px;
       margin-right: 6px;
       color: var(--text-muted);
-      transition: transform 0.15s ease;
+      transition: transform var(--dur) ease;
       display: inline-block;
       flex-shrink: 0;
     }
@@ -1078,8 +1195,8 @@
     }
 
     .ui-header .panel-icon {
-      width: 20px;
-      height: 20px;
+      width: var(--icon-size);
+      height: var(--icon-size);
       color: var(--text-main);
       flex-shrink: 0;
       margin-right: 6px;
@@ -1087,8 +1204,8 @@
 
     .ui-header .collapse-chevron {
       margin-left: auto;
-      width: 20px;
-      height: 20px;
+      width: var(--icon-size);
+      height: var(--icon-size);
       color: var(--text-muted);
       flex-shrink: 0;
     }
@@ -1139,17 +1256,22 @@
       display: none;
     }
 
-    /* ─── History Panel (top bar dropdown) ─── */
-    #historyBar {
+    /* ─── THE TWO FLOATING TOP BARS ───────────────────────────────────────
+       #historyBar and #quickStyleBar are the same component in two places: a
+       bar pinned to the top edge, bordered on the three sides it does not
+       touch. Their rules agreed on 15 of 16 declarations (v20260905h); the one
+       difference is WHERE each sits, so `left` stays local to the quick-style
+       bar and #historyBar keeps being positioned by JS to sit beside it. */
+    #historyBar,
+    #quickStyleBar {
       position: absolute;
       top: 0;
-      /* Positioned by JS to sit right of quickStyleBar */
       display: flex;
       align-items: center;
       gap: 0;
       padding: 0;
       background: var(--bg-panel);
-      border: 1px solid rgba(0, 0, 0, 0.06);
+      border: 1px solid var(--line-hairline);
       border-top: none;
       border-left: none;
       box-shadow: var(--panel-shadow);
@@ -1168,8 +1290,8 @@
     }
 
     #historyBar .history-chevron {
-      width: 20px;
-      height: 20px;
+      width: var(--icon-size);
+      height: var(--icon-size);
       color: var(--text-muted);
       flex-shrink: 0;
     }
@@ -1181,7 +1303,7 @@
       min-width: 240px;
       max-width: 320px;
       background: var(--bg-panel);
-      border: 1px solid rgba(0, 0, 0, 0.08);
+      border: 1px solid var(--border-light);
       border-top: none;
       box-shadow: var(--panel-shadow);
       padding: 4px 0;
@@ -1222,7 +1344,7 @@
     .history-entry {
       display: flex;
       align-items: center;
-      min-height: 20px;
+      min-height: var(--row-h-list);
       padding: 1px 8px;
       cursor: pointer;
       border-radius: 2px;
@@ -1231,11 +1353,11 @@
     }
 
     .history-entry:hover {
-      background-color: rgba(0, 0, 0, 0.04);
+      background-color: var(--tint-hover);
     }
 
     .history-entry.history-current {
-      background-color: rgba(0, 0, 0, 0.08);
+      background-color: var(--tint-selected);
       font-weight: 700;
     }
 
@@ -1270,25 +1392,12 @@
     }
 
     .obj-tab {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 32px;
-      border: none;
-      background: transparent;
-      cursor: pointer;
-      /* Opaque grey, NOT an alpha color: icons with overlapping strokes
-         double-composite alpha where paths cross and look blotchy.
-         #999 matches the .left-tab idle grey. */
-      color: #999;
-      transition: color 0.15s, background 0.15s;
-      padding: 0;
+      transition: color var(--dur), background var(--dur);
     }
 
     .obj-tab:hover {
-      color: #262626; /* opaque equiv. of --text-main on white (no alpha stacking) */
-      background: rgba(0, 0, 0, 0.04);
+      color: var(--ink-icon-hover);
+      background: var(--tint-hover);
     }
 
     .obj-tab.active {
@@ -1296,15 +1405,15 @@
     }
 
     .obj-tab svg {
-      width: 20px;
-      height: 20px;
+      width: var(--icon-size);
+      height: var(--icon-size);
     }
 
     /* Tool drawer collapse chevron — white, right-aligned */
     #toolDrawerHeader .collapse-chevron {
       margin-left: auto;
-      width: 20px;
-      height: 20px;
+      width: var(--icon-size);
+      height: var(--icon-size);
       color: rgba(255, 255, 255, 0.7);
       flex-shrink: 0;
     }
@@ -1312,7 +1421,7 @@
     /* Chevron-only hover: pointer cursor + brighten on all collapsible headers */
     .collapse-chevron {
       cursor: pointer;
-      transition: color 0.15s, background 0.15s;
+      transition: color var(--dur), background var(--dur);
     }
 
     .collapse-chevron:hover {
@@ -1371,7 +1480,7 @@
       display: inline-block;
       font-size: 10px;
       color: var(--text-secondary);
-      transition: transform 0.15s ease;
+      transition: transform var(--dur) ease;
       flex-shrink: 0;
       width: 10px;
     }
@@ -1428,15 +1537,25 @@
     }
 
     /* UI COMPONENTS */
-    .prop-row {
+    /* THE ROW CONTRACT. .prop-row (the generic container row) and .xyz-row
+       (the labelled multi-field row) declared the same seven-property geometry
+       independently (v20260905h): one row is 32px tall with 4px/8px padding, a
+       4px top margin and an 8px gap. .style-row is deliberately NOT in here —
+       its gap is 1px, which is the whole difference between the two families
+       (§8.18 / sheet 3). */
+    .prop-row,
+    .xyz-row {
       display: flex;
-      gap: var(--space-sm);
-      margin-top: var(--row-gap);
       align-items: center;
+      gap: var(--space-sm);
       min-height: var(--row-height);
-      background: var(--row-bg);
-      border-radius: var(--radius-md);
       padding: var(--row-padding-v) var(--row-padding-h);
+      border-radius: var(--radius-chip);
+      margin-top: var(--row-gap);
+    }
+
+    .prop-row {
+      background: var(--row-bg);
     }
 
     .prop-row-plain {
@@ -1460,20 +1579,27 @@
       align-items: center;
     }
 
-    .prop-inline>label {
+    /* THE ROW LABEL. Muted, 11px/500, ellipsised, taking the slack until a
+       :has() pins it to --label-col. .prop-inline and .style-row declared it
+       identically (v20260905h). */
+    .prop-inline>label,
+    .style-row>label {
       flex: 1;
       color: var(--text-muted);
       font-weight: 500;
       font-size: var(--font-size-field);
-      margin: 0;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
+    .prop-inline>label {
+      margin: 0;
+    }
+
     /* When paired with an input/select/color, fix label to 68px column */
     .prop-inline:has(> .ui-input, > .ui-select, > .ui-input-color, > .num-spin-wrap)>label {
-      flex: 0 0 68px;
+      flex: 0 0 var(--label-col);
     }
 
     .prop-inline>.ui-checkbox {
@@ -1509,19 +1635,41 @@
     }
 
     /* INPUTS & SELECTS — Unified flat style (matches xyz-row / style-row) */
+    /* ── THE FLAT FIELD ─────────────────────────────────────────────────
+       Every field in dim is white-on-panel with no border, 11px/500 in the
+       app font. Those five declarations WERE RESTATED IN ALL TWELVE of the
+       field families below - 60 declarations saying one thing (v20260905b).
+       They are collected here; each family keeps only what genuinely differs
+       (its geometry, its alignment, and for a select its chevron).
+       Placed BEFORE every family so it loses ties, and written with the
+       background-COLOR longhand so it can never reset a chevron image. */
+    .ui-input,
+    .ui-select,
+    .num-spin-wrap>input[type="number"],
+    #quickStyleBar select,
+    #quickStyleBar input[type="number"],
+    #quickStyleBar .color-hex-input,
+    .style-row .color-hex-input,
+    .style-row select,
+    .xyz-row>.xyz-inputs>input,
+    .xyz-row>.xyz-inputs>textarea,
+    .xyz-row>.xyz-inputs>select,
+    .tl-frame-display .num-spin-wrap>input[type="number"],
+    .tl-interp-select {
+      background-color: var(--bg-input);
+      border: none;
+      color: var(--text-main);
+      font-size: var(--font-size-field);
+      font-weight: 500;
+    }
+
     .ui-input,
     .ui-select {
       width: 100%;
-      background: var(--bg-input);
-      border: none;
       border-radius: 0;
-      color: var(--text-main);
       padding: var(--row-padding-v) 6px;
       box-sizing: border-box;
-      font-size: var(--font-size-field);
-      font-weight: 500;
       font-variant-numeric: tabular-nums;
-      font-family: var(--font-family-sans);
       line-height: 1;
       text-box: normal;
     }
@@ -1535,7 +1683,7 @@
        unaffected either way — it carries no background-image. */
     .ui-input:hover,
     .ui-select:hover {
-      background-color: rgba(255, 255, 255, 0.95);
+      background-color: var(--bg-input-hover);
     }
 
     .ui-input:focus,
@@ -1544,7 +1692,7 @@
       background-color: rgba(255, 255, 255, 1);
       position: relative;
       z-index: 1;
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
     }
 
     input[type="number"].ui-input {
@@ -1578,16 +1726,10 @@
       padding-right: 12px;
       /* space for 8px spinner + 1.5px border inset + gap */
       width: 100%;
-      border: none;
       border-radius: 0;
       outline: none;
       box-sizing: border-box;
-      background: var(--bg-input);
-      color: var(--text-main);
-      font-size: var(--font-size-field);
-      font-weight: 500;
       font-variant-numeric: tabular-nums;
-      font-family: var(--font-family-sans);
       padding-top: var(--row-padding-v);
       padding-bottom: var(--row-padding-v);
       padding-left: 12px;
@@ -1599,7 +1741,7 @@
     }
 
     .num-spin-wrap>input[type="number"]:hover {
-      background: rgba(255, 255, 255, 0.95);
+      background-color: var(--bg-input-hover);
     }
 
     .num-spin-wrap>input[type="number"]:focus {
@@ -1607,7 +1749,7 @@
       background: rgba(255, 255, 255, 1);
       position: relative;
       z-index: 1;
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
     }
 
     /* Spinner button container — inset inside focus border */
@@ -1622,7 +1764,7 @@
       z-index: 3;
       pointer-events: auto;
       opacity: 0;
-      transition: opacity 0.12s ease;
+      transition: opacity var(--dur-reveal) ease;
     }
 
     .num-spin-wrap:hover>.num-spin-btns,
@@ -1659,7 +1801,13 @@
       border-bottom: 0.5px solid #fff;
     }
 
-    .num-spin-btns>button>svg {
+    /* The stepper glyph and the scrub glyph are the SAME artwork treatment —
+       a 0.5px white hairline filling its 8px gutter. These two rules were
+       byte-identical, 7 declarations each (v20260905h). Deliberately NOT
+       normalised to the 1.0px icon stroke: this is gutter chrome, not an
+       icon (§8.18). */
+    .num-spin-btns>button>svg,
+    .num-spin-scrub>svg {
       width: 100%;
       height: 100%;
       fill: none;
@@ -1695,7 +1843,7 @@
     /* quickStyleBar children */
     #quickStyleBar .num-spin-wrap {
       width: 48px;
-      height: 24px;
+      height: var(--control-h-compact);
     }
 
     #quickStyleBar .num-spin-wrap>input[type="number"] {
@@ -1720,7 +1868,7 @@
       z-index: 3;
       pointer-events: auto;
       opacity: 0;
-      transition: opacity 0.12s ease;
+      transition: opacity var(--dur-reveal) ease;
       cursor: ew-resize;
       display: flex;
       align-items: center;
@@ -1746,16 +1894,6 @@
     .num-spin-scrub:active,
     .num-spin-scrub.scrubbing {
       background: #b0b0b0;
-    }
-
-    .num-spin-scrub>svg {
-      width: 100%;
-      height: 100%;
-      fill: none;
-      stroke: #fff;
-      stroke-width: 0.5;
-      stroke-linecap: round;
-      stroke-linejoin: round;
     }
 
     /* Hide scrub handle in compact quickStyleBar */
@@ -1790,7 +1928,7 @@
       background: rgba(0, 0, 0, 0.06);
       border-radius: inherit;
       pointer-events: none;
-      transition: width 0.1s ease;
+      transition: width var(--dur-fast) ease;
     }
 
     .slider-fill>label,
@@ -1800,7 +1938,7 @@
     }
 
     .slider-fill>label {
-      flex: 0 0 68px;
+      flex: 0 0 var(--label-col);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -1824,7 +1962,6 @@
       padding: 0;
       position: relative;
       z-index: 1;
-      font-family: var(--font-family-sans);
     }
 
     .slider-fill-value::-webkit-inner-spin-button,
@@ -1903,7 +2040,7 @@
       font-weight: 500;
       background: var(--btn-bg);
       text-align: center;
-      transition: all 0.2s;
+      transition: all var(--dur-slow);
     }
 
     .ui-btn:hover {
@@ -1964,8 +2101,7 @@
       min-width: 320px;
       max-width: 400px;
       overflow: hidden;
-      font-family: var(--font-family-sans);
-      animation: appModalIn 0.15s ease-out;
+      animation: appModalIn var(--dur) ease-out;
     }
 
     @keyframes appModalIn {
@@ -2122,7 +2258,7 @@
       margin: 0;
       border: none;
       outline: none;
-      transition: background-color 0.2s ease;
+      transition: background-color var(--dur-slow) ease;
       flex-shrink: 0;
     }
 
@@ -2136,7 +2272,7 @@
       border-radius: 50%;
       background: white;
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
-      transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+      transition: transform var(--dur-slow) var(--ease-spring);
     }
 
     .ui-toggle:checked {
@@ -2164,7 +2300,7 @@
       margin: 0;
       outline: none;
       flex-shrink: 0;
-      transition: border-color 0.15s, background-color 0.15s;
+      transition: border-color var(--dur), background-color var(--dur);
     }
 
     .ui-checkbox:hover {
@@ -2198,24 +2334,10 @@
       padding: 0;
     }
 
-    /* ─── Quick Style Bar ─── */
+    /* ─── Quick Style Bar ─── (geometry is shared with #historyBar above;
+       only its position is local) */
     #quickStyleBar {
-      position: absolute;
-      top: 0;
       left: calc(var(--toolbar-width) + 280px);
-      display: flex;
-      align-items: center;
-      gap: 0;
-      padding: 0;
-      background: var(--bg-panel);
-      border: 1px solid rgba(0, 0, 0, 0.06);
-      border-top: none;
-      border-left: none;
-      box-shadow: var(--panel-shadow);
-      z-index: 11;
-      pointer-events: auto;
-      font-size: var(--font-size-label);
-      color: var(--text-main);
     }
 
     /* Match left tab bar height: .left-tab is 32px + 1px bottom border = 33px from top.
@@ -2226,7 +2348,7 @@
       align-items: center;
       gap: 5px;
       padding: 0 8px;
-      height: 32px;
+      height: var(--row-height);
       /* same as .left-tab height */
     }
 
@@ -2248,14 +2370,8 @@
 
     #quickStyleBar select {
       max-width: 130px;
-      height: 24px;
-      font-size: var(--font-size-field);
-      border: none;
+      height: var(--control-h-compact);
       border-radius: 0;
-      background: var(--bg-input);
-      color: var(--text-main);
-      font-weight: 500;
-      font-family: var(--font-family-sans);
       cursor: pointer;
       padding: 0 20px 0 6px;
       -webkit-appearance: none;
@@ -2268,71 +2384,64 @@
     }
 
     #quickStyleBar select:hover {
-      background-color: rgba(255, 255, 255, 0.95);
+      background-color: var(--bg-input-hover);
     }
 
     #quickStyleBar select:focus {
       outline: none;
       background-color: rgba(255, 255, 255, 1);
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
       position: relative;
       z-index: 1;
     }
 
     #quickStyleBar input[type="number"] {
       width: 48px;
-      height: 24px;
-      font-size: var(--font-size-field);
+      height: var(--control-h-compact);
       text-align: center;
-      border: none;
       border-radius: 0;
-      background: var(--bg-input);
-      color: var(--text-main);
-      font-weight: 500;
       font-variant-numeric: tabular-nums;
       padding: 0 2px;
     }
 
     #quickStyleBar input[type="number"]:hover {
-      background: rgba(255, 255, 255, 0.95);
+      background-color: var(--bg-input-hover);
     }
 
     #quickStyleBar input[type="number"]:focus {
       outline: none;
       background: rgba(255, 255, 255, 1);
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
       position: relative;
       z-index: 1;
     }
 
     #quickStyleBar .color-hex-input {
       width: 64px;
-      height: 24px;
-      border: none;
+      height: var(--control-h-compact);
       border-radius: 0;
-      background: var(--bg-input);
-      color: var(--text-main);
-      font-weight: 500;
       font-variant-numeric: tabular-nums;
-      font-size: var(--font-size-field);
       padding: 0 6px;
       text-align: right;
     }
 
     #quickStyleBar .color-hex-input:hover {
-      background: rgba(255, 255, 255, 0.95);
+      background-color: var(--bg-input-hover);
     }
 
     #quickStyleBar .color-hex-input:focus {
       outline: none;
       background: rgba(255, 255, 255, 1);
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
       position: relative;
       z-index: 1;
     }
 
-    /* Fill: circle swatch — match .style-row sizing */
-    #quickStyleBar input[type="color"].color-fill {
+    /* THE FILL SWATCH is a 22px circle wherever it appears — the quick-style
+       bar and the style row declared the same 8 properties twice (v20260905h).
+       Shape is what says "fill" before the colour does (§8.18 / sheet 2). */
+    #quickStyleBar input[type="color"].color-fill,
+    .style-row input[type="color"].color-fill {
       width: 22px;
       height: 22px;
       min-width: 22px;
@@ -2362,18 +2471,8 @@
       gap: 1px;
       min-height: var(--row-height);
       padding: var(--row-padding-v) var(--row-padding-h);
-      border-radius: var(--radius-md);
+      border-radius: var(--radius-chip);
       margin-top: var(--row-gap);
-    }
-
-    .style-row>label {
-      flex: 1;
-      color: var(--text-muted);
-      font-size: var(--font-size-field);
-      font-weight: 500;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
 
     /* Pin label to fixed column when row has multiple inputs (number, color, hex)
@@ -2382,7 +2481,7 @@
        label to ZERO (flex:1 + overflow:hidden + ellipsis = invisible). That is
        why "Trim Mode" and "3D Stroke" rendered as unlabelled dropdowns. */
     .style-row:has(> input[type="number"], > .num-spin-wrap, > .color-hex-input, > input[type="color"], > select)>label {
-      flex: 0 0 68px;
+      flex: 0 0 var(--label-col);
     }
 
     /* A select sharing a row with its label must not demand the full width. */
@@ -2425,24 +2524,18 @@
     /* Number inputs: styled by .num-spin-wrap > input (init wraps all).
        Wrapper sizing at .style-row .num-spin-wrap (line ~1383). */
     .style-row .color-hex-input {
-      border: none;
       border-radius: 0;
-      background: var(--bg-input);
       padding: var(--row-padding-v) 6px;
       line-height: 1;
       text-box: normal;
       box-sizing: border-box;
       text-align: right;
-      font-size: var(--font-size-field);
       font-variant-numeric: tabular-nums;
-      color: var(--text-main);
-      font-weight: 500;
       min-width: 0;
-      font-family: var(--font-family-sans);
     }
 
     .style-row .color-hex-input:hover {
-      background: rgba(255, 255, 255, 0.95);
+      background-color: var(--bg-input-hover);
     }
 
     .style-row .color-hex-input:focus {
@@ -2450,21 +2543,15 @@
       background: rgba(255, 255, 255, 1);
       position: relative;
       z-index: 1;
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
     }
 
     /* Select dropdowns inside style-row: match number input styling */
     .style-row select {
-      border: none;
       border-radius: 0;
-      background: var(--bg-input);
       padding: var(--row-padding-v) 20px var(--row-padding-v) 6px;
       line-height: 1;
       box-sizing: border-box;
-      font-size: var(--font-size-field);
-      color: var(--text-main);
-      font-weight: 500;
-      font-family: var(--font-family-sans);
       min-width: 0;
       cursor: pointer;
       -webkit-appearance: none;
@@ -2477,7 +2564,7 @@
     }
 
     .style-row select:hover {
-      background-color: rgba(255, 255, 255, 0.95);
+      background-color: var(--bg-input-hover);
     }
 
     .style-row select:focus {
@@ -2485,7 +2572,7 @@
       background-color: rgba(255, 255, 255, 1);
       position: relative;
       z-index: 1;
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
     }
 
     .style-row select+.axis-label {
@@ -2501,17 +2588,10 @@
       margin: 0 4px;
     }
 
-    /* Fill color: circle swatch */
+    /* Fill color: circle swatch — geometry shared with the quick-style bar's
+       copy above; only the row margin is local. */
     .style-row input[type="color"].color-fill {
-      width: 22px;
-      height: 22px;
-      min-width: 22px;
-      flex: 0 0 auto;
       margin: 0 4px;
-      border-radius: 50%;
-      padding: 0;
-      border: none;
-      background: none;
     }
 
     .color-hex-input {
@@ -2521,19 +2601,9 @@
       letter-spacing: 0.5px;
     }
 
-    /* ─── Unified XYZ Row (.xyz-row) ─── */
-    .xyz-row {
-      display: flex;
-      align-items: center;
-      gap: var(--space-sm);
-      min-height: var(--row-height);
-      padding: var(--row-padding-v) var(--row-padding-h);
-      border-radius: var(--radius-md);
-      margin-top: var(--row-gap);
-    }
-
+    /* ─── Unified XYZ Row (.xyz-row) ─── (geometry in the row contract above) */
     .xyz-row>label {
-      flex: 0 0 68px;
+      flex: 0 0 var(--label-col);
       color: var(--text-muted);
       font-size: var(--font-size-field);
       font-weight: 500;
@@ -2559,21 +2629,15 @@
 
     .xyz-row>.xyz-inputs>input {
       flex: 1;
-      border: none;
       border-radius: 0;
-      background: var(--bg-input);
       padding: var(--row-padding-v) 6px;
       text-align: right;
-      font-size: var(--font-size-field);
       font-variant-numeric: tabular-nums;
-      color: var(--text-main);
-      font-weight: 500;
       min-width: 0;
-      font-family: var(--font-family-sans);
     }
 
     .xyz-row>.xyz-inputs>input:hover {
-      background: rgba(255, 255, 255, 0.95);
+      background-color: var(--bg-input-hover);
     }
 
     .xyz-row>.xyz-inputs>input:focus {
@@ -2581,25 +2645,19 @@
       background: rgba(255, 255, 255, 1);
       position: relative;
       z-index: 1;
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
     }
 
     /* Textarea inside xyz-inputs — same flat style as inputs */
     .xyz-row>.xyz-inputs>textarea {
       flex: 1;
-      border: none;
       border-radius: 0;
-      background: var(--bg-input);
       padding: var(--row-padding-v) 6px;
-      font-size: var(--font-size-field);
-      color: var(--text-main);
-      font-weight: 500;
       min-width: 0;
-      font-family: var(--font-family-sans);
     }
 
     .xyz-row>.xyz-inputs>textarea:hover {
-      background: rgba(255, 255, 255, 0.95);
+      background-color: var(--bg-input-hover);
     }
 
     .xyz-row>.xyz-inputs>textarea:focus {
@@ -2607,7 +2665,7 @@
       background: rgba(255, 255, 255, 1);
       position: relative;
       z-index: 1;
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
     }
 
     /* 2-input variant (bare inputs) — no rounded corners */
@@ -2660,7 +2718,6 @@
       color: var(--text-main);
       font-weight: 500;
       min-width: 0;
-      font-family: var(--font-family-sans);
     }
 
     .xyz-row>.xyz-inputs>.xyz-field>input:hover {
@@ -2672,7 +2729,7 @@
       background: rgba(255, 255, 255, 0.7);
       position: relative;
       z-index: 1;
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
     }
 
     /* ── Select inside xyz-field ── */
@@ -2686,7 +2743,6 @@
       color: var(--text-main);
       font-weight: 500;
       min-width: 0;
-      font-family: var(--font-family-sans);
       cursor: pointer;
       text-align: right;
       direction: rtl;
@@ -2706,21 +2762,15 @@
     .xyz-row>.xyz-inputs>.xyz-field>select:focus {
       outline: none;
       background-color: rgba(255, 255, 255, 0.7);
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
     }
 
     /* ── Bare select inside xyz-inputs (solo-select) ── */
     .xyz-row>.xyz-inputs>select {
       flex: 1;
-      border: none;
       border-radius: 0;
-      background: var(--bg-input);
       padding: var(--row-padding-v) 20px var(--row-padding-v) 6px;
-      font-size: var(--font-size-field);
-      color: var(--text-main);
-      font-weight: 500;
       min-width: 0;
-      font-family: var(--font-family-sans);
       cursor: pointer;
       text-align: right;
       direction: rtl;
@@ -2734,13 +2784,13 @@
     }
 
     .xyz-row>.xyz-inputs>select:hover {
-      background-color: rgba(255, 255, 255, 0.95);
+      background-color: var(--bg-input-hover);
     }
 
     .xyz-row>.xyz-inputs>select:focus {
       outline: none;
       background-color: rgba(255, 255, 255, 1);
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
     }
 
     /* ── Color input inside xyz-inputs ── */
@@ -3021,7 +3071,7 @@
 
     .ui-hr {
       border: 0;
-      border-top: 1px solid rgba(0, 0, 0, 0.04);
+      border-top: 1px solid var(--line-faint);
       margin: calc(var(--section-gap) / 2) 0;
     }
 
@@ -3092,7 +3142,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      min-height: 20px;
+      min-height: var(--row-h-list);
       padding: 1px 8px;
       cursor: pointer;
       border-radius: 0;
@@ -3128,15 +3178,15 @@
 
     .scene-tree-item.drag-into {
       background: oklch(from var(--accent-color) l c h / 0.12) !important;
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
     }
 
     .scene-tree-item:hover {
-      background-color: rgba(0, 0, 0, 0.04);
+      background-color: var(--tint-hover);
     }
 
     .scene-tree-item.selected {
-      background-color: rgba(0, 0, 0, 0.08);
+      background-color: var(--tint-selected);
     }
 
     .scene-tree-item.active {
@@ -3174,6 +3224,10 @@
     .tree-action-bar .ui-btn-small svg {
       width: 16px;
       height: 16px;
+      /* 30-unit grid at 16px = scale 0.53, so its 1.3 stroke rendered at
+         0.69px — the lightest icons in the app. 30/16 puts it on the house
+         1.0px (v20260905g). */
+      stroke-width: 1.875;
       vertical-align: middle;
     }
 
@@ -3203,6 +3257,10 @@
     .tree-type-icon svg {
       width: 14px;
       height: 14px;
+      /* 30-unit grid at 14px — 30/14. Was 0.47px. The 0.5 opacity on
+         .tree-type-icon is a separate, deliberate dimming and stays
+         (v20260905g). */
+      stroke-width: 2.143;
       display: block;
     }
 
@@ -3218,7 +3276,7 @@
     .tree-lock-toggle {
       cursor: pointer;
       opacity: 0.35;
-      transition: opacity 0.15s;
+      transition: opacity var(--dur);
     }
 
     .tree-lock-toggle:hover {
@@ -3232,7 +3290,7 @@
     .tree-eye-toggle {
       cursor: pointer;
       opacity: 1;
-      transition: opacity 0.15s;
+      transition: opacity var(--dur);
     }
 
     .tree-eye-toggle:hover {
@@ -3370,7 +3428,7 @@
     }
 
     .gizmo-label {
-      transition: stroke-width 0.1s;
+      transition: stroke-width var(--dur-fast);
     }
 
     .gizmo-label:hover {
@@ -3424,12 +3482,11 @@
       left: var(--toolbar-width);
       right: 0;
       z-index: 500;
-      font-family: var(--font-family-sans);
       font-size: var(--font-size-field);
       color: var(--text-main);
       background: var(--bg-panel);
       border-top: 1px solid var(--border-light);
-      transition: height 0.2s ease;
+      transition: height var(--dur-slow) ease;
       display: none;
       /* Revealed at boot by setAnimationEnabled(ANIMATION_DEFAULT_ON), which is
          true. Kept `none` here rather than `flex` so a build with the gate off
@@ -3439,7 +3496,7 @@
     }
 
     #timelinePanel.collapsed {
-      height: 32px;
+      height: var(--row-height);
     }
 
     #timelinePanel.expanded {
@@ -3473,7 +3530,7 @@
       height: 1px;
       background: var(--accent-color);
       opacity: 0;
-      transition: opacity 0.15s ease;
+      transition: opacity var(--dur) ease;
     }
 
     .tl-resize-handle:hover::after,
@@ -3490,8 +3547,8 @@
     .tl-header {
       display: flex;
       align-items: center;
-      height: 32px;
-      min-height: 32px;
+      height: var(--row-height);
+      min-height: var(--row-height);
       padding: 0 8px;
       gap: 4px;
       border-bottom: 1px solid var(--border-light);
@@ -3520,14 +3577,13 @@
       align-items: center;
       justify-content: center;
       width: 24px;
-      height: 24px;
+      height: var(--control-h-compact);
       border: none;
       background: transparent;
       color: var(--text-main);
       border-radius: var(--radius-btn);
       cursor: pointer;
       padding: 0;
-      font-family: var(--font-family-sans);
       font-size: var(--font-size-field);
       font-weight: 500;
     }
@@ -3589,7 +3645,6 @@
       color: var(--text-secondary);
       margin-left: auto;
       font-variant-numeric: tabular-nums;
-      font-family: var(--font-family-sans);
       white-space: nowrap;
       display: flex;
       align-items: center;
@@ -3607,7 +3662,7 @@
       color: var(--text-tertiary, #999);
       margin-right: 6px;
       font-variant-numeric: tabular-nums;
-      transition: color 120ms ease;
+      transition: color var(--dur-reveal) ease;
     }
 
     .tl-drop-stat.dropping {
@@ -3640,15 +3695,9 @@
       width: 48px;
       height: 21px;
       padding: 0 12px 0 4px;
-      border: none;
-      background: var(--bg-input);
       border-radius: 0;
-      font-size: var(--font-size-field);
-      font-weight: 500;
       font-variant-numeric: tabular-nums;
-      font-family: var(--font-family-sans);
       text-align: right;
-      color: var(--text-main);
       box-sizing: border-box;
       line-height: 1;
     }
@@ -3682,13 +3731,13 @@
     }
 
     .tl-frame-display .num-spin-wrap>input[type="number"]:hover {
-      background: rgba(255, 255, 255, 0.95);
+      background-color: var(--bg-input-hover);
     }
 
     .tl-frame-display .num-spin-wrap>input[type="number"]:focus {
       outline: none;
       background: rgba(255, 255, 255, 1);
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
     }
 
     .tl-checkbox-label {
@@ -3886,7 +3935,7 @@
       border-left: 1px solid var(--accent-color);
       border-bottom: 1px solid var(--accent-color);
       opacity: 0;
-      transition: opacity 0.15s ease;
+      transition: opacity var(--dur) ease;
     }
 
     #subWinResizeL:hover::after,
@@ -3904,7 +3953,7 @@
       border-right: 1px solid var(--accent-color);
       border-bottom: 1px solid var(--accent-color);
       opacity: 0;
-      transition: opacity 0.15s ease;
+      transition: opacity var(--dur) ease;
     }
 
     #subWinResize:hover::after,
@@ -4008,14 +4057,8 @@
     .tl-interp-select {
       display: none;
       margin-left: 8px;
-      border: none;
-      border-radius: var(--radius-sm);
-      background: var(--bg-input);
+      border-radius: var(--radius-chip);
       padding: 2px 20px 2px 6px;
-      font-size: var(--font-size-field);
-      color: var(--text-main);
-      font-weight: 500;
-      font-family: var(--font-family-sans);
       cursor: pointer;
       -webkit-appearance: none;
       -moz-appearance: none;
@@ -4027,13 +4070,13 @@
     }
 
     .tl-interp-select:hover {
-      background-color: rgba(255, 255, 255, 0.95);
+      background-color: var(--bg-input-hover);
     }
 
     .tl-interp-select:focus {
       outline: none;
       background-color: rgba(255, 255, 255, 1);
-      box-shadow: inset 0 0 0 1.5px var(--accent-color);
+      box-shadow: var(--focus-ring);
     }
 
     .tl-interp-select.visible {
@@ -4061,8 +4104,8 @@
     /* --- Ruler --- */
     .tl-ruler-row {
       display: flex;
-      height: 24px;
-      min-height: 24px;
+      height: var(--control-h-compact);
+      min-height: var(--control-h-compact);
       border-bottom: 1px solid var(--border-light);
     }
 
@@ -4112,7 +4155,7 @@
       white-space: nowrap;
       overflow: visible;
       text-overflow: ellipsis;
-      border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+      border-bottom: 1px solid var(--line-faint);
       cursor: default;
     }
 
@@ -4129,7 +4172,7 @@
       font-size: var(--font-size-field);
       color: var(--text-main);
       font-weight: 600;
-      border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+      border-bottom: 1px solid var(--line-hairline);
       cursor: pointer;
       display: flex;
       align-items: center;
@@ -4149,13 +4192,15 @@
       width: 12px;
       height: 12px;
       flex-shrink: 0;
-      transition: transform 0.15s;
+      transition: transform var(--dur);
       color: var(--text-muted);
     }
 
     .tl-group-toggle svg {
       width: 12px;
       height: 12px;
+      /* 20-unit grid at 12px — 20/12. Was 0.6px (v20260905g). */
+      stroke-width: 1.667;
       display: block;
     }
 
@@ -4173,7 +4218,7 @@
       font-weight: 600;
       letter-spacing: 0.3px;
       text-transform: uppercase;
-      border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+      border-bottom: 1px solid var(--line-faint);
       cursor: pointer;
       display: flex;
       align-items: center;
@@ -4218,6 +4263,10 @@
     .tl-key-all-btn svg {
       width: 12px;
       height: 12px;
+      /* 10 x 10.65 grid at 12px — the HEIGHT governs the fit, so the scale is
+         12/10.65 = 1.127, not 12/10. The one icon that was too HEAVY (1.09px);
+         1/1.127 (v20260905g). */
+      stroke-width: 0.8875;
       display: block;
     }
 
@@ -4361,6 +4410,8 @@
     .tl-cut-btn svg {
       width: 9px;
       height: 9.6px;
+      /* 10-unit grid at 9px — 10/9 (v20260905g). */
+      stroke-width: 1.111;
       display: block;
       overflow: visible;
     }
@@ -4384,6 +4435,8 @@
     .tl-key-single-btn svg {
       width: 10px;
       height: 10px;
+      /* 14-unit grid at 10px — 14/10 (v20260905g). */
+      stroke-width: 1.4;
     }
 
     .tl-key-single-btn:hover {
@@ -4525,7 +4578,7 @@
     .tl-track-row {
       height: var(--row-height);
       position: relative;
-      border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+      border-bottom: 1px solid var(--line-faint);
     }
 
     /* --- Layer duration bar (v20260729a, object header rows) --- */
@@ -4611,7 +4664,7 @@
       width: 100%;
       height: 1px;
       opacity: 0.4;
-      transition: all 0.15s ease;
+      transition: all var(--dur) ease;
     }
 
     .tl-kf-line.solid::after {
@@ -4662,7 +4715,7 @@
       transform: translate(-50%, -50%);
       cursor: grab;
       z-index: 1;
-      transition: transform 0.1s, filter 0.1s, color 0.1s;
+      transition: transform var(--dur-fast), filter var(--dur-fast), color var(--dur-fast);
     }
 
     .tl-keyframe>svg {
@@ -4946,9 +4999,9 @@
       style="display:none">
       <line x1="15" y1="5" x2="5" y2="15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
       <polyline points="11 4 16 4 16 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none"
-        stroke-width="1.14" />
+        stroke-width="1" />
       <polyline points="9.03 15.97 4.03 15.97 4.03 10.97" stroke="currentColor" stroke-linecap="round"
-        stroke-linejoin="round" fill="none" stroke-width="1.14" />
+        stroke-linejoin="round" fill="none" stroke-width="1" />
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 104 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <!-- Left chevron -->
@@ -5057,15 +5110,15 @@
     </button>
     <button data-tool="rotate" title="Rotate (R)">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-        <path stroke-width="1.14" d="M7,3h3c2.76,0,5,2.24,5,5v3" />
-        <polyline stroke-width="1.14" points="18.54 7.46 15 11 11.46 7.46" />
+        <path stroke-width="1" d="M7,3h3c2.76,0,5,2.24,5,5v3" />
+        <polyline stroke-width="1" points="18.54 7.46 15 11 11.46 7.46" />
         <rect x="2" y="10" width="8" height="8" />
       </svg>
     </button>
     <button data-tool="scale" title="Scale (S)">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
         <line x1="15" y1="5" x2="5" y2="15" />
-        <polyline stroke-width="1.14" points="10 5 15 5 15 10" />
+        <polyline stroke-width="1" points="10 5 15 5 15 10" />
         <g>
           <line x1="2" y1="10" x2="2" y2="9" />
           <line stroke-dasharray="2 2" x1="2" y1="7" x2="2" y2="4" />
@@ -5084,7 +5137,7 @@
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
         <polygon points="16 18 8 18 2 2 10 2 16 18" />
         <line x1="7" y1="10" x2="18" y2="10" />
-        <polyline stroke-width="1.14" points="10 13 7 10 10 7" />
+        <polyline stroke-width="1" points="10 13 7 10 10 7" />
       </svg>
     </button>
     <button data-tool="pivot" title="Pivot (J)">
@@ -7025,7 +7078,7 @@
               </button>
               <button class="obj-tab" data-obj-panel="sub-3d-mapping" title="3D Mapping">
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round"
-                  stroke-linejoin="round" stroke-width="0.81">
+                  stroke-linejoin="round" stroke-width="1">
                   <path d="M7.22,14.9s-.06,0-.09,0c-1.25-.07-2.49-.13-3.74-.2V1c1.25.07,2.49.13,3.74.2,1.43.08,2.15.32,2.15.74" />
                   <path d="M7.22,4.07c0,.5,1.34.67,4.02.53,3.58-.2,5.36.04,5.36.7v13.7c0-.66-1.79-.9-5.36-.7-2.68.15-4.02-.03-4.02-.53V4.07Z" />
                   <path d="M7.22,14.11c.01.12.05.19.22.3,1.25.47,3.31.24,4.96.18,0-4.29,0-2.08,0-6.37-1.65.06-3.71.28-4.96-.18-.16-.11-.2-.18-.22-.3v6.37Z" />
@@ -69802,8 +69855,8 @@
     </svg>
     <svg id="subHudSizeIcon" class="hud-bar-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:none">
       <line x1="15" y1="5" x2="5" y2="15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
-      <polyline points="11 4 16 4 16 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="1.14" />
-      <polyline points="9.03 15.97 4.03 15.97 4.03 10.97" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="1.14" />
+      <polyline points="11 4 16 4 16 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="1" />
+      <polyline points="9.03 15.97 4.03 15.97 4.03 10.97" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="1" />
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 72 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <polyline points="18 16 12 12 18 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />

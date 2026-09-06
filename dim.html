@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260906e -->
+<!-- dim v20260906o -->
 
 <!--
   MIT License
@@ -144,6 +144,13 @@
       --ink-icon-hover: #262626;
 
       --accent-a: var(--accent-color);
+
+      /* ANIMATED-FIELD INDICATOR (v20260906f). Text colour of a panel field whose
+         track has keys while the playhead sits BETWEEN keys. 75% accent over
+         the input ground: 4.20:1 on white (50% measured 2.45:1, unreadable at
+         11px). ON a key the field uses --accent-color itself + weight 600.
+         Plan: _plans/PLAN-panel-animated-fields.md */
+      --text-animated: color-mix(in srgb, var(--accent-color) 75%, var(--bg-input));
 
       /* THE FOCUS RING (v20260905b, was 15 pasted copies). The ring is an
          INSET box-shadow and not an `outline` because .xyz-inputs sets
@@ -4975,6 +4982,21 @@
       fill: var(--accent-color);
       stroke: var(--accent-color);
     }
+
+    /* ANIMATED-FIELD INDICATOR (v20260906f) — see PanelAnim in the script.
+       Placed LAST so it wins the (0,2,1) tie against
+       .num-spin-wrap>input[type="number"] and beats input.cam-readonly's
+       (0,1,1) colour. :not(:disabled) is the rule that a disabled field
+       (Motion Path On-Path position, Auto-Extent extents, a locked feature)
+       never LOOKS live — the tint must not contradict the grey. */
+    input.anim-animated:not(:disabled) {
+      color: var(--text-animated);
+    }
+
+    input.anim-keyed:not(:disabled) {
+      color: var(--accent-color);
+      font-weight: 600;
+    }
   </style>
 </head>
 
@@ -5241,6 +5263,17 @@
         <line x1="10" y1="2" x2="10" y2="18" />
       </svg>
     </button>
+    <!-- EXTRUDE TOOL (v20260906m, _plans/PLAN-extrude-tool.md). Owner artwork
+         (16 x 17), translated onto the 20-unit grid; stroke 1 like its siblings. -->
+    <button data-tool="extrude" title="Extrude (U)">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <g transform="translate(2 1.5)">
+          <polygon points="15.5 16.5 9.5 12.5 9.5 .5 15.5 4.5 15.5 16.5" />
+          <line x1=".5" y1="8.5" x2="12.5" y2="8.5" />
+          <polyline points="3.5 11.5 .5 8.5 3.5 5.5" />
+        </g>
+      </svg>
+    </button>
     <div class="toolbar-divider"></div>
     <button data-tool="pen" title="Pen (P)">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
@@ -5321,6 +5354,16 @@
     <button data-tool="lissajous" title="Lissajous (L)">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
         <path d="M17,10.06c-1.21-23.62-12.5,22.88-14,.53.97-25.13,12.74,23.31,14-.53" />
+      </svg>
+    </button>
+    <!-- 3D SHAPE TOOL (v20260906h, _plans/PLAN-3d-primitives.md): ONE button for
+         every 3D primitive; the Shape select in its panel picks the type. Icon =
+         the 3D Settings tab's cube, per owner. -->
+    <button data-tool="shape3d" title="3D Shape (N)">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="7" width="9" height="9" />
+        <polygon points="17 13 12 16 12 7 17 4 17 13" />
+        <polygon points="12 7 3 7 8 4 17 4 12 7" />
       </svg>
     </button>
     <div style="flex:1"></div>
@@ -6314,6 +6357,54 @@
               <button id="shearSubmitBtn" class="ui-btn ui-btn-primary">Submit</button>
             </div>
           </div>
+          <!-- EXTRUDE TOOL (v20260906m, _plans/PLAN-extrude-tool.md): a UI for
+               extrudeSettings. Grab a ring on the canvas, or type here; typed values
+               apply live and Submit commits ONE labelled entry, Cancel reverts to the
+               session's start - the sibling tools' session contract. -->
+          <div class="hidden" id="extrudeSettingsContainer">
+            <div class="ui-hint" id="extrudeToolHint"></div>
+            <div class="prop-row prop-inline">
+              <label for="extrudeToolEnabled" class="ui-checkbox-label">Extrude</label>
+              <input type="checkbox" id="extrudeToolEnabled" class="ui-checkbox" />
+            </div>
+            <div class="xyz-row">
+              <label for="extrudeToolAxis" title="The extrude direction, in the object's own axes (the rings)">Axis</label>
+              <div class="xyz-inputs">
+                <select id="extrudeToolAxis">
+                  <option value="+x">+X</option>
+                  <option value="-x">-X</option>
+                  <option value="+y">+Y</option>
+                  <option value="-y">-Y</option>
+                  <option value="+z">+Z</option>
+                  <option value="-z">-Z</option>
+                  <option value="free">Free (typed vector)</option>
+                </select>
+              </div>
+            </div>
+            <div class="xyz-row">
+              <label for="extrudeToolDepth">Depth</label>
+              <div class="xyz-inputs">
+                <input type="number" id="extrudeToolDepth" value="0" step="0.1" min="0" />
+              </div>
+            </div>
+            <div class="prop-row prop-inline">
+              <label for="extrudeToolSymmetric" class="ui-checkbox-label">Symmetric</label>
+              <input type="checkbox" id="extrudeToolSymmetric" class="ui-checkbox" />
+            </div>
+            <!-- The 3D Settings tab's Cap row + Render Settings block dock here while
+                 the tool is active (v20260906n) - see #extrudeRenderSettings. -->
+            <div id="extrudeToolRenderSlot" style="display:none;"></div>
+            <div class="xyz-row">
+              <label title="Depth change since this session started">Delta</label>
+              <div class="xyz-inputs">
+                <input type="number" id="extrudeToolDelta" value="0" readonly />
+              </div>
+            </div>
+            <div class="prop-row mt-2">
+              <button id="extrudeCancelBtn" class="ui-btn mr-1">Cancel</button>
+              <button id="extrudeSubmitBtn" class="ui-btn ui-btn-primary">Submit</button>
+            </div>
+          </div>
 
           <div class="hidden" id="pivotSettingsContainer">
             <div class="ui-header-small">Pivot Position</div>
@@ -6576,6 +6667,39 @@
               <input type="text" id="snfStrokeColorHex" class="color-hex-input" maxlength="6" placeholder="4466CC"
                 spellcheck="false" />
               <input type="color" id="snfStrokeColor" value="#4466cc" class="color-stroke" />
+            </div>
+          </div>
+
+          <!-- 3D SHAPE TOOL (v20260906h, PLAN-3d-primitives): a Shape select, then
+               per-shape rows toggled by data-shape3d. Display units through
+               toDisplay / fromDisplay like every primitive panel. Height / Width /
+               Depth are the cuboid's keyframable params (_primitiveParams.cuboid). -->
+          <div class="hidden" id="shape3dSettingsContainer" style="display:none;">
+            <div class="xyz-row">
+              <label for="shape3dTypeSelect">Shape</label>
+              <div class="xyz-inputs">
+                <select id="shape3dTypeSelect">
+                  <option value="cuboid" selected>Cuboid</option>
+                </select>
+              </div>
+            </div>
+            <div class="xyz-row" data-shape3d="cuboid">
+              <label for="shape3dWidth">Width</label>
+              <div class="xyz-inputs">
+                <input type="number" id="shape3dWidth" value="2" step="0.1" min="0" />
+              </div>
+            </div>
+            <div class="xyz-row" data-shape3d="cuboid">
+              <label for="shape3dHeight">Height</label>
+              <div class="xyz-inputs">
+                <input type="number" id="shape3dHeight" value="2" step="0.1" min="0" />
+              </div>
+            </div>
+            <div class="xyz-row" data-shape3d="cuboid">
+              <label for="shape3dDepth">Depth</label>
+              <div class="xyz-inputs">
+                <input type="number" id="shape3dDepth" value="2" step="0.1" min="0" />
+              </div>
             </div>
           </div>
 
@@ -7001,7 +7125,7 @@
             </div>
           </div>
         </div>
-        <div class="prop-row prop-row-plain" style="padding: 4px 10px;">
+        <div class="prop-row prop-row-plain" id="confirmShapeRow" style="padding: 4px 10px;">
           <button id="confirmShapeBtn" class="ui-btn" style="width: 100%;">Confirm Shape</button>
         </div>
         <div class="ui-hint">or press Enter</div>
@@ -7009,6 +7133,14 @@
       <div class="prop-row prop-row-plain" id="toolDrawerBakeRow"
         style="display: none; padding-left: 10px; padding-right: 10px;">
         <button id="toolDrawerBakeBtn" class="ui-btn" style="width: 100%;">Bake to Path</button>
+      </div>
+      <!-- 3D SHAPE TOOL (v20260906j, owner decision D2 revised): a cuboid is ONE
+           editable primitive (the six-face group) and its two destinations are
+           BAKES - Bake to Path (the plain group of six planes, the stock button
+           above) and Bake to Extrude (one rectangle with a symmetric extrude). -->
+      <div class="prop-row prop-row-plain" id="toolDrawerBakeExtrudeRow"
+        style="display: none; padding-left: 10px; padding-right: 10px;">
+        <button id="toolDrawerBakeExtrudeBtn" class="ui-btn" style="width: 100%;" title="Replace the six-face group with one rectangle carrying a symmetric extrude of the same size">Bake to Extrude</button>
       </div>
     </div> <!-- End toolDrawerContent -->
   </div> <!-- End toolDrawer -->
@@ -7248,6 +7380,9 @@
                   </div>
                   <div class="prop-row prop-row-plain" id="bakeToPathRow" style="display: none;">
                     <button id="bakeToPathBtn" class="ui-btn" style="width: 100%;">Bake to Path</button>
+                  </div>
+                  <div class="prop-row prop-row-plain" id="bakeToExtrudeRow" style="display: none;">
+                    <button id="bakeToExtrudeBtn" class="ui-btn" style="width: 100%;" title="Replace the six-face group with one rectangle carrying a symmetric extrude of the same size">Bake to Extrude</button>
                   </div>
 
                   <div class="ui-header-small">Pivot</div>
@@ -7698,6 +7833,11 @@
                       </div>
                     </div>
 
+                    <!-- EXTRUDE TOOL (v20260906n): this wrapper - and the Cap row above -
+                         DOCK into the Extrude tool's panel while that tool is active
+                         (_extrudeToolDock) and come back here when it leaves. One set of
+                         controls, one set of listeners, no duplicated ids. -->
+                    <div id="extrudeRenderSettings">
                     <div class="ui-header-small">Render Settings</div>
 
                     <div class="style-row">
@@ -7821,6 +7961,7 @@
                         </div>
                       </div>
                     </div>
+                    </div><!-- /extrudeRenderSettings -->
 
                   </div>
 
@@ -11312,6 +11453,7 @@
     let polygonSides = 4; // Used for both Polygon and Star
     let starInnerRadius = 0.5; // Ratio 0..1
     let pendingPolygon = null; // Object being drawn/edited
+    let _shape3dHeightTyped = false; // 3D SHAPE TOOL: Height typed during this creation drag -> the drag stops driving it
     let polygonCreationMode = 'corner'; // 'corner' or 'center'
     let _doodlePlane = null; // { point, normal } for the current doodle stroke
     let _doodleLastPoint = null; // Last recorded 3D point during doodle drag
@@ -11365,6 +11507,10 @@
         body: '<line stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="16" y1="4" x2="4.03" y2="15.97"/><polyline fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="11 4 16 4 16 9"/><polyline fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="9.03 15.97 4.03 15.97 4.03 10.97"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="16" y1="4" x2="4.03" y2="15.97"/><polyline fill="none" stroke="#000" stroke-width="1.14" stroke-linecap="round" stroke-linejoin="round" points="11 4 16 4 16 9"/><polyline fill="none" stroke="#000" stroke-width="1.14" stroke-linecap="round" stroke-linejoin="round" points="9.03 15.97 4.03 15.97 4.03 10.97"/>',
         size: 20, x: 10, y: 10
       },
+      extrude: { // EXTRUDE TOOL (v20260906m): the polygon crosshair
+        body: '<line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/>',
+        size: 20, x: 10, y: 10
+      },
       rotate: {
         body: '<path fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M3.5,10c0-3.59,2.91-6.5,6.5-6.5s6.5,2.91,6.5,6.5-2.91,6.5-6.5,6.5"/><polyline fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="14.39 18.9 10 16.5 12.4 12.11"/><path fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" d="M3.5,10c0-3.59,2.91-6.5,6.5-6.5s6.5,2.91,6.5,6.5-2.91,6.5-6.5,6.5"/><polyline fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" points="14.39 18.9 10 16.5 12.4 12.11"/>',
         size: 20, x: 10, y: 10
@@ -11374,6 +11520,10 @@
         size: 20, x: 10, y: 10
       },
       polygon: {
+        body: '<line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/>',
+        size: 20, x: 10, y: 10
+      },
+      shape3d: { // 3D SHAPE TOOL (v20260906h): the polygon crosshair
         body: '<line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" x1="10" y1="2" x2="10" y2="18"/>',
         size: 20, x: 10, y: 10
       },
@@ -11565,6 +11715,7 @@
         if (typeof resetRotateToolSession === 'function') resetRotateToolSession();
         if (typeof resetScaleToolSession === 'function') resetScaleToolSession();
         if (typeof resetShearToolSession === 'function') resetShearToolSession();   // v20260904h
+        if (typeof resetExtrudeToolSession === 'function') resetExtrudeToolSession(); // EXTRUDE TOOL (v20260906m)
         if (typeof resetPivotToolSession === 'function') resetPivotToolSession();
 
         // Auto-Confirm Pending Shape
@@ -11665,7 +11816,7 @@
         if (_reTag3) _reTag3.textContent = '';
         updateTreeView();
         // Deselect when switching to a different primitive tool (ready-to-create state)
-        const _isNewPrimTool = (tool === 'polygon' || tool === 'star' || tool === 'ellipse' || tool === 'spiral' || tool === 'cycloid' || tool === 'lissajous');
+        const _isNewPrimTool = (tool === 'polygon' || tool === 'star' || tool === 'ellipse' || tool === 'spiral' || tool === 'cycloid' || tool === 'lissajous' || tool === 'shape3d');
         // Update currentTool BEFORE setSelectedObject to prevent auto-edit
         // guard from re-entering edit mode with the old primitive tool name
         currentTool = tool;
@@ -11698,6 +11849,7 @@
       if (typeof resetRotateToolSession === 'function') resetRotateToolSession();
       if (typeof resetScaleToolSession === 'function') resetScaleToolSession();
       if (typeof resetShearToolSession === 'function') resetShearToolSession();   // v20260904h
+      if (typeof resetExtrudeToolSession === 'function') resetExtrudeToolSession(); // EXTRUDE TOOL (v20260906m)
       if (typeof resetPivotToolSession === 'function') resetPivotToolSession();
 
       currentTool = tool;
@@ -11715,12 +11867,14 @@
         star: 'Tool Options (K)',
         ellipse: 'Tool Options (E)',
         pivot: 'Tool Options (J)',
+        extrude: 'Tool Options (U)', // EXTRUDE TOOL
         pixelArt: 'Tool Options (Q)',
         spiral: 'Tool Options (F)',
         cycloid: 'Tool Options (O)',
         lissajous: 'Tool Options (L)',
         doodle: 'Tool Options (B)',
         text: 'Tool Options (T)', // TEXT-TOOL
+        shape3d: 'Tool Options (N)', // 3D SHAPE TOOL
       };
       if (toolPanelTitle && toolNameMap[tool]) {
         toolPanelTitle.textContent = toolNameMap[tool];
@@ -11738,12 +11892,14 @@
         star: 'Star Tool (K)',
         ellipse: 'Ellipse Tool (E)',
         pivot: 'Pivot Tool (J)',
+        extrude: 'Extrude Tool (U)', // EXTRUDE TOOL
         pixelArt: 'Pixel Art Tool (Q)',
         spiral: 'Spiral Tool (F)',
         cycloid: 'Cycloid Tool (O)',
         lissajous: 'Lissajous Tool (L)',
         doodle: 'Doodle Tool (B)',
         text: 'Text Tool (T)', // TEXT-TOOL
+        shape3d: 'Cuboid Tool (N)', // 3D SHAPE TOOL - _shape3dSyncRows rewrites it per Shape
       };
       const toolPanelLabel = document.getElementById('toolPanelLabel');
       if (toolPanelLabel && toolLabelMap[tool]) {
@@ -11763,12 +11919,14 @@
         star: '<polygon fill="none" stroke="currentColor" points="10 3.15 11.74 8.5 17.36 8.5 12.81 11.8 14.55 17.15 10 13.85 5.45 17.15 7.19 11.8 2.64 8.5 8.26 8.5 10 3.15"/>',
         ellipse: '<circle fill="none" stroke="currentColor" cx="10" cy="10" r="6.5"/>',
         pivot: '<circle fill="none" stroke="currentColor" cx="10" cy="10" r="3"/><line fill="none" stroke="currentColor" x1="2" y1="10" x2="18" y2="10"/><line fill="none" stroke="currentColor" x1="10" y1="2" x2="10" y2="18"/>',
+        extrude: '<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" transform="translate(2 1.5)"><polygon points="15.5 16.5 9.5 12.5 9.5 .5 15.5 4.5 15.5 16.5"/><line x1=".5" y1="8.5" x2="12.5" y2="8.5"/><polyline points="3.5 11.5 .5 8.5 3.5 5.5"/></g>', // EXTRUDE TOOL
         pixelArt: '<rect fill="currentColor" x="4" y="4" width="2" height="2"/><rect fill="currentColor" x="4" y="6" width="2" height="2"/><rect fill="currentColor" x="6" y="6" width="2" height="2"/><rect fill="currentColor" x="8" y="6" width="2" height="2"/><rect fill="currentColor" x="8" y="4" width="2" height="2"/><rect fill="currentColor" x="8" y="8" width="2" height="2"/><rect fill="currentColor" x="6" y="8" width="2" height="2"/><rect fill="currentColor" x="4" y="8" width="2" height="2"/><rect fill="currentColor" x="2" y="8" width="2" height="2"/><rect fill="currentColor" x="6" y="10" width="2" height="2"/><rect fill="currentColor" x="6" y="12" width="2" height="2"/><rect fill="currentColor" x="6" y="14" width="2" height="2"/><rect fill="currentColor" x="8" y="12" width="2" height="2"/><rect fill="currentColor" x="10" y="14" width="2" height="2"/><rect fill="currentColor" x="10" y="12" width="2" height="2"/><rect fill="currentColor" x="8" y="10" width="2" height="2"/><rect fill="currentColor" x="10" y="10" width="2" height="2"/><rect fill="currentColor" x="12" y="10" width="2" height="2"/><rect fill="currentColor" x="14" y="10" width="2" height="2"/><rect fill="currentColor" x="12" y="12" width="2" height="2"/><rect fill="currentColor" x="14" y="12" width="2" height="2"/><rect fill="currentColor" x="14" y="14" width="2" height="2"/><rect fill="currentColor" x="16" y="8" width="2" height="2"/>',
         spiral: '<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M10.1,9.17c.16-.38.69-.16.8.16.32.74-.43,1.48-1.15,1.51-1.72.11-2.53-2.07-1.63-3.37.93-1.56,3.24-1.71,4.55-.54,2.58,2.24.95,6.38-2.27,6.87-5.09.73-7.56-5.56-4.03-8.98,3.15-3.14,8.56-1.7,10.12,2.35,1.01,2.44.43,5.39-1.35,7.32-3.4,3.75-9.4,2.97-12.15-1.14"/>',
         cycloid: '<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M15.39,10c.65-.13,1.09-.74,1.34-1.31.64-1.52.1-3.36-1.07-4.47-1.12-1.09-2.88-1.57-4.35-.95-.57.25-1.18.69-1.31,1.34-.13-.65-.74-1.09-1.31-1.34-1.52-.64-3.36-.1-4.47,1.07-1.09,1.12-1.57,2.88-.95,4.35.25.57.69,1.18,1.34,1.31-.65.13-1.09.74-1.34,1.31-.64,1.52-.1,3.36,1.07,4.47,1.12,1.09,2.88,1.57,4.35.95.57-.25,1.18-.69,1.31-1.34.13.65.74,1.09,1.31,1.34,1.52.64,3.36.1,4.47-1.07,1.09-1.12,1.57-2.88.95-4.35-.25-.57-.69-1.18-1.34-1.31"/>',
         lissajous: '<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M17,10.06c-1.21-23.62-12.5,22.88-14,.53.97-25.13,12.74,23.31,14-.53"/>',
         doodle: '<polygon fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" points="10 3 13 10 7 10 10 3"/><rect fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" x="7" y="10" width="6" height="8"/>',
         text: '<line fill="none" stroke="currentColor" stroke-linecap="round" x1="4.5" y1="4.5" x2="15.5" y2="4.5"/><line fill="none" stroke="currentColor" stroke-linecap="round" x1="10" y1="4.5" x2="10" y2="16"/>', // TEXT-TOOL
+        shape3d: '<rect fill="none" stroke="currentColor" x="3" y="7" width="9" height="9"/><polygon fill="none" stroke="currentColor" points="17 13 12 16 12 7 17 4 17 13"/><polygon fill="none" stroke="currentColor" points="12 7 3 7 8 4 17 4 12 7"/>', // 3D SHAPE TOOL
       };
       if (toolPanelIcon && toolIconMap[tool]) {
         toolPanelIcon.innerHTML = toolIconMap[tool];
@@ -11806,13 +11964,19 @@
       // Handle Creation Panel Visibility
       const polyPanel = document.getElementById('polygonCreationPanel');
       if (polyPanel) {
-        if (tool !== 'polygon' && tool !== 'star' && tool !== 'ellipse' && tool !== 'spiral' && tool !== 'cycloid' && tool !== 'lissajous' && tool !== 'doodle') {
+        if (tool !== 'polygon' && tool !== 'star' && tool !== 'ellipse' && tool !== 'spiral' && tool !== 'cycloid' && tool !== 'lissajous' && tool !== 'doodle' && tool !== 'shape3d') {
           polyPanel.style.display = 'none';
         } else if (!pendingPolygon) {
           polyPanel.style.display = 'none';
         }
         // If tool IS polygon/star/ellipse/spiral/cycloid/lissajous and pendingPolygon exists, keep it visible.
       }
+      // 3D SHAPE TOOL (v20260906h): the pending panel's rows are re-laid out per
+      // session (Radius row hidden, the two-form confirm row shown). Restore the
+      // stock layout on every other tool - which also repairs a pre-existing
+      // gap: the spiral / cycloid / lissajous mouseups hid the Radius row and
+      // nothing ever showed it again for the next rectangle.
+      if (typeof _shape3dSyncPendingPanel === 'function') _shape3dSyncPendingPanel(tool === 'shape3d' && !!pendingPolygon && _isShape3dObj(pendingPolygon));
 
       // Update Algorithm Dropdown Visibility
       const algoContainer = document.getElementById('algorithmSelectContainer');
@@ -11908,6 +12072,7 @@
           lissajous: 'Click-drag to draw (drag defines amplitude)\nAdjust Freq A/B, Phase δ to change pattern\nClick to recenter pending shape',
           doodle: 'Click-drag to draw freehand\nRelease to finish stroke',
           text: 'Load a font, then click to place text\nEdit the text in the panel\nClick again to reposition pending text', // TEXT-TOOL
+          shape3d: 'Click-drag to draw the footprint on the workplane\nShift for a square, Alt to draw from center\nHeight follows the drag until you type one',
         };
         if (hints[tool] && !pendingPolygon) {
           toolHintEl.textContent = hints[tool];
@@ -12042,6 +12207,16 @@
         }
       }
 
+      // 3D SHAPE TOOL Settings Visibility (v20260906h)
+      const s3Settings = document.getElementById('shape3dSettingsContainer');
+      if (s3Settings) {
+        s3Settings.style.display = tool === 'shape3d' ? 'block' : 'none';
+        if (tool === 'shape3d' && !_skipResetForReEdit) {
+          _shape3dWritePanel({ width: 2, height: 2, depth: 2 });
+          _shape3dSyncRows();
+        }
+      }
+
       // Doodle Tool Settings Visibility
       const doodleSettings = document.getElementById('doodleSettingsContainer');
       if (doodleSettings) {
@@ -12080,6 +12255,14 @@
         } else {
           moveSettingsContainer.style.display = 'none';
         }
+      }
+
+      // EXTRUDE TOOL Settings Visibility (v20260906m)
+      const extrudeSettingsEl = document.getElementById('extrudeSettingsContainer');
+      if (extrudeSettingsEl) {
+        extrudeSettingsEl.style.display = tool === 'extrude' ? 'block' : 'none';
+        _extrudeToolDock(tool === 'extrude');   // v20260906n: the 3D Settings render block rides along
+        if (tool === 'extrude') resetExtrudeToolSession();
       }
 
       // Rotate Tool Settings Visibility
@@ -12198,7 +12381,7 @@
       requestRender();
 
       // Auto-enter edit mode or deselect when switching to a primitive drawing tool
-      const _isPrimitiveTool = (tool === 'polygon' || tool === 'star' || tool === 'ellipse' || tool === 'spiral' || tool === 'cycloid' || tool === 'lissajous' || tool === 'text'); // TEXT-TOOL
+      const _isPrimitiveTool = (tool === 'polygon' || tool === 'star' || tool === 'ellipse' || tool === 'spiral' || tool === 'cycloid' || tool === 'lissajous' || tool === 'text' || tool === 'shape3d'); // TEXT-TOOL
       if (!_skipResetForReEdit && _isPrimitiveTool && selectedObject && selectedObject !== pendingPolygon) {
         const matchTool = typeof primitiveToolName === 'function' ? primitiveToolName(selectedObject) : null;
         if (matchTool === tool) {
@@ -12992,6 +13175,173 @@
         resetShearToolSession();   // the committed value becomes the new baseline
       });
     }
+
+    // --- EXTRUDE TOOL (v20260906m, _plans/PLAN-extrude-tool.md) ----------------
+    // A transform-tool sibling on U that drives extrudeSettings through the
+    // Rotate gizmo's three axis rings: grab a ring -> that LOCAL axis is the
+    // extrude vector, the drag along it sets the depth (through zero flips the
+    // sign), release = one coalesced undo entry + Auto-Key of the channels that
+    // moved. The vector is object-space by construction (generateLinearRail
+    // builds the rail in local space, drawSurface applies the world matrix), so
+    // the rings are the object's own axes and the tool is pinned to Local like
+    // Scale and Shear. Session contract = the siblings' (v20260904h).
+    let extrudeToolSession = null;   // { targetObject, start: {enabled, depth, vector, symmetric}, undoSnapshot }
+    let _extrudeDrag = null;         // live ring drag: { obj, settings, axis, sign, startSigned, start }
+    const EXTRUDE_TOOL_EPS = 1e-3;
+    // THE ONE PREDICATE. The gizmo, the mousedown and the panel all read it, so
+    // the affordance can never disagree with the action (the Shear lesson).
+    const extrudeToolTarget = (obj) => {
+      const no = (reason) => ({ ok: false, settings: null, reason });
+      if (!obj) return no('Select a path (or a group) to extrude.');
+      if (obj.isGroup && obj.primitiveData && _isShape3dObj(obj)) return no('A 3D Shape primitive - bake it first (Bake to Path / Bake to Extrude).');
+      if (!obj.isGroup) {
+        if (obj.revolveSettings && obj.revolveSettings.enabled) return no('Revolve is on - turn it off in 3D Settings to extrude.');
+        if (obj.sweepSettings && obj.sweepSettings.enabled) return no('Sweep is on - turn it off in 3D Settings to extrude.');
+        if (obj.loftSettings && obj.loftSettings.enabled) return no('Loft is on - turn it off in 3D Settings to extrude.');
+        if (obj.foldSettings && obj.foldSettings.enabled) return no('Fold is on - turn it off in 3D Mapping to extrude.');
+        const sc = obj.surfaceConstraint;
+        if (sc && sc.active && sc.targetId) return no('Spline Flow is on - turn it off in 3D Mapping to extrude.');
+        if (sc && sc.surfaceMapping && sc.surfaceMapping.enabled) return no('Surface Mapping is on - turn it off in 3D Mapping to extrude.');
+      }
+      if (!obj.extrudeSettings) return no('This object cannot be extruded.');
+      return { ok: true, settings: obj.extrudeSettings, reason: obj.isGroup ? 'Group Extrude: reaches every path inside (children with their own modifier are skipped).' : '' };
+    };
+    // Which ring owns the current vector: {axis:'x'|'y'|'z'|null, sign}. An
+    // off-axis (typed) vector is owned by no ring.
+    const _extrudeAxisOf = (settings) => {
+      const v = (settings && settings.vector) || { x: 0, y: 0, z: -1 };
+      const a = [Math.abs(v.x || 0), Math.abs(v.y || 0), Math.abs(v.z || 0)];
+      const m = Math.max(a[0], a[1], a[2]);
+      if (m < 1e-9) return { axis: null, sign: 1 };
+      const i = a.indexOf(m);
+      if (a.some((o, k) => k !== i && o > 1e-6)) return { axis: null, sign: 1 };
+      const axis = ['x', 'y', 'z'][i];
+      return { axis, sign: (v[axis] || 0) >= 0 ? 1 : -1 };
+    };
+    const _extrudeSnapshot = (s) => ({ enabled: !!s.enabled, depth: +(s.depth || 0), vector: { x: +((s.vector && s.vector.x) || 0), y: +((s.vector && s.vector.y) || 0), z: +((s.vector && s.vector.z) || 0) }, symmetric: !!s.symmetric });
+    const _extrudeChangedProps = (before, s) => {
+      const p = [];
+      if (Math.abs(before.depth - (s.depth || 0)) > 1e-9) p.push('exDepth');
+      const v = s.vector || {};
+      if (Math.abs(before.vector.x - (v.x || 0)) > 1e-9) p.push('exVecX');
+      if (Math.abs(before.vector.y - (v.y || 0)) > 1e-9) p.push('exVecY');
+      if (Math.abs(before.vector.z - (v.z || 0)) > 1e-9) p.push('exVecZ');
+      return p;
+    };
+    const _extrudeSessionHasDelta = () => {
+      if (!extrudeToolSession || !extrudeToolSession.targetObject || !extrudeToolSession.targetObject.extrudeSettings) return false;
+      const a = extrudeToolSession.start, b = _extrudeSnapshot(extrudeToolSession.targetObject.extrudeSettings);
+      return a.enabled !== b.enabled || a.symmetric !== b.symmetric || Math.abs(a.depth - b.depth) > 1e-6
+        || Math.abs(a.vector.x - b.vector.x) > 1e-6 || Math.abs(a.vector.y - b.vector.y) > 1e-6 || Math.abs(a.vector.z - b.vector.z) > 1e-6;
+    };
+    // DOCKING (v20260906n, owner: "the render settings UI in the tool panel, so
+    // the user can modify the extrusion without going inside 3D Settings"). The
+    // 3D Settings tab's Cap row and its whole Render Settings block are MOVED
+    // into the tool panel while the tool is active and moved back when it
+    // leaves - the same elements, so every existing listener and every
+    // updateStylePanel sync keeps working, and no id is duplicated. Their
+    // original slots are remembered on the first dock (parent + next sibling).
+    const _extrudeDockIds = ['extrudeCapRow', 'extrudeRenderSettings'];
+    let _extrudeDockHome = null;
+    const _extrudeToolDock = (on) => {
+      const slot = document.getElementById('extrudeToolRenderSlot');
+      if (!slot) return;
+      if (on) {
+        if (!_extrudeDockHome) _extrudeDockHome = _extrudeDockIds.map(id => { const el = document.getElementById(id); return el ? { el, parent: el.parentNode, next: el.nextSibling } : null; });
+        _extrudeDockHome.forEach(h => { if (h && h.el.parentNode !== slot) slot.appendChild(h.el); });
+      } else if (_extrudeDockHome) {
+        _extrudeDockHome.forEach(h => { if (h && h.el.parentNode === slot) h.parent.insertBefore(h.el, (h.next && h.next.parentNode === h.parent) ? h.next : null); });
+      }
+    };
+    const updateExtrudeToolUI = () => {
+      const t = extrudeToolTarget(selectedObject);
+      const slot = document.getElementById('extrudeToolRenderSlot');
+      if (slot) slot.style.display = (t.ok && t.settings.enabled) ? '' : 'none';
+      const hint = document.getElementById('extrudeToolHint');
+      const en = document.getElementById('extrudeToolEnabled'), ax = document.getElementById('extrudeToolAxis');
+      const dp = document.getElementById('extrudeToolDepth'), sy = document.getElementById('extrudeToolSymmetric'), dl = document.getElementById('extrudeToolDelta');
+      if (hint) {
+        hint.textContent = t.ok ? (t.reason || 'Grab an axis line or its X / Y / Z disc to extrude along that axis. Drag through zero to flip the direction; release at zero to remove the extrusion.') : t.reason;
+        hint.style.opacity = t.ok ? '' : '0.75';
+      }
+      [en, ax, dp, sy].forEach(el => { if (el) el.disabled = !t.ok; });
+      if (!t.ok) {
+        if (en) en.checked = false;
+        if (dp && document.activeElement !== dp) dp.value = '0.00';
+        if (dl) dl.value = '0.00';
+        return;
+      }
+      const s = t.settings;
+      const { axis, sign } = _extrudeAxisOf(s);
+      if (en && document.activeElement !== en) en.checked = !!s.enabled;
+      if (ax && document.activeElement !== ax) ax.value = axis ? ((sign < 0 ? '-' : '+') + axis) : 'free';
+      if (dp && document.activeElement !== dp) dp.value = fmtDisplay(s.depth || 0);
+      if (sy && document.activeElement !== sy) sy.checked = !!s.symmetric;
+      if (dl) dl.value = extrudeToolSession && extrudeToolSession.targetObject === selectedObject ? fmtDisplay((s.depth || 0) - extrudeToolSession.start.depth) : '0.00';
+    };
+    const resetExtrudeToolSession = () => {
+      // Auto-commit: an outgoing session with a delta pushes its stored "before" snapshot
+      if (extrudeToolSession && _extrudeSessionHasDelta() && extrudeToolSession.undoSnapshot) {
+        _pushUndoSnapshot(extrudeToolSession.undoSnapshot);
+      }
+      const t = extrudeToolTarget(selectedObject);
+      extrudeToolSession = (selectedObject && t.ok)
+        ? { targetObject: selectedObject, start: _extrudeSnapshot(t.settings), undoSnapshot: true }
+        : null;
+      updateExtrudeToolUI();
+    };
+    const _extrudeWriteFromPanel = () => {
+      const t = extrudeToolTarget(selectedObject);
+      if (!t.ok) return null;
+      const s = t.settings;
+      const en = document.getElementById('extrudeToolEnabled'), ax = document.getElementById('extrudeToolAxis');
+      const dp = document.getElementById('extrudeToolDepth'), sy = document.getElementById('extrudeToolSymmetric');
+      s.enabled = !!(en && en.checked);
+      s.depth = Math.max(0, fromDisplay(parseFloat(dp ? dp.value : '0') || 0));
+      s.symmetric = !!(sy && sy.checked);
+      const v = ax ? ax.value : 'free';
+      if (v !== 'free') { const vec = { x: 0, y: 0, z: 0 }; vec[v[1]] = (v[0] === '-') ? -1 : 1; s.vector = vec; }
+      return s;
+    };
+    const applyExtrudeToolInputs = () => {
+      if (!_extrudeWriteFromPanel()) return;
+      updateStylePanel();          // the 3D Settings tab re-syncs from the object
+      updateExtrudeToolUI();
+      requestRender();
+    };
+    ['extrudeToolEnabled', 'extrudeToolAxis', 'extrudeToolDepth', 'extrudeToolSymmetric'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', applyExtrudeToolInputs);
+      el.addEventListener('change', applyExtrudeToolInputs);
+      el.addEventListener('keydown', (e) => e.stopPropagation());
+    });
+    const extrudeCancelBtn = document.getElementById('extrudeCancelBtn');
+    const extrudeSubmitBtn = document.getElementById('extrudeSubmitBtn');
+    if (extrudeCancelBtn) {
+      extrudeCancelBtn.addEventListener('click', () => {
+        if (!extrudeToolSession || !extrudeToolSession.targetObject) return;
+        const s = extrudeToolSession.targetObject.extrudeSettings; if (!s) return;
+        const a = extrudeToolSession.start;
+        s.enabled = a.enabled; s.depth = a.depth; s.symmetric = a.symmetric; s.vector = { ...a.vector };
+        updateStylePanel(); updateExtrudeToolUI(); requestRender();
+      });
+    }
+    if (extrudeSubmitBtn) {
+      extrudeSubmitBtn.addEventListener('click', () => {
+        if (!extrudeToolSession || !extrudeToolSession.targetObject) return;
+        // ONE labelled push, no leading baseline (the Shear Submit's reasoning):
+        // the inputs already applied live, so a leading push would capture the
+        // edit unlabelled and leave this one nothing to diff.
+        const s = _extrudeWriteFromPanel();
+        const changed = s ? _extrudeChangedProps(extrudeToolSession.start, s) : [];
+        pushUndoState('Extrude');
+        if (s && changed.length && typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(extrudeToolSession.targetObject), changed);
+        updateStylePanel(); requestRender();
+        resetExtrudeToolSession();   // the committed value becomes the new baseline
+      });
+    }
+    // --- /EXTRUDE TOOL ---
 
     const scaleCancelBtn = document.getElementById('scaleCancelBtn');
     const scaleSubmitBtn = document.getElementById('scaleSubmitBtn');
@@ -14526,7 +14876,7 @@
 
     // Helper: check if ANY active tool session has a non-zero delta
     const toolSessionHasDelta = () => {
-      return _moveSessionHasDelta() || _rotateSessionHasDelta() || _scaleSessionHasDelta() || _pivotSessionHasDelta();
+      return _moveSessionHasDelta() || _rotateSessionHasDelta() || _scaleSessionHasDelta() || _pivotSessionHasDelta() || _extrudeSessionHasDelta();
     };
 
     // Toolbar icon click handlers — toggle off if clicking the already-active tool
@@ -14638,6 +14988,7 @@
       else if (name.startsWith('Cyc_') || name.startsWith('LCyc_') || name.startsWith('PCyc_')) type = 'cycloid';
       else if (name.startsWith('Lis_')) type = 'lissajous';
       else if (name.startsWith('Text_')) type = 'text'; // TEXT-TOOL
+      else if (name.startsWith('Cuboid_')) type = 'cuboid'; // 3D SHAPE TOOL
       if (!type) return null;
 
       const base = {
@@ -14699,6 +15050,8 @@
         base.linearHeight = document.getElementById('lisLinearHeight').checked;
         base.freqC = parseFloat(document.getElementById('lisFreqC').value) || 1;
         base.phaseC = parseFloat(document.getElementById('lisPhaseC').value) || 0;
+      } else if (type === 'cuboid') { // 3D SHAPE TOOL (v20260906h; the primitive is always the six-face group since v20260906j)
+        Object.assign(base, _shape3dReadPanel());
       } else if (type === 'text') { // TEXT-TOOL
         base.text = document.getElementById('textSourceInput').value || '';
         base.size = fromDisplay(parseFloat(document.getElementById('textSizeInput').value) || 0) || 2;
@@ -14758,7 +15111,7 @@
     // Sync non-animatable properties (algorithm, closePath) from the live object
     // back into primitiveData so rebuildPrimitiveGeometry reads the correct state.
     const syncPrimitiveNonAnimatable = (obj) => {
-      if (!obj || !obj.primitiveData) return;
+      if (!obj || !obj.primitiveData || obj.isGroup) return; // a Group primitive has no algorithm / loop (v20260906h)
       obj.primitiveData.algorithm = obj.algorithm || 'linear';
       // closePath: derive from subPathData or obj.loop
       if (obj.subPathData && obj.subPathData.length > 0) {
@@ -14810,8 +15163,20 @@
     // and renames the object with a "(Baked)" suffix.
     const bakeToPath = (obj) => {
       if (!obj || !obj.primitiveData) return;
+      // 3D SHAPE TOOL (v20260906l, owner's model): the cuboid primitive IS the
+      // group of six planes, so its Bake to Path is the stock strip below (the
+      // tree then shows the plain group). A Path cuboid from the one-release
+      // v20260906k model bakes to planes through the swap.
+      if (_isShape3dObj(obj) && !obj.isGroup) { _shape3dSwapBake(obj, 'panels', 'Bake to Path'); return; }
+      _bakeStripPrimitive(obj);
+    };
+    const _bakeStripPrimitive = (obj) => {
+      if (!obj || !obj.primitiveData) return;
       pushUndoState();
       delete obj.primitiveData;
+      // 3D SHAPE TOOL (v20260906h): a baked Group primitive is a plain group -
+      // its faces drop their role tags too, so a rebuild can never find them.
+      if (obj.isGroup && Array.isArray(obj.children)) obj.children.forEach(c => { delete c.primFace; });
       // Append (Baked) suffix to name if not already present
       if (obj.name && !obj.name.endsWith('(Baked)')) {
         obj.name = obj.name + ' (Baked)';
@@ -14871,7 +15236,7 @@
       dragMode = 'none';
       document.getElementById('polygonCreationPanel').style.display = 'none';
       const _hint = document.getElementById('toolHintText');
-      if (_hint && (currentTool === 'polygon' || currentTool === 'star' || currentTool === 'ellipse' || currentTool === 'spiral' || currentTool === 'cycloid' || currentTool === 'lissajous' || currentTool === 'text')) {
+      if (_hint && (currentTool === 'polygon' || currentTool === 'star' || currentTool === 'ellipse' || currentTool === 'spiral' || currentTool === 'cycloid' || currentTool === 'lissajous' || currentTool === 'text' || currentTool === 'shape3d')) {
         _hint.style.display = 'block';
       }
       // Reset cycloid inputs to preset canonical values so next draw starts with exact integers
@@ -14946,7 +15311,7 @@
       const _reTag = document.getElementById('toolDrawerReEditTag');
       if (_reTag) _reTag.textContent = '';
       const _hint = document.getElementById('toolHintText');
-      if (_hint && (currentTool === 'polygon' || currentTool === 'star' || currentTool === 'ellipse' || currentTool === 'spiral' || currentTool === 'cycloid' || currentTool === 'lissajous' || currentTool === 'text')) {
+      if (_hint && (currentTool === 'polygon' || currentTool === 'star' || currentTool === 'ellipse' || currentTool === 'spiral' || currentTool === 'cycloid' || currentTool === 'lissajous' || currentTool === 'text' || currentTool === 'shape3d')) {
         _hint.style.display = 'block';
       }
       selectedObject = null;
@@ -15056,6 +15421,7 @@
       if (!obj || !obj.primitiveData) return null;
       const t = obj.primitiveData.type;
       if (t === 'polygon' || t === 'star' || t === 'ellipse' || t === 'spiral' || t === 'cycloid' || t === 'lissajous' || t === 'text') return t; // TEXT-TOOL
+      if (t === 'cuboid') return 'shape3d'; // 3D SHAPE TOOL (v20260906h): every 3D primitive re-edits in the one tool
       return null;
     };
 
@@ -15090,6 +15456,7 @@
       else if (pd.type === 'cycloid') toolName = 'cycloid';
       else if (pd.type === 'lissajous') toolName = 'lissajous';
       else if (pd.type === 'text') toolName = 'text'; // TEXT-TOOL
+      else if (pd.type === 'cuboid') toolName = 'shape3d'; // 3D SHAPE TOOL
       if (!toolName) return;
 
       // Switch to the correct tool (skip input reset for spiral/cycloid)
@@ -15120,6 +15487,8 @@
       if (polyInnerRow) {
         polyInnerRow.style.display = toolName === 'star' ? 'flex' : 'none';
       }
+      // 3D SHAPE TOOL (v20260906h): the cuboid's pending-panel layout.
+      _shape3dSyncPendingPanel(toolName === 'shape3d');
 
       // Show re-edit indicator in tool drawer header
       const reEditTag = document.getElementById('toolDrawerReEditTag');
@@ -15241,6 +15610,13 @@
         document.getElementById('lisStrokeColor').value = hexVal;
         document.getElementById('lisStrokeColorHex').value = hexVal.replace('#', '').toUpperCase();
         document.getElementById('lisStrokeWidth').value = toDisplayStroke(strokeW).toFixed(1);
+      } else if (pd.type === 'cuboid') { // 3D SHAPE TOOL (v20260906h)
+        const sel = document.getElementById('shape3dTypeSelect');
+        if (sel) sel.value = 'cuboid';
+        _shape3dWritePanel({ width: pd.width ?? 2, height: pd.height ?? 2, depth: pd.depth ?? 2 });
+        _shape3dSyncRows();
+        document.getElementById('polyCenterX').value = '0.00';
+        document.getElementById('polyCenterY').value = '0.00';
       } else if (pd.type === 'text') { // TEXT-TOOL
         document.getElementById('textSourceInput').value = pd.text || '';
         document.getElementById('textSizeInput').value = toDisplay(pd.size || 2).toFixed(2);
@@ -15270,6 +15646,10 @@
 
     const updatePolygonGeometry = () => {
       if (!pendingPolygon) return;
+      // 3D SHAPE TOOL (v20260906h): the Center U/V inputs are shared with this
+      // updater, whose polygon branch has no name guard - a pending cuboid
+      // (a Group) would have its vertices and position overwritten here.
+      if (_isShape3dObj(pendingPolygon)) return;
 
       const uVal = fromDisplay(parseFloat(document.getElementById('polyCenterX').value) || 0);
       const vVal = fromDisplay(parseFloat(document.getElementById('polyCenterY').value) || 0);
@@ -15399,6 +15779,7 @@
     const rebuildPrimitiveGeometry = (obj) => {
       if (!obj || !obj.primitiveData) return;
       const pd = obj.primitiveData;
+      if (pd.type === 'cuboid') { _shape3dRebuildCuboid(obj, pd); return; } // 3D SHAPE TOOL (v20260906h)
       const center = obj.position;
 
       // Recover the basis vectors stored at capture time (fall back to current workplane)
@@ -15472,6 +15853,251 @@
 
       obj.localVertices = localOffsets;
     };
+
+    // --- 3D SHAPE TOOL (v20260906h, _plans/PLAN-3d-primitives.md) ---------------
+    // One tool ('shape3d', key N) for every 3D primitive; the Shape select picks
+    // the type. Release 1 = CUBOID. The PRIMITIVE (owner's model, final in
+    // v20260906l) is a Group of six square Paths, one per face, each in its own
+    // face frame (position = face centre, local +Z = outward normal, CCW seen
+    // from outside), tagged `primFace`, z-sorted - and the scene tree shows it
+    // as ONE primitive (triangle icon, no children) until it is baked. Two
+    // BAKES leave it: Bake to Path = the stock strip (the plain group shows its
+    // six planes - per-face colour, decals, delete one for an open box); Bake to
+    // Extrude = _shape3dSwapBake('extrude'): one rectangle ON the creation
+    // workplane extruded UP by the height (never symmetric).
+    // FRAME (D5): the object's rotation is the workplane frame at creation -
+    // X = u, Y = u x (-v) (the plane's right-handed normal: the height axis, and
+    // toward the viewer on a camera-facing plane), Z = X x Y. Geometry is
+    // authored axis-aligned in that frame, so a box drawn on the floor has
+    // identity rotation and a re-edit on the YZ plane cannot mirror (the
+    // polygon / star / ellipse trap, report section 10). ORIGIN (D3): the volume
+    // centre; the creation drag rests the base on the workplane.
+    // primitiveData: { type:'cuboid', width, height, depth, centerU, centerV }.
+    // Rebuild finds faces BY ROLE, never by index (tree drag-and-drop reorders)
+    // or id (duplicate remints): a missing role is skipped - the user deleted
+    // that face - and untagged children are never touched.
+    const SHAPE3D_FACES = [ // [role, a (face local X), b (face local Y), n (outward), size along a, size along b]
+      ['top', [1, 0, 0], [0, 0, -1], [0, 1, 0], 'w', 'd'],
+      ['bottom', [1, 0, 0], [0, 0, 1], [0, -1, 0], 'w', 'd'],
+      ['front', [1, 0, 0], [0, 1, 0], [0, 0, 1], 'w', 'h'],
+      ['back', [-1, 0, 0], [0, 1, 0], [0, 0, -1], 'w', 'h'],
+      ['right', [0, 0, -1], [0, 1, 0], [1, 0, 0], 'd', 'h'],
+      ['left', [0, 0, 1], [0, 1, 0], [-1, 0, 0], 'd', 'h'],
+    ];
+    const _shape3dRotFromAxes = (x, y, z) => [
+      [x[0], y[0], z[0], 0],
+      [x[1], y[1], z[1], 0],
+      [x[2], y[2], z[2], 0],
+      [0, 0, 0, 1]];
+    const _shape3dFrame = () => {
+      const b = getGridBasis();
+      const X = vectorNormalize(b.u);
+      const Y = vectorNormalize(vectorCross(X, vectorScale(b.v, -1)));
+      const Z = vectorNormalize(vectorCross(X, Y));
+      return { X, Y, Z, R: _shape3dRotFromAxes(X, Y, Z) };
+    };
+    const _isShape3dObj = (obj) => !!(obj && ((obj.primitiveData && obj.primitiveData.type === 'cuboid')
+      || (typeof obj.name === 'string' && obj.name.startsWith('Cuboid_'))));
+    const _shape3dReadPanel = () => {
+      const rd = (id) => Math.max(0, fromDisplay(parseFloat(document.getElementById(id).value) || 0));
+      return { width: rd('shape3dWidth'), height: rd('shape3dHeight'), depth: rd('shape3dDepth') };
+    };
+    const _shape3dWritePanel = (pd) => {
+      const wr = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = toDisplay(v || 0).toFixed(2); };
+      wr('shape3dWidth', pd.width); wr('shape3dHeight', pd.height); wr('shape3dDepth', pd.depth);
+    };
+    // Per-shape rows + the drawer's "<Shape> Tool (N)" label follow the Shape select.
+    const _shape3dSyncRows = () => {
+      const sel = document.getElementById('shape3dTypeSelect');
+      const type = sel ? sel.value : 'cuboid';
+      document.querySelectorAll('#shape3dSettingsContainer [data-shape3d]').forEach(r => {
+        r.style.display = r.dataset.shape3d === type ? 'flex' : 'none';
+      });
+      if (currentTool === 'shape3d') {
+        const label = (sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : 'Cuboid') + ' Tool (N)';
+        const a = document.getElementById('toolPanelLabel'); if (a) a.textContent = label;
+        const b = document.getElementById('toolDrawerLabelText'); if (b) b.textContent = label;
+      }
+    };
+    // The shared pending panel: the Radius / Inner rows hidden while a cuboid
+    // is pending (its dimensions live in the drawer rows); the stock Confirm
+    // Shape button stays - one confirm, like every other tool (v20260906j).
+    // `false` restores the Radius row for the next polygon session.
+    const _shape3dSyncPendingPanel = (on) => {
+      const wEl = document.getElementById('polyWidth');
+      const wRow = wEl ? wEl.closest('.xyz-row') : null;
+      const innerRow = document.getElementById('polyInnerRadiusRow');
+      if (on) {
+        if (wRow) wRow.style.display = 'none';
+        if (innerRow) innerRow.style.display = 'none';
+      } else {
+        if (wRow) wRow.style.display = '';
+      }
+    };
+    const _shape3dFaceVerts = (A, B) => [[-A / 2, -B / 2, 0], [A / 2, -B / 2, 0], [A / 2, B / 2, 0], [-A / 2, B / 2, 0]];
+    // Geometry from params: the six faces of a Group primitive, or (for the
+    // extrude bake) the rectangle + depth. Never touches rotation, style or
+    // anything the user may have edited on a face.
+    const _shape3dRebuildCuboid = (obj, pd) => {
+      const w = pd.width ?? 2, h = pd.height ?? 2, d = pd.depth ?? 2;
+      if (obj.isGroup) {
+        const dims = { w, h, d };
+        const half = (n) => n[0] ? w / 2 : (n[1] ? h / 2 : d / 2);
+        for (const [role, , , n, sa, sb] of SHAPE3D_FACES) {
+          const face = (obj.children || []).find(c => c.primFace === role);
+          if (!face) continue;
+          face.localVertices = _shape3dFaceVerts(dims[sa], dims[sb]);
+          face.subPathData = [{ start: 0, count: 4, closed: true }];
+          face.position = vectorScale(n, half(n));
+          notifyPathUpdated(face);
+        }
+      } else {
+        // the extrude bake's rectangle: w across, d along the plane, height = the extrude depth
+        obj.localVertices = _shape3dFaceVerts(w, d);
+        obj.subPathData = [{ start: 0, count: 4, closed: true }];
+        if (obj.extrudeSettings) obj.extrudeSettings.depth = h;
+        notifyPathUpdated(obj);
+      }
+    };
+    // A new cuboid object at `position` with rotation R: 'panels' = the
+    // primitive's six-face group, 'extrude' = the baked rectangle + extrude.
+    const _shape3dBuildCuboid = (form, pd, position, R, style, name) => {
+      const euler = matrixToEuler(R);
+      if (form === 'panels') {
+        const g = new Group(name);
+        g.position = [...position];
+        g.rotationMatrix = R.map(r => [...r]);
+        g.rotationEuler = euler;
+        g.zSortChildren = true;
+        for (const [role, a, b, n] of SHAPE3D_FACES) {
+          const f = new Path(ensureUniqueName(`${name} ${role}`, _collectSceneNames()), [0, 0, 0], [0, 0, 0],
+            [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]], 'linear', true, JSON.parse(JSON.stringify(style)));
+          f.rotationMatrix = _shape3dRotFromAxes(a, b, n);
+          f.rotationEuler = matrixToEuler(f.rotationMatrix);
+          f.primFace = role;
+          g.add(f);
+        }
+        _shape3dRebuildCuboid(g, pd);
+        return g;
+      }
+      // 'extrude' (v20260906l): `position` is the BASE centre on the creation
+      // workplane and R the primitive's frame (X = u, Y = n, Z = v). The
+      // rectangle lives in ITS local XY = the workplane (X' = u, Y' = -v, so
+      // Z' = n), w across, d along the plane, and extrudes toward +Z' = up by
+      // the height - not symmetric (owner).
+      const X = [R[0][0], R[1][0], R[2][0]], Y = [R[0][1], R[1][1], R[2][1]], Z = [R[0][2], R[1][2], R[2][2]];
+      const Rb = _shape3dRotFromAxes(X, vectorScale(Z, -1), Y);
+      const p = new Path(name, [...position], [0, 0, 0], [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]], 'linear', true, style);
+      p.rotationMatrix = Rb;
+      p.rotationEuler = matrixToEuler(Rb);
+      p.extrudeSettings.enabled = true;
+      p.extrudeSettings.symmetric = false;
+      p.extrudeSettings.vector = { x: 0, y: 0, z: 1 };
+      _shape3dRebuildCuboid(p, pd);
+      return p;
+    };
+    // THE BAKE SWAP (v20260906l, owner's model - final). The cuboid PRIMITIVE is
+    // the group of six planes, shown as one primitive in the tree; its two
+    // bakes are: Bake to Path = the stock strip (primitiveData + tags removed,
+    // the plain group shows its planes), and Bake to Extrude = THIS swap with
+    // form 'extrude': the primitive is replaced IN PLACE (same slot in its
+    // parent, name + " (Baked)", style of the faces) by ONE rectangle whose
+    // profile lies ON the creation workplane (w across, d along the plane) and
+    // which extrudes UP by the height along the plane normal - never
+    // symmetric. Position = the base centre, pushed through the primitive's
+    // own local matrix so pivot / scale / shear all land; scale re-orders with
+    // the axes ([sx, sz, sy]); a non-zero shear cannot be re-expressed across
+    // the permutation and is dropped with a warning. The Split-to-Letters swap
+    // is the precedent. Animation tracks are id-keyed and the new object has a
+    // new id, so tracks on the baked object are orphaned (warned; undo
+    // restores them). form 'panels' is kept for a Path cuboid from the
+    // one-release v20260906k model.
+    const _shape3dSwapBake = (obj, form, label) => {
+      if (!obj || !obj.primitiveData || !_isShape3dObj(obj)) return null;
+      if (pendingPolygon === obj) confirmPendingShape();   // a re-edit in flight commits first
+      pushUndoState();
+      const pd = obj.primitiveData;
+      const style = obj.isGroup
+        ? (((obj.children.find(c => c.primFace) || obj.children[0] || {}).style) || getCurrentPathStyle())
+        : (obj.style || getCurrentPathStyle());
+      const name = (obj.name && !obj.name.endsWith('(Baked)')) ? obj.name + ' (Baked)' : obj.name;
+      let nu;
+      if (form === 'extrude') {
+        const h = pd.height ?? 2;
+        const L = obj.getLocalMatrix();
+        const basePos = transformVertex([0, -h / 2, 0], L).slice(0, 3);
+        nu = _shape3dBuildCuboid('extrude', pd, basePos, obj.rotationMatrix, JSON.parse(JSON.stringify(style)), name);
+        const sc = obj.scale || [1, 1, 1];
+        nu.scale = [sc[0], sc[2], sc[1]];
+        if ((obj.shear || []).some(v => Math.abs(v) > 1e-9)) console.warn('[shape3d] Bake to Extrude drops the primitive\'s shear (it cannot be re-expressed across the axis permutation).');
+      } else {
+        nu = _shape3dBuildCuboid('panels', pd, obj.position, obj.rotationMatrix, JSON.parse(JSON.stringify(style)), name);
+        nu.children.forEach(c => { delete c.primFace; });   // a plain group: nothing to rebuild
+        nu.scale = [...(obj.scale || [1, 1, 1])];
+        nu.shear = [...(obj.shear || [0, 0, 0, 0, 0, 0])];
+        nu.pivot = [...(obj.pivot || [0, 0, 0])];
+        nu.pivotRotation = [...(obj.pivotRotation || [0, 0, 0])];
+        nu.pivotShift = [...(obj.pivotShift || [0, 0, 0])];
+      }
+      nu.visible = obj.visible !== false;
+      nu.lock = !!obj.lock;
+      const parent = obj.parent || null;
+      const siblings = parent ? parent.children : sceneObjects;
+      const idx = siblings.indexOf(obj);
+      if (parent) parent.remove(obj); else if (idx > -1) siblings.splice(idx, 1);
+      if (obj.destroy) obj.destroy();
+      if (parent) {
+        parent.add(nu);
+        const at = parent.children.indexOf(nu);
+        if (idx > -1 && at !== idx) { parent.children.splice(at, 1); parent.children.splice(idx, 0, nu); }
+        syncSvgOrder(parent);
+      } else {
+        sceneObjects.splice(idx > -1 ? idx : sceneObjects.length, 0, nu);
+        syncSvgOrder(null);
+      }
+      if (typeof animationTimeline !== 'undefined' && tlKeyOf(obj) && animationTimeline.tracks.has(tlKeyOf(obj))) {
+        console.warn('[shape3d] the baked cuboid had animation tracks; they stay on the old id (orphaned until undo).');
+      }
+      updateTreeView();
+      pushUndoState(label);   // BEFORE selection (house rule)
+      setSelectedObject(nu);
+      requestRender();
+      return nu;
+    };
+    // Live update from the panel fields (creation AND re-edit sessions).
+    const updateShape3dGeometry = () => {
+      if (!pendingPolygon || !_isShape3dObj(pendingPolygon)) return;
+      const pd = _shape3dReadPanel();
+      if (!pendingPolygon._isReEditing) {
+        const uVal = fromDisplay(parseFloat(document.getElementById('polyCenterX').value) || 0);
+        const vVal = fromDisplay(parseFloat(document.getElementById('polyCenterY').value) || 0);
+        const basis = getGridBasis();
+        const wp = getWorkingPlane();
+        const F = _shape3dFrame();
+        const base = vectorAdd(wp.point, vectorAdd(vectorScale(basis.u, uVal), vectorScale(basis.v, -vVal)));
+        pendingPolygon.position = vectorAdd(base, vectorScale(F.Y, pd.height / 2));
+      }
+      _shape3dRebuildCuboid(pendingPolygon, pd);
+      requestRender();
+    };
+    ['shape3dWidth', 'shape3dHeight', 'shape3dDepth', 'polyCenterX', 'polyCenterY'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('input', updateShape3dGeometry);
+        el.addEventListener('change', updateShape3dGeometry);
+      }
+    });
+    document.getElementById('shape3dHeight').addEventListener('input', () => { _shape3dHeightTyped = true; });
+    document.getElementById('shape3dTypeSelect').addEventListener('change', () => _shape3dSyncRows());
+    const _shape3dBakeToExtrude = (obj) => {
+      if (!obj || !obj.primitiveData || !_isShape3dObj(obj)) return;
+      if (obj.isGroup) { _shape3dSwapBake(obj, 'extrude', 'Bake to Extrude'); return; }
+      if (pendingPolygon === obj) confirmPendingShape();   // a legacy Path cuboid: the strip is its bake
+      _bakeStripPrimitive(obj);
+    };
+    document.getElementById('bakeToExtrudeBtn').addEventListener('click', () => { if (selectedObject) _shape3dBakeToExtrude(selectedObject); });
+    document.getElementById('toolDrawerBakeExtrudeBtn').addEventListener('click', () => { if (selectedObject) _shape3dBakeToExtrude(selectedObject); });
+    // --- /3D SHAPE TOOL ---
 
     const updateSpiralGeometry = () => {
       if (!pendingPolygon || !pendingPolygon.name.startsWith('Spl_')) return;
@@ -16304,6 +16930,7 @@
         try { tlStopPlayback(); } catch (_) { }
       }
       updateTimelineHeight();
+      PanelAnim.sync();   // ANIMATED-FIELD INDICATOR (v20260906f): feature off → every tint clears
     };
 
     // --- TEXT TOOL (experimental): session font + live geometry ------------
@@ -17078,7 +17705,7 @@
       //      [0.4,0,0,0.3,0.55,0] comes back [0.307,0.422,0,0.126,0,0], world matrix exact.
       // If camera-space shear is ever wanted, build a BAKED one-shot beside Flatten Path
       // (`flattenSelection`), not a gizmo basis.
-      if (currentTool === 'scale' || currentTool === 'shear') return 'local';
+      if (currentTool === 'scale' || currentTool === 'shear' || currentTool === 'extrude') return 'local'; // extrude: the vector is object-space (v20260906m)
       if ((gizmoMode === 'camera' || gizmoMode === 'workplane') && _subjectIn2D(subject)) return 'world';
       return gizmoMode;
     };
@@ -39557,6 +40184,18 @@
       }
 
 
+      // v20260906h: Groups had no destroy(). cancelPendingShape / deleteSelection
+      // guard on `obj.destroy` and fell back to removing the <g>, leaving every
+      // child Path holding an svgElement inside a detached node. A pending
+      // cuboid (a Group) cancelled with Escape needs the real teardown.
+      destroy() {
+        for (const c of [...this.children]) { if (c && c.destroy) c.destroy(); }
+        if (this.svgElement) {
+          this.svgElement.remove();
+          this.svgElement = null;
+        }
+      }
+
       add(obj) {
         if (obj.parent) {
           obj.parent.remove(obj);
@@ -55378,6 +56017,13 @@
 
       const showMoveGizmo = currentTool === 'select' || (currentTool === 'directSelect' && selectedVertexInfo);
       const showRotateGizmo = currentTool === 'rotate';
+      // EXTRUDE TOOL (v20260906m/n): the Rotate gizmo's axis lines + circle labels,
+      // no rings, no screen ring. The CURRENT extrude vector's axis is highlighted;
+      // an ineligible target (extrudeToolTarget) dims every part.
+      const showExtrudeGizmo = currentTool === 'extrude';
+      const _exTarget = showExtrudeGizmo ? extrudeToolTarget(selectedObject) : null;
+      const _exDim = !!(showExtrudeGizmo && _exTarget && !_exTarget.ok);
+      const _exCurAxis = (showExtrudeGizmo && _exTarget && _exTarget.ok && _exTarget.settings.enabled) ? _extrudeAxisOf(_exTarget.settings).axis : null;
       // Shear reuses the Scale gizmo's geometry verbatim (owner's call, v20260812g) —
       // box handles on the axes plus the three planar handles. Only the DRAG semantics
       // differ, so there is nothing to draw differently.
@@ -55385,7 +56031,8 @@
       const showPivotGizmo = currentTool === 'pivot';
 
       // During rotation drag, isolate the active axis for cleaner visuals
-      const isRotateDragging = showRotateGizmo && (dragMode === 'rotate-local' || dragMode === 'rotate-screen');
+      const isRotateDragging = (showRotateGizmo && (dragMode === 'rotate-local' || dragMode === 'rotate-screen'))
+        || (showExtrudeGizmo && dragMode === 'extrude-axis');   // EXTRUDE TOOL: isolate the dragged ring too
       const activeRotateAxis = isRotateDragging ? lockedAxis : null; // 'x','y','z','view', or null
 
       // Compute active colors based on hover/drag state
@@ -55414,16 +56061,19 @@
         const axisKey = axisNames[i]; // 'x', 'y', 'z'
 
         // Determine if this axis is highlighted (hovered or dragged)
-        const isAxisHighlighted = highlightedAxis === axisKey;
+        const isAxisHighlighted = highlightedAxis === axisKey || _exCurAxis === axisKey;   // EXTRUDE TOOL: the current vector's ring
         const axisColor = isAxisHighlighted ? activeColors[i] : normalColors[i];
+        // EXTRUDE TOOL: an ineligible target dims the whole gizmo (the elements are
+        // shared with the other tools, so the reset to '' is unconditional).
+        [line, text, circle, selectionGizmoElements.circlesGrey && selectionGizmoElements.circlesGrey[i]].forEach(el => { if (el) el.style.opacity = _exDim ? '0.35' : ''; });
 
         // Axis Lines (Move, Scale, and Rotate)
         // 2D MODE: Z arrow hidden for move/scale/pivot (the axis is inert —
         // a handle that does nothing is a lie); rotate keeps all three
         // (X/Y rotation = flat foreshortening, deliberate).
-        const _gz2DHideZ = gizmo2D && i === 2 && !showRotateGizmo;
+        const _gz2DHideZ = gizmo2D && i === 2 && !showRotateGizmo && !showExtrudeGizmo;
 
-        if (!_gz2DHideZ && (showMoveGizmo || showScaleGizmo || showRotateGizmo || showPivotGizmo) && !(activeRotateAxis && activeRotateAxis !== axisKey)) {
+        if (!_gz2DHideZ && (showMoveGizmo || showScaleGizmo || showRotateGizmo || showPivotGizmo || showExtrudeGizmo) && !(activeRotateAxis && activeRotateAxis !== axisKey)) {
           const tEnd = projGizmo(axes[i].v);
           if (tEnd) {
             line.setAttribute('x1', originX);
@@ -55435,8 +56085,8 @@
             line.style.display = 'block';
             if (showScaleGizmo) {
               line.setAttribute('data-axis', `scale-${['x', 'y', 'z'][i]}`);
-            } else if (showRotateGizmo) {
-              line.setAttribute('data-axis', `rotate-${['x', 'y', 'z'][i]}`);
+            } else if (showRotateGizmo || showExtrudeGizmo) {
+              line.setAttribute('data-axis', `${showExtrudeGizmo ? 'extrude' : 'rotate'}-${['x', 'y', 'z'][i]}`);
             } else {
               line.setAttribute('data-axis', ['x', 'y', 'z'][i]); // Move + Pivot
             }
@@ -55449,7 +56099,7 @@
         }
 
         // Labels: Filled circle with white letter inside
-        if (!_gz2DHideZ && (showMoveGizmo || showRotateGizmo || showScaleGizmo || showPivotGizmo) && !(activeRotateAxis && activeRotateAxis !== axisKey)) {
+        if (!_gz2DHideZ && (showMoveGizmo || showRotateGizmo || showScaleGizmo || showPivotGizmo || showExtrudeGizmo) && !(activeRotateAxis && activeRotateAxis !== axisKey)) {
           const tText = projGizmo(textPositions[i].v);
           if (tText) {
             const screenX = (tText[0] * FRAME_SIZE) / 2;
@@ -55468,7 +56118,9 @@
               ? `scale-${['x', 'y', 'z'][i]}`
               : showRotateGizmo
                 ? `rotate-${['x', 'y', 'z'][i]}`
-                : ['x', 'y', 'z'][i]; // Move + Pivot use plain axis
+                : showExtrudeGizmo
+                  ? `extrude-${['x', 'y', 'z'][i]}`   // EXTRUDE TOOL: circle labels like Rotate
+                  : ['x', 'y', 'z'][i]; // Move + Pivot use plain axis
 
             if (showScaleGizmo) {
               // Scale tool: show triangle (tip always up), hide circle + square
@@ -55529,6 +56181,9 @@
 
         // Rotation Circles — dual path: grey background + colored 90° quadrants
         const circleGrey = selectionGizmoElements.circlesGrey[i];
+        // EXTRUDE TOOL draws NO rings (v20260906n, owner: "just the straight axis
+        // line and X Y Z in a circle" - a ring that did nothing was a lie); its
+        // handles are the axis lines and the label discs, tagged extrude-*.
         if (showRotateGizmo && !(activeRotateAxis && activeRotateAxis !== circleAxes[i])) {
           const axis = circleAxes[i];
           const vertices = getCircleVertices(axis, CIRCLE_RADIUS, CIRCLE_SEGMENTS);
@@ -60691,7 +61346,12 @@
         // Type icon (folder for group, triangle for primitive, bezier for path)
         const iconSpan = document.createElement('span');
         iconSpan.className = 'tree-type-icon';
-        if (obj.isGroup) {
+        // 3D SHAPE TOOL (v20260906l, owner's model): a Group PRIMITIVE (the cuboid
+        // is six face Paths in a group) is presented as ONE primitive - the
+        // triangle icon, no fold toggle, no child rows, no drop-into - until it
+        // is baked, when the plain group shows its planes.
+        const _treeLeafGroup = !!(obj.isGroup && _isShape3dObj(obj) && (obj.primitiveData || obj === pendingPolygon));   // pending too: primitiveData is captured at Confirm
+        if (obj.isGroup && !_treeLeafGroup) {
           iconSpan.innerHTML = '<svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-miterlimit="10"><path d="M22,21H8c-.55,0-1-.45-1-1v-10c0-.55.45-1,1-1h6c.55,0,1,.45,1,1h0c0,.55.45,1,1,1h6c.55,0,1,.45,1,1v8c0,.55-.45,1-1,1Z"/>' + '<' + '/svg>';
           iconSpan.style.cursor = 'pointer';
           iconSpan.addEventListener('click', (e) => {
@@ -60770,7 +61430,7 @@
 
         // v20260728s: a FOLDED group hiding the selection says so, instead of
         // the selection silently having no row (see _treeSubtreeHasSelection).
-        if (obj.isGroup && obj.children.length > 0 && !_treeIsExpanded(obj)
+        if (obj.isGroup && obj.children.length > 0 && (_treeLeafGroup || !_treeIsExpanded(obj))
           && _treeSubtreeHasSelection(obj)) {
           li.classList.add('has-hidden-selection');
         }
@@ -60839,7 +61499,7 @@
           const y = e.clientY - rect.top;
           const h = rect.height;
 
-          if (obj.isGroup) {
+          if (obj.isGroup && !_treeLeafGroup) {
             // 3-zone: top 25%, middle 50%, bottom 25%
             if (y < h * 0.25) {
               li.classList.add('drag-above');
@@ -60875,7 +61535,7 @@
           const h = rect.height;
 
           let dropMode; // 'above', 'below', or 'into'
-          if (obj.isGroup) {
+          if (obj.isGroup && !_treeLeafGroup) {
             if (y < h * 0.25) dropMode = 'above';
             else if (y > h * 0.75) dropMode = 'below';
             else dropMode = 'into';
@@ -60955,7 +61615,7 @@
 
         container.appendChild(li);
 
-        if (obj.isGroup && obj.children.length > 0 && _treeIsExpanded(obj)) {   // v20260728s: absent = folded
+        if (obj.isGroup && !_treeLeafGroup && obj.children.length > 0 && _treeIsExpanded(obj)) {   // v20260728s: absent = folded
           const childUl = document.createElement('ul');
           childUl.style.listStyle = 'none';
           childUl.style.padding = '0';
@@ -61000,7 +61660,7 @@
       // EXCEPTION: When a drawing tool is active, currentStyle is managed by the tool's own
       // panel sync (doodle stroke color, spiral settings, etc.). Overwriting it here with the
       // departing object's style would cause the next drawn object to use the wrong style.
-      const _isDrawingTool = currentTool && ['pen', 'polygon', 'star', 'ellipse', 'doodle', 'pixelArt', 'spiral', 'cycloid', 'lissajous', 'text'].includes(currentTool); // TEXT-TOOL
+      const _isDrawingTool = currentTool && ['pen', 'polygon', 'star', 'ellipse', 'doodle', 'pixelArt', 'spiral', 'cycloid', 'lissajous', 'text', 'shape3d'].includes(currentTool); // TEXT-TOOL
       if (selectedObject && (!obj || (obj !== selectedObject && !multiSelect))) {
         if (!_isDrawingTool && selectedObject.style) {
           currentStyle = JSON.parse(JSON.stringify(selectedObject.style)); // Deep copy style
@@ -61074,6 +61734,7 @@
       if (typeof resetRotateToolSession === 'function') resetRotateToolSession();
       if (typeof resetScaleToolSession === 'function') resetScaleToolSession();
       if (typeof resetShearToolSession === 'function') resetShearToolSession(); // v20260812h — same re-baseline on selection change
+      if (typeof resetExtrudeToolSession === 'function') resetExtrudeToolSession(); // EXTRUDE TOOL (v20260906m)
       if (typeof resetPivotToolSession === 'function') resetPivotToolSession();
 
       // Re-sync _lastSceneState to absorb any lazy property mutations (e.g. rotationEuler)
@@ -61500,6 +62161,12 @@
         if (bakeRow) bakeRow.style.display = selectedObject.primitiveData ? '' : 'none';
         const toolBakeRow = document.getElementById('toolDrawerBakeRow');
         if (toolBakeRow) toolBakeRow.style.display = selectedObject.primitiveData ? '' : 'none';
+        // 3D SHAPE TOOL (v20260906j): Bake to Extrude, for a cuboid group primitive only
+        const _bxOn = !!(selectedObject.primitiveData && _isShape3dObj(selectedObject));
+        const bxRow = document.getElementById('bakeToExtrudeRow');
+        if (bxRow) bxRow.style.display = _bxOn ? '' : 'none';
+        const toolBxRow = document.getElementById('toolDrawerBakeExtrudeRow');
+        if (toolBxRow) toolBxRow.style.display = _bxOn ? '' : 'none';
 
         // MOTION PATH (v20260719f): in On Path mode position is inert (the
         // anchor is P(u) pure; the PIVOT is the offset control) — grey it,
@@ -61622,6 +62289,7 @@
         const tabBarNone = document.getElementById('selectedObjectTabBar');
         if (tabBarNone) tabBarNone.style.display = 'none';
       }
+      PanelAnim.sync();   // ANIMATED-FIELD INDICATOR (v20260906f)
     };
 
     // Late-bound ref to init()'s initCustomSpinners — dynamically rebuilt
@@ -61634,7 +62302,18 @@
       // Handle Groups which might not have style
       let styleSource = currentStyle;
       if (selectedObject) {
-        if (selectedObject.style) {
+        // 3D SHAPE TOOL (v20260906i): a Group primitive (the cuboid's panels
+        // form) is STYLELESS on purpose - getEffectiveStyle lets a parent's
+        // keys override its children, so a fill on the group would erase every
+        // per-face colour. The panel therefore shows the faces' style (the
+        // first tagged face), and updateStyleFromInput writes the faces.
+        // Without this the pending group showed an empty style, the next drag
+        // read those blank inputs, and every new box "reset" (owner report).
+        const _s3Face = (selectedObject.isGroup && _isShape3dObj(selectedObject))
+          ? selectedObject.children.find(c => c.primFace && c.style) : null;
+        if (_s3Face) {
+          styleSource = _s3Face.style;
+        } else if (selectedObject.style) {
           styleSource = selectedObject.style;
         } else if (selectedObject.isGroup) {
           // Groups don't have own style, maybe use default or just don't crash
@@ -63465,6 +64144,7 @@
 
       // Sync Quick Style Bar
       updateQuickStyleBar();
+      PanelAnim.sync();   // ANIMATED-FIELD INDICATOR (v20260906f): after the fold-row rebuild, so new rows get their classes
     };
 
     const updateQuickStyleBar = () => {
@@ -65086,6 +65766,9 @@
         if (obj.extrudeSettings) newGroup.extrudeSettings = JSON.parse(JSON.stringify(obj.extrudeSettings));
         if (obj.motionPathSettings) newGroup.motionPathSettings = JSON.parse(JSON.stringify(obj.motionPathSettings));
         if (obj.foldSettings) newGroup.foldSettings = JSON.parse(JSON.stringify(obj.foldSettings));
+        // 3D SHAPE TOOL (v20260906h): a Group primitive's params - the
+        // "Duplicate drops a channel" trap (shear, v20260812m) applies here.
+        if (obj.primitiveData) newGroup.primitiveData = { ...obj.primitiveData };
 
         // Recursively duplicate children
         obj.children.forEach(child => {
@@ -65149,6 +65832,7 @@
 
         // Copy primitive data (Spiral, Cycloid, Lissajous)
         if (obj.primitiveData) newPath.primitiveData = { ...obj.primitiveData };
+        if (obj.primFace) newPath.primFace = obj.primFace; // 3D SHAPE TOOL (v20260906h)
         if (obj._pixelEllipse) newPath._pixelEllipse = true;
         if (obj._pixelCellOrigin) newPath._pixelCellOrigin = [...obj._pixelCellOrigin];
 
@@ -66329,7 +67013,14 @@
       }
 
       // Update Selected Objects
-      const targets = selectedObjects.length > 0 ? selectedObjects : (selectedObject ? [selectedObject] : []);
+      const _rawTargets = selectedObjects.length > 0 ? selectedObjects : (selectedObject ? [selectedObject] : []);
+      // 3D SHAPE TOOL (v20260906i): a Group primitive expands to its tagged
+      // faces - see the styleSource note in updateStylePanel.
+      const targets = [];
+      _rawTargets.forEach(o => {
+        if (o && o.isGroup && _isShape3dObj(o)) o.children.forEach(c => { if (c.primFace && c.style) targets.push(c); });
+        else targets.push(o);
+      });
       // targetId and forceAll are defined above now.
 
       targets.forEach(obj => {
@@ -67870,7 +68561,7 @@
           : (sameCam ? 'Select a different camera to load its pose into the active one.'
             : 'Copy the selected camera’s pose into the active camera.');
       }
-
+      PanelAnim.sync();   // ANIMATED-FIELD INDICATOR (v20260906f): a non-active selected camera must show no tint
     };
 
 
@@ -73374,6 +74065,55 @@
           }
         }
 
+      } else if (currentTool === 'shape3d') {
+        // --- 3D SHAPE TOOL (v20260906h): the polygon tool's plane hit, then a
+        // pending mode until the drag passes the 5 px threshold (onMouseMove) ---
+        const viewMatrix = activeCamera.createViewMatrix();
+        const projectionMatrix = activeCamera.createProjectionMatrix();
+        const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
+        const ray = getRayFromClick(event, vpMatrix);
+        if (ray) {
+          const workingPlane = getWorkingPlane();
+          const planePoint = workingPlane.point;
+          const planeNormal = workingPlane.normal;
+          const denom = ray.direction[0] * planeNormal[0] + ray.direction[1] * planeNormal[1] + ray.direction[2] * planeNormal[2];
+          if (Math.abs(denom) > 1e-6) {
+            const t = vectorSubtract(planePoint, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
+            if (t >= 0) {
+              let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
+              if (activeWorkplane.snapToGrid) {
+                const basis = getGridBasis();
+                hitPoint = snapPointToPlaneLocal(hitPoint, planePoint, basis.u, basis.v, activeWorkplane.gridSize);
+              }
+              // Auto-confirm an existing pending shape (in its current form)
+              // before starting a new one - the polygon tool's orphan rule.
+              if (pendingPolygon) {
+                if (pendingPolygon._preCreationSceneState) {
+                  _lastSceneState = pendingPolygon._preCreationSceneState;
+                  delete pendingPolygon._preCreationSceneState;
+                }
+                pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
+                pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
+                const confirmedShape = pendingPolygon;
+                delete confirmedShape._isReEditing;
+                pendingPolygon = null;
+                activePath = null;
+                dragMode = 'none';
+                const creationPanel = document.getElementById('polygonCreationPanel');
+                if (creationPanel) creationPanel.style.display = 'none';
+                updateTreeView();
+                setSelectedObject(confirmedShape);
+                requestRender();
+              }
+              dragMode = 'draw-shape3d-pending';
+              dragStartPoint = hitPoint;
+              dragStartMousePosition = { x: event.clientX, y: event.clientY };
+              activePath = null;
+              pendingPolygon = null;
+            }
+          }
+        }
+
       } else if (currentTool === 'spiral') {
         // --- Spiral: Drag-and-release or click-to-recenter ---
         const viewMatrix = activeCamera.createViewMatrix();
@@ -73607,7 +74347,7 @@
           }
         }
 
-      } else if (['select', 'directSelect', 'scale', 'shear', 'rotate', 'pivot'].includes(currentTool)) {
+      } else if (['select', 'directSelect', 'scale', 'shear', 'rotate', 'pivot', 'extrude'].includes(currentTool)) {
         // --- Unified Selection & Transform Logic ---
         // 'shear' joined this list in v20260812g. It gates the ENTIRE transform block —
         // gizmo hit-test, selection, marquee — so a tool absent from it gets a gizmo it
@@ -73634,6 +74374,25 @@
                 // Axis lines, labels, rotation circles: rotate-local on that axis
                 dragMode = 'rotate-local';
                 lockedAxis = clickedGizmoAxis.split('-')[1];
+              }
+            } else handledByGizmo = false;
+          } else if (clickedGizmoAxis.startsWith('extrude-')) {
+            // EXTRUDE TOOL (v20260906m): grab a ring -> that local axis is the
+            // extrude vector, the drag sets the depth. An ineligible target (the
+            // rings draw dimmed) CONSUMES the click and starts nothing - falling
+            // through would hit-test the gizmo and deselect (v20260812h).
+            if (currentTool === 'extrude') {
+              const _et = extrudeToolTarget(selectedObject);
+              const _ax = clickedGizmoAxis.split('-')[1];
+              if (_et.ok && (_ax === 'x' || _ax === 'y' || _ax === 'z')) {
+                pushUndoStateCoalesced();
+                const s = _et.settings;
+                const cur = _extrudeAxisOf(s);
+                const sameAxis = !!s.enabled && cur.axis === _ax;   // continue the current depth, else start from 0
+                _extrudeDrag = { obj: selectedObject, settings: s, axis: _ax, sign: sameAxis ? cur.sign : 1, startSigned: sameAxis ? (s.depth || 0) * cur.sign : 0, start: _extrudeSnapshot(s) };
+                dragMode = 'extrude-axis';
+                lockedAxis = _ax;
+                dragStartWorldPosition = selectedObject.position;
               }
             } else handledByGizmo = false;
           } else if (clickedGizmoAxis.startsWith('scale-') && currentTool === 'shear') {
@@ -73886,8 +74645,8 @@
               if (isXPressed) lockedAxis = 'x';
               else if (isYPressed) lockedAxis = 'y';
               else lockedAxis = 'z'; // Default to Z (Roll) or Screen Z? rotate-screen uses lockedAxis logic.
-            } else if (currentTool === 'scale' || currentTool === 'pivot') {
-              dragMode = 'none'; // Only select. Scale/Pivot needs gizmo.
+            } else if (currentTool === 'scale' || currentTool === 'pivot' || currentTool === 'extrude') {
+              dragMode = 'none'; // Only select. Scale/Pivot/Extrude need the gizmo.
             } else {
               // Select / Direct Select
               if (isDPressed) { dragMode = 'translate-radial'; lockedAxis = 'none'; }
@@ -74730,7 +75489,7 @@
             lockedAxis = totalDeltaX > totalDeltaY ? 'x' : 'y';
           }
         }
-      } else if (dragMode !== 'translate-local' && dragMode !== 'translate-planar' && dragMode !== 'translate-free' && dragMode !== 'rotate-local' && dragMode !== 'rotate-screen' && dragMode !== 'translate-radial' && dragMode !== 'translate' && dragMode !== 'scale' && dragMode !== 'shear' && dragMode !== 'translate-pivot' && dragMode !== 'translate-pivot-planar' && dragMode !== 'translate-pivot-free') {
+      } else if (dragMode !== 'translate-local' && dragMode !== 'translate-planar' && dragMode !== 'translate-free' && dragMode !== 'rotate-local' && dragMode !== 'rotate-screen' && dragMode !== 'translate-radial' && dragMode !== 'translate' && dragMode !== 'scale' && dragMode !== 'shear' && dragMode !== 'extrude-axis' && dragMode !== 'translate-pivot' && dragMode !== 'translate-pivot-planar' && dragMode !== 'translate-pivot-free') {
         lockedAxis = 'none';
       }
 
@@ -75143,6 +75902,42 @@
         if (typeof updateScaleToolUI === 'function') updateScaleToolUI();
         requestRender();
 
+      } else if (dragMode === 'extrude-axis' && _extrudeDrag) {
+        // EXTRUDE TOOL (v20260906m): the translate-local screen projection along
+        // the axis's TRUE world direction (the rail is object-space geometry under
+        // the world matrix, so scale / shear / parents count). Signed distance from
+        // the drag start; |.| is the depth, the sign picks the vector's direction.
+        const d = _extrudeDrag;
+        const localAxis = d.axis === 'x' ? [1, 0, 0] : d.axis === 'y' ? [0, 1, 0] : [0, 0, 1];
+        const W = d.obj.getWorldMatrix();
+        const worldAxis = vectorNormalize(vectorApplyMatrix(localAxis, W));
+        const subjectPosition = [W[0][3], W[1][3], W[2][3]];
+        const subj2D = isIn2DMode(d.obj);
+        let sx, sy;
+        if (subj2D) { sx = worldAxis[0]; sy = worldAxis[1]; }
+        else {
+          const camZ = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
+          const camX = vectorNormalize(vectorCross(activeCamera.up, camZ));
+          const camY = vectorNormalize(vectorCross(camZ, camX));
+          sx = vectorDot(worldAxis, camX); sy = vectorDot(worldAxis, camY);
+        }
+        const projLen = Math.sqrt(sx * sx + sy * sy);
+        if (projLen >= 0.001) {
+          const mdx = event.clientX - dragStartMousePosition.x, mdy = event.clientY - dragStartMousePosition.y;
+          const dot = (mdx * sx + mdy * (-sy)) / projLen;
+          const dist = vectorLength(vectorSubtract(subjectPosition, activeCamera.position));
+          const p2w = subj2D ? 1 / (BASE_DISPLAY_SCALE * (Math.min(width, height) / FRAME_SIZE)) : getPixelToWorldFactor(dist);
+          let signed = d.startSigned + dot * p2w / projLen;
+          d.unitsPerPx = p2w / projLen;   // for the release-at-zero band (a few px, not a fixed unit)
+          if (activeWorkplane.snapToGrid) signed = Math.round(signed / activeWorkplane.gridSize) * activeWorkplane.gridSize;
+          if (Math.abs(signed) > EXTRUDE_TOOL_EPS) d.sign = signed >= 0 ? 1 : -1;
+          const s = d.settings;
+          s.enabled = true;
+          s.depth = Math.abs(signed);
+          const vec = { x: 0, y: 0, z: 0 }; vec[d.axis] = d.sign; s.vector = vec;
+          updateExtrudeToolUI();
+          requestRender();
+        }
       } else if (dragMode === 'translate-local') {
         const subject = selectedVertexInfo || selectedObject;
         if (!subject) return;
@@ -75788,6 +76583,27 @@
           updateTreeView();
         }
 
+      } else if (dragMode === 'draw-shape3d-pending') {
+        // --- 3D SHAPE TOOL (v20260906h): threshold reached -> create the pending
+        // cuboid primitive (the six-face group, shown as one primitive in the
+        // tree - v20260906l). Sizes are 0 until the live-drag block below runs
+        // on this same event. ---
+        const dx = Math.abs(event.clientX - dragStartMousePosition.x);
+        const dy = Math.abs(event.clientY - dragStartMousePosition.y);
+        if (dx > 5 || dy > 5) {
+          dragMode = 'draw-shape3d';
+          const F = _shape3dFrame();
+          const _preCreationState = _lastSceneState ? deepClone(_lastSceneState) : null;
+          const obj = _shape3dBuildCuboid('panels', { width: 0, height: 0, depth: 0 }, dragStartPoint, F.R,
+            getCurrentPathStyle(), mintNumberedName('Cuboid_'));
+          sceneObjects.push(obj);
+          activePath = obj;
+          pendingPolygon = obj;
+          pendingPolygon._preCreationSceneState = _preCreationState;
+          _shape3dHeightTyped = false;
+          setSelectedObject(obj);
+          updateTreeView();
+        }
       } else if (dragMode === 'draw-spiral-pending') {
         const dx = Math.abs(event.clientX - dragStartMousePosition.x);
         const dy = Math.abs(event.clientY - dragStartMousePosition.y);
@@ -76251,6 +77067,66 @@
         }
       }
 
+      // --- 3D SHAPE TOOL (v20260906h): live drag = the footprint on the workplane.
+      // Shift = square, Alt = from center (the polygon tool's modifiers); the
+      // height follows the larger footprint side until the user types one. ---
+      if (dragMode === 'draw-shape3d' && pendingPolygon) {
+        const viewMatrix = activeCamera.createViewMatrix();
+        const projectionMatrix = activeCamera.createProjectionMatrix();
+        const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
+        const ray = getRayFromClick(event, vpMatrix);
+        if (ray) {
+          const workingPlane = getWorkingPlane();
+          const planeNormal = workingPlane.normal;
+          const denom = ray.direction[0] * planeNormal[0] + ray.direction[1] * planeNormal[1] + ray.direction[2] * planeNormal[2];
+          if (Math.abs(denom) > 1e-6) {
+            const t = vectorSubtract(workingPlane.point, ray.origin).reduce((sum, v, i) => sum + v * planeNormal[i], 0) / denom;
+            if (t >= 0) {
+              let hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
+              const { u, v } = getGridBasis();
+              if (activeWorkplane.snapToGrid) {
+                hitPoint = snapPointToPlaneLocal(hitPoint, workingPlane.point, u, v, activeWorkplane.gridSize);
+              }
+              const delta = vectorSubtract(hitPoint, dragStartPoint);
+              let w = vectorDot(delta, u);
+              let h = vectorDot(delta, v);
+              if (event.shiftKey) {
+                const m = Math.max(Math.abs(w), Math.abs(h));
+                w = (w >= 0 ? 1 : -1) * m;
+                h = (h >= 0 ? 1 : -1) * m;
+              }
+              let baseCenter, width, depth;
+              if (event.altKey) {
+                baseCenter = dragStartPoint;
+                width = Math.abs(w * 2);
+                depth = Math.abs(h * 2);
+              } else {
+                baseCenter = vectorAdd(dragStartPoint, vectorAdd(vectorScale(u, w / 2), vectorScale(v, h / 2)));
+                width = Math.abs(w);
+                depth = Math.abs(h);
+              }
+              const height = _shape3dHeightTyped
+                ? Math.max(0, fromDisplay(parseFloat(document.getElementById('shape3dHeight').value) || 0))
+                : Math.max(width, depth);
+              const pd = { width, height, depth };
+              const F = _shape3dFrame();
+              pendingPolygon.position = vectorAdd(baseCenter, vectorScale(F.Y, height / 2));
+              _shape3dRebuildCuboid(pendingPolygon, pd);
+              // Panel follows the drag (the polygon tool's live sync)
+              const vecToCenter = vectorSubtract(baseCenter, workingPlane.point);
+              document.getElementById('polyCenterX').value = toDisplay(vectorDot(vecToCenter, u)).toFixed(2);
+              document.getElementById('polyCenterY').value = toDisplay(-vectorDot(vecToCenter, v)).toFixed(2);
+              _shape3dWritePanel(pd);
+              document.getElementById('polygonCreationPanel').style.display = 'block';
+              _shape3dSyncPendingPanel(true);
+              const _hint = document.getElementById('toolHintText');
+              if (_hint) _hint.style.display = 'none';
+              requestRender();
+            }
+          }
+        }
+      }
+
       if ((dragMode === 'draw-polygon' || dragMode === 'draw-star' || dragMode === 'draw-ellipse') && activePath) {
         const viewMatrix = activeCamera.createViewMatrix();
         const projectionMatrix = activeCamera.createProjectionMatrix();
@@ -76395,6 +77271,12 @@
               document.getElementById('polygonCreationPanel').style.display = 'block';
               const _hint = document.getElementById('toolHintText');
               if (_hint) _hint.style.display = 'none';
+              // THE DIRTY SIGNAL (v20260904q) - every mutation must reach
+              // requestRender(). This block never did, so a polygon / star /
+              // ellipse creation drag only repainted on the 30-frame belt
+              // (owner report: "updates once in a while"). The spiral,
+              // cycloid and lissajous drags already ask (v20260906i).
+              requestRender();
             }
           }
         }
@@ -76665,6 +77547,18 @@
           requestRender();
           return;
         }
+      }
+
+      // 3D SHAPE TOOL (v20260906h): a click without a drag deselects (the
+      // polygon rule); a completed drag hands the pending cuboid to the panel.
+      if (dragMode === 'draw-shape3d-pending') {
+        setSelectedObject(null);
+        dragMode = 'none';
+        return;
+      }
+      if (dragMode === 'draw-shape3d') {
+        dragMode = 'edit-polygon';
+        return;
       }
 
       if (dragMode === 'draw-polygon-pending' || dragMode === 'draw-star-pending' || dragMode === 'draw-ellipse-pending') {
@@ -77141,6 +78035,23 @@
 
       dragStartVertexPosition = null;
       dragStartWorldPosition = null;
+
+      // EXTRUDE TOOL (v20260906m): a ring drag ends. Released at (near) zero the
+      // extrusion is REMOVED (D5); then the channels that moved auto-key (the
+      // recorder is gated on Auto-Key itself), and the 3D Settings tab re-syncs.
+      if (_prevDragMode === 'extrude-axis' && _extrudeDrag) {
+        const s = _extrudeDrag.settings;
+        // "Zero" is a few PIXELS of drag, not a fixed unit: 1 px is ~0.016 units
+        // at the default view, so a unit-sized band was unreachable by hand.
+        const zeroBand = Math.max(EXTRUDE_TOOL_EPS, 3 * (_extrudeDrag.unitsPerPx || 0));
+        if ((s.depth || 0) < zeroBand) { s.depth = 0; s.enabled = false; }
+        if (typeof tlAutoKeyProps === 'function') {
+          const changed = _extrudeChangedProps(_extrudeDrag.start, s);
+          if (changed.length) tlAutoKeyProps(tlKeyOf(_extrudeDrag.obj), changed);
+        }
+        _extrudeDrag = null;
+        updateStylePanel(); updateExtrudeToolUI(); requestRender();
+      }
 
       // --- Auto-keying: record keyframes on drag end ---
       if (typeof tlAutoKeyCamera === 'function' && typeof tlAutoKeyObject === 'function') {
@@ -77945,6 +78856,11 @@
             event.preventDefault();
             setTool('pivot');
             break;
+          case 'u': // EXTRUDE TOOL (v20260906m)
+          case 'U':
+            event.preventDefault();
+            setTool('extrude');
+            break;
           case 'w':
           case 'W':
             event.preventDefault();
@@ -78003,6 +78919,11 @@
           case 'L':
             event.preventDefault();
             setTool('lissajous');
+            break;
+          case 'n': // 3D SHAPE TOOL (v20260906h)
+          case 'N':
+            event.preventDefault();
+            setTool('shape3d');
             break;
           case 'b':
           case 'B':
@@ -78619,7 +79540,7 @@
       // Capture-phase handler for tool Cancel/Submit and History Undo/Redo
       // Uses capture phase so it fires before input stopPropagation blocks it
       window.addEventListener('keydown', (event) => {
-        const isToolActive = (currentTool === 'select' || currentTool === 'directSelect' || currentTool === 'rotate' || currentTool === 'scale' || currentTool === 'pivot');
+        const isToolActive = (currentTool === 'select' || currentTool === 'directSelect' || currentTool === 'rotate' || currentTool === 'scale' || currentTool === 'pivot' || currentTool === 'extrude');
 
         // Option+Shift+X / Alt+Shift+X → Animation Redo
         if (event.altKey && !event.metaKey && !event.ctrlKey && event.shiftKey && event.code === 'KeyX') {
@@ -78723,6 +79644,8 @@
               scaleCancelBtn.click();
             } else if (currentTool === 'pivot' && pivotToolSession) {
               pivotCancelBtn.click();
+            } else if (currentTool === 'extrude' && extrudeToolSession) {
+              extrudeCancelBtn.click();   // EXTRUDE TOOL (v20260906m)
             }
             return;
           }
@@ -78784,6 +79707,9 @@
             handled = true;
           } else if (currentTool === 'pivot' && pivotToolSession) {
             pivotSubmitBtn.click();
+            handled = true;
+          } else if (currentTool === 'extrude' && extrudeToolSession) {
+            extrudeSubmitBtn.click();   // EXTRUDE TOOL (v20260906m)
             handled = true;
           }
           if (handled) {
@@ -80142,6 +81068,7 @@
 
       if (obj.isGroup) {
         data.children = obj.children.map(child => serializeObject(child, opts));
+        if (obj.primitiveData) data.primitiveData = { ...obj.primitiveData }; // 3D SHAPE TOOL (v20260906h): Group primitives (cuboid panels form)
         if (obj.zSortChildren) data.zSortChildren = true;
         if (obj.zSortMode && obj.zSortMode !== 'children') data.zSortMode = obj.zSortMode;
         if (obj.backside && obj.backside !== 'sheet') data.backside = obj.backside; // BACKSIDE (v20260817b) — key absent = Sheet (heritage), legacy scenes byte-identical
@@ -80209,6 +81136,7 @@
         if (obj._pixelEllipse) data._pixelEllipse = true;
         if (obj._pixelCellOrigin) data._pixelCellOrigin = [...obj._pixelCellOrigin];
         if (obj.primitiveData) data.primitiveData = { ...obj.primitiveData };
+        if (obj.primFace) data.primFace = obj.primFace; // 3D SHAPE TOOL (v20260906h): face role of a Group primitive's child (lazy key)
       }
       return data;
     };
@@ -80263,6 +81191,7 @@
         obj = new Group(data.name);
         if (data.zSortChildren) obj.zSortChildren = true;
         if (data.zSortMode) obj.zSortMode = data.zSortMode;
+        if (data.primitiveData) obj.primitiveData = { ...data.primitiveData }; // 3D SHAPE TOOL (v20260906h)
         // BACKSIDE (v20260817b): tri-state with legacy migration. Priority:
         // the new key → the one-release v20260817a boolean → the retired
         // two-control keys (fold stickerBack default-ON, mapping stickerBack
@@ -80346,6 +81275,7 @@
         if (data._pixelEllipse) obj._pixelEllipse = true;
         if (data._pixelCellOrigin) obj._pixelCellOrigin = [...data._pixelCellOrigin];
         if (data.primitiveData) obj.primitiveData = { ...data.primitiveData };
+        if (data.primFace) obj.primFace = data.primFace; // 3D SHAPE TOOL (v20260906h)
       }
 
       // Restore Surface Constraint (v20260401a: Applies to both Path and Group)
@@ -83790,6 +84720,12 @@
       _tlUpdatePlaybackStat();                        // v20260809q
       // Playhead position
       tlUpdatePlayheadPosition();
+      // ANIMATED-FIELD INDICATOR (v20260906f): camera panel VALUES follow the
+      // playhead. updateCameraPanel is 0.012 ms and owns the pole-crossing
+      // azimuth display, so it is called rather than duplicated — but only
+      // while the camera group has tracks, so a scene without camera animation
+      // pays nothing. Its tail syncs the classes.
+      if (PanelAnim.cameraHasTracks()) updateCameraPanel();
       // Update inline track inputs
       tlUpdateTrackInputs();
       // Update curve editor seek line
@@ -83917,6 +84853,11 @@
         { prop: 'lisHeight', label: 'Height', pdKey: 'height', precision: 2, step: 0.1 },
         { prop: 'lisFreqC', label: 'Freq C', pdKey: 'freqC', precision: 2, step: 0.1 },
         { prop: 'lisPhaseC', label: 'Phase C', pdKey: 'phaseC', precision: 2, step: 0.01 },
+      ],
+      cuboid: [ // 3D SHAPE TOOL (v20260906h) - the six-face group primitive
+        { prop: 'cbWidth', label: 'Width', pdKey: 'width', precision: 2, step: 0.1 },
+        { prop: 'cbHeight', label: 'Height', pdKey: 'height', precision: 2, step: 0.1 },
+        { prop: 'cbDepth', label: 'Depth', pdKey: 'depth', precision: 2, step: 0.1 },
       ],
       text: [ // TEXT-TOOL
         { prop: 'textSize', label: 'Size', pdKey: 'size', precision: 2, step: 0.1 },
@@ -84398,8 +85339,290 @@
     let _tlLastSelectedName = null;
 
     // Update all inline track inputs with interpolated values at current frame
+    // --- ANIMATED-FIELD INDICATOR (v20260906f) ------------------------------------
+    // The attribute panels mirror the timeline: a field whose track has keys is
+    // tinted (.anim-animated between keys, .anim-keyed ON a key) and follows the
+    // playhead. ONE registry (panel input id → track prop → formatter), ONE
+    // sync(). The tint means exactly "the timeline lists this row for this
+    // object AND it has keys" — the OFFERED test below mirrors renderObjectGroup's
+    // family gates, because _tlReadPropertyValue is NOT a gate for every family
+    // (a disabled fold still reads 0.5). Values are written into ANIMATED fields
+    // only, behind the activeElement guard; camera values ride updateCameraPanel
+    // (pole-crossing azimuth display must not be duplicated) and workplane values
+    // are already written by _wpWrite. Plan: _plans/PLAN-panel-animated-fields.md
+    const PanelAnim = (() => {
+      // Object-panel fields. trackKey = tlKeyOf(selectedObject). `fmt` mirrors
+      // EXACTLY what the field's own panel updater writes (so the number does not
+      // jump when the playhead stops); absent = precision-trimmed number.
+      const OBJ_FIELDS = [
+        // Transform (updatePropertiesPanel)
+        { id: 'posXInput', prop: 'posX', fmt: v => fmtDisplay(v) },
+        { id: 'posYInput', prop: 'posY', fmt: v => fmtDisplay(v) },
+        { id: 'posZInput', prop: 'posZ', fmt: v => fmtDisplay(v) },
+        { id: 'rotXInput', prop: 'rotX', fmt: v => String(Math.round(v)) },
+        { id: 'rotYInput', prop: 'rotY', fmt: v => String(Math.round(v)) },
+        { id: 'rotZInput', prop: 'rotZ', fmt: v => String(Math.round(v)) },
+        { id: 'scaleXInput', prop: 'sclX', fmt: v => v.toFixed(2) },
+        { id: 'scaleYInput', prop: 'sclY', fmt: v => v.toFixed(2) },
+        { id: 'scaleZInput', prop: 'sclZ', fmt: v => v.toFixed(2) },
+        { id: 'shearXYInput', prop: 'shrXY', fmt: v => v.toFixed(2) },
+        { id: 'shearXZInput', prop: 'shrXZ', fmt: v => v.toFixed(2) },
+        { id: 'shearYXInput', prop: 'shrYX', fmt: v => v.toFixed(2) },
+        { id: 'shearYZInput', prop: 'shrYZ', fmt: v => v.toFixed(2) },
+        { id: 'shearZXInput', prop: 'shrZX', fmt: v => v.toFixed(2) },
+        { id: 'shearZYInput', prop: 'shrZY', fmt: v => v.toFixed(2) },
+        { id: 'pivotXInput', prop: 'pivX', fmt: v => fmtDisplay(v) },
+        { id: 'pivotYInput', prop: 'pivY', fmt: v => fmtDisplay(v) },
+        { id: 'pivotZInput', prop: 'pivZ', fmt: v => fmtDisplay(v) },
+        // Style tab (updateStylePanel). The NUMBER field carries the tint; the
+        // range slider and the row's --fill are kept in step by `after`.
+        { id: 'fillOpacityValue', prop: 'fillOpacity', fmt: v => v.toFixed(2),
+          after: v => _slider('fillOpacityInput', 'fillOpacityRow', v) },
+        { id: 'strokeOpacityValue', prop: 'strokeOpacity', fmt: v => v.toFixed(2),
+          after: v => _slider('strokeOpacityInput', 'strokeOpacityRow', v) },
+        { id: 'strokeTrimStartInput', prop: 'trimStart' },
+        { id: 'strokeTrimEndInput', prop: 'trimEnd' },
+        // 3D tab. ONE family per object is animatable (_get3dSettingsParamsForObj);
+        // OFFERED enforces it, so a stale rv* track on an extruded path never tints.
+        { id: 'extrudeDepthInput', prop: 'exDepth', fmt: v => fmtDisplay(v || 2) }, // the panel's own `|| 2` quirk, mirrored
+        { id: 'extrudeVecXInput', prop: 'exVecX' },
+        { id: 'extrudeVecYInput', prop: 'exVecY' },
+        { id: 'extrudeVecZInput', prop: 'exVecZ' },
+        { id: 'extrudeScaleFrontUInput', prop: 'exScaleFrontU' },
+        { id: 'extrudeScaleFrontVInput', prop: 'exScaleFrontV' },
+        { id: 'extrudeScaleBackUInput', prop: 'exScaleBackU' },
+        { id: 'extrudeScaleBackVInput', prop: 'exScaleBackV' },
+        { id: 'revolveAngleInput', prop: 'rvAngle' },
+        { id: 'revolveSegmentsInput', prop: 'rvSegments' },
+        { id: 'revolveOffsetInput', prop: 'rvOffset', fmt: v => fmtDisplay(v) },
+        { id: 'revolveScaleStartInput', prop: 'rvScaleStart' },
+        { id: 'revolveScaleEndInput', prop: 'rvScaleEnd' },
+        { id: 'sweepScaleStartInput', prop: 'swScaleStart' },
+        { id: 'sweepScaleEndInput', prop: 'swScaleEnd' },
+        { id: 'loftDepthInput', prop: 'lfDepth' },
+        { id: 'loftSegmentsInput', prop: 'lfSegments' },
+        // Mapping tab — Spline Flow
+        { id: 'surfaceOffsetInput', prop: 'sfOffset' },
+        { id: 'surfaceHOffsetInput', prop: 'sfHOffset' },
+        { id: 'surfaceBankFactorInput', prop: 'sfBank' },
+        { id: 'surfaceTwistInput', prop: 'sfTwist' },
+        { id: 'splineFlowScaleU', prop: 'sfScaleU' },
+        { id: 'splineFlowScaleV', prop: 'sfScaleV' },
+        { id: 'splineFlowRotationX', prop: 'sfRotX' },
+        { id: 'splineFlowRotationY', prop: 'sfRotY' },
+        { id: 'splineFlowRotation', prop: 'sfRotZ' },
+        { id: 'splineFlowRepeatCount', prop: 'sfRepeat' },
+        { id: 'splineFlowRepeatGap', prop: 'sfGap' },
+        // Mapping tab — Surface Mapping
+        { id: 'surfaceMappingScaleU', prop: 'smScaleU' },
+        { id: 'surfaceMappingScaleV', prop: 'smScaleV' },
+        { id: 'surfaceMappingOffsetU', prop: 'smOffsetU' },
+        { id: 'surfaceMappingOffsetV', prop: 'smOffsetV' },
+        { id: 'surfaceMappingOffsetN', prop: 'smOffsetN', fmt: v => toDisplay(v).toFixed(2) },
+        { id: 'surfaceMappingRotation', prop: 'smRotation' },
+        // Mapping tab — Motion Path
+        { id: 'motionPathPercentInput', prop: 'mpPercent' },
+        // Mapping tab — Fold, crease 1 + settings-level (creases 2..N are the
+        // dynamic #foldCreaseList rows, handled in sync() by data attributes)
+        { id: 'foldScaleUInput', prop: 'fdScaleU' },
+        { id: 'foldScaleVInput', prop: 'fdScaleV' },
+        { id: 'foldWaveSizeInput', prop: 'fdWaveSize' },
+        { id: 'foldPositionInput', prop: 'fdPosition' },
+        { id: 'foldPositionVInput', prop: 'fdPositionV' },
+        { id: 'foldExtentAInput', prop: 'fdExtentA' },
+        { id: 'foldExtentBInput', prop: 'fdExtentB' },
+        { id: 'foldRotationInput', prop: 'fdRotation' },
+        { id: 'foldAngleInput', prop: 'fdAngle' },
+        { id: 'foldRadiusInput', prop: 'fdRadius' },
+        { id: 'foldPitchInput', prop: 'fdPitch' },
+        { id: 'foldTightenInput', prop: 'fdTighten' },
+      ];
+      // Camera panel — classes only; VALUES come from updateCameraPanel(), which
+      // tlUpdateUI calls per applied frame while the camera has tracks. #camFovInput
+      // is ONE element showing fov (perspective) or orthoZoom (ortho/oblique).
+      const CAM_FIELDS = [
+        { id: 'camAzimuthInput', prop: 'azimuth' },
+        { id: 'camElevationInput', prop: 'elevation' },
+        { id: 'camDistInput', prop: 'distance' },
+        { id: 'camFovInput', prop: () => ((activeCamera && activeCamera.projectionType) || projectionType) === 'perspective' ? 'fov' : 'orthoZoom' },
+        { id: 'camTruckInput', prop: 'truck' },
+        { id: 'camPedestalInput', prop: 'pedestal' },
+        { id: 'camFramingReadout', prop: 'framing' },
+      ];
+      // Workplane panel — classes only; _wpWrite already writes these values.
+      const WP_FIELDS = [
+        { id: 'gridOpacityInput', prop: 'gridOpacity' },
+        { id: 'gridSizeInput', prop: 'gridSize' },
+      ];
+
+      const _slider = (sliderId, rowId, v) => {
+        const s = document.getElementById(sliderId);
+        if (s && document.activeElement !== s) s.value = v;
+        const row = document.getElementById(rowId);
+        if (row) row.style.setProperty('--fill', (v * 100) + '%');
+      };
+      const _has = (list, prop) => !!(list && list.some(p => p && p.prop === prop));
+
+      // The param descriptor for a prop (precision lives there). Object props are
+      // searched across every object family table; the 3D tables are searched
+      // directly because the per-object gate is a separate question (see offered).
+      const paramDefOf = (trackKey, prop) => {
+        if (trackKey === TL_CAMERA_KEY) return _camParams.find(p => p.prop === prop) || null;
+        if (trackKey === TL_WORKPLANE_KEY) return _wpParams.find(p => p.prop === prop) || null;
+        return _objParams.find(p => p.prop === prop)
+          || _findPrimitiveParam(prop)
+          || _splineFlowParams.find(p => p.prop === prop)
+          || _surfaceMappingParams.find(p => p.prop === prop)
+          || _extrudeParams.find(p => p.prop === prop)
+          || _revolveParams.find(p => p.prop === prop)
+          || _sweepParams.find(p => p.prop === prop)
+          || _loftParams.find(p => p.prop === prop)
+          || _strokeTrimParams.find(p => p.prop === prop)
+          || _opacityParams.find(p => p.prop === prop)
+          || _motionPathParams.find(p => p.prop === prop)
+          || _foldParamOf(prop)
+          || null;
+      };
+
+      // OFFERED = the timeline would list this row for this object. Mirrors the
+      // family enumeration in renderObjectGroup exactly — same gate functions.
+      const offered = (trackKey, prop, obj) => {
+        if (trackKey === TL_CAMERA_KEY) return _has(_camParams, prop);
+        if (trackKey === TL_WORKPLANE_KEY) return _has(_wpParams, prop);
+        if (!obj) return false;
+        if (_has(_objParams, prop)) return true;
+        if (_has(_getPrimitiveParamsForObj(obj), prop)) return true;
+        if (_has(_getSplineFlowParamsForObj(obj), prop)) return true;
+        if (_has(_getSurfaceMappingParamsForObj(obj), prop)) return true;
+        const td = _get3dSettingsParamsForObj(obj);
+        if (td && _has(td.params, prop)) return true;
+        if (_has(_getStrokeTrimParamsForObj(obj), prop)) return true;
+        if (_has(_getOpacityParamsForObj(obj), prop)) return true;
+        if (_has(_getMotionPathParamsForObj(obj), prop)) return true;
+        if (_has(_getFoldParamsForObj(obj, animationTimeline.tracks.get(trackKey)), prop)) return true;
+        return false;
+      };
+
+      // 0 none / 1 animated (between keys) / 2 keyed (a key AT the playhead).
+      const stateOf = (trackKey, prop, obj) => {
+        if (!animationEnabled) return 0;
+        const objTracks = animationTimeline.tracks.get(trackKey);
+        if (!objTracks) return 0;
+        const kfs = objTracks.get(prop);
+        if (!kfs || kfs.length === 0) return 0;
+        if (!offered(trackKey, prop, obj)) return 0;
+        if (trackKey === TL_CAMERA_KEY && _tlFramingDerives(trackKey, prop)) return 0; // an OUTPUT never reads as driven
+        return kfs.some(k => k.frame === animationTimeline.currentFrame) ? 2 : 1;      // the diamond's own predicate
+      };
+
+      const apply = (el, st) => {
+        el.classList.toggle('anim-animated', st === 1);
+        el.classList.toggle('anim-keyed', st === 2);
+      };
+
+      const fmtDefault = (v, def) => {
+        const p = (def && typeof def.precision === 'number') ? def.precision : 2;
+        return String(Number(v.toFixed(p)));
+      };
+
+      const writeValue = (el, trackKey, prop, fmt, after) => {
+        if (document.activeElement === el) return;                 // the panel-sync convention
+        const raw = _tlReadPropertyValue(trackKey, prop);
+        const v = (typeof raw === 'number') ? raw : parseFloat(raw); // trim keys are strings in obj.style
+        if (!isFinite(v)) return;
+        el.value = fmt ? fmt(v) : fmtDefault(v, paramDefOf(trackKey, prop));
+        if (after) after(v);
+      };
+
+      const cameraHasTracks = () => {
+        const t = animationTimeline.tracks.get(TL_CAMERA_KEY);
+        return !!(t && t.size > 0);
+      };
+
+      const sync = () => {
+        // Scene object fields — the PRIMARY selection (what the panels show).
+        const obj = selectedObject || null;
+        const key = obj ? tlKeyOf(obj) : null;
+        for (const f of OBJ_FIELDS) {
+          const el = document.getElementById(f.id);
+          if (!el) continue;
+          const st = key ? stateOf(key, f.prop, obj) : 0;
+          apply(el, st);
+          if (st) writeValue(el, key, f.prop, f.fmt, f.after);
+        }
+        // Fold creases 2..N: dynamic rows, prop = 'fd' + (idx+1) + CapKey.
+        const list = document.getElementById('foldCreaseList');
+        if (list) {
+          list.querySelectorAll('input[data-fold-idx]').forEach(inp => {
+            const ci = parseInt(inp.dataset.foldIdx, 10);
+            const kk = inp.dataset.foldKey;
+            if (!kk || !(ci >= 1)) { apply(inp, 0); return; }
+            const prop = 'fd' + (ci + 1) + kk.charAt(0).toUpperCase() + kk.slice(1);
+            const st = key ? stateOf(key, prop, obj) : 0;
+            apply(inp, st);
+            if (st) writeValue(inp, key, prop, null, null);
+          });
+        }
+        // Camera — only the ACTIVE camera is animatable ('__camera__' reads
+        // activeCamera); a panel showing another selected camera must not tint.
+        const camShown = (selectedCamera || activeCamera) === activeCamera;
+        for (const f of CAM_FIELDS) {
+          const el = document.getElementById(f.id);
+          if (!el) continue;
+          const prop = (typeof f.prop === 'function') ? f.prop() : f.prop;
+          apply(el, camShown ? stateOf(TL_CAMERA_KEY, prop, null) : 0);
+        }
+        // Workplane
+        for (const f of WP_FIELDS) {
+          const el = document.getElementById(f.id);
+          if (el) apply(el, stateOf(TL_WORKPLANE_KEY, f.prop, null));
+        }
+      };
+
+      // selfTest: (1) every registered id exists in the DOM; (2) every prop
+      // resolves to a param descriptor (a typo here would silently never tint);
+      // (3) on the CURRENT selection, for every OFFERED object field, the value
+      // the registry would write equals (±1e-6) what the field's own panel
+      // updater wrote — the formatter-drift net. Run with a selection whose
+      // extrude AND fold are enabled so the 3D and fold rows are exercised.
+      const selfTest = () => {
+        const rows = [];
+        const all = [...OBJ_FIELDS, ...CAM_FIELDS, ...WP_FIELDS];
+        for (const f of all) rows.push({ test: 'dom:' + f.id, pass: !!document.getElementById(f.id) });
+        for (const f of OBJ_FIELDS) rows.push({ test: 'param:' + f.prop, pass: !!paramDefOf('obj', f.prop) });
+        for (const f of CAM_FIELDS) { const p = (typeof f.prop === 'function') ? f.prop() : f.prop; rows.push({ test: 'param:' + p, pass: !!paramDefOf(TL_CAMERA_KEY, p) }); }
+        for (const f of WP_FIELDS) rows.push({ test: 'param:' + f.prop, pass: !!paramDefOf(TL_WORKPLANE_KEY, f.prop) });
+        const obj = selectedObject || null;
+        if (obj) {
+          const key = tlKeyOf(obj);
+          updatePropertiesPanel(); updateStylePanel();
+          for (const f of OBJ_FIELDS) {
+            if (!offered(key, f.prop, obj)) continue;
+            const el = document.getElementById(f.id);
+            const raw = _tlReadPropertyValue(key, f.prop);
+            const v = (typeof raw === 'number') ? raw : parseFloat(raw);
+            if (!el || !isFinite(v) || el.value === '') continue;
+            const mine = f.fmt ? f.fmt(v) : fmtDefault(v, paramDefOf(key, f.prop));
+            const pass = Math.abs(parseFloat(el.value) - parseFloat(mine)) <= 1e-6;
+            rows.push({ test: 'fmt:' + f.id, panel: el.value, mine, pass });
+          }
+        } else {
+          rows.push({ test: 'fmt:(no selection — select an object to run the formatter check)', pass: true });
+        }
+        const passed = rows.filter(r => r.pass).length;
+        const failed = rows.filter(r => !r.pass);
+        if (failed.length) console.table(failed);
+        if (passed === rows.length) console.log(`[PanelAnim] selfTest: ${passed}/${rows.length} ALL PASS`);
+        else console.error(`[PanelAnim] selfTest: ${passed}/${rows.length} — FAILURES ABOVE`);
+        return passed === rows.length;
+      };
+
+      return { OBJ_FIELDS, CAM_FIELDS, WP_FIELDS, paramDefOf, offered, stateOf, sync, cameraHasTracks, selfTest };
+    })();
+
     const tlUpdateTrackInputs = () => {
       const frame = animationTimeline.currentFrame;
+      PanelAnim.sync();   // ANIMATED-FIELD INDICATOR (v20260906f): panels mirror the timeline on every track/playhead change
       for (const entry of _tlTrackInputs) {
         const { objectName, prop, inputs, type, keyBtn } = entry;
         const objTracks = animationTimeline.tracks.get(objectName);

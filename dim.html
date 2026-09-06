@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260905h -->
+<!-- dim v20260906e -->
 
 <!--
   MIT License
@@ -435,6 +435,22 @@
       transition: background var(--dur), opacity var(--dur-slow) ease;
     }
 
+    /* LOCKED CAMERA: every HUD control refuses, and says so (v20260906c).
+       Mirrors the sub HUD's .subwin-hud-disabled — a visual half plus a
+       handler guard, because a class is not a guard (v20260808a) — with ONE
+       deliberate difference: these bars KEEP `pointer-events: auto`. The sub
+       HUD's bars float over the subwindow, but these float over the CANVAS, so
+       dropping pointer-events would send a refused click through to
+       onMouseDown and deselect the user's object. A dead control must still
+       absorb its own click.
+       Placed BEFORE .hud-hidden on purpose: both are two classes, so at equal
+       specificity the later rule wins, and a hidden HUD must stay at opacity 0
+       whether or not the camera is locked. */
+    .canvas-hud-bar.hud-locked {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
     .canvas-hud-bar.hud-hidden {
       opacity: 0;
       pointer-events: none;
@@ -442,6 +458,13 @@
 
     .canvas-hud-bar:hover {
       background: var(--hud-bar-hover);
+    }
+
+    /* The sub HUD gets this for free (pointer-events: none means :hover never
+       matches); these bars still receive the pointer, so the hover lift has to
+       be cancelled explicitly or a dead bar lights up under the cursor. */
+    .canvas-hud-bar.hud-locked:hover {
+      background-color: var(--hud-bar-bg);
     }
 
     .canvas-hud-bar.dragging {
@@ -555,6 +578,77 @@
     .canvas-hud-bar-v .hud-value {
       transform: translate(-50%, -50%) rotate(-90deg);
       white-space: nowrap;
+    }
+
+    /* THE NUMBER IS THE HIT TARGET for numeric entry (v20260906a) — the base
+       rule above keeps `pointer-events: none`, and this one lifts it for the
+       MAIN HUD only. #subWindow's bars reuse the whole .canvas-hud-bar family
+       and have no editor wired to them, so a text cursor there would promise
+       something that does not happen; excluding them also leaves the sub HUD's
+       readouts geometrically untouched.
+       Measured live, a readout is only 6.3-8.9% of its pill (18.7-26.2 x 8.5px
+       inside 104x24) — too small to aim at, hence the padding, which grows the
+       box symmetrically about the translate(-50%,-50%) centre so the text does
+       not move. The padding costs the bar NO drag area: the editor opens on
+       POINTERUP and only when the pointer never moved, so a press-and-drag
+       starting on the number is still an ordinary scrub (_hudOpenValueEditor). */
+    .canvas-hud-bar:not(.subwin-hud) .hud-value {
+      pointer-events: auto;
+      cursor: text;
+      padding: 7px 6px;
+    }
+
+    /* AN ANCESTOR'S `pointer-events: none` DOES NOT BLOCK A DESCENDANT'S
+       `auto` — the descendant still takes the hit. So the rule above, alone,
+       leaves seven invisible ~44x22px click-eaters sitting over the canvas
+       whenever Show HUD is off: .hud-hidden takes the BAR to opacity 0 and
+       pointer-events none, and the readout would simply ignore that. Measured
+       before this rule existed: elementFromPoint at the hidden Azimuth
+       readout's centre returned the readout. Same specificity as the rule
+       above (three classes each), so it wins by coming later — keep the
+       order. */
+    .canvas-hud-bar.hud-hidden .hud-value {
+      pointer-events: none;
+    }
+
+    /* Locked: the readout keeps its hit area (so the click is absorbed rather
+       than falling through to the canvas) but stops promising an editor. Three
+       classes, like the :not(.subwin-hud) rule it overrides, so it wins by
+       coming later — keep the order. */
+    .canvas-hud-bar.hud-locked .hud-value {
+      cursor: not-allowed;
+    }
+
+    /* The in-place numeric editor (v20260906a) — the same box as the readout it
+       replaces. Deliberately NOT a popover positioned against the bar:
+       updateHudBarPositions rewrites every bar's left/top whenever the camera
+       pose changes, so an editor with a position of its own would have to chase
+       them. A child of the bar inherits that position for free.
+       It carries no `-v` variant on purpose: the vertical bars' readout is
+       rotated -90deg in a 24px-wide pill, and you type horizontally, so the
+       editor stays upright and overhangs the pill (nothing clips it — the bars
+       set no overflow). */
+    .canvas-hud-bar .hud-value-input {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 72px;
+      padding: 3px 4px;
+      border: none;
+      border-radius: 3px;
+      box-sizing: border-box;
+      background-color: rgba(255, 255, 255, 1);
+      color: var(--text-main);
+      font-size: 12px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      text-align: center;
+      box-shadow: var(--focus-ring);
+      outline: none;
+      cursor: text;
+      z-index: 2;
     }
 
     /* --- Camera Subwindow HUD (Phase 3) ---------------------------------
@@ -71200,6 +71294,44 @@
     const _hudTruckYValue = document.getElementById('hudTruckYValue');
     const _hudTruckResetBtn = document.getElementById('hudTruckResetBtn');
 
+    // --- LOCKED CAMERA: the HUD refuses, and says so (v20260906c) -----------
+    // Before this, ONLY #hudTruckResetBtn checked cam.lock. The seven value
+    // bars relied on updateCameraFromInput's early return, so a drag on a
+    // locked camera ran its ENTIRE gesture — pointer capture, the `dragging`
+    // class, a coalesced undo push, and on three bars a Keep-Size force and
+    // restore — and then changed nothing, with no hint that the lock was why.
+    //
+    // The class is driven from updateHudBarPositions and that is sufficient:
+    // _camPose already includes `c.lock`, so toggling the lock changes the
+    // chrome header and this runs on the very next frame rather than waiting
+    // for the 30-frame belt. That is why the pointerdown guards below do NOT
+    // call it the way the sub HUD's do — theirs is not frame-driven, ours is.
+    // The guards still test cam.lock themselves: a class is not a guard
+    // (v20260808a).
+    const HUD_LOCK_TITLE = 'Camera is locked — unlock it in the Camera list to edit';
+    const _hudLockables = [_hudAzBar, _hudElBar, _hudFovBar, _hudFovZoomBar,
+      _hudDistBar, _hudTruckXBar, _hudTruckYBar, _hudTruckResetBtn];
+    const _hudSyncLockUI = (cam) => {
+      const locked = !!(cam && cam.lock);
+      for (const b of _hudLockables) {
+        if (!b) continue;
+        b.classList.toggle('hud-locked', locked);
+        if (locked) {
+          // Save the authored title once, on the first locked frame.
+          if (b.dataset.hudTitle == null) b.dataset.hudTitle = b.title;
+          b.title = HUD_LOCK_TITLE;
+        } else if (b.dataset.hudTitle != null) {
+          // #hudDistBar's title is REWRITTEN every frame above (it names
+          // Distance or Size depending on projection), and that write already
+          // ran this frame — so drop its saved copy instead of restoring a
+          // stale one over the fresh one. The other seven are authored in the
+          // markup and nothing else touches them.
+          if (b !== _hudDistBar) b.title = b.dataset.hudTitle;
+          delete b.dataset.hudTitle;
+        }
+      }
+    };
+
     const updateHudBarPositions = (frameX, frameY, frameSizePx) => {
       // Check if HUD is visible
       const showHudCb = document.getElementById('camShowHudCheckbox');
@@ -71345,6 +71477,9 @@
         const pedestalValue = vectorDot(displacement, upAxisT);
         _hudTruckYValue.textContent = pedestalValue.toFixed(1);
       }
+
+      // Last, so it sees this frame's #hudDistBar title write.
+      _hudSyncLockUI(cam);
     };
 
     // Toggle HUD visibility when checkbox changes
@@ -71352,6 +71487,250 @@
     if (_showHudCb) {
       _showHudCb.addEventListener('change', () => requestRender());
     }
+
+    // --- HUD NUMERIC ENTRY (v20260906a) ------------------------------------
+    // Click the NUMBER on a HUD bar and it becomes an editable field in place.
+    //
+    // NOT double-click, which is what was asked for and what measurement
+    // refused. A real double-click on a bar delivers
+    //     pointerdown pointerup click pointerdown pointerup click dblclick
+    // (measured in Chromium; mousedown/mouseup never arrive at all — the
+    // handlers' preventDefault on pointerdown kills the compatibility mouse
+    // events, while click/dblclick survive it). dblclick is therefore LAST, and
+    // the zoom-reset branch on #hudDistBar / #hudFovBar / #hudFovZoomBar fires
+    // on ANY pointerup that saw no drag, unguarded — so BOTH clicks reset the
+    // camera before an editor could open. Measured: a camera at distance 30.0,
+    // double-clicked, lands at 17.321 = REFERENCE_ORTHO_ZOOM / tan(fov/2).
+    // Typing a precise number into a camera that just threw away its framing is
+    // worse than no feature. (The repo had also already withdrawn double-click
+    // from a draggable bar once on owner report — see the timeline layer bar's
+    // dblclick comment, v20260729a/d.)
+    //
+    // THE DECISION IS TAKEN AT POINTERUP, NEVER AT POINTERDOWN, and that is the
+    // whole reason this costs the bars no drag area: a press that starts on the
+    // number and MOVES is an ordinary scrub, and only a press that never moved
+    // opens the editor. ⌥ + click anywhere on a bar does the same without
+    // aiming at the number — the modifier v20260729d chose for this exact
+    // problem, and likewise on pointerdown so there is no timing window.
+    const HUD_EDIT_SLOP = 3;     // px — the reset circle's RESET_DEAD_ZONE
+    let _hudEditOpen = null;     // the open input, or null
+    let _hudEditClose = null;    // that input's own close(apply), or null
+
+    // A PRESS ON ANY HUD CONTROL ENDS AN OPEN EDIT, committing it exactly as
+    // blur does (v20260906d). Without this the HUD was the ONE place where
+    // clicking away did nothing: every bar's pointerdown calls preventDefault,
+    // which suppresses the default focus shift, so the open input never blurred,
+    // never committed, and the reentrancy guard in _hudOpenValueEditor then
+    // refused the second editor — clicking a second number appeared dead while
+    // clicking the canvas or a panel (neither of which preventDefaults)
+    // committed normally. Ending the edit here restores the idiom every numeric
+    // UI has: the first field commits and the second one opens.
+    // Called ABOVE each bar's lock guard, so an edit still ends even if the
+    // camera was locked while the field was open, and above _hudNoteDown so the
+    // new gesture measures itself against a settled HUD. A press INSIDE the open
+    // field never reaches here — the input stops pointerdown propagation.
+    const _hudEndEdit = () => { if (_hudEditClose) _hudEditClose(true); };
+
+    // Where the current bar gesture started. One object: only one pointer can
+    // be down on the HUD at a time, and every bar captures its own pointer.
+    const _hudDown = { onValue: false, x: 0, y: 0 };
+    const _hudNoteDown = (e, valueEl) => {
+      _hudDown.onValue = !!(valueEl && valueEl.contains(e.target));
+      _hudDown.x = e.clientX;
+      _hudDown.y = e.clientY;
+    };
+    // pointerCANCEL must never open an editor — hence the explicit type test;
+    // the bars share one end handler between pointerup and pointercancel.
+    const _hudWantsEditor = (e) => !!e && e.type === 'pointerup' && _hudDown.onValue
+      && Math.abs(e.clientX - _hudDown.x) <= HUD_EDIT_SLOP
+      && Math.abs(e.clientY - _hudDown.y) <= HUD_EDIT_SLOP;
+
+    // Keep-Size is unpersisted DOM state that three bars force and restore
+    // around their drag, which is what makes Dist / FOV / FOV-Zoom three
+    // different operations on the same two numbers. A typed commit has to
+    // honour the same contract or FOV and FOV-Zoom collapse into one control.
+    const _hudWithKeepSize = (want, fn) => {
+      const cb = document.getElementById('camFovCompensateCheckbox');
+      const saved = cb ? cb.checked : false;
+      if (cb) cb.checked = want;
+      try { fn(); } finally { if (cb) cb.checked = saved; }
+    };
+
+    // spec.read()   → the seed value, at FULL precision from camera state.
+    //                 NEVER the readout text: Dist displays toFixed(1) while
+    //                 its drag writes toFixed(2), so seeding from the span and
+    //                 committing unedited would quantize 10.037 to 10.0.
+    // spec.commit(v) → apply it, through the same panel input + applier the
+    //                 bar's own drag uses. Nothing here does camera math.
+    const _hudOpenValueEditor = (bar, valueEl, spec) => {
+      if (_hudEditOpen || !bar || !valueEl) return;
+      const cam = selectedCamera || activeCamera;
+      // updateCameraFromInput discards every write on a locked camera, so a
+      // field that opened here would take a number and silently drop it.
+      // Decline to open instead. (The seven value bars' DRAGS are already
+      // silently inert when locked — pre-existing, not addressed here.)
+      if (!cam || cam.lock) return;
+
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'hud-value-input';
+      if (spec.step != null) input.step = spec.step;
+      const seed = spec.read();
+      // Trim float noise without quantizing anything a user could have set.
+      input.value = Number.isFinite(seed) ? String(+seed.toFixed(4)) : '0';
+
+      // onKeyDown already ignores events whose target is an INPUT, but the
+      // camera panel's own fields stop keydown here too and this one sits over
+      // the canvas — same convention, same line.
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); close(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); close(false); }
+      });
+      // The bar underneath must not read a click inside the field as a scrub.
+      ['pointerdown', 'pointerup', 'pointermove', 'click', 'dblclick'].forEach(t =>
+        input.addEventListener(t, (e) => e.stopPropagation()));
+      input.addEventListener('blur', () => close(true));
+
+      let closed = false;
+      const close = (apply) => {
+        if (closed) return;
+        closed = true;
+        _hudEditOpen = null;
+        _hudEditClose = null;
+        if (apply) {
+          const v = parseFloat(input.value);
+          // A NaN reaching cam.position blanks the canvas — reject, never write.
+          const c = selectedCamera || activeCamera;
+          if (Number.isFinite(v) && c && !c.lock) {
+            spec.commit(v);
+            // Matches what every bar does at the end of its drag: the panel
+            // applier keys the channel the user drove (creating it on first
+            // touch), and this refreshes the OTHER already-keyframed camera
+            // channels to the settled pose. It creates nothing.
+            if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
+          }
+        }
+        input.remove();
+        valueEl.style.visibility = '';
+        requestRender();
+      };
+
+      // The readout is HIDDEN, not suppressed. updateHudBarPositions rewrites
+      // every readout whenever the camera pose changes AND unconditionally
+      // every 30th frame as a belt; hiding the span lets all of that keep
+      // running harmlessly against an invisible element, so no writer needs a
+      // guard and the readout is already correct the moment the editor closes.
+      // `visibility`, never `display` — the span is the pill's centred child.
+      valueEl.style.visibility = 'hidden';
+      bar.appendChild(input);
+      _hudEditOpen = input;
+      _hudEditClose = close;
+      input.focus();
+      input.select();
+    };
+
+    // The seven editable bars. Every commit goes through the SAME panel input
+    // and applier the bar's own drag uses — there is no camera math in this
+    // feature — so undo, the lock guard, Keep-Size compensation and the
+    // derived-channel auto-key rules all come along unchanged.
+    const _hudSpecs = {
+      az: {
+        step: 1,
+        // The pole-compensated DISPLAY azimuth: the number the readout shows,
+        // the number the panel field holds, and the number
+        // updateCameraFromInput reads back out of camAzimuthInput — so typing
+        // what you see round-trips. (The drag seeds from the raw atan2
+        // instead; that pre-existing difference shows only past a pole and is
+        // not changed here.)
+        read: () => {
+          const c = selectedCamera || activeCamera;
+          const r = vectorSubtract(c.position, c.target);
+          let a = (Math.atan2(r[0], r[2]) * 180) / Math.PI;
+          if (c.up[1] < 0) { a += 180; if (a > 180) a -= 360; }
+          return a;
+        },
+        commit: (v) => { camAzimuthInput.value = v; updateCameraFromInput({ target: camAzimuthInput }); }
+      },
+      el: {
+        step: 1,
+        // No min/max on the editor ON PURPOSE. The elevation drag is
+        // deliberately unclamped so the orbit runs continuously past the poles,
+        // and a typed value has to be able to reach the same places — even
+        // though #camElevationInput's markup carries min="-90" max="90".
+        read: () => {
+          const c = selectedCamera || activeCamera;
+          const r = vectorSubtract(c.position, c.target);
+          const hR = Math.sqrt(r[0] * r[0] + r[2] * r[2]);
+          const th = Math.atan2(c.up[1] >= 0 ? hR : -hR, r[1]);
+          let el = 90 - (th * 180) / Math.PI;
+          if (el > 180) el -= 360;
+          if (el < -180) el += 360;
+          return el;
+        },
+        commit: (v) => { camElevationInput.value = v; updateCameraFromInput({ target: camElevationInput }); }
+      },
+      dist: {
+        step: 0.1,
+        read: () => {
+          const c = selectedCamera || activeCamera;
+          return projectionType === 'perspective'
+            ? vectorLength(vectorSubtract(c.position, c.target))
+            : (c.orthoZoom || 10);
+        },
+        // Keep-Size OFF: typing a distance moves the camera without
+        // compensating FOV, which is what the Dist drag means.
+        commit: (v) => _hudWithKeepSize(false, () => {
+          if (projectionType === 'perspective') {
+            camDistInput.value = Math.max(0.1, v);
+            updateCameraFromInput({ target: camDistInput });
+          } else {
+            camFovInput.value = Math.max(0.1, v);
+            updateCameraFromInput({ target: camFovInput });
+          }
+        })
+      },
+      fov: {
+        step: 1,
+        read: () => (selectedCamera || activeCamera).fovDegrees || 60,
+        // Keep-Size ON: change the lens, hold the subject size.
+        commit: (v) => _hudWithKeepSize(true, () => {
+          camFovInput.value = Math.max(1, Math.min(179, v));
+          updateCameraFromInput({ target: camFovInput });
+        })
+      },
+      fovZoom: {
+        step: 1,
+        read: () => (selectedCamera || activeCamera).fovDegrees || 60,
+        // Keep-Size OFF: pure zoom. Same field, same typed number, different
+        // resulting camera — that difference IS the second bar.
+        commit: (v) => _hudWithKeepSize(false, () => {
+          camFovInput.value = Math.max(1, Math.min(179, v));
+          updateCameraFromInput({ target: camFovInput });
+        })
+      },
+      truckX: {
+        step: 0.1,
+        read: () => {
+          const c = selectedCamera || activeCamera;
+          const d = vectorSubtract(c.target, c.initialTarget);
+          const z = vectorNormalize(vectorSubtract(c.position, c.target));
+          return vectorDot(d, vectorNormalize(vectorCross(c.up, z)));
+        },
+        commit: (v) => { camTruckInput.value = v; camTruckInput.dispatchEvent(new Event('input')); }
+      },
+      truckY: {
+        step: 0.1,
+        read: () => {
+          const c = selectedCamera || activeCamera;
+          const d = vectorSubtract(c.target, c.initialTarget);
+          const z = vectorNormalize(vectorSubtract(c.position, c.target));
+          const r = vectorNormalize(vectorCross(c.up, z));
+          return vectorDot(d, vectorNormalize(vectorCross(z, r)));
+        },
+        commit: (v) => { camPedestalInput.value = v; camPedestalInput.dispatchEvent(new Event('input')); }
+      }
+    };
 
     // Drag handling for azimuth bar
     {
@@ -71363,6 +71742,11 @@
         if (e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
+        _hudEndEdit();   // v20260906d — a press on any bar commits an open edit
+        // LOCKED (v20260906c): refuse before anything is started.
+        if ((selectedCamera || activeCamera || {}).lock) return;
+        _hudNoteDown(e, _hudAzValue);
+        if (e.altKey) { _hudOpenValueEditor(_hudAzBar, _hudAzValue, _hudSpecs.az); return; }
         _hudAzDragging = true;
         _hudAzStartX = e.clientX;
         const cam = selectedCamera || activeCamera;
@@ -71388,6 +71772,7 @@
         if (!_hudAzDragging) return;
         _hudAzDragging = false;
         _hudAzBar.classList.remove('dragging');
+        if (_hudWantsEditor(e)) { _hudOpenValueEditor(_hudAzBar, _hudAzValue, _hudSpecs.az); return; }
         if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
       };
 
@@ -71405,6 +71790,11 @@
         if (e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
+        _hudEndEdit();   // v20260906d — a press on any bar commits an open edit
+        // LOCKED (v20260906c): refuse before anything is started.
+        if ((selectedCamera || activeCamera || {}).lock) return;
+        _hudNoteDown(e, _hudElValue);
+        if (e.altKey) { _hudOpenValueEditor(_hudElBar, _hudElValue, _hudSpecs.el); return; }
         _hudElDragging = true;
         _hudElStartY = e.clientY;
         const cam = selectedCamera || activeCamera;
@@ -71434,6 +71824,7 @@
         if (!_hudElDragging) return;
         _hudElDragging = false;
         _hudElBar.classList.remove('dragging');
+        if (_hudWantsEditor(e)) { _hudOpenValueEditor(_hudElBar, _hudElValue, _hudSpecs.el); return; }
         if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
       };
 
@@ -71453,6 +71844,11 @@
         if (e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
+        _hudEndEdit();   // v20260906d — a press on any bar commits an open edit
+        // LOCKED (v20260906c): refuse before anything is started.
+        if ((selectedCamera || activeCamera || {}).lock) return;
+        _hudNoteDown(e, _hudFovValue);
+        if (e.altKey) { _hudOpenValueEditor(_hudFovBar, _hudFovValue, _hudSpecs.fov); return; }
         _hudFovDragging = true;
         _hudFovStartX = e.clientX;
         const cam = selectedCamera || activeCamera;
@@ -71488,6 +71884,12 @@
         const keepSizeCb = document.getElementById('camFovCompensateCheckbox');
         if (keepSizeCb) keepSizeCb.checked = _hudFovSavedKeepSize;
 
+        // A click on the NUMBER types a value; a click anywhere else on the
+        // bar still resets the zoom. The two are told apart by WHERE the
+        // press landed, never by timing — which is what lets this bar keep an
+        // instant click-to-reset and gain numeric entry at the same time.
+        if (_hudWantsEditor(e)) { _hudOpenValueEditor(_hudFovBar, _hudFovValue, _hudSpecs.fov); return; }
+
         // Single-click (no drag) = reset zoom to default
         if (!_hudFovDidDrag) {
           pushCameraUndoState();
@@ -71518,6 +71920,11 @@
         if (e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
+        _hudEndEdit();   // v20260906d — a press on any bar commits an open edit
+        // LOCKED (v20260906c): refuse before anything is started.
+        if ((selectedCamera || activeCamera || {}).lock) return;
+        _hudNoteDown(e, _hudFovZoomValue);
+        if (e.altKey) { _hudOpenValueEditor(_hudFovZoomBar, _hudFovZoomValue, _hudSpecs.fovZoom); return; }
         _hudFovZoomDragging = true;
         _hudFovZoomStartX = e.clientX;
         const cam = selectedCamera || activeCamera;
@@ -71553,6 +71960,12 @@
         const keepSizeCb = document.getElementById('camFovCompensateCheckbox');
         if (keepSizeCb) keepSizeCb.checked = _hudFovZoomSavedKeepSize;
 
+        // A click on the NUMBER types a value; a click anywhere else on the
+        // bar still resets the zoom. The two are told apart by WHERE the
+        // press landed, never by timing — which is what lets this bar keep an
+        // instant click-to-reset and gain numeric entry at the same time.
+        if (_hudWantsEditor(e)) { _hudOpenValueEditor(_hudFovZoomBar, _hudFovZoomValue, _hudSpecs.fovZoom); return; }
+
         // Single-click (no drag) = reset zoom to default
         if (!_hudFovZoomDidDrag) {
           pushCameraUndoState();
@@ -71583,6 +71996,11 @@
         if (e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
+        _hudEndEdit();   // v20260906d — a press on any bar commits an open edit
+        // LOCKED (v20260906c): refuse before anything is started.
+        if ((selectedCamera || activeCamera || {}).lock) return;
+        _hudNoteDown(e, _hudDistValue);
+        if (e.altKey) { _hudOpenValueEditor(_hudDistBar, _hudDistValue, _hudSpecs.dist); return; }
         _hudDistDragging = true;
         _hudDistStartX = e.clientX;
         const cam = selectedCamera || activeCamera;
@@ -71630,6 +72048,12 @@
         const keepSizeCb = document.getElementById('camFovCompensateCheckbox');
         if (keepSizeCb) keepSizeCb.checked = _hudDistSavedKeepSize;
 
+        // A click on the NUMBER types a value; a click anywhere else on the
+        // bar still resets the zoom. The two are told apart by WHERE the
+        // press landed, never by timing — which is what lets this bar keep an
+        // instant click-to-reset and gain numeric entry at the same time.
+        if (_hudWantsEditor(e)) { _hudOpenValueEditor(_hudDistBar, _hudDistValue, _hudSpecs.dist); return; }
+
         // Single-click (no drag) = reset zoom to default
         if (!_hudDistDidDrag) {
           pushCameraUndoState();
@@ -71660,6 +72084,11 @@
         if (e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
+        _hudEndEdit();   // v20260906d — a press on any bar commits an open edit
+        // LOCKED (v20260906c): refuse before anything is started.
+        if ((selectedCamera || activeCamera || {}).lock) return;
+        _hudNoteDown(e, _hudTruckXValue);
+        if (e.altKey) { _hudOpenValueEditor(_hudTruckXBar, _hudTruckXValue, _hudSpecs.truckX); return; }
         _hudTruckXDragging = true;
         _hudTruckXStartX = e.clientX;
         const cam = selectedCamera || activeCamera;
@@ -71689,6 +72118,7 @@
         if (!_hudTruckXDragging) return;
         _hudTruckXDragging = false;
         _hudTruckXBar.classList.remove('dragging');
+        if (_hudWantsEditor(e)) { _hudOpenValueEditor(_hudTruckXBar, _hudTruckXValue, _hudSpecs.truckX); return; }
         if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
       };
 
@@ -71707,6 +72137,11 @@
         if (e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
+        _hudEndEdit();   // v20260906d — a press on any bar commits an open edit
+        // LOCKED (v20260906c): refuse before anything is started.
+        if ((selectedCamera || activeCamera || {}).lock) return;
+        _hudNoteDown(e, _hudTruckYValue);
+        if (e.altKey) { _hudOpenValueEditor(_hudTruckYBar, _hudTruckYValue, _hudSpecs.truckY); return; }
         _hudTruckYDragging = true;
         _hudTruckYStartY = e.clientY;
         const cam = selectedCamera || activeCamera;
@@ -71738,6 +72173,7 @@
         if (!_hudTruckYDragging) return;
         _hudTruckYDragging = false;
         _hudTruckYBar.classList.remove('dragging');
+        if (_hudWantsEditor(e)) { _hudOpenValueEditor(_hudTruckYBar, _hudTruckYValue, _hudSpecs.truckY); return; }
         if (typeof tlAutoKeyCamera === 'function') tlAutoKeyCamera();
       };
 
@@ -71759,6 +72195,7 @@
         if (e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
+        _hudEndEdit();   // v20260906d — this bar has no readout, but it is still a HUD press
         const cam = selectedCamera || activeCamera;
         if (cam.lock) return;
         _hudResetDragging = true;

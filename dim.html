@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260906o -->
+<!-- dim v20260907f -->
 
 <!--
   MIT License
@@ -1631,7 +1631,12 @@
     }
 
     /* Section headers that aren't the first child get top spacing + border */
-    .ui-header-small:not(:first-child) {
+    .ui-header-small:not(:first-child),
+    /* v20260907d: the extrude Render Settings header became the FIRST child of its
+       wrapper (#extrudeRenderSettings, v20260906n) and of the tool-panel mirror
+       (v20260907c), which silently dropped its divider (owner report). */
+    #extrudeRenderSettings > .ui-header-small:first-child,
+    #extrudeRenderSettingsMirror > .ui-header-small:first-child {
       margin-top: 10px;
       padding-top: 8px;
       border-top: 1px solid var(--border-light);
@@ -7571,11 +7576,13 @@
                         <option value="evenodd">Even-Odd</option>
                         <option value="nonzero">Non-Zero</option>
                       </select>
-                      <div class="xyz-field" style="flex:0 0 auto; gap:4px;">
-                        <span class="xyz-col-label">Close</span>
-                        <input type="checkbox" id="loopPathInput" class="ui-checkbox" />
-                      </div>
                     </div>
+                  </div>
+                  <!-- Close Path has its own row (v20260907b, owner): squeezed beside the
+                       Rule select it had no room for its label. -->
+                  <div class="style-row" id="closePathRow">
+                    <label for="loopPathInput" class="ui-checkbox-label">Close Path</label>
+                    <input type="checkbox" id="loopPathInput" class="ui-checkbox" />
                   </div>
 
                   <!-- Blend has its own row (v20260725i): sharing the Rule row it
@@ -7760,6 +7767,13 @@
                     <span class="axis-label" style="margin-left:6px">Plane</span>
                     <input type="checkbox" id="faceCamPlaneInput" class="ui-checkbox" />
                   </div>
+                  <!-- SILHOUETTE SPLIT (v20260907a, moved here from the Style panel in
+                       v20260907b at the owner's call): a Path field, not a style key -->
+                  <div class="style-row" id="silhouetteSplitRow">
+                    <label for="silhouetteSplitInput" class="ui-checkbox-label"
+                      title="Draw this closed four-segment band (curve, straight edge, curve, straight edge) as a curved face: split at the camera horizon so nearer faces hide it and it hides what is behind it. A baked extrusion's curved sides carry this.">Silhouette Split</label>
+                    <input type="checkbox" id="silhouetteSplitInput" class="ui-checkbox" />
+                  </div>
 
 
                   <!-- EXTRUDE SECTION -->
@@ -7833,10 +7847,11 @@
                       </div>
                     </div>
 
-                    <!-- EXTRUDE TOOL (v20260906n): this wrapper - and the Cap row above -
-                         DOCK into the Extrude tool's panel while that tool is active
-                         (_extrudeToolDock) and come back here when it leaves. One set of
-                         controls, one set of listeners, no duplicated ids. -->
+                    <!-- EXTRUDE TOOL (v20260906n): this wrapper - and the Cap row above - are
+                         MIRRORED into the Extrude tool's panel while that tool is active
+                         (_extrudeToolDock -> _extrudeMirrorBuild, v20260907c: a live clone with
+                         ids suffixed "Mirror", events forwarded here, a MutationObserver syncing
+                         back). They never move; n docked (moved) them, which emptied this tab. -->
                     <div id="extrudeRenderSettings">
                     <div class="ui-header-small">Render Settings</div>
 
@@ -7902,9 +7917,6 @@
                         <label class="ui-checkbox-label">Curved Surface</label>
                         <input type="checkbox" id="extrudeCurvedSurfaceInput" class="ui-checkbox" />
                       </div>
-                      <!-- Silhouette Split: always on for extrude (no visible effect on linear, marginal help with scale) -->
-                      <input type="checkbox" id="extrudeSilhouetteSplitInput" class="ui-checkbox" style="display:none"
-                        checked />
                       <div class="style-row">
                         <label class="ui-checkbox-label">Draw Points</label>
                         <input type="checkbox" id="extrudeDrawPointsInput" class="ui-checkbox" />
@@ -7960,6 +7972,20 @@
                           <input type="number" id="extrudeStackAngleInput" min="-360" max="360" step="1" value="0" />
                         </div>
                       </div>
+                    </div>
+                    <!-- SILHOUETTE SPLIT for extrude (v20260907d, owner): the flag used to be a
+                         hidden always-on input; now a real checkbox, DEFAULT ON, read by the
+                         Clean renderer too (off = raw side ribbons, no horizon split). -->
+                    <div class="style-row" id="extrudeSilhouetteSplitRow">
+                      <label for="extrudeSilhouetteSplitInput" class="ui-checkbox-label"
+                        title="Split every side at the camera horizon (on by default - the sides then sort correctly at the silhouette). Off keeps each side one piece; rarely wanted.">Silhouette Split</label>
+                      <input type="checkbox" id="extrudeSilhouetteSplitInput" class="ui-checkbox" checked />
+                    </div>
+                    <!-- EXTRUDE BAKE (v20260906q, PLAN-extrude-bake.md): last child of the
+                         render block, so it rides into the Extrude tool's panel mirror with it. -->
+                    <div class="prop-row prop-row-plain" id="extrudeBakeRow" style="display: flex; gap: 4px;">
+                      <button type="button" id="extrudeBakeBtn" class="ui-btn ui-btn-small" style="flex: 1;"
+                        title="Replace this extrusion by a group of its faces: the two caps, every straight side as a plane, every curved side as a band with Silhouette Split on - plain paths, editable one by one. Mesh / Layer / Stacks bake their own faces (cells / layers / slabs).">Bake to Faces</button>
                     </div>
                     </div><!-- /extrudeRenderSettings -->
 
@@ -13242,21 +13268,111 @@
     // updateStylePanel sync keeps working, and no id is duplicated. Their
     // original slots are remembered on the first dock (parent + next sibling).
     const _extrudeDockIds = ['extrudeCapRow', 'extrudeRenderSettings'];
-    let _extrudeDockHome = null;
+    // EXTRUDE TOOL MIRROR (v20260907c, owner: "did you move the settings into
+    // the tool panel? That is not good, let's duplicate it"). v20260906n DOCKED
+    // the 3D Settings tab's Cap row + Render Settings block into the tool panel
+    // (moved the elements), so the tab lost them while the tool was active. Now
+    // the originals never move: while the tool is active the slot holds a live
+    // CLONE of the two blocks - ids namespaced with "Mirror" - and
+    //   mirror -> original: input / change / button click on a mirror element
+    //     copy the value and re-dispatch on its original, so every existing
+    //     listener runs exactly as if the user had used the 3D Settings tab;
+    //   original -> mirror: a MutationObserver on the originals (attributes,
+    //     children, text) re-syncs values, disabled, inline display, classes,
+    //     titles - and rebuilds the clone when the structure changes (the
+    //     palette list rebuilds its rows). A focused mirror input is never
+    //     overwritten.
+    // Number spinners: the cloned chrome would carry no listeners, so the
+    // clone's wrappers are unwrapped and initCustomSpinners rebuilds live ones
+    // on the mirror inputs (they step the mirror value, which forwards).
+    let _extrudeMirror = null;   // { pairs: Map(mirror element -> original), sig }
+    const _extrudeMirrorSig = () => _extrudeDockIds.map(id => { const el = document.getElementById(id); return el ? el.querySelectorAll('*').length : 0; }).join('/');
+    const _extrudeMirrorBuild = () => {
+      const slot = document.getElementById('extrudeToolRenderSlot');
+      if (!slot) return;
+      slot.innerHTML = '';
+      const pairs = new Map();
+      for (const id of _extrudeDockIds) {
+        const orig = document.getElementById(id);
+        if (!orig) continue;
+        const m = orig.cloneNode(true);
+        const walk = (o, c) => { pairs.set(c, o); const oc = o.children, cc = c.children; for (let k = 0; k < oc.length && k < cc.length; k++) walk(oc[k], cc[k]); };
+        walk(orig, m);
+        m.id = m.id + 'Mirror';
+        m.querySelectorAll('[id]').forEach(el => { el.id = el.id + 'Mirror'; });
+        m.querySelectorAll('label[for]').forEach(l => l.setAttribute('for', l.getAttribute('for') + 'Mirror'));
+        m.querySelectorAll('.num-spin-wrap').forEach(w => { const inp = w.querySelector('input[type="number"]'); if (inp) w.replaceWith(inp); });
+        slot.appendChild(m);
+        if (typeof _wrapNumberSpinners === 'function') _wrapNumberSpinners(m);   // the app's spinner installer (block-scoped const, exported this way)
+      }
+      _extrudeMirror = { pairs, sig: _extrudeMirrorSig() };
+      _extrudeMirrorSync();
+    };
+    const _extrudeMirrorSync = () => {
+      if (!_extrudeMirror) return;
+      if (_extrudeMirrorSig() !== _extrudeMirror.sig) { _extrudeMirrorBuild(); return; }
+      const act = document.activeElement;
+      for (const [m, o] of _extrudeMirror.pairs) {
+        if (!o.isConnected || !m.isConnected) continue;
+        if (m.style.cssText !== o.style.cssText) m.style.cssText = o.style.cssText;
+        if (m.className !== o.className) m.className = o.className;
+        const tag = o.tagName;
+        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+          if (m !== act) {
+            if (o.type === 'checkbox' || o.type === 'radio') { if (m.checked !== o.checked) m.checked = o.checked; }
+            else if (m.value !== o.value) m.value = o.value;
+          }
+          if (m.disabled !== o.disabled) m.disabled = o.disabled;
+          if (m.title !== o.title) m.title = o.title;
+        } else if (tag === 'BUTTON') {
+          if (m.disabled !== o.disabled) m.disabled = o.disabled;
+          if (m.title !== o.title) m.title = o.title;
+          if (!o.children.length && m.textContent !== o.textContent) m.textContent = o.textContent;
+        } else if ((tag === 'LABEL' || tag === 'SPAN' || tag === 'DIV') && !o.children.length) {
+          if (m.textContent !== o.textContent) m.textContent = o.textContent;
+          if (m.title !== o.title) m.title = o.title;
+        }
+      }
+    };
+    let _extrudeMirrorRaf = 0;
+    const _extrudeMirrorQueue = () => { if (!_extrudeMirror || _extrudeMirrorRaf) return; _extrudeMirrorRaf = requestAnimationFrame(() => { _extrudeMirrorRaf = 0; _extrudeMirrorSync(); }); };
+    {
+      const slot = document.getElementById('extrudeToolRenderSlot');
+      if (slot) {
+        const fwd = (e) => {
+          const m = e.target, o = _extrudeMirror && _extrudeMirror.pairs.get(m);
+          if (!o) return;
+          if (m.type === 'checkbox' || m.type === 'radio') o.checked = m.checked; else o.value = m.value;
+          o.dispatchEvent(new Event(e.type, { bubbles: true }));
+          _extrudeMirrorQueue();
+        };
+        slot.addEventListener('input', fwd);
+        slot.addEventListener('change', fwd);
+        slot.addEventListener('click', (e) => {
+          const b = e.target.closest('button');
+          if (!b || !_extrudeMirror || b.closest('.num-spin-btns')) return;   // mirror spinner chrome is live locally
+          const o = _extrudeMirror.pairs.get(b);
+          if (!o) return;
+          e.preventDefault();
+          o.click();
+          _extrudeMirrorQueue();
+        });
+      }
+      const mo = new MutationObserver(() => _extrudeMirrorQueue());
+      _extrudeDockIds.forEach(id => { const el = document.getElementById(id); if (el) mo.observe(el, { attributes: true, childList: true, subtree: true, characterData: true }); });
+    }
     const _extrudeToolDock = (on) => {
       const slot = document.getElementById('extrudeToolRenderSlot');
       if (!slot) return;
-      if (on) {
-        if (!_extrudeDockHome) _extrudeDockHome = _extrudeDockIds.map(id => { const el = document.getElementById(id); return el ? { el, parent: el.parentNode, next: el.nextSibling } : null; });
-        _extrudeDockHome.forEach(h => { if (h && h.el.parentNode !== slot) slot.appendChild(h.el); });
-      } else if (_extrudeDockHome) {
-        _extrudeDockHome.forEach(h => { if (h && h.el.parentNode === slot) h.parent.insertBefore(h.el, (h.next && h.next.parentNode === h.parent) ? h.next : null); });
-      }
+      if (on) { if (!_extrudeMirror) _extrudeMirrorBuild(); }
+      else { slot.innerHTML = ''; _extrudeMirror = null; }
     };
     const updateExtrudeToolUI = () => {
       const t = extrudeToolTarget(selectedObject);
       const slot = document.getElementById('extrudeToolRenderSlot');
       if (slot) slot.style.display = (t.ok && t.settings.enabled) ? '' : 'none';
+      _extrudeBakeSyncRow();   // EXTRUDE BAKE (v20260906q): the row (mirrored into the tool panel since v20260907c)
+      _extrudeMirrorQueue();
       const hint = document.getElementById('extrudeToolHint');
       const en = document.getElementById('extrudeToolEnabled'), ax = document.getElementById('extrudeToolAxis');
       const dp = document.getElementById('extrudeToolDepth'), sy = document.getElementById('extrudeToolSymmetric'), dl = document.getElementById('extrudeToolDelta');
@@ -15163,12 +15279,23 @@
     // and renames the object with a "(Baked)" suffix.
     const bakeToPath = (obj) => {
       if (!obj || !obj.primitiveData) return;
+      // A BAKE DURING A PENDING RE-EDIT commits the session first (v20260906p, owner
+      // report: "Bake to Path of a cuboid is one shape"). The tool drawer shows its
+      // Bake button while a re-edit is open; stripping primitiveData then left the
+      // object PENDING - the tree kept the primitive icon - and the session's
+      // confirm re-captured primitiveData from the name prefix, silently undoing
+      // the bake. Applies to every primitive, not only the cuboid.
+      if (pendingPolygon === obj) confirmPendingShape();
       // 3D SHAPE TOOL (v20260906l, owner's model): the cuboid primitive IS the
       // group of six planes, so its Bake to Path is the stock strip below (the
       // tree then shows the plain group). A Path cuboid from the one-release
       // v20260906k model bakes to planes through the swap.
       if (_isShape3dObj(obj) && !obj.isGroup) { _shape3dSwapBake(obj, 'panels', 'Bake to Path'); return; }
+      const wasShapeGroup = obj.isGroup && _isShape3dObj(obj);
       _bakeStripPrimitive(obj);
+      // The point of the bake is to edit the faces individually: open the baked
+      // group in the tree (the ⌘G precedent - the one group that starts open).
+      if (wasShapeGroup) { _treeSetExpanded(obj, true); updateTreeView(); }
     };
     const _bakeStripPrimitive = (obj) => {
       if (!obj || !obj.primitiveData) return;
@@ -15896,8 +16023,12 @@
       const Z = vectorNormalize(vectorCross(X, Y));
       return { X, Y, Z, R: _shape3dRotFromAxes(X, Y, Z) };
     };
+    // The name prefix counts ONLY for the pending creation (primitiveData is
+    // captured at Confirm); a baked "Cuboid_1 (Baked)" group is a plain group
+    // (v20260906p - the prefix alone was routing a baked group's Style panel to
+    // its faces and keeping it a tree leaf while a stale session held it).
     const _isShape3dObj = (obj) => !!(obj && ((obj.primitiveData && obj.primitiveData.type === 'cuboid')
-      || (typeof obj.name === 'string' && obj.name.startsWith('Cuboid_'))));
+      || (obj === pendingPolygon && typeof obj.name === 'string' && obj.name.startsWith('Cuboid_'))));
     const _shape3dReadPanel = () => {
       const rd = (id) => Math.max(0, fromDisplay(parseFloat(document.getElementById(id).value) || 0));
       return { width: rd('shape3dWidth'), height: rd('shape3dHeight'), depth: rd('shape3dDepth') };
@@ -16039,22 +16170,7 @@
         nu.pivotRotation = [...(obj.pivotRotation || [0, 0, 0])];
         nu.pivotShift = [...(obj.pivotShift || [0, 0, 0])];
       }
-      nu.visible = obj.visible !== false;
-      nu.lock = !!obj.lock;
-      const parent = obj.parent || null;
-      const siblings = parent ? parent.children : sceneObjects;
-      const idx = siblings.indexOf(obj);
-      if (parent) parent.remove(obj); else if (idx > -1) siblings.splice(idx, 1);
-      if (obj.destroy) obj.destroy();
-      if (parent) {
-        parent.add(nu);
-        const at = parent.children.indexOf(nu);
-        if (idx > -1 && at !== idx) { parent.children.splice(at, 1); parent.children.splice(idx, 0, nu); }
-        syncSvgOrder(parent);
-      } else {
-        sceneObjects.splice(idx > -1 ? idx : sceneObjects.length, 0, nu);
-        syncSvgOrder(null);
-      }
+      _swapObjectInPlace(obj, nu);
       if (typeof animationTimeline !== 'undefined' && tlKeyOf(obj) && animationTimeline.tracks.has(tlKeyOf(obj))) {
         console.warn('[shape3d] the baked cuboid had animation tracks; they stay on the old id (orphaned until undo).');
       }
@@ -16064,6 +16180,280 @@
       requestRender();
       return nu;
     };
+    // THE IN-PLACE SWAP (factored out of _shape3dSwapBake in v20260906q): `nu`
+    // takes obj's slot in its parent (or the scene), its visibility and lock;
+    // obj is destroyed. With inheritId the new object keeps obj's id, so
+    // id-keyed state (animation tracks, the tree's fold set) follows it.
+    const _swapObjectInPlace = (obj, nu, { inheritId = false } = {}) => {
+      nu.visible = obj.visible !== false;
+      nu.lock = !!obj.lock;
+      const parent = obj.parent || null;
+      const siblings = parent ? parent.children : sceneObjects;
+      const idx = siblings.indexOf(obj);
+      if (parent) parent.remove(obj); else if (idx > -1) siblings.splice(idx, 1);
+      if (obj.destroy) obj.destroy();
+      if (inheritId && obj.id) { nu.id = obj.id; if (nu.svgElement) nu.svgElement.setAttribute('id', nu.id); }
+      if (parent) {
+        parent.add(nu);
+        const at = parent.children.indexOf(nu);
+        if (idx > -1 && at !== idx) { parent.children.splice(at, 1); parent.children.splice(idx, 0, nu); }
+        syncSvgOrder(parent);
+      } else {
+        sceneObjects.splice(idx > -1 ? idx : sceneObjects.length, 0, nu);
+        syncSvgOrder(null);
+      }
+      return nu;
+    };
+
+    // --- EXTRUDE BAKE (v20260906q, PLAN-extrude-bake.md) ---
+    // "Bake to Faces": an extruded Path becomes a Group of its faces, in place.
+    // The two caps are plain Paths (the profile through the renderer's own
+    // front / back transforms); each STRAIGHT side whose band is planar is a
+    // plain four-corner Path; every other side (curved, or straight under a
+    // non-uniform taper) is a ONE-SEGMENT extruded Path carrying a copy of the
+    // settings with caps off - so it is drawn by the very renderer that drew it
+    // inside the whole body (same horizon split, taper, side colour), and the
+    // look is identical by construction at every camera. That is why there is
+    // no per-path "silhouette split" option (owner question, 2026-09-06): a
+    // curved face keeps the extrude machinery that already has it.
+    // Faces live in the source's LOCAL vertex space (identity child
+    // transforms; the group takes the source's transform fields), which is
+    // what keeps the taper - scaled about the local origin - exact.
+    const _extrudeFrontBack = (es) => {
+      // Mirrors the Clean draw's tFront / tBack (grep "buildTaperMatrix") exactly.
+      const v = es.vector || { x: 0, y: 0, z: -1 };
+      const len = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+      const inv = len > 0 ? 1 / len : 0;
+      const nx = v.x * inv, ny = v.y * inv, nz = v.z * inv;
+      const sfUni = es.scaleFront !== undefined ? es.scaleFront : 1.0;
+      const sbUni = es.scaleBack !== undefined ? es.scaleBack : 1.0;
+      const sfU = es.scaleFrontU !== undefined ? es.scaleFrontU : sfUni;
+      const sfV = es.scaleFrontV !== undefined ? es.scaleFrontV : sfUni;
+      const sbU = es.scaleBackU !== undefined ? es.scaleBackU : sbUni;
+      const sbV = es.scaleBackV !== undefined ? es.scaleBackV : sbUni;
+      const taper = (sU, sV) => {
+        if (sU === 1.0 && sV === 1.0) return createIdentityMatrix();
+        const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+        let ref;
+        if (ax <= ay && ax <= az) ref = [1, 0, 0];
+        else if (ay <= ax && ay <= az) ref = [0, 1, 0];
+        else ref = [0, 0, 1];
+        const vv = vectorNormalize(vectorCross(ref, [nx, ny, nz]));
+        const u = vectorCross([nx, ny, nz], vv);
+        const n = [nx, ny, nz];
+        const m = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 1]];
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) m[i][j] = sU * u[i] * u[j] + sV * vv[i] * vv[j] + n[i] * n[j];
+        return m;
+      };
+      const matSf = taper(sfU, sfV), matSb = taper(sbU, sbV);
+      const d = es.depth || 0;
+      let tFront, tBack;
+      if (es.symmetric) {
+        const dx = nx * d * 0.5, dy = ny * d * 0.5, dz = nz * d * 0.5;
+        tFront = matrixMultiply(createTranslationMatrix(-dx, -dy, -dz), matSf);
+        tBack = matrixMultiply(createTranslationMatrix(dx, dy, dz), matSb);
+      } else {
+        tFront = matSf;
+        tBack = matrixMultiply(createTranslationMatrix(nx * d, ny * d, nz * d), matSb);
+      }
+      // A straight segment's band is a planar quad iff its front and back
+      // edges are parallel - true under any UNIFORM taper (or none).
+      const planarSides = Math.abs(sfU - sfV) < 1e-9 && Math.abs(sbU - sbV) < 1e-9;
+      return { tFront, tBack, planarSides };
+    };
+    // A station of the linear rail as a local matrix (v20260907f, the Layer bake):
+    // pos = n * (depthStart + u * depth), taper scales sfU + (sbU - sfU) * u (the
+    // generateLinearRail arithmetic) in the plane perpendicular to the vector
+    // (the sweepPoint / buildTaperMatrix basis).
+    const _extrudeStationMatrix = (es, u) => {
+      const v = es.vector || { x: 0, y: 0, z: -1 };
+      const len = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+      const inv = len > 0 ? 1 / len : 0;
+      const n = [v.x * inv, v.y * inv, v.z * inv];
+      const sfUni = es.scaleFront !== undefined ? es.scaleFront : 1.0;
+      const sbUni = es.scaleBack !== undefined ? es.scaleBack : 1.0;
+      const sfU = es.scaleFrontU !== undefined ? es.scaleFrontU : sfUni;
+      const sfV = es.scaleFrontV !== undefined ? es.scaleFrontV : sfUni;
+      const sbU = es.scaleBackU !== undefined ? es.scaleBackU : sbUni;
+      const sbV = es.scaleBackV !== undefined ? es.scaleBackV : sbUni;
+      const sU = sfU + (sbU - sfU) * u, sV = sfV + (sbV - sfV) * u;
+      const d = es.depth || 0;
+      const du = (es.symmetric ? -d / 2 : 0) + u * d;
+      let M;
+      if (sU === 1.0 && sV === 1.0) M = createIdentityMatrix();
+      else {
+        const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
+        const ref = (ax <= ay && ax <= az) ? [1, 0, 0] : ((ay <= ax && ay <= az) ? [0, 1, 0] : [0, 0, 1]);
+        const vv = vectorNormalize(vectorCross(ref, n)), uu = vectorCross(n, vv);
+        M = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 1]];
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) M[i][j] = sU * uu[i] * uu[j] + sV * vv[i] * vv[j] + n[i] * n[j];
+      }
+      return matrixMultiply(createTranslationMatrix(n[0] * du, n[1] * du, n[2] * du), M);
+    };
+    const _extrudeBakeable = (obj) => {
+      if (!obj) return { ok: false, reason: 'Select an extruded path.' };
+      if (obj.isGroup) return { ok: false, reason: 'Bake to Faces works on one extruded path (not a group).' };
+      const t = extrudeToolTarget(obj);
+      if (!t.ok) return { ok: false, reason: t.reason };
+      if (!obj.extrudeSettings || !obj.extrudeSettings.enabled) return { ok: false, reason: 'Turn Extrude on first.' };
+      return { ok: true, reason: '' };
+    };
+    const _extrudeBakeToFaces = async (obj) => {
+      if (!_extrudeBakeable(obj).ok) return null;
+      if (pendingPolygon === obj) confirmPendingShape();   // a pending session commits first (v20260906p lesson)
+      // An Extrude tool session with a typed delta submits before the bake.
+      if (currentTool === 'extrude' && extrudeToolSession && extrudeToolSession.targetObject === obj && _extrudeSessionHasDelta()) resetExtrudeToolSession();
+      pushUndoState();
+      const es = obj.extrudeSettings;
+      const { tFront, tBack, planarSides } = _extrudeFrontBack(es);
+      const P = (p, M) => transformVertex(p, M).slice(0, 3);
+      const style = obj.style || getCurrentPathStyle();
+      const cloneStyle = () => JSON.parse(JSON.stringify(style));
+      const base = (obj.name || 'Path').replace(/ \(Baked\)$/, '');
+      const taken = _collectSceneNames();
+      taken.delete(obj.name);
+      const G = new Group(ensureUniqueName(base + ' (Baked)', taken));
+      G.position = [...obj.position];
+      G.rotationMatrix = obj.rotationMatrix.map(r => [...r]);
+      G.rotationEuler = matrixToEuler(G.rotationMatrix);
+      G.scale = [...(obj.scale || [1, 1, 1])];
+      G.shear = [...(obj.shear || [0, 0, 0, 0, 0, 0])];
+      G.pivot = [...(obj.pivot || [0, 0, 0])];
+      G.pivotRotation = [...(obj.pivotRotation || [0, 0, 0])];
+      G.pivotShift = [...(obj.pivotShift || [0, 0, 0])];
+      G.zSortChildren = true;   // one body: the faces sort together (the cuboid precedent)
+      // Caps: the profile verbatim through the front / back transforms. An
+      // open subpath makes the renderer draw its caps unfilled - mirror that.
+      const hasOpen = !!(obj.subPathData && obj.subPathData.some(sp => !sp.closed));
+      const mkCap = (M, which) => {
+        const st = cloneStyle(); if (hasOpen) st.fill = 'none';
+        const cap = new Path(ensureUniqueName(`${base} ${which}`, taken), [0, 0, 0], [0, 0, 0],
+          obj.localVertices.map(v => P(v, M)), obj.algorithm, obj.loop, st, [1, 1, 1],
+          obj.subPathData.map(sp => ({ ...sp })));
+        return cap;
+      };
+      // RENDER MODE (v20260907f, owner: "bake depending on the render mode"): Mesh /
+      // Layer / Stacks bake THEIR faces. The renderer itself runs once headless
+      // with _bakeCollect set and records what it paints (the three hooks in
+      // drawSurface): a layer = the profile at station u (rebuilt exactly with
+      // _extrudeStationMatrix), a stack slab = its four world corners (a planar
+      // quad), a mesh cell = its four corners, or - with Curved Surface on - its
+      // two curved profile edges, which make it a BAND (Silhouette Split on).
+      // The mesh's camera-dependent horizon rows are switched off for the
+      // collection, so the bake is the authored grid. Clean is the else branch.
+      const mode = es.renderMode || (es.cleanRender !== false ? 'clean' : 'mesh');
+      if (mode !== 'clean') {
+        const keepSplit = es.silhouetteSplit;
+        es.silhouetteSplit = false;
+        let recs = [];
+        obj._bakeCollect = recs;
+        // Identity VP: the collection is projection-independent (the hooks push
+        // before any toScreen check) and an identity never fails a projection.
+        try { await obj.drawExtrudeAsMesh([], createIdentityMatrix(), obj.getWorldMatrix()); }
+        finally { recs = obj._bakeCollect || recs; obj._bakeCollect = null; es.silhouetteSplit = keepSplit; }
+        const inv = matrixInverse(obj.getWorldMatrix());
+        const L = (w) => transformVertex(w, inv).slice(0, 3);
+        const closed = !hasOpen;
+        let k = 0;
+        for (const r of recs) {
+          k++;
+          const st = cloneStyle(); if (r.fill) st.fill = closed ? r.fill : 'none';
+          let f = null;
+          if (r.kind === 'layer' || r.kind === 'cap') {
+            const M = _extrudeStationMatrix(es, r.u);
+            const nm = r.kind === 'cap' ? (r.u < 0.5 ? 'front' : 'back') : `layer ${k}`;
+            f = new Path(ensureUniqueName(`${base} ${nm}`, taken), [0, 0, 0], [0, 0, 0], obj.localVertices.map(v => P(v, M)), obj.algorithm, obj.loop, st, [1, 1, 1], obj.subPathData.map(sp => ({ ...sp })));
+          } else if (r.kind === 'slab') {
+            f = new Path(ensureUniqueName(`${base} slab ${k}`, taken), [0, 0, 0], [0, 0, 0], r.pts.map(L), 'linear', true, st);
+          } else if (r.kind === 'quad') {
+            if (r.curves) {
+              const A = [r.curves.a.p0, r.curves.a.p1, r.curves.a.p2, r.curves.a.p3].map(L), B = [r.curves.b.p0, r.curves.b.p1, r.curves.b.p2, r.curves.b.p3].map(L);
+              f = new Path(ensureUniqueName(`${base} cell ${k}`, taken), [0, 0, 0], [0, 0, 0], [A[0], A[1], A[2], A[3], A[3], B[3], B[3], B[2], B[1], B[0]], 'bezier', true, st);
+              f.silhouetteSplit = true;
+            } else {
+              f = new Path(ensureUniqueName(`${base} cell ${k}`, taken), [0, 0, 0], [0, 0, 0], r.pts.map(L), 'linear', true, st);
+            }
+          }
+          if (f) G.add(f);
+        }
+      } else {
+      if (es.capFront !== false) G.add(mkCap(tFront, 'front'));
+      if (es.capBack !== false) G.add(mkCap(tBack, 'back'));
+      // Sides: one face per AUTHORED segment, off the renderer's own list.
+      // Side colours cycle per contour (runs split at command 'M', _ciIdx/_ciN).
+      const segs = obj.getSegments() || [];
+      const sideOn = !!(es.useSideColor && es.sideColor);
+      const pal = sideOn ? facePalette(es.sideColor, es.sideColors) : null;
+      const runs = []; let rs = 0;
+      for (let i = 1; i < segs.length; i++) if (segs[i] && segs[i].command === 'M') { runs.push([rs, i]); rs = i; }
+      runs.push([rs, segs.length]);
+      let k = 0;
+      for (const [a, b] of runs) {
+        for (let i = a; i < b; i++) {
+          const sg = segs[i]; if (!sg) continue;
+          // A zero-length straight segment (a closure onto a duplicated first
+          // anchor) draws nothing; it gets no face.
+          if (sg.type === 'L' && vectorLength(vectorSubtract(sg.pEnd, sg.pStart)) < 1e-9) continue;
+          k++;
+          const fill = sideOn ? (pal ? paletteColorAt(pal, i - a, b - a, es.paletteMode) : es.sideColor) : null;
+          const st = cloneStyle(); if (fill) st.fill = fill;
+          const name = ensureUniqueName(`${base} side ${k}`, taken);
+          let f;
+          if (sg.type === 'L' && planarSides) {
+            f = new Path(name, [0, 0, 0], [0, 0, 0],
+              [P(sg.pStart, tFront), P(sg.pEnd, tFront), P(sg.pEnd, tBack), P(sg.pStart, tBack)], 'linear', true, st);
+          } else {
+            // v2 (v20260907a, the owner's model): a PLAIN closed band - curve A
+            // (front), straight ruling, curve B (back) reversed, straight ruling
+            // - with Silhouette Split on, so the plain-path renderer draws it as
+            // the ruled surface an extrude side is. Bezier layout: A's four
+            // points, a degenerate cubic for the ruling (handles on the
+            // anchors), B's four points reversed, the closing L. A straight
+            // segment under a non-uniform taper is a bilinear sheet: A and B
+            // are then straight cubics and the same band handles it.
+            let c;
+            if (sg.type === 'L') c = [sg.pStart, vectorAdd(sg.pStart, vectorScale(vectorSubtract(sg.pEnd, sg.pStart), 1 / 3)), vectorAdd(sg.pStart, vectorScale(vectorSubtract(sg.pEnd, sg.pStart), 2 / 3)), sg.pEnd];
+            else if (sg.type === 'Q') c = [sg.p0, vectorAdd(sg.p0, vectorScale(vectorSubtract(sg.p1, sg.p0), 2 / 3)), vectorAdd(sg.p2, vectorScale(vectorSubtract(sg.p1, sg.p2), 2 / 3)), sg.p2];
+            else c = [sg.p0, sg.p1, sg.p2, sg.p3];
+            const Af = c.map(q => P(q, tFront)), Bk = c.map(q => P(q, tBack));
+            f = new Path(name, [0, 0, 0], [0, 0, 0],
+              [Af[0], Af[1], Af[2], Af[3], Af[3], Bk[3], Bk[3], Bk[2], Bk[1], Bk[0]], 'bezier', true, st);
+            f.silhouetteSplit = true;
+          }
+          G.add(f);
+        }
+      }
+      }   // end Clean
+      if (G.children.length === 0) { G.destroy && G.destroy(); return null; }
+      _swapObjectInPlace(obj, G, { inheritId: true });   // transform tracks follow the id (D3)
+      // Extrude-parameter keys have no single owner any more: drop them.
+      if (typeof animationTimeline !== 'undefined') {
+        const tr = animationTimeline.tracks.get(tlKeyOf(G));
+        if (tr) {
+          const dropped = _extrudeParams.map(d => d.prop).filter(pn => tr.has(pn));
+          if (dropped.length && typeof pushAnimUndoState === 'function') pushAnimUndoState('Bake to Faces');   // the animation stack is its own (⌘Z on the timeline brings the keys back)
+          dropped.forEach(pn => { tr.delete(pn); _tlOriginalValues.delete(tlKeyOf(G) + '::' + pn); _tlLoopModes.delete(tlKeyOf(G) + '::' + pn); });
+          if (dropped.length) console.warn('[extrude bake] dropped extrude keys with no single owner after the bake: ' + dropped.join(', '));
+        }
+      }
+      _treeSetExpanded(G, true);   // the point of the bake is per-face editing
+      updateTreeView();
+      pushUndoState('Bake to Faces');   // BEFORE selection (house rule)
+      setSelectedObject(G);
+      requestRender();
+      return G;
+    };
+    const _extrudeBakeSyncRow = () => {
+      const btn = document.getElementById('extrudeBakeBtn');
+      if (!btn) return;
+      const b = _extrudeBakeable(selectedObject);
+      btn.disabled = !b.ok;
+      btn.title = b.ok
+        ? 'Replace this extrusion by a group of its faces: the two caps, every straight side as a plane, every curved side as a band with Silhouette Split on - plain paths, editable one by one. Mesh / Layer / Stacks bake their own faces (cells / layers / slabs).'
+        : b.reason;
+    };
+    document.getElementById('extrudeBakeBtn').addEventListener('click', () => { if (selectedObject) _extrudeBakeToFaces(selectedObject); });
+
     // Live update from the panel fields (creation AND re-edit sessions).
     const updateShape3dGeometry = () => {
       if (!pendingPolygon || !_isShape3dObj(pendingPolygon)) return;
@@ -21758,6 +22148,7 @@
         }
         return {
           id: '__extrudeRail__',
+          vector: [ex, ey, ez],   // v20260907e: the unit extrude direction, for the vector-perpendicular taper
           _frameData: frames,
           _frameKey: `extrude_${vector.x}_${vector.y}_${vector.z}_${depth}_${symmetric}_${sfU}_${sfV}_${sbU}_${sbV}`,
           _arcLengthData: { totalLength: totalLen },
@@ -41406,6 +41797,12 @@
           }]
         };
 
+        // SILHOUETTE SPLIT (v20260907a, PLAN-extrude-bake.md §10): a closed
+        // four-segment BAND (curve A, straight ruling, curve B, straight ruling)
+        // is drawn as the ruled surface between its two curves - split at the
+        // camera horizon into pieces that carry the analytic `xr` depth record
+        // - exactly what an extrude side is. Off = the plain flat draw.
+        this.silhouetteSplit = false;
         // Fixed duplicate ID gen
         this.id = `Path_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -45733,7 +46130,11 @@
           return '';
         };
 
-        if (this._effExtrude.enabled || this.revolveSettings.enabled || sweepActive || loftActive || splineFlowActive || surfaceMappingActive || !!foldPieces) {
+        // SILHOUETTE SPLIT (v20260907a): a flagged band with no other modifier
+        // draws as a ruled surface through the 3D branch; any modifier wins.
+        const bandActive = !!(this.silhouetteSplit && !this._effExtrude.enabled && !this.revolveSettings.enabled
+          && !sweepActive && !loftActive && !splineFlowActive && !surfaceMappingActive && !foldPieces && this._bandCurves());
+        if (this._effExtrude.enabled || this.revolveSettings.enabled || sweepActive || loftActive || splineFlowActive || surfaceMappingActive || !!foldPieces || bandActive) {
           // --- 3D Mode ---
           const faceList = externalFaceList || [];
           const _faceListStartIdx = faceList.length; // Track start for z-sort style stamping
@@ -46704,6 +47105,7 @@
           if (loftActive) {
             this.drawLoft(faceList, vpMatrix, modelMatrix, _loftTargetObj);
           }
+          if (bandActive) this.drawBandFaces(faceList, vpMatrix, modelMatrix, collectIx);   // v20260907a
 
           // Guard: object may have been destroyed during async drawSurface
           // (e.g. scene import while GPU compute was in progress).
@@ -47440,6 +47842,56 @@
         return faces;
       }
 
+      // THE HORIZON-ROOT SCAN (v20260907a): extracted verbatim from
+      // processSilhouetteSegments so a standalone band (a Silhouette Split
+      // path) finds its horizon with the SAME 16-interval scan, bisection to
+      // 1e-4 and double-root guard as an extrude side. getDot(t) is the
+      // caller's N(t)·(eye − P(t)); returns the roots in ascending t.
+      static _scanHorizonRoots(getDot) {
+        const roots = [];
+          const MAX_DEPTH = 16;
+          const EPSILON = 0.0001; // Tolerance for t
+
+          const scan = (tA, tB, dotA, dotB, depth) => {
+            const tMid = (tA + tB) * 0.5;
+
+            if (Math.abs(tB - tA) < EPSILON) {
+              // Interval is tiny — if there's a sign change, record it
+              if (dotA * dotB <= 0) roots.push(tMid);
+              return;
+            }
+
+            if (depth > MAX_DEPTH) {
+              if (dotA * dotB <= 0) roots.push(tMid);
+              return;
+            }
+
+            // Same sign: still subdivide up to MIN_DEPTH to catch double-roots
+            // (two closely-spaced crossings that restore the original sign).
+            // After MIN_DEPTH, if signs still agree we can safely prune.
+            const MIN_DEPTH = 3;
+            if (dotA * dotB > 0 && depth >= MIN_DEPTH) return;
+
+            const dotMid = getDot(tMid);
+
+            // Recurse into both halves
+            scan(tA, tMid, dotA, dotMid, depth + 1);
+            scan(tMid, tB, dotMid, dotB, depth + 1);
+          };
+
+          // Initial Scan: Use enough intervals to catch closely-spaced roots.
+          // With oblique/ortho views, two horizon crossings can be very close together.
+          // If both fall within one interval, the dot product has the same sign at both
+          // endpoints and the scan misses them. 16 intervals avoids this.
+          const count = 16;
+          for (let i = 0; i < count; i++) {
+            const tStart = i / count;
+            const tEnd = (i + 1) / count;
+            scan(tStart, tEnd, getDot(tStart), getDot(tEnd), 0);
+          }
+
+          return roots;
+      }
       processSilhouetteSegments(segments, eyeLocal, extrudeVector, taperInfo = null) {
         if (!eyeLocal || !extrudeVector) return segments;
 
@@ -47448,7 +47900,6 @@
 
         // Recursive Solver for P(t) such that Dot( (Tangent(t) x E), (Eye - P(t)) ) = 0
         const findHorizonTs = (p0, p1, p2, p3) => {
-          const roots = [];
 
           // Evaluate Dot Product at t
           const getDot = (t) => {
@@ -47499,48 +47950,7 @@
             return nx * vx + ny * vy + nz * vz;
           };
 
-          const MAX_DEPTH = 16;
-          const EPSILON = 0.0001; // Tolerance for t
-
-          const scan = (tA, tB, dotA, dotB, depth) => {
-            const tMid = (tA + tB) * 0.5;
-
-            if (Math.abs(tB - tA) < EPSILON) {
-              // Interval is tiny — if there's a sign change, record it
-              if (dotA * dotB <= 0) roots.push(tMid);
-              return;
-            }
-
-            if (depth > MAX_DEPTH) {
-              if (dotA * dotB <= 0) roots.push(tMid);
-              return;
-            }
-
-            // Same sign: still subdivide up to MIN_DEPTH to catch double-roots
-            // (two closely-spaced crossings that restore the original sign).
-            // After MIN_DEPTH, if signs still agree we can safely prune.
-            const MIN_DEPTH = 3;
-            if (dotA * dotB > 0 && depth >= MIN_DEPTH) return;
-
-            const dotMid = getDot(tMid);
-
-            // Recurse into both halves
-            scan(tA, tMid, dotA, dotMid, depth + 1);
-            scan(tMid, tB, dotMid, dotB, depth + 1);
-          };
-
-          // Initial Scan: Use enough intervals to catch closely-spaced roots.
-          // With oblique/ortho views, two horizon crossings can be very close together.
-          // If both fall within one interval, the dot product has the same sign at both
-          // endpoints and the scan misses them. 16 intervals avoids this.
-          const count = 16;
-          for (let i = 0; i < count; i++) {
-            const tStart = i / count;
-            const tEnd = (i + 1) / count;
-            scan(tStart, tEnd, getDot(tStart), getDot(tEnd), 0);
-          }
-
-          return roots;
+          return Path._scanHorizonRoots(getDot);   // the shared scan (v20260907a)
         };
 
         segments.forEach(seg => {
@@ -47835,6 +48245,117 @@
         return false;
       }
 
+      // --- PROFILE PLANE BASIS (v20260907e) ---
+      // The Stacks solvers read a profile in TWO coordinates. They used the
+      // local x / y, which is right only for a profile drawn in the local XY
+      // plane; a path drawn on the floor workplane (vertices in XZ, identity
+      // rotation) read as a flat line and every slab came out zero-wide (owner
+      // report, 2026-09-07). This fits the profile's own plane (Newell normal
+      // over the control points) and returns an in-plane basis: u = local X
+      // projected into the plane (local Y when X is normal to it), v = n x u,
+      // c = the plane's offset along n. `identity` is true when the plane IS
+      // local XY, so every existing XY profile keeps its exact old numbers.
+      static _profilePlaneBasis(points) {
+        let nx = 0, ny = 0, nz = 0, cx = 0, cy = 0, cz = 0, m = 0;
+        for (let i = 0; i < points.length; i++) {
+          const a = points[i], b = points[(i + 1) % points.length];
+          if (!a || !b) continue;
+          const ax = a[0], ay = a[1], az = a[2] || 0, bx = b[0], by = b[1], bz = b[2] || 0;
+          nx += (ay - by) * (az + bz); ny += (az - bz) * (ax + bx); nz += (ax - bx) * (ay + by);
+          cx += ax; cy += ay; cz += az; m++;
+        }
+        let len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+        if (!(len > 1e-12)) { nx = 0; ny = 0; nz = 1; len = 1; }
+        let n = [nx / len, ny / len, nz / len];
+        // canonical sign: the dominant component positive
+        const dom = [Math.abs(n[2]), Math.abs(n[1]), Math.abs(n[0])];
+        const k = dom[0] >= dom[1] && dom[0] >= dom[2] ? 2 : (dom[1] >= dom[2] ? 1 : 0);
+        if (n[k] < 0) n = [-n[0], -n[1], -n[2]];
+        const identity = Math.abs(n[0]) < 1e-9 && Math.abs(n[1]) < 1e-9 && n[2] > 0;
+        if (identity) return { identity: true, n: [0, 0, 1], u: [1, 0, 0], v: [0, 1, 0], c: m ? cz / m : 0 };
+        const proj = (a) => { const d = a[0] * n[0] + a[1] * n[1] + a[2] * n[2]; return [a[0] - d * n[0], a[1] - d * n[1], a[2] - d * n[2]]; };
+        let u = proj([1, 0, 0]);
+        if (vectorLength(u) < 0.5) u = proj([0, 1, 0]);
+        u = vectorNormalize(u);
+        const v = vectorCross(n, u);
+        const c = m ? (cx * n[0] + cy * n[1] + cz * n[2]) / m : 0;
+        return { identity: false, n, u, v, c };
+      }
+      // --- SILHOUETTE SPLIT BAND (v20260907a) ---
+      // The band shape: ONE closed subpath of exactly four segments whose 2nd
+      // and 4th are straight (handles on the chord). Segment 1 is curve A,
+      // segment 3 reversed is curve B; the surface is ruled between them
+      // (sweep(t) = B(t) - A(t)). Anything else draws flat.
+      _bandCurves() {
+        if (!this.silhouetteSplit) return null;
+        if (!this.subPathData || this.subPathData.length !== 1 || !this.subPathData[0].closed) return null;
+        const segs = this.getSegments();
+        if (!segs || segs.length !== 4) return null;
+        const cub = (sg) => {
+          if (sg.type === 'C') return [sg.p0, sg.p1, sg.p2, sg.p3];
+          if (sg.type === 'Q') return [sg.p0, vectorAdd(sg.p0, vectorScale(vectorSubtract(sg.p1, sg.p0), 2 / 3)), vectorAdd(sg.p2, vectorScale(vectorSubtract(sg.p1, sg.p2), 2 / 3)), sg.p2];
+          return [sg.pStart, vectorAdd(sg.pStart, vectorScale(vectorSubtract(sg.pEnd, sg.pStart), 1 / 3)), vectorAdd(sg.pStart, vectorScale(vectorSubtract(sg.pEnd, sg.pStart), 2 / 3)), sg.pEnd];
+        };
+        const straight = (c) => {
+          const ch = vectorSubtract(c[3], c[0]); const L = vectorLength(ch);
+          if (L < 1e-9) return false;
+          const off = (q) => vectorLength(vectorCross(vectorSubtract(q, c[0]), ch)) / L;
+          return off(c[1]) <= 1e-3 * L && off(c[2]) <= 1e-3 * L;
+        };
+        const r1 = cub(segs[1]), r3 = cub(segs[3]);
+        if (!straight(r1) || !straight(r3)) return null;
+        const A = cub(segs[0]).map(q => [q[0], q[1], q[2] || 0]);
+        const c2 = cub(segs[2]).map(q => [q[0], q[1], q[2] || 0]);
+        return { A, B: [c2[3], c2[2], c2[1], c2[0]] };
+      }
+      // Horizon of the band: N(t) = A'(t) × (B(t) − A(t)), roots of N·(eye − A(t)).
+      static _bandHorizonTs(A, B, eyeLocal) {
+        const ev = (c, t) => { const mt = 1 - t; return [0, 1, 2].map(k => mt * mt * mt * c[0][k] + 3 * mt * mt * t * c[1][k] + 3 * mt * t * t * c[2][k] + t * t * t * c[3][k]); };
+        const dv = (c, t) => { const mt = 1 - t; return [0, 1, 2].map(k => 3 * mt * mt * (c[1][k] - c[0][k]) + 6 * mt * t * (c[2][k] - c[1][k]) + 3 * t * t * (c[3][k] - c[2][k])); };
+        const getDot = (t) => {
+          const P = ev(A, t), T = dv(A, t), S = vectorSubtract(ev(B, t), P);
+          const N = vectorCross(T, S);
+          return N[0] * (eyeLocal[0] - P[0]) + N[1] * (eyeLocal[1] - P[1]) + N[2] * (eyeLocal[2] - P[2]);
+        };
+        return Path._scanHorizonRoots(getDot);
+      }
+      drawBandFaces(faceList, vpMatrix, modelMatrix, collectIx) {
+        const band = this._bandCurves();
+        if (!band) return false;
+        const mvp = matrixMultiply(vpMatrix, modelMatrix);
+        // The eye in this object's LOCAL vertex space (the drawSideRibbons
+        // construction through the shared resolver: ortho / oblique rays become
+        // a far point along the ray).
+        const cam = this._drawCam || activeCamera;
+        const inv = matrixInverse(this.getWorldMatrix());
+        const eL = inv ? transformVertex(resolveEyePointForObject(this, cam), inv) : null;
+        const eyeLocal = eL ? [eL[0], eL[1], eL[2]] : [0, 0, 100];
+        const roots = Path._bandHorizonTs(band.A, band.B, eyeLocal);
+        const segsA = [], segsB = [];
+        let ra = band.A, rb = band.B, prev = 0, first = true;
+        const push = (ca, cb) => {
+          segsA.push({ type: 'C', command: first ? 'M' : undefined, p0: ca[0], p1: ca[1], p2: ca[2], p3: ca[3] });
+          segsB.push({ type: 'C', p0: cb[0], p1: cb[1], p2: cb[2], p3: cb[3] });
+          first = false;
+        };
+        for (const t of roots) {
+          if (t - prev < 0.01 || 1 - t < 0.01) continue;
+          const lt = (t - prev) / (1 - prev);
+          const sa = splitCubicBezier(ra[0], ra[1], ra[2], ra[3], lt), sb = splitCubicBezier(rb[0], rb[1], rb[2], rb[3], lt);
+          push(sa[0], sb[0]); ra = sa[1]; rb = sb[1]; prev = t;
+        }
+        push(ra, rb);
+        const faces = this.generateLoftFaces(segsA, mvp, mvp, null, null, segsB, collectIx ? { collectIx: true } : {});
+        faces.forEach(f => {
+          const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          el.setAttribute('d', f.d);
+          el.setAttribute('fill-rule', 'nonzero');
+          const entry = { element: el, z: f.z };
+          if (collectIx && f.ixCurved) entry.ix = { ...f.ixCurved, splits: 0, owner: this };
+          faceList.push(entry);
+        });
+        return true;
+      }
       _refineRibbonSegments(segments, mvpFront, mvpBack) {
         const MAX_DEPTH = 4;   // ≤ 16 pieces per original segment
         const isPinched = (seg) => this._ribbonQuadPinched([seg], mvpFront, mvpBack);
@@ -48291,7 +48812,7 @@
           surfaceColors: es.useSideColor ? es.sideColors : null,
           paletteMode: es.paletteMode,
           curvedSurface: es.curvedSurface || false,
-          silhouetteSplit: es.silhouetteSplit || false,
+          silhouetteSplit: es.silhouetteSplit !== false,   // v20260907d: default ON
           respectSubpaths: true,
           renderMode: es.renderMode || 'mesh',  // extrude mesh path defaults to mesh
           cleanRender: false,
@@ -48423,6 +48944,29 @@
           const defaultScale = frame.scale !== undefined ? frame.scale : 1.0;
           const frameScaleU = frame.scaleU !== undefined ? frame.scaleU : defaultScale;
           const frameScaleV = frame.scaleV !== undefined ? frame.scaleV : defaultScale;
+          // EXTRUDE TAPER IN THE PLANE PERPENDICULAR TO THE VECTOR (v20260907e).
+          // The linear rail's frame is the identity basis (side X, normal Y,
+          // tangent Z) whatever the vector, so scaling side/normal tapered a
+          // profile's x and y only - right for an XY profile, wrong for one on
+          // the floor (its z was never scaled) and inconsistent with the Clean
+          // draw, whose buildTaperMatrix scales the plane perpendicular to the
+          // vector. Same basis here; for an XY profile with a +/-Z vector the
+          // arithmetic reduces to x*sU, y*sV, z - bit-identical (corpus-gated).
+          if (isExtrudeSurface && railPath.vector && (frameScaleU !== 1 || frameScaleV !== 1)) {
+            const n = railPath.vector;
+            const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
+            const ref = (ax <= ay && ax <= az) ? [1, 0, 0] : ((ay <= ax && ay <= az) ? [0, 1, 0] : [0, 0, 1]);
+            const vv = vectorNormalize(vectorCross(ref, n));
+            const u = vectorCross(n, vv);
+            const pu = pp[0] * u[0] + pp[1] * u[1] + (pp[2] || 0) * u[2];
+            const pv = pp[0] * vv[0] + pp[1] * vv[1] + (pp[2] || 0) * vv[2];
+            const pn = pp[0] * n[0] + pp[1] * n[1] + (pp[2] || 0) * n[2];
+            const q = [u[0] * pu * frameScaleU + vv[0] * pv * frameScaleV + n[0] * pn,
+                       u[1] * pu * frameScaleU + vv[1] * pv * frameScaleV + n[1] * pn,
+                       u[2] * pu * frameScaleU + vv[2] * pv * frameScaleV + n[2] * pn];
+            const worldPt = transformVertex(vectorAdd(frame.pos, q), railWorldMatrix);
+            return [worldPt[0], worldPt[1], worldPt[2]];
+          }
           const sideScale = ((isRevolveSurface || isExtrudeSurface) ? pp[0] : -pp[0]) * frameScaleU;
           const normalScale = pp[1] * frameScaleV;
           const localPos = vectorAdd(
@@ -48516,7 +49060,14 @@
           const stAng = !isRevolveSurface ? ((+ss.stackAngle || 0) * Math.PI / 180) : 0;
           const stC = Math.cos(stAng), stS = Math.sin(stAng);
           const _rotIn = (q) => stAng ? [q[0] * stC + q[1] * stS, -q[0] * stS + q[1] * stC, q[2] || 0] : q;   // by -angle
-          const _rotOut = (x, y) => stAng ? [x * stC - y * stS, x * stS + y * stC, 0] : [x, y, 0];            // by +angle
+          const _rotOut0 = (x, y) => stAng ? [x * stC - y * stS, x * stS + y * stC, 0] : [x, y, 0];           // by +angle
+          // PROFILE PLANE (v20260907e): extrude / sweep profiles are read in
+          // their OWN plane (Path._profilePlaneBasis) - a floor-drawn profile
+          // (XZ) stacks like an XY one. Identity for an XY profile: byte-identical.
+          const _pb = isRevolveSurface ? { identity: true } : Path._profilePlaneBasis(subpathGroups.flat().flatMap(sg => [sg.p0, sg.p1, sg.p2, sg.p3]));
+          const _toPlane = _pb.identity ? (q) => q : (q) => [q[0] * _pb.u[0] + q[1] * _pb.u[1] + (q[2] || 0) * _pb.u[2], q[0] * _pb.v[0] + q[1] * _pb.v[1] + (q[2] || 0) * _pb.v[2], 0];
+          const _prep = _pb.identity ? _rotIn : (q) => _rotIn(_toPlane(q));
+          const _rotOut = _pb.identity ? _rotOut0 : (x, y) => { const r = _rotOut0(x, y); return [r[0] * _pb.u[0] + r[1] * _pb.v[0] + _pb.c * _pb.n[0], r[0] * _pb.u[1] + r[1] * _pb.v[1] + _pb.c * _pb.n[1], r[0] * _pb.u[2] + r[1] * _pb.v[2] + _pb.c * _pb.n[2]]; };
           const angDeg = Math.min(360, Math.max(0, ss.revolveAngleDeg ?? 360));
           const isFull = angDeg >= 360;
           const A = angDeg * Math.PI / 180;
@@ -48562,14 +49113,14 @@
             const list = segs.slice();
             if (subpathClosed[gi] && segs.length) {
               const a = segs[segs.length - 1].p3, b = segs[0].p0;
-              if (Math.hypot(a[0] - b[0], a[1] - b[1]) > 1e-9) {
+              if (Math.hypot(a[0] - b[0], a[1] - b[1], (a[2] || 0) - (b[2] || 0)) > 1e-9) {   // v20260907e: 3D (an XZ chord has no xy length)
                 const cp1 = vectorAdd(a, vectorScale(vectorSubtract(b, a), 1 / 3));
                 const cp2 = vectorAdd(a, vectorScale(vectorSubtract(b, a), 2 / 3));
                 list.push({ type: 'C', command: 'C', p0: a, p1: cp1, p2: cp2, p3: b });
               }
             }
             return list.map(s0 => {
-              const s = stAng ? { type: 'C', command: s0.command, p0: _rotIn(s0.p0), p1: _rotIn(s0.p1), p2: _rotIn(s0.p2), p3: _rotIn(s0.p3) } : s0;
+              const s = (stAng || !_pb.identity) ? { type: 'C', command: s0.command, p0: _prep(s0.p0), p1: _prep(s0.p1), p2: _prep(s0.p2), p3: _prep(s0.p3) } : s0;
               return { s, ax: _powCoef(s, AX) };
             });
           });
@@ -48746,7 +49297,10 @@
               const f1 = SurfaceMapper.getFrameAtU(railPath._frameData, 1);
               const pp = (r) => AX === 1 ? _rotOut(r, h) : _rotOut(h, r);
               for (let j = 0; j + 1 < radii.length; j += 2) {
-                const q = [sweepPoint(f0, pp(radii[j])), sweepPoint(f0, pp(radii[j + 1])), sweepPoint(f1, pp(radii[j + 1])), sweepPoint(f1, pp(radii[j]))].map(toScreen);
+                const w3 = [sweepPoint(f0, pp(radii[j])), sweepPoint(f0, pp(radii[j + 1])), sweepPoint(f1, pp(radii[j + 1])), sweepPoint(f1, pp(radii[j]))];
+                // BAKE COLLECT (v20260907f): the slab's WORLD corners and its station colour.
+                if (this._bakeCollect) this._bakeCollect.push({ kind: 'slab', pts: w3, fill: surfPal ? paletteColorAt(surfPal, i, NS, ss.paletteMode) : fillColor });
+                const q = w3.map(toScreen);
                 if (q.some(s => !s)) { ok = false; break; }
                 acc.d += `M${q[0].x},${q[0].y}L${q[1].x},${q[1].y}L${q[2].x},${q[2].y}L${q[3].x},${q[3].y}Z`;
                 q.forEach(_push);
@@ -48853,6 +49407,10 @@
             if (isLastLayer && ss.showCapEnd === false) continue;
 
             const frame = SurfaceMapper.getFrameAtU(railPath._frameData, u);
+            // BAKE COLLECT (v20260907f): a bake in Layer mode records the station
+            // and the colour this layer paints with; geometry is rebuilt exactly
+            // by _extrudeStationMatrix (the same rail arithmetic).
+            if (this._bakeCollect) this._bakeCollect.push({ kind: 'layer', u, fill: (isFirstLayer || isLastLayer) ? capFillColor : (surfPal ? paletteColorAt(surfPal, li - 1, uStations.length - 2, ss.paletteMode) : fillColor) });
 
             // Build a single compound d-string from ALL subpath groups
             let dStr = '';
@@ -50759,6 +51317,13 @@
           for (let i = 0; i < gridRows - 1; i++) {
             for (let j = 0; j < divsV; j++) {
               let d, avgZ;
+              // BAKE COLLECT (v20260907f): the cell's WORLD corners (+ its curved
+              // profile edges when Curved Surface is on) and the colour it paints.
+              if (this._bakeCollect) this._bakeCollect.push({
+                kind: 'quad', pts: [grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1]],
+                curves: (isCurved && gridCurves) ? { a: gridCurves[i][j], b: gridCurves[i + 1][j] } : null,
+                fill: surfPal ? paletteColorAt(surfPal, Math.floor(rowUValues[i] * divsU + 1e-9), divsU, ss.paletteMode) : fillColor
+              });
               let ixCorners = null; // Render Intersections: quad corners (screen + NDC z)
 
               if (isCurved && gridCurves && gridUCurves) {
@@ -53167,6 +53732,8 @@
         if ((ss.showCapStart || ss.showCapEnd) && !(silh && ss.railClosed)) {
           const drawSurfaceCap = (u) => {
             const frame = SurfaceMapper.getFrameAtU(railPath._frameData, u);
+            // BAKE COLLECT (v20260907f): the mesh's cap = the profile at u with the cap fill.
+            if (this._bakeCollect) this._bakeCollect.push({ kind: 'cap', u, fill: capFillColor });
             // Per-subpath chunks (aligned with subpathGroups/subPathData) so
             // wide compound profiles can emit per-island caps below.
             const chunks = [];
@@ -53592,8 +54159,11 @@
           const N = Math.max(2, ls.stackCount || 16);
           const wm = this.getWorldMatrix();
           const o3 = transformVertex([0, 0, 0], wm);
-          const axLocal = (ls.stackAxis === 'x') ? [1, 0, 0] : [0, 1, 0];
-          const rdLocal = (ls.stackAxis === 'x') ? [0, 1, 0] : [1, 0, 0];
+          // PROFILE PLANE (v20260907e): the axis pair lives in the SOURCE
+          // profile's own plane (identity for an XY source - byte-identical).
+          const _lpb = Path._profilePlaneBasis(this.localVertices || []);
+          const axLocal = (ls.stackAxis === 'x') ? _lpb.u : _lpb.v;
+          const rdLocal = (ls.stackAxis === 'x') ? _lpb.v : _lpb.u;
           const aHat = vectorNormalize(vectorSubtract(transformVertex(axLocal, wm), o3));
           const rHat = vectorNormalize(vectorSubtract(transformVertex(rdLocal, wm), o3));
           const aOf = (p) => p[0] * aHat[0] + p[1] * aHat[1] + p[2] * aHat[2];
@@ -54346,7 +54916,10 @@
         // Process Segments (Perspective Correct Silhouette)
         // We pass 'eyeLocal', 'extrudeVector', and taperInfo so the solver can compute
         // (Tangent x SweepDir) . (Eye - Point) dynamically per profile point.
-        let processedSegments = this.processSilhouetteSegments(segments, eyeLocal, E, taperInfo);
+        // SILHOUETTE SPLIT (v20260907d): off = the authored sides as they are (no
+        // horizon split); the pinch guard below still runs (self-intersection is
+        // a different defect). Default on.
+        let processedSegments = (_exr.silhouetteSplit !== false) ? this.processSilhouetteSegments(segments, eyeLocal, E, taperInfo) : segments;
         // v20260720a: pinch guard — subdivide ribbons whose 4-sided screen
         // path would self-intersect at grazing angles (missing-silhouette fix).
         processedSegments = this._refineRibbonSegments(processedSegments, mvpFront, mvpBack);
@@ -62400,6 +62973,7 @@
           _s3Mode.value = _s3ModeVal;
           _s3Mode.disabled = !hasStroke || _trimIsGroup;
         }
+
         if (_s3Str && document.activeElement !== _s3Str) {
           const v = styleSource['stroke-3d-strength'];
           _s3Str.value = (v === undefined || v === null) ? 1 : v;
@@ -62495,6 +63069,23 @@
         if (faceCamYInput) faceCamYInput.disabled = false;
         if (faceCamPlaneInput) faceCamPlaneInput.disabled = false;
       }
+      // SILHOUETTE SPLIT (v20260907a; in 3D Settings since v20260907b): a Path
+      // field; hidden for a group; the label says when the shape is not a band
+      // (the flag is then inert).
+      {
+        const _ssRow = document.getElementById('silhouetteSplitRow');
+        const _ssPath = !!(selectedObject && !selectedObject.isGroup);
+        if (_ssRow) _ssRow.style.display = _ssPath ? '' : 'none';
+        const _ssCb = document.getElementById('silhouetteSplitInput');
+        if (_ssCb && _ssPath && document.activeElement !== _ssCb) {
+          _ssCb.checked = !!selectedObject.silhouetteSplit;
+          _ssCb.disabled = !!is2D;
+          const _isBand = !!(selectedObject.silhouetteSplit && typeof selectedObject._bandCurves === 'function' && selectedObject._bandCurves());
+          const _lbl = _ssRow && _ssRow.querySelector('label');
+          if (_lbl) _lbl.style.opacity = (selectedObject.silhouetteSplit && !_isBand) ? '0.55' : '';
+          if (_lbl) _lbl.textContent = (selectedObject.silhouetteSplit && !_isBand) ? 'Silhouette Split (not a band)' : 'Silhouette Split';
+        }
+      }
 
       // Extrude
       const isPath = selectedObject && selectedObject instanceof Path;
@@ -62558,6 +63149,7 @@
       // Cap is dead in stacks (the block emits slabs only) - hide the row (v20260824n)
       const extCapRow = document.getElementById('extrudeCapRow');
       if (extCapRow) extCapRow.style.display = extCurMode === 'stacks' ? 'none' : '';
+      _extrudeBakeSyncRow();   // EXTRUDE BAKE (v20260906q)
       // Layer count
       const extrudeLayerCountInput = document.getElementById('extrudeLayerCountInput');
       if (extrudeLayerCountInput && document.activeElement !== extrudeLayerCountInput) {
@@ -62593,7 +63185,8 @@
       }
       const extrudeSilhouetteSplitInput = document.getElementById('extrudeSilhouetteSplitInput');
       if (extrudeSilhouetteSplitInput) {
-        extrudeSilhouetteSplitInput.checked = extrudable ? (selectedObject.extrudeSettings?.silhouetteSplit || false) : false;
+        extrudeSilhouetteSplitInput.checked = extrudable ? (selectedObject.extrudeSettings?.silhouetteSplit !== false) : true;   // v20260907d: default ON
+        extrudeSilhouetteSplitInput.disabled = !extrudable || !(selectedObject.extrudeSettings?.enabled);
       }
       const extrudeDrawPointsInput = document.getElementById('extrudeDrawPointsInput');
       const extrudePointSizeInput = document.getElementById('extrudePointSizeInput');
@@ -63472,6 +64065,8 @@
       const isGroupSelected = selectedObject && selectedObject.isGroup;
       if (algorithmRow) algorithmRow.style.display = isGroupSelected ? 'none' : '';
       if (ruleBlendCloseRow) ruleBlendCloseRow.style.display = isGroupSelected ? 'none' : '';
+      const closePathRow = document.getElementById('closePathRow');   // v20260907b: its own row, same rule
+      if (closePathRow) closePathRow.style.display = isGroupSelected ? 'none' : '';
       if (blendModeRow) blendModeRow.style.display = isGroupSelected ? 'none' : '';
       // Convert to Bezier (v20260725u): only meaningful for a NON-bezier Path
       // — a bezier path is already in that representation. ONE predicate
@@ -64158,9 +64753,15 @@
       const qsStrokeColor = document.getElementById('qsStrokeColor');
       if (!qsAlgo) return;
 
-      // Source: selected object or globals
+      // Source: selected object or globals. 3D SHAPE TOOL (v20260907b, owner
+      // report "changing the style from the quick bar does nothing for the
+      // cuboid"): a Group primitive is STYLELESS (its faces carry the style,
+      // the updateStylePanel note), so reading obj.style here showed fill and
+      // stroke OFF with their inputs DISABLED - the writes were fine, the bar
+      // was blind. Present the first tagged face, as the Style panel does.
       const obj = selectedObject;
-      const style = (obj && obj.style) ? obj.style : currentStyle;
+      const _qsFace = (obj && obj.isGroup && _isShape3dObj(obj)) ? obj.children.find(c => c.primFace && c.style) : null;
+      const style = _qsFace ? _qsFace.style : ((obj && obj.style) ? obj.style : currentStyle);
       const algo = (obj && !obj.isGroup) ? (obj.algorithm || 'linear') : currentAlgorithm;
 
       // Algorithm
@@ -65808,6 +66409,7 @@
         newPath.sweepSettings = JSON.parse(JSON.stringify(obj.sweepSettings));
         newPath.loftSettings = JSON.parse(JSON.stringify(obj.loftSettings));
         newPath.vertexPointSettings = JSON.parse(JSON.stringify(obj.vertexPointSettings));
+        newPath.silhouetteSplit = !!obj.silhouetteSplit;   // v20260907a
 
         // Deep copy surface constraint (Spline Flow / 3D Mapping)
         if (obj.surfaceConstraint) {
@@ -66049,6 +66651,7 @@
           if (obj.pivotShift) newPath.pivotShift = [...obj.pivotShift];
           if (obj.shear) newPath.shear = [...obj.shear];
           newPath.visible = obj.visible; newPath.lock = obj.lock;
+          newPath.silhouetteSplit = !!obj.silhouetteSplit;   // v20260907a (the second duplicate branch)
           if (obj.faceCamera !== undefined) newPath.faceCamera = obj.faceCamera;
           if (obj.mode2D) newPath.mode2D = true;
           if (_tlHasLayerRange(obj)) newPath.layerRanges = obj.layerRanges.map(sg => ({ in: sg.in, out: sg.out }));
@@ -67190,8 +67793,8 @@
           // Curved Surface
           const extCurved = document.getElementById('extrudeCurvedSurfaceInput')?.checked ?? false;
           obj.extrudeSettings.curvedSurface = extCurved;
-          // Silhouette Split — always on for extrude
-          obj.extrudeSettings.silhouetteSplit = true;
+          // Silhouette Split (v20260907d): a real option now, default ON
+          obj.extrudeSettings.silhouetteSplit = document.getElementById('extrudeSilhouetteSplitInput')?.checked ?? true;
           // Draw Points
           const extDpInput = document.getElementById('extrudeDrawPointsInput');
           const extPsInput = document.getElementById('extrudePointSizeInput');
@@ -67524,6 +68127,16 @@
     document.getElementById('stroke3dNearInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('stroke3dFarInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('stroke3dOccludeInput').addEventListener('change', updateStyleFromInput);
+    // SILHOUETTE SPLIT (v20260907a): a Path field, one labelled entry.
+    document.getElementById('silhouetteSplitInput').addEventListener('change', (e) => {
+      const targets = (typeof selectedObjects !== 'undefined' && selectedObjects.length > 1) ? selectedObjects : (selectedObject ? [selectedObject] : []);
+      const paths = targets.filter(o => o && !o.isGroup);
+      if (!paths.length) return;
+      paths.forEach(o => { o.silhouetteSplit = !!e.target.checked; });
+      pushUndoState('Silhouette Split');
+      updatePropertiesPanel();
+      requestRender();
+    });
     document.getElementById('strokeOpacityInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('fillEnabledInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('fillColorInput').addEventListener('input', function (e) {
@@ -81128,6 +81741,7 @@
           data.loftSettings = obj.loftSettings;
         }
         data.vertexPointSettings = obj.vertexPointSettings;
+        if (obj.silhouetteSplit) data.silhouetteSplit = true;   // written only when on (v20260907a)
         // FOLD / WRAP (v20260720m): written only when enabled so pre-feature
         // files stay byte-identical (undo snapshots always — v20260904e).
         if (obj.foldSettings && (obj.foldSettings.enabled || opts.undo)) {
@@ -81272,6 +81886,7 @@
           if (!obj.loftSettings.middleIds) obj.loftSettings.middleIds = [];
         }
         if (data.vertexPointSettings) obj.vertexPointSettings = { ...obj.vertexPointSettings, ...data.vertexPointSettings };
+        if (data.silhouetteSplit) obj.silhouetteSplit = true;   // v20260907a
         if (data._pixelEllipse) obj._pixelEllipse = true;
         if (data._pixelCellOrigin) obj._pixelCellOrigin = [...data._pixelCellOrigin];
         if (data.primitiveData) obj.primitiveData = { ...data.primitiveData };

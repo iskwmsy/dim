@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260907f -->
+<!-- dim v20260908n -->
 
 <!--
   MIT License
@@ -33,7 +33,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/dim_appicon_180.png">
   <link rel="icon" type="image/svg+xml" href="icons/dim_appicon_SVG.svg">
-  <meta name="theme-color" content="#2645d2">
+  <meta name="theme-color" content="#919191">
 
   <style>
     /* VARIABLES */
@@ -72,9 +72,32 @@
       /* css reset end */
 
       /* Theme Variables */
-      --base-color: #f5f5f5;
-      --accent-color: #2645d2;
+      /* DEFAULT ACCENT #919191 (owner, v20260908n; #707070 in v20260908i): the app is
+         MONOTONE by default - a mid grey accent, the old blue #2645d2 demoted to the
+         default STROKE colour. White on it 3.2:1; as ink on the light panel 3.0:1
+         (the owner's call - a lighter grey); the dark ink lifts it (l + 0.15). The
+         user's own accent still overrides via Settings. */
+      --accent-color: #919191;
       --accent-color-hover: oklch(from var(--accent-color) calc(l * 1.15) c h);
+      /* THE ACCENT IS TWO NAMES (v20260908a, dark-mode Phase 1). --accent-color
+         is the FILL accent — white text sits on it (tool rail, drawer header,
+         panel headers, modal header, toggle, playhead range). --accent-ink is the
+         accent as TEXT or a thin stroke on the panel ground (active tabs, selected
+         track labels, keyframes, armed inputs, the focus ring, the pen guides).
+         In light mode they are the same colour by definition. The dark theme
+         lifted --accent-ink in v20260908b (the default accent as text on a
+         #262626 panel is 2.06:1; l+0.28 measured 5.98:1) — and the owner
+         reversed that in v20260908f (the raw accent, 2.06:1) and settled on l + 0.15 in v20260908g: the accent, lifted just enough to read is the ink in both
+         themes ("pale" read as off-brand, the raw accent "too dark"). The TWO NAMES stay:
+         they are what let a theme (or the owner) decide the ink separately from
+         the fill. A new accent site still picks one by asking: is there white
+         text on this? */
+      --accent-ink: var(--accent-color);
+      --accent-ink-hover: var(--accent-color-hover);
+      /* THE SHADE DIRECTION (v20260908a). Every derived hover mixes "darker"
+         into its base; on a dark ground darker reads as DISABLED. The five
+         color-mix hovers mix var(--shade) instead of a literal black. */
+      --shade: black;
 
       /* Timeline label column (v20260730c): ONE width for the ruler spacer and
          the track-label column — they sit in different flex rows and misalign
@@ -150,7 +173,7 @@
          the input ground: 4.20:1 on white (50% measured 2.45:1, unreadable at
          11px). ON a key the field uses --accent-color itself + weight 600.
          Plan: _plans/PLAN-panel-animated-fields.md */
-      --text-animated: color-mix(in srgb, var(--accent-color) 75%, var(--bg-input));
+      --text-animated: color-mix(in srgb, var(--accent-ink) 75%, var(--bg-input));
 
       /* THE FOCUS RING (v20260905b, was 15 pasted copies). The ring is an
          INSET box-shadow and not an `outline` because .xyz-inputs sets
@@ -160,7 +183,7 @@
              position: relative;  z-index: 1;
          or the ring paints under the adjacent cell across .xyz-inputs' 1px
          gaps. A new field family needs all four lines, not just this one. */
-      --focus-ring: inset 0 0 0 1.5px var(--accent-color);
+      --focus-ring: inset 0 0 0 1.5px var(--accent-ink);
       --snap-indicator-radius: 15;
 
       /* Gizmo Axis Colors */
@@ -293,18 +316,270 @@
 
       /* Buttons — define base colors in HSL; hovers are derived via color-mix */
       --btn-bg: hsl(0, 0%, 94%);
-      --btn-hover: color-mix(in srgb, var(--btn-bg), black 8%);
+      --btn-hover: color-mix(in srgb, var(--btn-bg), var(--shade) 8%);
       --btn-text: hsl(0, 0%, 20%);
-      --btn-danger-bg: #ff6e6e;
+      /* DANGER RECREATES THE OLD PAIR (owner, v20260908l): the original accent
+         #2645d2 with the original pinkish-red button #ff6e6e, as a RULE on the
+         accent. Measured in oklch: #2645d2 is L .470 C .218 h 267; #ff6e6e is
+         L .716 C .178 h 22.6 - i.e. hue + 116, lightness x 1.525, chroma x 0.815.
+         So the button is the accent rotated 116 deg, LIGHTER and a little softer.
+         The exact x1.525 gave #ff6e6e back and the owner found it "too light"
+         (v20260908m); the factor is x1.266 now - the same lift the dark-mode red
+         of v20260908g had - so the blue accent gives #d3464a, white text 4.4:1.
+         Ladder (blue accent, white text): x1.525 #ff6e6d 2.7, x1.4 #ea5b5c 3.4,
+         x1.3 #d94b4e 4.1, x1.266 #d3464a 4.4, x1.2 #c93b41 5.0, x1.15 #c0333a 5.6.
+         THE LIGHTNESS IS WEIGHTED BY CHROMA: the full factor at the old accent's
+         chroma (.218 -> min() saturates at .2), sliding to x0.7 at chroma 0 - so
+         the default GREY accent keeps the dark grey button of v20260908i
+         (#434343, white 9.9:1) instead of a light grey that read as DISABLED.
+         The three state reds stay as warnings. */
+      --btn-danger-bg: oklch(from var(--accent-color) calc(l * (0.7 + 0.566 * min(1, c / 0.2))) calc(c * 0.815) calc(h + 116));
       --btn-danger-text: #ffffff;
       --btn-active-bg: var(--accent-a);
       --btn-active-text: #ffffff;
 
       /* Canvas HUD bars */
       --hud-bar-bg: hsl(0, 0%, 78%);
-      --hud-bar-hover: color-mix(in srgb, var(--hud-bar-bg), black 10%);
+      --hud-bar-hover: color-mix(in srgb, var(--hud-bar-bg), var(--shade) 10%);
       --hud-bar-text: #ffffff;
       --hud-label-color: hsl(0, 0%, 68%);
+
+      /* ── THEME AXIS (v20260908a, dark-mode Phase 1) ──────────────────────
+         Every colour that was still a literal outside this block, named with
+         its LIGHT value so that nothing moved. The dark theme (Phase 2) is a
+         second value for each of these names under :root[data-theme="dark"]
+         and nothing else. The rule from here on: a colour outside :root is a
+         token name, or it is one of the recorded exceptions (the HUD arrow
+         glyphs' white on the grey pill, the export progress scrim, the world
+         axis' mid grey, the paper — which is scene data). */
+      /* text on the accent fill */
+      --text-on-accent: #fff;
+      --text-on-accent-soft: rgba(255, 255, 255, 0.85);
+      --text-on-accent-muted: rgba(255, 255, 255, 0.7);
+      --tint-on-accent-hover: rgba(255, 255, 255, 0.15);
+      /* fields: the focused white, and the translucent-white ramps that sit on
+         the PANEL ground (xyz fields, the object-name field) */
+      --bg-input-focus: rgba(255, 255, 255, 1);
+      --field-tint-hover: rgba(255, 255, 255, 0.4);
+      --field-tint-focus: rgba(255, 255, 255, 0.7);
+      --name-field-tint: rgba(255, 255, 255, 0.6);
+      --name-field-tint-hover: rgba(255, 255, 255, 0.8);
+      --name-field-tint-focus: rgba(255, 255, 255, 0.9);
+      /* the number spinner + scrub grip: an opaque grey ramp with white ink */
+      --bg-spin: #dcdcdc;
+      --bg-spin-hover: #c8c8c8;
+      --bg-spin-active: #b0b0b0;
+      --ink-on-spin: #fff;
+      --btn-disabled-bg: #e5e5e5;
+      --btn-disabled-text: #aaaaaa;
+      --btn-disabled-border: #dddddd;
+      --text-hint: #aaa;
+      --knob: white;
+      --knob-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+      --slider-fill: rgba(0, 0, 0, 0.06);
+      --kern-gap-tint: rgba(0, 0, 0, 0.07);
+      --flash-ok: #e0ffe0;
+      /* lines, tints and shadows that were not part of the v20260905c ramps */
+      --line-strong: rgba(0, 0, 0, 0.35);
+      --tint-hover-soft: rgba(0, 0, 0, 0.03);
+      --tint-hover-softer: rgba(0, 0, 0, 0.02);
+      --scrollbar-thumb: rgba(0, 0, 0, 0.18);
+      --scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
+      --scrim: rgba(0, 0, 0, 0.35);
+      --shadow-drawer: 0 -2px 12px rgba(0, 0, 0, 0.10), 0 -1px 4px rgba(0, 0, 0, 0.06);
+      --shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
+      --shadow-float: 0 2px 12px rgba(0, 0, 0, 0.14);
+      --shadow-curve: 0 -2px 12px rgba(0, 0, 0, 0.1);
+      --shadow-drag: 0 1px 2px rgba(0, 0, 0, 0.3);
+      /* state colours: the one "this is wrong" red, as INK (text) and as FILL
+         (white text on it), and the armed auto-key red */
+      --danger-ink: #c0392b;
+      --danger-fill: #c0392b;
+      --danger-armed: #e05252;
+      /* timeline: the keyframe grey, the layer bars, the state tints, the
+         ruler canvas (READ AT DRAW TIME by tlDrawRuler, never cached) */
+      --tl-ink: #999;
+      --tl-ink-hover: #777;
+      --tl-bar: rgba(0, 0, 0, 0.14);
+      --tl-bar-hover: rgba(0, 0, 0, 0.22);
+      --tl-bar-full: rgba(0, 0, 0, 0.07);
+      --tl-bar-stripe: rgba(0, 0, 0, 0.16);
+      --tl-bar-handle: rgba(0, 0, 0, 0.25);
+      --tl-clamp-stripe-a: rgba(200, 40, 40, 0.55);
+      --tl-clamp-stripe-b: rgba(200, 40, 40, 0.2);
+      --tl-state-tint: rgba(0, 0, 0, 0.08);
+      --tl-ruler-ink: rgba(0, 0, 0, 0.6);
+      --tl-ruler-text: rgba(0, 0, 0, 0.5);
+      --tl-ruler-tick: rgba(0, 0, 0, 0.15);
+      --tl-ruler-dim: rgba(0, 0, 0, 0.06);
+      --tl-ruler-handle: rgba(0, 0, 0, 0.35);
+      /* canvas overlays: the neutral overlay ink, the halo behind labels and
+         under handles, the anchor/handle fills, the gizmo centre discs */
+      --overlay-ink: black;
+      --overlay-halo: white;
+      /* canvas LABEL text (vertex index) — the paper-first pair with the halo:
+         dark text + white halo reads on the white paper in BOTH themes, and the
+         halo carries it over the void (v20260908c, Phase 3). */
+      --overlay-text: var(--text-main);
+      --draw-point-stroke: rgba(0, 0, 0, 0.5);
+      --handle-fill: white;
+      --handle-hot: rgb(180, 210, 255);
+      --gizmo-centre: #000;
+      --gizmo-centre-hot: #444;
+      --gizmo-free-centre: #222;
+      --gizmo-free-centre-hot: #555;
+      --gizmo-pos-dot: #c9c9c9;
+      --gizmo-pos-dot-stroke: #999999;
+      /* IMAGES THAT CARRY A COLOUR. var() cannot be used inside a data URI, so
+         the whole url() is the token and a theme supplies a second URI. The
+         select chevron (6 families) and the checkbox tick. */
+      --img-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      --img-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpolyline fill='none' stroke='%23333' stroke-width='2' stroke-miterlimit='10' points='4 10.39 7.76 14.5 16 5.5'/%3E%3C/svg%3E");
+    }
+
+    /* ══ DARK THEME (v20260908b, dark-mode Phase 2) ═══════════════════════
+       THE ONLY SELECTOR IN THIS FILE THAT MENTIONS THE THEME ATTRIBUTE. A theme
+       is a second value for the names above and nothing else: no rule below
+       this block may say [data-theme]. `data-theme` is stamped on <html> by the
+       THEME BOOTSTRAP script in <head> (before first paint) and by applyTheme()
+       (Settings > Theme: System / Light / Dark, persisted in dim-settings.theme).
+       color-scheme: dark hands the native scrollbars, select popups and
+       colour-input chrome to the browser's dark rendering.
+       Values are measured, not chosen (plan §3, WCAG sRGB): text-main 11.8:1,
+       secondary 7.2:1, muted 4.3:1 on the panel; the accent INK is the user's
+       accent lifted l+0.28 in oklch (6.7:1 on the panel, 6.0:1 on an input —
+       the raw accent as text would be 2.06:1); white-on-accent fills are
+       untouched (7.3:1 either way). Overlay ink is a mid grey because the
+       gizmos cross BOTH grounds — the dark void and the white paper (D7).
+       Not themed on purpose: the paper (#frameRect, scene data, exported),
+       the grid (a user preference that EXPORTS — D3), the HUD glyph white on
+       the grey pill, the export progress scrim, the world axis grey. */
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg-app: #1e1e1e;
+      --bg-panel: #262626;
+      --bg-input: #2e2e2e;
+      --bg-input-hover: #333333;
+      --bg-input-focus: #383838;
+      --bg-toggle-off: #4a4a4a;
+      --line-faint: rgba(255, 255, 255, 0.05);
+      --line-hairline: rgba(255, 255, 255, 0.08);
+      --border-light: rgba(255, 255, 255, 0.12);
+      --tint-hover: rgba(255, 255, 255, 0.06);
+      --tint-selected: rgba(255, 255, 255, 0.12);
+      --text-main: rgba(255, 255, 255, 0.87);
+      --text-secondary: rgba(255, 255, 255, 0.65);
+      --text-muted: rgba(255, 255, 255, 0.45);
+      --text-tertiary: #8a8a8a;
+      --text-hint: #777;
+      --ink-icon-idle: #8a8a8a;
+      --ink-icon-hover: #e6e6e6;
+      /* ACCENT INK, settled in three steps (owner). v20260908b lifted it oklch(l +
+         0.28) = #70a2ff, 5.98:1 - "pale", off-brand. v20260908f used the raw accent -
+         2.06:1 on the panel - "too dark". v20260908g: l + 0.15 = #4b77ff, 3.88:1 on
+         the panel / 3.48:1 on an input - still unmistakably the brand blue, readable
+         as 11px text. Hover l + 0.22. The ladder measured on the DOM (canvas
+         readback): +0.08 2.94, +0.12 3.48, +0.15 3.88, +0.18 4.29, +0.22 4.90. */
+      --accent-ink: oklch(from var(--accent-color) calc(l + 0.15) c h);
+      --accent-ink-hover: oklch(from var(--accent-color) calc(l + 0.22) c h);
+      --shade: white;
+      /* --text-animated is "75% accent + 25% of the input ground" in :root; on the
+         dark input that mixes toward #2e2e2e and reads 1.5:1. The light rule's
+         INTENT is 25% toward white, so say so here: #5c74dd, 3.2:1 on the input. */
+      --text-animated: color-mix(in srgb, var(--accent-color) 75%, white);
+      --btn-bg: hsl(0, 0%, 22%);
+      --btn-text: hsl(0, 0%, 88%);
+      /* THE DANGER BUTTON went pastel (b) -> deep red #c0392b (f) -> #cf4d45 (g) ->
+         grey #5a5a5a (i) -> the accent's hue (j) -> its complement (k) -> the OLD
+         PAIR as a rule (l): the dark-mode red the owner settled on in g, #cf4d45
+         (L .594 C .166 h 26.9), expressed from the old accent #2645d2: hue + 120,
+         lightness x 1.266, chroma x 0.763 - that gave #cf4d45 back; "too light"
+         with light's pastel (v20260908m), so dark is x1.15 now: blue accent ->
+         #bc3b35, white text 5.5:1. Ladder (blue, white text): x1.266 #cf4d45 4.4,
+         x1.2 #c4433c 5.0, x1.15 #bc3b35 5.5, x1.1 #b4332e 6.1. Chroma-weighted
+         like light's: full factor at the old accent's chroma, x0.83 at chroma 0,
+         so the default grey accent keeps v20260908i's #565656 (white 7.3:1).
+         Hover mixes --shade (white) 20%. */
+      --btn-danger-bg: oklch(from var(--accent-color) calc(l * (0.83 + 0.32 * min(1, c / 0.2))) calc(c * 0.763) calc(h + 120));
+      --btn-disabled-bg: #2a2a2a;
+      --btn-disabled-text: #666;
+      --btn-disabled-border: #333;
+      --hud-bar-bg: hsl(0, 0%, 32%);
+      --hud-label-color: hsl(0, 0%, 45%);
+      --panel-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+      --field-tint-hover: rgba(255, 255, 255, 0.06);
+      --field-tint-focus: rgba(255, 255, 255, 0.1);
+      --name-field-tint: rgba(255, 255, 255, 0.06);
+      --name-field-tint-hover: rgba(255, 255, 255, 0.09);
+      --name-field-tint-focus: rgba(255, 255, 255, 0.12);
+      --bg-spin: #3a3a3a;
+      --bg-spin-hover: #464646;
+      --bg-spin-active: #555;
+      --ink-on-spin: #1e1e1e;
+      --knob: #ddd;
+      --knob-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+      --slider-fill: rgba(255, 255, 255, 0.08);
+      --kern-gap-tint: rgba(255, 255, 255, 0.1);
+      --flash-ok: color-mix(in srgb, #2f8f4e 25%, var(--bg-app));
+      --line-strong: rgba(255, 255, 255, 0.4);
+      --tint-hover-soft: rgba(255, 255, 255, 0.04);
+      --tint-hover-softer: rgba(255, 255, 255, 0.03);
+      --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+      --scrollbar-thumb-hover: rgba(255, 255, 255, 0.35);
+      --scrim: rgba(0, 0, 0, 0.6);
+      --shadow-drawer: 0 -2px 12px rgba(0, 0, 0, 0.5), 0 -1px 4px rgba(0, 0, 0, 0.4);
+      --shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
+      --shadow-float: 0 2px 12px rgba(0, 0, 0, 0.55);
+      --shadow-curve: 0 -2px 12px rgba(0, 0, 0, 0.5);
+      --shadow-drag: 0 1px 2px rgba(0, 0, 0, 0.7);
+      --danger-ink: #e8635a;
+      --danger-armed: #ef7a72;
+      --tl-ink: #8a8a8a;
+      --tl-ink-hover: #b0b0b0;
+      --tl-bar: rgba(255, 255, 255, 0.18);
+      --tl-bar-hover: rgba(255, 255, 255, 0.28);
+      --tl-bar-full: rgba(255, 255, 255, 0.09);
+      --tl-bar-stripe: rgba(255, 255, 255, 0.2);
+      --tl-bar-handle: rgba(255, 255, 255, 0.32);
+      --tl-clamp-stripe-a: rgba(230, 80, 80, 0.6);
+      --tl-clamp-stripe-b: rgba(230, 80, 80, 0.25);
+      --tl-state-tint: rgba(255, 255, 255, 0.1);
+      --tl-ruler-ink: rgba(255, 255, 255, 0.7);
+      --tl-ruler-text: rgba(255, 255, 255, 0.6);
+      --tl-ruler-tick: rgba(255, 255, 255, 0.2);
+      --tl-ruler-dim: rgba(255, 255, 255, 0.08);
+      --tl-ruler-handle: rgba(255, 255, 255, 0.4);
+      /* PAPER-FIRST OVERLAYS (v20260908c, Phase 3 crops). The gizmos, labels and
+         handles live on the paper, which stays WHITE in dark mode; the void is
+         only the margin. So the overlay values stay close to light's darks and
+         are lifted only as far as the crops needed: a #a0a0a0 gizmo was faint on
+         the paper (2.6:1), #808080 reads on both grounds (3.9:1 / 4.6:1); the
+         halo stays WHITE and the label text DARK (--overlay-text), the light
+         mode pair, because a white letter in a dark halo on white paper read as
+         a blob; the centre discs stay dark (they sit on the object). */
+      --overlay-ink: #808080;
+      --overlay-text: rgba(0, 0, 0, 0.85);
+      --handle-fill: #262626;
+      --handle-hot: #3b5f9e;
+      --gizmo-axis-x: #808080;
+      --gizmo-axis-y: #808080;
+      --gizmo-axis-z: #808080;
+      --gizmo-axis-xy: #808080;
+      --gizmo-axis-yz: #808080;
+      --gizmo-axis-xz: #808080;
+      --gizmo-center-circle: #555;
+      --gizmo-center-circle-active: #777;
+      --gizmo-screen-circle: #555;
+      --gizmo-screen-circle-active: #777;
+      --gizmo-ring-grey: #666;
+      --gizmo-centre: #555;
+      --gizmo-centre-hot: #888;
+      --gizmo-free-centre: #555;
+      --gizmo-free-centre-hot: #888;
+      --gizmo-pos-dot: #555;
+      --gizmo-pos-dot-stroke: #888;
+      --img-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a8a8a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      --img-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpolyline fill='none' stroke='%23e6e6e6' stroke-width='2' stroke-miterlimit='10' points='4 10.39 7.76 14.5 16 5.5'/%3E%3C/svg%3E");
     }
 
     /* GLOBAL RESET & BASE */
@@ -645,7 +920,7 @@
       border: none;
       border-radius: 3px;
       box-sizing: border-box;
-      background-color: rgba(255, 255, 255, 1);
+      background-color: var(--bg-input-focus);
       color: var(--text-main);
       font-size: 12px;
       font-weight: 500;
@@ -797,7 +1072,7 @@
       visibility: hidden;
       font-size: 10px;
       letter-spacing: 0.06em;
-      color: var(--accent-color);
+      color: var(--accent-ink);
       white-space: nowrap;
       pointer-events: none;
     }
@@ -865,7 +1140,7 @@
 
     #toolToolbar button.active {
       background: var(--accent-color);
-      color: #fff;
+      color: var(--text-on-accent);
     }
 
     #toolToolbar button svg {
@@ -899,7 +1174,7 @@
       font-weight: 500;
       text-transform: none;
       letter-spacing: 0;
-      color: var(--accent-color);
+      color: var(--accent-ink);
       padding: 0 0 4px;
       margin-bottom: 8px;
       border-bottom: none;
@@ -936,7 +1211,7 @@
       border-bottom: none;
       border-left: none;
       border-radius: 0;
-      box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.10), 0 -1px 4px rgba(0, 0, 0, 0.06);
+      box-shadow: var(--shadow-drawer);
       display: flex;
       flex-direction: column;
       max-height: calc(100vh - var(--timeline-height) - 10px);
@@ -956,7 +1231,7 @@
       flex-shrink: 0;
       user-select: none;
       background: var(--accent-color);
-      color: #fff;
+      color: var(--text-on-accent);
     }
 
     #toolDrawerHeader:active,
@@ -968,13 +1243,13 @@
       width: var(--icon-size);
       height: var(--icon-size);
       flex-shrink: 0;
-      color: #fff;
+      color: var(--text-on-accent);
     }
 
     #toolDrawerLabel {
       font-weight: 600;
       font-size: var(--font-size-section);
-      color: #fff;
+      color: var(--text-on-accent);
       flex: 1;
       display: flex;
       align-items: center;
@@ -989,7 +1264,7 @@
     #toolDrawerReEditTag {
       font-weight: 400;
       font-size: var(--font-size-field);
-      color: rgba(255, 255, 255, 0.85);
+      color: var(--text-on-accent-soft);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -1046,7 +1321,7 @@
       flex: 1;
       min-width: 0;
       border: 1px solid transparent;
-      background: rgba(255, 255, 255, 0.6);
+      background: var(--name-field-tint);
       color: var(--text-main);
       font-size: var(--font-size-field);
       font-weight: 600;
@@ -1059,12 +1334,12 @@
     }
 
     #selectedObjectHeader #objectNameInput:hover {
-      background: rgba(255, 255, 255, 0.8);
+      background: var(--name-field-tint-hover);
     }
 
     #selectedObjectHeader #objectNameInput:focus {
-      border-color: var(--accent-color);
-      background: rgba(255, 255, 255, 0.9);
+      border-color: var(--accent-ink);
+      background: var(--name-field-tint-focus);
     }
 
     #selectedObjectHeader #objectNameInput:disabled {
@@ -1191,7 +1466,7 @@
     }
 
     .left-tab.active {
-      color: var(--accent-color);
+      color: var(--accent-ink);
     }
 
     .left-tab svg {
@@ -1329,7 +1604,7 @@
 
     #rightPanelContainer .ui-header {
       background: var(--accent-color);
-      color: #fff;
+      color: var(--text-on-accent);
       height: var(--row-height);
       padding: 0 10px;
       gap: 6px;
@@ -1341,11 +1616,11 @@
     /* Header hover removed — chevron-only hover below */
 
     #rightPanelContainer .ui-header .panel-icon {
-      color: #fff;
+      color: var(--text-on-accent);
     }
 
     #rightPanelContainer .ui-header .collapse-chevron {
-      color: rgba(255, 255, 255, 0.7);
+      color: var(--text-on-accent-muted);
     }
 
     .ui-header.collapsed {
@@ -1387,7 +1662,7 @@
     }
 
     #historyBar .qs-group:hover {
-      background: rgba(0, 0, 0, 0.03);
+      background: var(--tint-hover-soft);
     }
 
     #historyBar .history-chevron {
@@ -1502,7 +1777,7 @@
     }
 
     .obj-tab.active {
-      color: var(--accent-color);
+      color: var(--accent-ink);
     }
 
     .obj-tab svg {
@@ -1515,7 +1790,7 @@
       margin-left: auto;
       width: var(--icon-size);
       height: var(--icon-size);
-      color: rgba(255, 255, 255, 0.7);
+      color: var(--text-on-accent-muted);
       flex-shrink: 0;
     }
 
@@ -1526,8 +1801,8 @@
     }
 
     .collapse-chevron:hover {
-      color: #fff;
-      background: rgba(255, 255, 255, 0.15);
+      color: var(--text-on-accent);
+      background: var(--tint-on-accent-hover);
     }
 
     .obj-tab-content {
@@ -1795,7 +2070,7 @@
     .ui-input:focus,
     .ui-select:focus {
       outline: none;
-      background-color: rgba(255, 255, 255, 1);
+      background-color: var(--bg-input-focus);
       position: relative;
       z-index: 1;
       box-shadow: var(--focus-ring);
@@ -1852,7 +2127,7 @@
 
     .num-spin-wrap>input[type="number"]:focus {
       outline: none;
-      background: rgba(255, 255, 255, 1);
+      background: var(--bg-input-focus);
       position: relative;
       z-index: 1;
       box-shadow: var(--focus-ring);
@@ -1886,7 +2161,7 @@
       padding: 0;
       margin: 0;
       cursor: pointer;
-      background: #dcdcdc;
+      background: var(--bg-spin);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1896,15 +2171,15 @@
     }
 
     .num-spin-btns>button:hover {
-      background: #c8c8c8;
+      background: var(--bg-spin-hover);
     }
 
     .num-spin-btns>button:active {
-      background: #b0b0b0;
+      background: var(--bg-spin-active);
     }
 
     .num-spin-btns>.num-spin-up {
-      border-bottom: 0.5px solid #fff;
+      border-bottom: 0.5px solid var(--ink-on-spin);
     }
 
     /* The stepper glyph and the scrub glyph are the SAME artwork treatment —
@@ -1917,7 +2192,7 @@
       width: 100%;
       height: 100%;
       fill: none;
-      stroke: #fff;
+      stroke: var(--ink-on-spin);
       stroke-width: 0.5;
       stroke-linecap: round;
       stroke-linejoin: round;
@@ -1979,7 +2254,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: #dcdcdc;
+      background: var(--bg-spin);
       border: none;
       padding: 0;
       margin: 0;
@@ -1994,12 +2269,12 @@
     }
 
     .num-spin-scrub:hover {
-      background: #c8c8c8;
+      background: var(--bg-spin-hover);
     }
 
     .num-spin-scrub:active,
     .num-spin-scrub.scrubbing {
-      background: #b0b0b0;
+      background: var(--bg-spin-active);
     }
 
     /* Hide scrub handle in compact quickStyleBar */
@@ -2010,7 +2285,7 @@
     .ui-select {
       appearance: none;
       cursor: pointer;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-image: var(--img-chevron);
       background-repeat: no-repeat;
       background-position: right 6px center;
       background-size: 10px 6px;
@@ -2031,7 +2306,7 @@
       top: 0;
       bottom: 0;
       width: var(--fill, 100%);
-      background: rgba(0, 0, 0, 0.06);
+      background: var(--slider-fill);
       border-radius: inherit;
       pointer-events: none;
       transition: width var(--dur-fast) ease;
@@ -2077,7 +2352,7 @@
 
     .slider-fill-value:focus {
       outline: none;
-      background: white;
+      background: var(--bg-input-focus);
       border-radius: 2px;
     }
 
@@ -2154,9 +2429,9 @@
     }
 
     .ui-btn:disabled {
-      background-color: #e5e5e5 !important;
-      color: #aaaaaa !important;
-      border-color: #dddddd !important;
+      background-color: var(--btn-disabled-bg) !important;
+      color: var(--btn-disabled-text) !important;
+      border-color: var(--btn-disabled-border) !important;
       cursor: not-allowed;
       box-shadow: none;
     }
@@ -2181,7 +2456,7 @@
     }
 
     .ui-btn-primary:hover {
-      background: color-mix(in srgb, var(--btn-active-bg), black 15%);
+      background: color-mix(in srgb, var(--btn-active-bg), var(--shade) 15%);
     }
 
 
@@ -2191,7 +2466,7 @@
       position: fixed;
       inset: 0;
       z-index: 100000;
-      background: rgba(0, 0, 0, 0.35);
+      background: var(--scrim);
       justify-content: center;
       align-items: center;
     }
@@ -2203,7 +2478,7 @@
     .app-modal {
       background: var(--bg-panel);
       border-radius: 0;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
+      box-shadow: var(--shadow-modal);
       min-width: 320px;
       max-width: 400px;
       overflow: hidden;
@@ -2226,7 +2501,7 @@
       padding: 12px 20px;
       font-size: var(--font-size-panel-title);
       font-weight: 600;
-      color: #ffffff;
+      color: var(--text-on-accent);
       background: var(--accent-color);
 
     }
@@ -2376,8 +2651,8 @@
       width: 14px;
       height: 14px;
       border-radius: 50%;
-      background: white;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+      background: var(--knob);
+      box-shadow: var(--knob-shadow);
       transition: transform var(--dur-slow) var(--ease-spring);
     }
 
@@ -2418,7 +2693,7 @@
       display: none;
       position: absolute;
       inset: 1px;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpolyline fill='none' stroke='%23333' stroke-width='2' stroke-miterlimit='10' points='4 10.39 7.76 14.5 16 5.5'/%3E%3C/svg%3E");
+      background-image: var(--img-check);
       background-size: contain;
       background-repeat: no-repeat;
       background-position: center;
@@ -2483,7 +2758,7 @@
       -webkit-appearance: none;
       -moz-appearance: none;
       appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-image: var(--img-chevron);
       background-repeat: no-repeat;
       background-position: right 6px center;
       background-size: 10px 6px;
@@ -2495,7 +2770,7 @@
 
     #quickStyleBar select:focus {
       outline: none;
-      background-color: rgba(255, 255, 255, 1);
+      background-color: var(--bg-input-focus);
       box-shadow: var(--focus-ring);
       position: relative;
       z-index: 1;
@@ -2516,7 +2791,7 @@
 
     #quickStyleBar input[type="number"]:focus {
       outline: none;
-      background: rgba(255, 255, 255, 1);
+      background: var(--bg-input-focus);
       box-shadow: var(--focus-ring);
       position: relative;
       z-index: 1;
@@ -2537,7 +2812,7 @@
 
     #quickStyleBar .color-hex-input:focus {
       outline: none;
-      background: rgba(255, 255, 255, 1);
+      background: var(--bg-input-focus);
       box-shadow: var(--focus-ring);
       position: relative;
       z-index: 1;
@@ -2646,7 +2921,7 @@
 
     .style-row .color-hex-input:focus {
       outline: none;
-      background: rgba(255, 255, 255, 1);
+      background: var(--bg-input-focus);
       position: relative;
       z-index: 1;
       box-shadow: var(--focus-ring);
@@ -2663,7 +2938,7 @@
       -webkit-appearance: none;
       -moz-appearance: none;
       appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-image: var(--img-chevron);
       background-repeat: no-repeat;
       background-position: right 4px center;
       background-size: 10px 6px;
@@ -2675,7 +2950,7 @@
 
     .style-row select:focus {
       outline: none;
-      background-color: rgba(255, 255, 255, 1);
+      background-color: var(--bg-input-focus);
       position: relative;
       z-index: 1;
       box-shadow: var(--focus-ring);
@@ -2748,7 +3023,7 @@
 
     .xyz-row>.xyz-inputs>input:focus {
       outline: none;
-      background: rgba(255, 255, 255, 1);
+      background: var(--bg-input-focus);
       position: relative;
       z-index: 1;
       box-shadow: var(--focus-ring);
@@ -2768,7 +3043,7 @@
 
     .xyz-row>.xyz-inputs>textarea:focus {
       outline: none;
-      background: rgba(255, 255, 255, 1);
+      background: var(--bg-input-focus);
       position: relative;
       z-index: 1;
       box-shadow: var(--focus-ring);
@@ -2827,12 +3102,12 @@
     }
 
     .xyz-row>.xyz-inputs>.xyz-field>input:hover {
-      background: rgba(255, 255, 255, 0.4);
+      background: var(--field-tint-hover);
     }
 
     .xyz-row>.xyz-inputs>.xyz-field>input:focus {
       outline: none;
-      background: rgba(255, 255, 255, 0.7);
+      background: var(--field-tint-focus);
       position: relative;
       z-index: 1;
       box-shadow: var(--focus-ring);
@@ -2855,19 +3130,19 @@
       -webkit-appearance: none;
       -moz-appearance: none;
       appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-image: var(--img-chevron);
       background-repeat: no-repeat;
       background-position: right 4px center;
       background-size: 10px 6px;
     }
 
     .xyz-row>.xyz-inputs>.xyz-field>select:hover {
-      background-color: rgba(255, 255, 255, 0.4);
+      background-color: var(--field-tint-hover);
     }
 
     .xyz-row>.xyz-inputs>.xyz-field>select:focus {
       outline: none;
-      background-color: rgba(255, 255, 255, 0.7);
+      background-color: var(--field-tint-focus);
       box-shadow: var(--focus-ring);
     }
 
@@ -2883,7 +3158,7 @@
       -webkit-appearance: none;
       -moz-appearance: none;
       appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-image: var(--img-chevron);
       background-repeat: no-repeat;
       background-position: right 6px center;
       background-size: 10px 6px;
@@ -2895,7 +3170,7 @@
 
     .xyz-row>.xyz-inputs>select:focus {
       outline: none;
-      background-color: rgba(255, 255, 255, 1);
+      background-color: var(--bg-input-focus);
       box-shadow: var(--focus-ring);
     }
 
@@ -3140,7 +3415,7 @@
 
     .ui-hint {
       font-size: var(--font-size-small);
-      color: #aaa;
+      color: var(--text-hint);
       margin-top: var(--space-xs);
       line-height: var(--line-height-normal);
     }
@@ -3235,12 +3510,12 @@
     }
 
     #sceneTree::-webkit-scrollbar-thumb {
-      background: rgba(0, 0, 0, 0.18);
+      background: var(--scrollbar-thumb);
       border-radius: 3px;
     }
 
     #sceneTree::-webkit-scrollbar-thumb:hover {
-      background: rgba(0, 0, 0, 0.3);
+      background: var(--scrollbar-thumb-hover);
     }
 
     /* Dynamic List Item Styles */
@@ -3275,11 +3550,11 @@
     }
 
     .scene-tree-item.drag-above {
-      box-shadow: inset 0 1px 0 0 rgba(0, 0, 0, 0.35);
+      box-shadow: inset 0 1px 0 0 var(--line-strong);
     }
 
     .scene-tree-item.drag-below {
-      box-shadow: inset 0 -1px 0 0 rgba(0, 0, 0, 0.35);
+      box-shadow: inset 0 -1px 0 0 var(--line-strong);
     }
 
     .scene-tree-item.drag-into {
@@ -3432,7 +3707,7 @@
 
     /* Text Highlights */
     .text-highlight {
-      color: white !important;
+      color: var(--text-on-accent) !important;
       font-weight: bold;
     }
 
@@ -3442,7 +3717,7 @@
     }
 
     .ui-btn-danger:hover {
-      background-color: color-mix(in srgb, var(--btn-danger-bg), black 20%);
+      background-color: color-mix(in srgb, var(--btn-danger-bg), var(--shade) 20%);
     }
 
 
@@ -3452,7 +3727,7 @@
       font-family: Arial, sans-serif;
       font-weight: normal;
       paint-order: stroke;
-      stroke: white;
+      stroke: var(--overlay-halo);
       stroke-width: 0.1;
       stroke-linecap: butt;
       stroke-linejoin: miter;
@@ -3465,7 +3740,7 @@
       font-weight: normal;
       font-size: 12px;
       paint-order: stroke;
-      stroke: white;
+      stroke: var(--overlay-halo);
       stroke-width: 0px;
       stroke-linecap: butt;
       stroke-linejoin: miter;
@@ -3495,15 +3770,15 @@
 
     #vertexGizmoGroup circle.draw-point {
       stroke-width: 1px;
-      stroke: rgba(0, 0, 0, 0.5);
+      stroke: var(--draw-point-stroke);
     }
 
     #vertexGizmoGroup text.vertex-index-label {
       font-family: 'Avenir Next Condensed', var(--font-family-sans);
       font-weight: 500;
-      fill: var(--text-main);
+      fill: var(--overlay-text);
       paint-order: stroke;
-      stroke: white;
+      stroke: var(--overlay-halo);
       stroke-width: 2px;
       stroke-linecap: butt;
       stroke-linejoin: miter;
@@ -3524,7 +3799,7 @@
       font-family: 'Avenir Next Condensed', var(--font-family-sans);
       font-weight: 600;
       paint-order: stroke;
-      stroke: white;
+      stroke: var(--overlay-halo);
       stroke-linecap: butt;
       stroke-linejoin: miter;
       pointer-events: none;
@@ -3543,8 +3818,10 @@
 
     /* SEPARATORS */
     hr {
+      /* v20260908b: the old 1px rgba(255,255,255,.2) border-top is gone — it
+         never drew on a light panel (v20260725m audit) and would have on a
+         dark one. Dead ink, deleted rather than themed. */
       border: 0;
-      border-top: 1px solid rgba(255, 255, 255, 0.2);
       margin: 8px 0;
     }
 
@@ -3666,7 +3943,7 @@
     .tl-header-title {
       font-size: var(--font-size-section);
       font-weight: 500;
-      color: var(--accent-color);
+      color: var(--accent-ink);
       margin-right: 8px;
       pointer-events: none;
     }
@@ -3718,7 +3995,7 @@
 
     .tl-transport-btn.active {
       background: var(--accent-color);
-      color: white;
+      color: var(--text-on-accent);
     }
 
     /* 14 → 12 with the v20260810e redraw. The header set moved onto the SAME 12
@@ -3772,7 +4049,7 @@
     }
 
     .tl-drop-stat.dropping {
-      color: #c0392b;
+      color: var(--danger-ink);
       font-weight: 600;
     }
 
@@ -3788,7 +4065,7 @@
     }
 
     .tl-cache-stat.at-budget {
-      color: #c0392b;
+      color: var(--danger-ink);
       font-weight: 600;
     }
 
@@ -3831,9 +4108,9 @@
     .tl-frame-display .num-spin-wrap>input[type="number"]#tlPlaybackRange.range-alert:hover,
     .tl-frame-display .num-spin-wrap>input[type="number"]#tlPlaybackStart.range-alert,
     .tl-frame-display .num-spin-wrap>input[type="number"]#tlPlaybackStart.range-alert:hover {
-      background: #c0392b;
-      color: #fff;
-      box-shadow: inset 0 0 0 1.5px #c0392b;
+      background: var(--danger-fill);
+      color: var(--text-on-accent);
+      box-shadow: inset 0 0 0 1.5px var(--danger-fill);
     }
 
     .tl-frame-display .num-spin-wrap>input[type="number"]:hover {
@@ -3842,7 +4119,7 @@
 
     .tl-frame-display .num-spin-wrap>input[type="number"]:focus {
       outline: none;
-      background: rgba(255, 255, 255, 1);
+      background: var(--bg-input-focus);
       box-shadow: var(--focus-ring);
     }
 
@@ -3866,12 +4143,12 @@
        keyframes on every edit, so the armed state must be unmissable —
        the DCC convention is a red recording tint. */
     #tlAutoKeyLabel.tl-autokey-armed {
-      color: #e05252;
+      color: var(--danger-armed);
       font-weight: 600;
     }
 
     #tlAutoKeyLabel.tl-autokey-armed .ui-checkbox {
-      accent-color: #e05252;
+      accent-color: var(--danger-armed);
     }
 
     /* --- Camera Subwindow (PLAN-camera-subwindow Phase 2) --- */
@@ -3899,7 +4176,7 @@
       padding: 0;
       border: 1px solid var(--border-light);
       border-radius: 0;
-      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.14);
+      box-shadow: var(--shadow-float);
       background: var(--bg-panel);
       overflow: visible;
       z-index: 502;
@@ -4038,8 +4315,8 @@
       bottom: 3px;
       width: 8px;
       height: 8px;
-      border-left: 1px solid var(--accent-color);
-      border-bottom: 1px solid var(--accent-color);
+      border-left: 1px solid var(--accent-ink);
+      border-bottom: 1px solid var(--accent-ink);
       opacity: 0;
       transition: opacity var(--dur) ease;
     }
@@ -4056,8 +4333,8 @@
       bottom: 3px;
       width: 8px;
       height: 8px;
-      border-right: 1px solid var(--accent-color);
-      border-bottom: 1px solid var(--accent-color);
+      border-right: 1px solid var(--accent-ink);
+      border-bottom: 1px solid var(--accent-ink);
       opacity: 0;
       transition: opacity var(--dur) ease;
     }
@@ -4084,7 +4361,7 @@
       padding: 0;
       border: 1px solid var(--border-light);
       border-radius: 0;
-      box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.1);
+      box-shadow: var(--shadow-curve);
       background: var(--bg-panel);
       overflow: visible;
       z-index: 501;
@@ -4169,7 +4446,7 @@
       -webkit-appearance: none;
       -moz-appearance: none;
       appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-image: var(--img-chevron);
       background-repeat: no-repeat;
       background-position: right 6px center;
       background-size: 10px 6px;
@@ -4181,7 +4458,7 @@
 
     .tl-interp-select:focus {
       outline: none;
-      background-color: rgba(255, 255, 255, 1);
+      background-color: var(--bg-input-focus);
       box-shadow: var(--focus-ring);
     }
 
@@ -4194,7 +4471,7 @@
       position: absolute;
       top: 0;
       bottom: 0;
-      background: rgba(0, 0, 0, 0.08);
+      background: var(--tl-state-tint);
       pointer-events: none;
       z-index: 0;
     }
@@ -4266,7 +4543,7 @@
     }
 
     .tl-track-label.selected {
-      color: var(--accent-color);
+      color: var(--accent-ink);
       font-weight: 600;
     }
 
@@ -4287,11 +4564,11 @@
     }
 
     .tl-group-header:hover {
-      background: rgba(0, 0, 0, 0.03);
+      background: var(--tint-hover-soft);
     }
 
     .tl-group-header.selected {
-      color: var(--accent-color);
+      color: var(--accent-ink);
     }
 
     .tl-group-toggle {
@@ -4333,7 +4610,7 @@
     }
 
     .tl-subgroup-header:hover {
-      background: rgba(0, 0, 0, 0.02);
+      background: var(--tint-hover-softer);
     }
 
     .tl-subgroup-header.collapsed .tl-group-toggle {
@@ -4377,14 +4654,14 @@
     }
 
     .tl-key-all-btn:hover {
-      background: rgba(0, 0, 0, 0.08);
-      color: var(--accent-color);
+      background: var(--tl-state-tint);
+      color: var(--accent-ink);
     }
 
     /* "Key Selected" while the A tool holds a vertex selection: the button
        keys the SHAPE, and says so (v20260731j). */
     .tl-transport-btn.tl-key-shape-mode {
-      color: var(--accent-color);
+      color: var(--accent-ink);
     }
 
     /* LISTEN KEYING (v20260826a): the selection holds an ARMED pending pose —
@@ -4396,8 +4673,8 @@
        and .tl-key-shape-mode mutually exclusive, so their source order is
        inert. */
     .tl-transport-btn.tl-key-listen-armed {
-      color: var(--accent-color);
-      box-shadow: inset 0 0 0 1px var(--accent-color);
+      color: var(--accent-ink);
+      box-shadow: inset 0 0 0 1px var(--accent-ink);
     }
 
     /* SHAPE KEYFRAMES (v20260731f) — the drill-down's vertex rows.
@@ -4428,7 +4705,7 @@
 
     /* Echo the A-tool selection into the panel. */
     .tl-vector-row.tl-vertex-selected .tl-track-name {
-      color: var(--accent-color);
+      color: var(--accent-ink);
       font-weight: 600;
     }
 
@@ -4449,7 +4726,7 @@
 
     /* Inert net: the structure changed under the keys, so the morph is paused. */
     .tl-track-label.tl-shape-stale .tl-track-name {
-      color: #c0392b;
+      color: var(--danger-ink);
     }
 
     /* SHOOT ON N (v20260731e) — the curve editor's per-segment stepped-playback
@@ -4471,7 +4748,7 @@
     /* Stepped (>= 2) reads accent, the same "this is doing something" cue the
        timeline uses for a selected label. */
     .tl-ce-shoot-wrap>input[type="number"].armed {
-      color: var(--accent-color);
+      color: var(--accent-ink);
       font-weight: 600;
     }
 
@@ -4546,8 +4823,8 @@
     }
 
     .tl-key-single-btn:hover {
-      background: rgba(0, 0, 0, 0.08);
-      color: var(--accent-color);
+      background: var(--tl-state-tint);
+      color: var(--accent-ink);
     }
 
     /* Sub-track label */
@@ -4610,7 +4887,7 @@
     }
 
     input.cam-readonly.armed {
-      color: var(--accent-color);
+      color: var(--accent-ink);
       font-weight: 600;
     }
 
@@ -4632,7 +4909,7 @@
     /* Armed reads at a glance, like the Auto-Key indicator: this silently takes
        over a channel, so it must never be ambiguous whether it is on. */
     .tl-holdframing-row.armed>.tl-track-name {
-      color: var(--accent-color);
+      color: var(--accent-ink);
       font-weight: 600;
     }
 
@@ -4652,7 +4929,7 @@
        the (1, 179) bound. Shown rather than swallowed — silently declining during
        playback would freeze the lens mid-move. */
     .tl-track-label.tl-track-clamped .tl-track-name {
-      color: #c0392b;      /* the .tl-shape-stale red — one "this is wrong" colour in the timeline */
+      color: var(--danger-ink);      /* the .tl-shape-stale red — one "this is wrong" colour in the timeline */
       opacity: 0.9;
     }
 
@@ -4694,7 +4971,7 @@
       height: 12px;
       margin-top: -6px;
       border-radius: 2px;
-      background: rgba(0, 0, 0, 0.14);
+      background: var(--tl-bar);
       cursor: grab;
       z-index: 1;
       box-sizing: border-box;
@@ -4705,12 +4982,12 @@
     }
 
     .tl-layer-bar:hover {
-      background: rgba(0, 0, 0, 0.22);
+      background: var(--tl-bar-hover);
     }
 
     /* An untrimmed layer reads as a quiet full-width track, not as an object */
     .tl-layer-bar.full {
-      background: rgba(0, 0, 0, 0.07);
+      background: var(--tl-bar-full);
     }
 
     .tl-layer-bar.selected {
@@ -4721,14 +4998,14 @@
        the two never read the same. */
     .tl-layer-bar.eye-hidden {
       background-image: repeating-linear-gradient(45deg,
-          rgba(0, 0, 0, 0.16) 0 3px, transparent 3px 6px);
+          var(--tl-bar-stripe) 0 3px, transparent 3px 6px);
     }
 
     /* Trimming a segment past its own other edge will DELETE it on release
        (v20260729c) — say so while the pointer is still down. */
     .tl-layer-bar.collapsing {
       background: repeating-linear-gradient(45deg,
-          rgba(200, 40, 40, 0.55) 0 3px, rgba(200, 40, 40, 0.2) 3px 6px);
+          var(--tl-clamp-stripe-a) 0 3px, var(--tl-clamp-stripe-b) 3px 6px);
     }
 
     .tl-layer-handle {
@@ -4748,7 +5025,7 @@
     }
 
     .tl-layer-bar:hover .tl-layer-handle {
-      background: rgba(0, 0, 0, 0.25);
+      background: var(--tl-bar-handle);
       border-radius: 2px;
     }
 
@@ -4774,11 +5051,11 @@
     }
 
     .tl-kf-line.solid::after {
-      background-color: #999;
+      background-color: var(--tl-ink);
     }
 
     .tl-kf-line.dotted::after {
-      background-image: linear-gradient(to right, #999 50%, transparent 50%);
+      background-image: linear-gradient(to right, var(--tl-ink) 50%, transparent 50%);
       background-size: 8px 1px;
       background-repeat: repeat-x;
     }
@@ -4788,11 +5065,11 @@
     }
 
     .tl-kf-line.solid:hover::after {
-      background-color: color-mix(in srgb, #999, black 12%);
+      background-color: color-mix(in srgb, var(--tl-ink), var(--shade) 12%);
     }
 
     .tl-kf-line.dotted:hover::after {
-      background-image: linear-gradient(to right, color-mix(in srgb, #999, black 12%) 50%, transparent 50%);
+      background-image: linear-gradient(to right, color-mix(in srgb, var(--tl-ink), var(--shade) 12%) 50%, transparent 50%);
     }
 
     /* Selected state — stays accent-colored at full opacity even when mouse leaves */
@@ -4803,12 +5080,12 @@
 
     .tl-kf-line.selected.solid::after,
     .tl-kf-line.selected.solid:hover::after {
-      background-color: var(--accent-color);
+      background-color: var(--accent-ink);
     }
 
     .tl-kf-line.selected.dotted::after,
     .tl-kf-line.selected.dotted:hover::after {
-      background-image: linear-gradient(to right, var(--accent-color) 50%, transparent 50%);
+      background-image: linear-gradient(to right, var(--accent-ink) 50%, transparent 50%);
     }
 
     /* --- Keyframe Marker (SVG-based icons) --- */
@@ -4817,7 +5094,7 @@
       top: 50%;
       width: 10px;
       height: 10px;
-      color: #999;
+      color: var(--tl-ink);
       transform: translate(-50%, -50%);
       cursor: grab;
       z-index: 1;
@@ -4832,23 +5109,23 @@
     }
 
     .tl-keyframe:hover {
-      color: #777;
+      color: var(--tl-ink-hover);
       transform: translate(-50%, -50%) scale(1.3);
     }
 
     .tl-keyframe.selected {
-      color: var(--accent-color);
+      color: var(--accent-ink);
     }
 
     .tl-keyframe.selected:hover {
-      color: var(--accent-color-hover);
+      color: var(--accent-ink-hover);
     }
 
     .tl-keyframe.dragging {
       cursor: grabbing;
       z-index: 10;
       transform: translate(-50%, -50%) scale(1.4);
-      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+      filter: drop-shadow(var(--shadow-drag));
       transition: none;
     }
 
@@ -4857,7 +5134,7 @@
       top: 50%;
       width: 10px;
       height: 10px;
-      color: #999;
+      color: var(--tl-ink);
       transform: translate(-50%, -50%);
       opacity: 0.25;
       pointer-events: none;
@@ -4882,7 +5159,7 @@
       top: 50%;
       width: 10px;
       height: 10px;
-      color: #999;
+      color: var(--tl-ink);
       transform: translate(-50%, -50%);
       opacity: 0.32;
       z-index: 0;
@@ -4901,7 +5178,7 @@
       top: 50%;
       height: 1px;
       margin-top: -0.5px;
-      background-color: #999;
+      background-color: var(--tl-ink);
       opacity: 0.22;
       z-index: 0;
       pointer-events: none;
@@ -4919,7 +5196,7 @@
       top: 50%;
       width: 10px;
       height: 10px;
-      color: var(--accent-color);
+      color: var(--accent-ink);
       transform: translate(-50%, -50%);
       opacity: 0.85;
       z-index: 0;
@@ -4939,7 +5216,7 @@
       z-index: 5;
       /* above keyframes (1), below playhead (10) */
       background: color-mix(in srgb, var(--accent-color) 10%, transparent);
-      border: 1px solid var(--accent-color);
+      border: 1px solid var(--accent-ink);
       pointer-events: none;
     }
 
@@ -4949,7 +5226,7 @@
       top: 0;
       bottom: 0;
       width: 1px;
-      background: var(--accent-color);
+      background: var(--accent-ink);
       pointer-events: none;
       z-index: 10;
     }
@@ -4966,7 +5243,7 @@
       top: 0;
       bottom: 0;
       width: 1px;
-      background: var(--accent-color);
+      background: var(--accent-ink);
       pointer-events: none;
       z-index: 10;
     }
@@ -4980,12 +5257,12 @@
       height: 0;
       border-left: 4px solid transparent;
       border-right: 4px solid transparent;
-      border-top: 5px solid var(--accent-color);
+      border-top: 5px solid var(--accent-ink);
     }
 
     .tl-key-single-btn.has-keyframe svg {
-      fill: var(--accent-color);
-      stroke: var(--accent-color);
+      fill: var(--accent-ink);
+      stroke: var(--accent-ink);
     }
 
     /* ANIMATED-FIELD INDICATOR (v20260906f) — see PanelAnim in the script.
@@ -4999,10 +5276,26 @@
     }
 
     input.anim-keyed:not(:disabled) {
-      color: var(--accent-color);
+      color: var(--accent-ink);
       font-weight: 600;
     }
   </style>
+  <!-- THEME BOOTSTRAP (v20260908b). The one script in <head>, and the only code
+       that may run before the app script: it stamps data-theme on <html> from the
+       stored preference BEFORE the ~4,600-line body parses, so a dark user never
+       sees a light first paint. Dependency-free by necessity — nothing else exists
+       yet. Mirrors resolveTheme()/applyTheme() in the app script; keep the three
+       in step. -->
+  <script>
+    (function () {
+      try {
+        var s = JSON.parse(localStorage.getItem('dim-settings') || '{}');
+        var t = (s.theme === 'light' || s.theme === 'dark') ? s.theme : 'system';
+        if (t === 'system') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+    })();
+  </script>
 </head>
 
 <body>
@@ -5039,31 +5332,31 @@
       <g id="renderCacheGroup" style="display: none; pointer-events: none;"></g>
       <g id="pathHighlightGroup"></g>
       <g id="selectionGizmoGroup"></g>
-      <path id="penPreviewPath" fill="none" stroke="var(--accent-color)" stroke-opacity="0.4" stroke-width="1.5"
+      <path id="penPreviewPath" fill="none" stroke="var(--accent-ink)" stroke-opacity="0.4" stroke-width="1.5"
         vector-effect="non-scaling-stroke" style="pointer-events: none; display: none;" />
       <g id="penTangentPreviewGroup" style="pointer-events: none; display: none;">
-        <path id="penTangentHandleLine" fill="none" stroke="var(--accent-color)" stroke-width="1"
+        <path id="penTangentHandleLine" fill="none" stroke="var(--accent-ink)" stroke-width="1"
           vector-effect="non-scaling-stroke" />
-        <circle id="penTangentDotFwd" r="5" fill="white" stroke="var(--accent-color)" stroke-width="1"
+        <circle id="penTangentDotFwd" r="5" fill="var(--handle-fill)" stroke="var(--accent-ink)" stroke-width="1"
           vector-effect="non-scaling-stroke" />
-        <circle id="penTangentDotBck" r="5" fill="white" stroke="var(--accent-color)" stroke-width="1"
+        <circle id="penTangentDotBck" r="5" fill="var(--handle-fill)" stroke="var(--accent-ink)" stroke-width="1"
           vector-effect="non-scaling-stroke" />
       </g>
       <!-- Add Point hover preview (v20260725r): highlights the hovered SEGMENT
            and marks the exact point the click will insert — the v20260725q
            principle (the cursor shows the MODE, the target shows the hit). -->
       <g id="penAddPreviewGroup" style="pointer-events: none; display: none;">
-        <path id="penAddSegHighlight" fill="none" stroke="var(--accent-color)" stroke-width="3"
+        <path id="penAddSegHighlight" fill="none" stroke="var(--accent-ink)" stroke-width="3"
           stroke-opacity="0.45" stroke-linecap="round" vector-effect="non-scaling-stroke" />
-        <circle id="penAddDot" r="5" fill="var(--accent-color)" stroke="white" stroke-width="1.5"
+        <circle id="penAddDot" r="5" fill="var(--accent-ink)" stroke="var(--overlay-halo)" stroke-width="1.5"
           vector-effect="non-scaling-stroke" />
       </g>
       <g id="vertexGizmoGroup"></g>
     </g>
-    <rect id="frameGuideRect" fill="none" stroke="var(--accent-color)" stroke-width="1.5"
+    <rect id="frameGuideRect" fill="none" stroke="var(--accent-ink)" stroke-width="1.5"
       style="display: none; pointer-events: none;" />
     <g id="axisIndicatorGroup"></g>
-    <rect id="marqueeRect" fill="var(--accent-color)" fill-opacity="0.1" stroke="var(--accent-color)" stroke-width="1"
+    <rect id="marqueeRect" fill="var(--accent-color)" fill-opacity="0.1" stroke="var(--accent-ink)" stroke-width="1"
       style="display: none; pointer-events: none;" />
   </svg>
   <!-- Canvas HUD — Azimuth Bar (horizontal) -->
@@ -5387,7 +5680,9 @@
       <button class="left-tab" data-panel="dataPanel" title="Data">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <polygon points="16 7 12 3 4 3 4 17 16 17 16 7" />
-          <polygon fill="#fff" stroke="currentColor" points="12 7 16 7 12 3 12 7" />
+          <!-- the folded corner is a KNOCKOUT of the page outline: it must be the
+               tab bar's ground, not white (v20260908h - white showed in dark) -->
+          <polygon fill="var(--bg-panel)" stroke="currentColor" points="12 7 16 7 12 3 12 7" />
         </svg>
       </button>
       <button class="left-tab" data-panel="cameraSettings" title="Camera Settings">
@@ -6000,11 +6295,22 @@
           </div>
         </div>
 
+        <div class="xyz-row">
+          <label for="themeSelect">Theme</label>
+          <div class="xyz-inputs" style="max-width: 80px; margin-left: auto;">
+            <select id="themeSelect">
+              <option value="system" selected>System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
+        </div>
+
         <div class="style-row">
           <label class="ui-checkbox-label">Accent Color</label>
-          <input type="text" id="accentColorHexInput" class="color-hex-input" maxlength="6" placeholder="2645D2"
+          <input type="text" id="accentColorHexInput" class="color-hex-input" maxlength="6" placeholder="919191"
             spellcheck="false" style="margin-left: auto;" />
-          <input type="color" id="accentColorInput" value="#2645d2" class="color-fill" />
+          <input type="color" id="accentColorInput" value="#919191" class="color-fill" />
         </div>
 
         <div class="xyz-row">
@@ -7165,7 +7471,7 @@
     <div class="qs-group">
       <span class="qs-label">Fill</span>
       <input type="checkbox" id="qsFillEnabled" class="ui-checkbox" />
-      <input type="text" id="qsFillHex" class="color-hex-input" maxlength="6" placeholder="000000" spellcheck="false" />
+      <input type="text" id="qsFillHex" class="color-hex-input" maxlength="6" placeholder="505050" spellcheck="false" />
       <input type="color" id="qsFillColor" class="color-fill" />
     </div>
     <div class="qs-divider"></div>
@@ -9232,7 +9538,7 @@
              drawn over the scene like #frameGuideRect. non-scaling-stroke keeps
              the 1.5 in SCREEN px at any window size — the main rect gets that by
              being drawn in screen space. Sized by SubView._syncFrameGuide(). -->
-        <rect id="subFrameGuideRect" fill="none" stroke="var(--accent-color)" stroke-width="1.5"
+        <rect id="subFrameGuideRect" fill="none" stroke="var(--accent-ink)" stroke-width="1.5"
           vector-effect="non-scaling-stroke" style="display: none; pointer-events: none;" />
         <!-- Axis indicator (v20260812zc): an AxisIndicator instance renders
              here, bottom-left, updated per refresh with the SUB camera's view
@@ -9555,12 +9861,12 @@
 
             <!-- Dynamic elements -->
             <g id="tlCurvePolygon"></g>
-            <path id="tlCurveEffectivePath" d="" fill="none" stroke="var(--accent-color)" stroke-width="2" opacity="0.5"
+            <path id="tlCurveEffectivePath" d="" fill="none" stroke="var(--accent-ink)" stroke-width="2" opacity="0.5"
               style="display:none;" />
-            <path id="tlCurvePath" d="" fill="none" stroke="var(--accent-color)" stroke-width="2" />
+            <path id="tlCurvePath" d="" fill="none" stroke="var(--accent-ink)" stroke-width="2" />
             <g id="tlCurveHandles"></g>
             <!-- Seek line (playback position indicator) -->
-            <line id="tlCurveSeekLine" x1="50" y1="0" x2="50" y2="500" stroke="var(--accent-color)" stroke-width="1.5"
+            <line id="tlCurveSeekLine" x1="50" y1="0" x2="50" y2="500" stroke="var(--accent-ink)" stroke-width="1.5"
               opacity="0.7" style="display:none;" />
           </svg>
         </div>
@@ -17463,7 +17769,7 @@
               'display:inline-block; width:7px; height:16px; margin:0 1px; cursor:pointer; border-radius:1px;' +
               'background:' + (sel ? 'var(--accent-color)'
                 : has ? 'color-mix(in srgb, var(--accent-color) 35%, transparent)'
-                  : 'rgba(0,0,0,0.07)') + ';';
+                  : 'var(--kern-gap-tint)') + ';';
             gap.title = 'Kern gap ' + i + (kw[i] ? ' (' + kw[i] + ')' : '');
             strip.appendChild(gap);
           }
@@ -18108,7 +18414,12 @@
         const o = subject || selectedObject;
         if (!o) return createIdentityMatrix();
         const RPivot = matrixFromEuler(o.pivotRotation || [0, 0, 0]);
-        return matrixMultiply(o.rotationMatrix, RPivot);
+        const own = matrixMultiply(o.rotationMatrix, RPivot);
+        // v20260908e: a nested child's local axes in WORLD compose the parent
+        // chain's rotation - the drawn axis, the translate-local direction and
+        // the nudge now agree with the true local frame. Top-level: unchanged.
+        const pR = parentWorldRotation(o);
+        return pR ? matrixMultiply(pR, own) : own;
       }
       return createIdentityMatrix();
     };
@@ -18373,7 +18684,7 @@
     // Default Style (Persisted)
     let currentStyle = {
       fill: 'none',
-      stroke: 'rgba(255, 165, 0, 0.8)', // Orange
+      stroke: '#2645d2', // the former accent blue (owner, v20260908i; was the orange rgba(255,165,0,.8))
       'stroke-width': 1,
       'stroke-linecap': 'round',
       'stroke-linejoin': 'round',
@@ -18387,6 +18698,13 @@
     let selectedVertexInfo = null;
     let dragStartVertexPosition = null;
     let dragStartWorldPosition = null;
+    // v20260908e: the drag's WORLD reference point - depth for pixel->world scaling,
+    // the drag plane, the snap candidate. dragStartWorldPosition stays the WRITE
+    // baseline (an object's position lives in its parent's frame); for a nested
+    // child the two differ by the parent's transform, and using the baseline as
+    // the reference put the plane / depth / snap at the parent-space point.
+    let dragStartWorldAnchor = null;
+    const _dsRefW = () => dragStartWorldAnchor || dragStartWorldPosition;
     let dragStartPlaneHit = null;
     let gizmoScreenRotationAngle = 0; // Accumulated screen rotation in degrees for visual feedback
 
@@ -40207,6 +40525,26 @@
       const sh = obj.pivotShift || [0, 0, 0];
       return [obj.position[0] + sh[0], obj.position[1] + sh[1], obj.position[2] + sh[2]];
     };
+    // The anchor in WORLD space (v20260908e). getPivotAnchor is PARENT-space
+    // (position lives in the parent's frame); the selection gizmo projected it
+    // through the camera as if it were world, so a child of any moved group -
+    // every app-made group sits at its members' centroid since v20260709c - drew
+    // its gizmo displaced by the parent's transform (owner report with grouped
+    // cuboids). The drags were already right (_worldDeltaToParent); only the
+    // picture and the pick position were off. A top-level object is unchanged.
+    const getPivotAnchorWorld = (obj) => {
+      const a = getPivotAnchor(obj);
+      if (!obj || !obj.parent || !obj.parent.getWorldMatrix) return a;
+      const w = transformVertex(a, obj.parent.getWorldMatrix());
+      return w ? [w[0], w[1], w[2]] : a;
+    };
+    // The parent chain's world ROTATION (normalised columns; identity when the
+    // object is top-level) - what "Local" must compose with for a nested child.
+    const parentWorldRotation = (obj) => {
+      if (!obj || !obj.parent || !obj.parent.getWorldMatrix) return null;
+      const d = decomposeMatrix(obj.parent.getWorldMatrix());
+      return d && d.rotationMatrix ? d.rotationMatrix : null;
+    };
 
     // --- MOTION PATH (v20260719f) ------------------------------------------
     // Transform constraint (plan: _plans/PLAN-motion-path.md): the object's
@@ -55962,9 +56300,9 @@
 
     const createAxisGizmo = () => {
       const axes = [
-        { v: [5, 0, 0], c: 'black', t: 'x' },
-        { v: [0, 5, 0], c: 'black', t: 'y' },
-        { v: [0, 0, 5], c: 'black', t: 'z' },
+        { v: [5, 0, 0], c: 'var(--overlay-ink)', t: 'x' },
+        { v: [0, 5, 0], c: 'var(--overlay-ink)', t: 'y' },
+        { v: [0, 0, 5], c: 'var(--overlay-ink)', t: 'z' },
       ];
 
       axes.forEach((axis) => {
@@ -56015,10 +56353,13 @@
       });
     };
 
-    const createSelectionGizmo = () => {
-      // Read gizmo colors from CSS custom properties
+    // THE ONE COLOUR CACHE (v20260908a). The selection gizmo reads its 16 --gizmo-*
+    // tokens once at build time and keeps them in selectionGizmoElements.colors
+    // (read per frame at four sites). A theme switch must call this again and
+    // re-stamp the built elements — Phase 2's applyTheme() is the caller.
+    const _readGizmoColors = () => {
       const rootStyle = getComputedStyle(document.documentElement);
-      const gizmoColors = {
+      return {
         x: rootStyle.getPropertyValue('--gizmo-axis-x').trim() || '#f00',
         y: rootStyle.getPropertyValue('--gizmo-axis-y').trim() || '#0f0',
         z: rootStyle.getPropertyValue('--gizmo-axis-z').trim() || '#00f',
@@ -56041,6 +56382,10 @@
         labelCircleSize: parseFloat(rootStyle.getPropertyValue('--gizmo-label-circle-size').trim()) || 12,
         labelTextSize: parseFloat(rootStyle.getPropertyValue('--gizmo-label-text-size').trim()) || 5,
       };
+    };
+
+    const createSelectionGizmo = () => {
+      const gizmoColors = _readGizmoColors();
       selectionGizmoElements.colors = gizmoColors;
 
       const axes = [
@@ -56108,7 +56453,7 @@
         else if (axis.t === 'z') d = `M ${-ts} ${-ts} L ${ts} ${-ts} L ${-ts} ${ts} L ${ts} ${ts}`;
 
         path.setAttribute('d', d);
-        path.setAttribute('stroke', 'white');
+        path.setAttribute('stroke', 'var(--overlay-halo)');
         path.setAttribute('stroke-width', gizmoColors.textStrokeWidth.toString());
         path.setAttribute('fill', 'none');
         path.setAttribute('stroke-linecap', 'round');
@@ -56142,7 +56487,7 @@
         // Scale Boxes (Rectangles)
         const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         box.setAttribute('fill', axis.c);
-        box.setAttribute('stroke', 'white');
+        box.setAttribute('stroke', 'var(--overlay-halo)');
         box.setAttribute('stroke-width', '1');
         box.setAttribute('data-axis', `scale-${axis.t}`); // e.g., "scale-x"
         box.style.cursor = 'pointer';
@@ -56430,12 +56775,13 @@
         // 'pivot' maps to: (pos + pivotShift) + R*S*(pivot - pivot) = pos + pivotShift.
         // setObjectPivot writes its compensation into pivotShift, so the anchor
         // (pos + pivotShift) IS the pivot's world position.
-        gizmoPosition = getPivotAnchor(obj);
+        gizmoPosition = getPivotAnchorWorld(obj);   // v20260908e: world, not parent-space
         R = gizmoBasis(obj);
       } else {
         // Always place gizmo at the PRIMARY (last selected) object's anchor
-        // (position + pivotShift — the visual rotation/scale center)
-        gizmoPosition = getPivotAnchor(obj);
+        // (position + pivotShift — the visual rotation/scale center), in WORLD
+        // space (v20260908e - see getPivotAnchorWorld).
+        gizmoPosition = getPivotAnchorWorld(obj);
         R = gizmoBasis(obj);
       }
       const T = createTranslationMatrix(gizmoPosition[0], gizmoPosition[1], gizmoPosition[2]);
@@ -56534,7 +56880,7 @@
       // Initialize uniform scale circle if not present
       if (!selectionGizmoElements.uniformCircle) {
         const circle = document.createElementNS(svgNS, 'circle');
-        circle.setAttribute('fill', getComputedStyle(document.documentElement).getPropertyValue('--gizmo-center-circle').trim() || '#c8c8c8');
+        circle.setAttribute('fill', 'var(--gizmo-centre)'); // overwritten per frame by the branch that shows it
         circle.setAttribute('stroke', 'none');
         circle.style.cursor = 'pointer';
         selectionGizmoGroup.appendChild(circle);
@@ -56545,9 +56891,9 @@
       // obj.position, the pivot anchor's zero-shift home (see getPivotAnchor)
       if (!selectionGizmoElements.positionDot) {
         const dot = document.createElementNS(svgNS, 'circle');
-        dot.setAttribute('fill', '#c9c9c9');
+        dot.setAttribute('fill', 'var(--gizmo-pos-dot)');
         dot.setAttribute('fill-opacity', '0.85');
-        dot.setAttribute('stroke', '#999999');
+        dot.setAttribute('stroke', 'var(--gizmo-pos-dot-stroke)');
         dot.setAttribute('stroke-width', '1');
         dot.style.pointerEvents = 'none'; // display only — never captures pivot drags
         selectionGizmoGroup.appendChild(dot);
@@ -56915,7 +57261,7 @@
         uniformCircle.setAttribute('cy', originY);
         uniformCircle.setAttribute('r', 10 / mainScale);
         const isCenterHighlighted = highlightedAxis === 'scale-uniform';
-        uniformCircle.setAttribute('fill', isCenterHighlighted ? '#444' : '#000');
+        uniformCircle.setAttribute('fill', isCenterHighlighted ? 'var(--gizmo-centre-hot)' : 'var(--gizmo-centre)');
         uniformCircle.setAttribute('data-axis', 'scale-uniform');
         // NO UNIFORM HANDLE UNDER SHEAR (v20260812i, owner's call): "uniform shear" names
         // nothing — the three components are independent slopes, and a single centre drag
@@ -56930,7 +57276,7 @@
         uniformCircle.setAttribute('cy', originY);
         uniformCircle.setAttribute('r', 10 / mainScale);
         const isCenterHighlighted = highlightedAxis === 'pivot-free';
-        uniformCircle.setAttribute('fill', isCenterHighlighted ? '#555' : '#222');
+        uniformCircle.setAttribute('fill', isCenterHighlighted ? 'var(--gizmo-free-centre-hot)' : 'var(--gizmo-free-centre)');
         uniformCircle.setAttribute('data-axis', 'pivot-free');
         uniformCircle.style.display = 'block';
         topElements.push({ el: uniformCircle, z: tOrigin[2] + 0.001 });
@@ -56955,7 +57301,7 @@
         uniformCircle.setAttribute('cy', originY);
         uniformCircle.setAttribute('r', 10 / mainScale);
         const isCenterHighlighted = highlightedAxis === 'move-free';
-        uniformCircle.setAttribute('fill', isCenterHighlighted ? '#555' : '#222');
+        uniformCircle.setAttribute('fill', isCenterHighlighted ? 'var(--gizmo-free-centre-hot)' : 'var(--gizmo-free-centre)');
         uniformCircle.setAttribute('data-axis', 'move-free');
         uniformCircle.style.display = 'block';
         topElements.push({ el: uniformCircle, z: tOrigin[2] + 0.001 });
@@ -57218,7 +57564,7 @@
           }
 
           let size = 10 / mainScale;
-          let fillColor = 'white';
+          let fillColor = 'var(--handle-fill)';
           let strokeColor = accentColor;
           let strokeWidth = 1 / mainScale;
 
@@ -63004,8 +63350,8 @@
       const hasFill = fillColor && fillColor !== 'none';
       if (document.activeElement !== fillEnabledInput) fillEnabledInput.checked = hasFill;
 
-      const savedFill = selectedObject ? selectedObject._savedFill : '#000000';
-      const fillColorToShow = (hasFill ? fillColor : savedFill) || '#000000';
+      const savedFill = selectedObject ? selectedObject._savedFill : '#505050';
+      const fillColorToShow = (hasFill ? fillColor : savedFill) || '#505050'; // default fill #505050 (owner, v20260908i)
       if (document.activeElement !== fillColorInput) fillColorInput.value = rgbToHex(fillColorToShow);
       if (document.activeElement !== fillColorHexInput) fillColorHexInput.value = rgbToHex(fillColorToShow).slice(1).toUpperCase();
       fillColorInput.disabled = !hasFill;
@@ -64771,8 +65117,8 @@
       const fillColor = style.fill;
       const hasFill = fillColor && fillColor !== 'none';
       if (document.activeElement !== qsFillEnabled) qsFillEnabled.checked = hasFill;
-      const savedFill = obj ? obj._savedFill : '#000000';
-      const fillToShow = (hasFill ? fillColor : savedFill) || '#000000';
+      const savedFill = obj ? obj._savedFill : '#505050';
+      const fillToShow = (hasFill ? fillColor : savedFill) || '#505050'; // default fill #505050 (owner, v20260908i)
       const fillHex = rgbToHex(fillToShow);
       if (document.activeElement !== qsFillColor) qsFillColor.value = fillHex;
       if (document.activeElement !== qsFillHex) qsFillHex.value = fillHex.slice(1).toUpperCase();
@@ -72092,7 +72438,7 @@
       }
 
       if (showGuides) {
-        const _accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#2645d2';
+        const _accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-ink').trim() || '#919191';
         // Cache highlight color — only recompute when accent changes
         if (_accentColor !== brightenColor._lastInput) {
           brightenColor._lastInput = _accentColor;
@@ -72376,7 +72722,7 @@
                   };
                   // White capsule under the accent one — the dot's white ring
                   // affordance, kept: the handle stays visible on dark art.
-                  mkBar('foldCreaseGuideAnchor_' + li + '_bg', 13, '#ffffff').style.pointerEvents = 'none';
+                  mkBar('foldCreaseGuideAnchor_' + li + '_bg', 13, 'var(--overlay-halo)').style.pointerEvents = 'none';
                   const bar = mkBar('foldCreaseGuideAnchor_' + li, 10, _highlightColor); // 10 = the old dot's DIAMETER
                   bar.style.pointerEvents = 'none'; // the hit twin below owns the grab
                   // Invisible hit twin (the extent ticks' pattern), wider than
@@ -73679,10 +74025,13 @@
         // The one mode whose offset is applied in LOCAL space, post-multiplied —
         // T(anchor) × R × T(0,0,offset), not T(anchor + n·offset) × R. Same plane
         // either way; the operand ORDER is preserved so the product is bit-identical.
-        const _wpAnchor = getPivotAnchor(selectedObject);
+        // v20260908e: WORLD anchor and world orientation for a nested child (a
+        // top-level object takes the exact old operands).
+        const _wpAnchor = getPivotAnchorWorld(selectedObject);
+        const _wpR = parentWorldRotation(selectedObject);
         const T = createTranslationMatrix(_wpAnchor[0], _wpAnchor[1], _wpAnchor[2]);
         const T_offset = createTranslationMatrix(0, 0, offset);
-        let modelMatrix = matrixMultiply(T, selectedObject.rotationMatrix);
+        let modelMatrix = matrixMultiply(T, _wpR ? matrixMultiply(_wpR, selectedObject.rotationMatrix) : selectedObject.rotationMatrix);
         modelMatrix = matrixMultiply(modelMatrix, T_offset);
         return { modelMat: modelMatrix, grid: 'xy' };
       }
@@ -74970,6 +75319,7 @@
 
         // 1. Gizmo Interaction
         let handledByGizmo = false;
+        dragStartWorldAnchor = null;   // v20260908e: set per drag start below
         if (clickedGizmoAxis && selectedObject) {
           handledByGizmo = true;
           // Explicit Tool Check for Gizmos to prevent cross-tool confusion unless we want shared behaviors?
@@ -75005,7 +75355,7 @@
                 _extrudeDrag = { obj: selectedObject, settings: s, axis: _ax, sign: sameAxis ? cur.sign : 1, startSigned: sameAxis ? (s.depth || 0) * cur.sign : 0, start: _extrudeSnapshot(s) };
                 dragMode = 'extrude-axis';
                 lockedAxis = _ax;
-                dragStartWorldPosition = selectedObject.position;
+                dragStartWorldPosition = selectedObject.position; dragStartWorldAnchor = getPivotAnchorWorld(selectedObject);   // v20260908e
               }
             } else handledByGizmo = false;
           } else if (clickedGizmoAxis.startsWith('scale-') && currentTool === 'shear') {
@@ -75026,7 +75376,7 @@
               dragMode = 'shear';
               shearComponent = _comp;
               lockedAxis = _ax;
-              dragStartWorldPosition = selectedObject.position;
+              dragStartWorldPosition = selectedObject.position; dragStartWorldAnchor = getPivotAnchorWorld(selectedObject);   // v20260908e
               (selectedObjects.length ? selectedObjects : [selectedObject])
                 .forEach(obj => { obj.dragStartShear = [...(obj.shear || [0, 0, 0, 0, 0, 0])]; });
             }
@@ -75044,7 +75394,7 @@
               else if (clickedGizmoAxis.startsWith('scale-planar-')) lockedAxis = clickedGizmoAxis.split('-')[2];
               else lockedAxis = clickedGizmoAxis.split('-')[1];
 
-              dragStartWorldPosition = selectedObject.position;
+              dragStartWorldPosition = selectedObject.position; dragStartWorldAnchor = getPivotAnchorWorld(selectedObject);   // v20260908e
               // Baseline scale for the primary AND the rest (group scale reads
               // each object's own start scale). dragStartPos is set for all in
               // the shared block below.
@@ -75057,7 +75407,7 @@
               dragMode = 'translate-pivot-free';
               lockedAxis = 'pivot-free';
               // Pivot anchor = position + pivotShift (setObjectPivot writes compensation into pivotShift)
-              dragStartWorldPosition = getPivotAnchor(selectedObject);
+              dragStartWorldPosition = getPivotAnchor(selectedObject); dragStartWorldAnchor = getPivotAnchorWorld(selectedObject);   // v20260908e: world reference
               selectedObject.dragStartPos = [...selectedObject.position];
               selectedObject._dragStartPivot = [...(selectedObject.pivot || [0, 0, 0])];
               selectedObject._dragStartPivotShift = [...(selectedObject.pivotShift || [0, 0, 0])];
@@ -75067,7 +75417,7 @@
             if (currentTool === 'select' || (currentTool === 'directSelect' && !selectedVertexInfo)) {
               dragMode = 'translate-free';
               lockedAxis = 'move-free';
-              dragStartWorldPosition = selectedObject.position;
+              dragStartWorldPosition = selectedObject.position; dragStartWorldAnchor = getPivotAnchorWorld(selectedObject);   // v20260908e
               selectedObject.dragStartPos = [...selectedObject.position];
             } else handledByGizmo = false;
           } else if (clickedGizmoAxis.startsWith('planar-')) {
@@ -75076,14 +75426,14 @@
               dragMode = 'translate-pivot-planar';
               lockedAxis = clickedGizmoAxis.split('-')[1]; // 'xy', 'yz', 'xz'
               // Pivot anchor = position + pivotShift (setObjectPivot writes compensation into pivotShift)
-              dragStartWorldPosition = getPivotAnchor(selectedObject);
+              dragStartWorldPosition = getPivotAnchor(selectedObject); dragStartWorldAnchor = getPivotAnchorWorld(selectedObject);   // v20260908e: world reference
               selectedObject.dragStartPos = [...selectedObject.position];
               selectedObject._dragStartPivot = [...(selectedObject.pivot || [0, 0, 0])];
               selectedObject._dragStartPivotShift = [...(selectedObject.pivotShift || [0, 0, 0])];
             } else if (currentTool === 'select' || (currentTool === 'directSelect' && !selectedVertexInfo)) {
               dragMode = 'translate-planar';
               lockedAxis = clickedGizmoAxis.split('-')[1]; // 'xy', 'yz', 'xz'
-              dragStartWorldPosition = selectedObject.position;
+              dragStartWorldPosition = selectedObject.position; dragStartWorldAnchor = getPivotAnchorWorld(selectedObject);   // v20260908e
             } else handledByGizmo = false;
           } else {
             // Translate Gizmos (default fallback for axes)
@@ -75091,14 +75441,14 @@
               dragMode = 'translate-pivot';
               lockedAxis = clickedGizmoAxis;
               // Pivot anchor = position + pivotShift (setObjectPivot writes compensation into pivotShift)
-              dragStartWorldPosition = getPivotAnchor(selectedObject);
+              dragStartWorldPosition = getPivotAnchor(selectedObject); dragStartWorldAnchor = getPivotAnchorWorld(selectedObject);   // v20260908e: world reference
               selectedObject.dragStartPos = [...selectedObject.position];
               selectedObject._dragStartPivot = [...(selectedObject.pivot || [0, 0, 0])];
               selectedObject._dragStartPivotShift = [...(selectedObject.pivotShift || [0, 0, 0])];
             } else if (currentTool === 'select' || (currentTool === 'directSelect' && !selectedVertexInfo)) {
               dragMode = 'translate-local';
               lockedAxis = clickedGizmoAxis;
-              dragStartWorldPosition = selectedObject.position;
+              dragStartWorldPosition = selectedObject.position; dragStartWorldAnchor = getPivotAnchorWorld(selectedObject);   // v20260908e
             } else handledByGizmo = false;
           }
 
@@ -75136,7 +75486,7 @@
               lockedAxis = clickedGizmoAxis;
             }
             dragStartVertexPosition = [...selectedVertexInfo.object.localVertices[selectedVertexInfo.vertexIndex]];
-            dragStartWorldPosition = selectedVertexInfo.worldPosition;
+            dragStartWorldPosition = selectedVertexInfo.worldPosition; dragStartWorldAnchor = selectedVertexInfo.worldPosition;
             if (selectedVertices.length > 0) {
               selectedVertices.forEach(v => {
                 v.dragStartLocalPosition = [...v.object.localVertices[v.vertexIndex]];
@@ -75181,7 +75531,7 @@
             else { lockedAxis = 'none'; }
 
             dragStartVertexPosition = [...selectedVertexInfo.object.localVertices[selectedVertexInfo.vertexIndex]];
-            dragStartWorldPosition = selectedVertexInfo.worldPosition;
+            dragStartWorldPosition = selectedVertexInfo.worldPosition; dragStartWorldAnchor = selectedVertexInfo.worldPosition;
 
             if (selectedVertices.length > 0) {
               selectedVertices.forEach(v => {
@@ -75250,7 +75600,7 @@
             // Rotate -> Rotate Screen
             // Scale -> None (require gizmo)
 
-            dragStartWorldPosition = selectedObject ? selectedObject.position : [0, 0, 0];
+            dragStartWorldPosition = selectedObject ? selectedObject.position : [0, 0, 0]; dragStartWorldAnchor = selectedObject ? getPivotAnchorWorld(selectedObject) : null;   // v20260908e
             if (selectedObjects.length > 0) selectedObjects.forEach(o => o.dragStartPos = [...o.position]);
 
             if (currentTool === 'rotate') {
@@ -75527,12 +75877,12 @@
               const dotBck = document.getElementById('penTangentDotBck');
               if (dotFwd) {
                 dotFwd.setAttribute('r', nearestHandle === 'fwd' ? '8' : '5');
-                dotFwd.setAttribute('fill', nearestHandle === 'fwd' ? 'rgb(180, 210, 255)' : 'white');
+                dotFwd.setAttribute('fill', nearestHandle === 'fwd' ? 'var(--handle-hot)' : 'var(--handle-fill)');
                 dotFwd.setAttribute('stroke-width', nearestHandle === 'fwd' ? '2' : '1');
               }
               if (dotBck) {
                 dotBck.setAttribute('r', nearestHandle === 'bck' ? '8' : '5');
-                dotBck.setAttribute('fill', nearestHandle === 'bck' ? 'rgb(180, 210, 255)' : 'white');
+                dotBck.setAttribute('fill', nearestHandle === 'bck' ? 'var(--handle-hot)' : 'var(--handle-fill)');
                 dotBck.setAttribute('stroke-width', nearestHandle === 'bck' ? '2' : '1');
               }
               svg.style.cursor = 'grab';
@@ -75549,8 +75899,8 @@
             _penHoveredHandle = null;
             const dotFwd = document.getElementById('penTangentDotFwd');
             const dotBck = document.getElementById('penTangentDotBck');
-            if (dotFwd) { dotFwd.setAttribute('r', '5'); dotFwd.setAttribute('fill', 'white'); dotFwd.setAttribute('stroke-width', '1'); }
-            if (dotBck) { dotBck.setAttribute('r', '5'); dotBck.setAttribute('fill', 'white'); dotBck.setAttribute('stroke-width', '1'); }
+            if (dotFwd) { dotFwd.setAttribute('r', '5'); dotFwd.setAttribute('fill', 'var(--handle-fill)'); dotFwd.setAttribute('stroke-width', '1'); }
+            if (dotBck) { dotBck.setAttribute('r', '5'); dotBck.setAttribute('fill', 'var(--handle-fill)'); dotBck.setAttribute('stroke-width', '1'); }
           }
 
           const vtxHit = findPenHoveredVertex(event.clientX, event.clientY);
@@ -75582,8 +75932,8 @@
           _penHoveredHandle = null;
           const dotFwd = document.getElementById('penTangentDotFwd');
           const dotBck = document.getElementById('penTangentDotBck');
-          if (dotFwd) { dotFwd.setAttribute('r', '5'); dotFwd.setAttribute('fill', 'white'); dotFwd.setAttribute('stroke-width', '1'); }
-          if (dotBck) { dotBck.setAttribute('r', '5'); dotBck.setAttribute('fill', 'white'); dotBck.setAttribute('stroke-width', '1'); }
+          if (dotFwd) { dotFwd.setAttribute('r', '5'); dotFwd.setAttribute('fill', 'var(--handle-fill)'); dotFwd.setAttribute('stroke-width', '1'); }
+          if (dotBck) { dotBck.setAttribute('r', '5'); dotBck.setAttribute('fill', 'var(--handle-fill)'); dotBck.setAttribute('stroke-width', '1'); }
           applyToolCursor();
         }
         if (_penHoveredVertexIdx >= 0) {
@@ -75771,7 +76121,7 @@
                 dotFwd.setAttribute('cx', fx); dotFwd.setAttribute('cy', fy); dotFwd.style.display = '';
                 // Highlight the active handle
                 dotFwd.setAttribute('r', _penDraggingHandle === 'fwd' ? '8' : '5');
-                dotFwd.setAttribute('fill', _penDraggingHandle === 'fwd' ? 'rgb(180, 210, 255)' : 'white');
+                dotFwd.setAttribute('fill', _penDraggingHandle === 'fwd' ? 'var(--handle-hot)' : 'var(--handle-fill)');
               }
             }
             if (tB) {
@@ -75781,7 +76131,7 @@
               if (dotBck) {
                 dotBck.setAttribute('cx', bx); dotBck.setAttribute('cy', by); dotBck.style.display = '';
                 dotBck.setAttribute('r', _penDraggingHandle === 'bck' ? '8' : '5');
-                dotBck.setAttribute('fill', _penDraggingHandle === 'bck' ? 'rgb(180, 210, 255)' : 'white');
+                dotBck.setAttribute('fill', _penDraggingHandle === 'bck' ? 'var(--handle-hot)' : 'var(--handle-fill)');
               }
             } else {
               const dotBck = document.getElementById('penTangentDotBck');
@@ -76570,7 +76920,7 @@
         // THE POINT BEING PUSHED. Hoisted above the camera-Z branch (v20260812s) because
         // the depth axis is a property OF THIS POINT; it was already computed further
         // down as the pixel→world reference, and that read now reuses this one.
-        const subjectPosition = selectedVertexInfo ? dragStartWorldPosition : (selectedObject.dragStartPos || dragStartWorldPosition || selectedObject.position);
+        const subjectPosition = selectedVertexInfo ? dragStartWorldPosition : (dragStartWorldAnchor || selectedObject.dragStartPos || dragStartWorldPosition || selectedObject.position);   // v20260908e: world depth for a nested child
 
         // 2D MODE (v20260727c): no camera — the axis's screen direction is
         // the axis itself (VP_2D maps +x right, +y up) and pixel→world is
@@ -76634,9 +76984,9 @@
         // coordinates can't be compared through the camera projection.
         if (!subj2D && snapToPoint && _snapTargetCache) {
           const _vpM = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
-          const _candidatePos = vectorAdd(dragStartWorldPosition, totalWorldDelta);
+          const _candidatePos = vectorAdd(_dsRefW(), totalWorldDelta);
           const _snappedPos = trySnapToPoint(_candidatePos, _vpM);
-          totalWorldDelta = vectorSubtract(_snappedPos, dragStartWorldPosition);
+          totalWorldDelta = vectorSubtract(_snappedPos, _dsRefW());
         }
 
         if (selectedVertexInfo) {
@@ -76722,7 +77072,7 @@
         // mouse mapping (z stays put).
         const subj2D = isIn2DMode(selectedVertexInfo ? selectedVertexInfo.object : selectedObject);
         if (subj2D) {
-          ray = { origin: mouseToFrame2D(event.clientX, event.clientY, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] };
+          ray = { origin: mouseToFrame2D(event.clientX, event.clientY, _dsRefW()[2] + 1), direction: [0, 0, -1] };
           planeNormal = [0, 0, 1];
         }
 
@@ -76730,7 +77080,7 @@
           const denom = vectorDot(ray.direction, planeNormal);
 
           if (Math.abs(denom) > 1e-6) {
-            const t = vectorDot(vectorSubtract(dragStartWorldPosition, ray.origin), planeNormal) / denom;
+            const t = vectorDot(vectorSubtract(_dsRefW(), ray.origin), planeNormal) / denom;
 
             if (t >= 0 || projectionType !== 'perspective') {
               const hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
@@ -76741,16 +77091,16 @@
               if (!dragStartPlaneHit) {
                 const startEvent = { clientX: dragStartMousePosition.x, clientY: dragStartMousePosition.y };
                 const startRay = subj2D
-                  ? { origin: mouseToFrame2D(dragStartMousePosition.x, dragStartMousePosition.y, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] }
+                  ? { origin: mouseToFrame2D(dragStartMousePosition.x, dragStartMousePosition.y, _dsRefW()[2] + 1), direction: [0, 0, -1] }
                   : getRayFromClick(startEvent, vpMatrix);
                 if (startRay) {
                   const startDenom = vectorDot(startRay.direction, planeNormal);
                   if (Math.abs(startDenom) > 1e-6) {
-                    const startT = vectorDot(vectorSubtract(dragStartWorldPosition, startRay.origin), planeNormal) / startDenom;
+                    const startT = vectorDot(vectorSubtract(_dsRefW(), startRay.origin), planeNormal) / startDenom;
                     dragStartPlaneHit = vectorAdd(startRay.origin, vectorScale(startRay.direction, startT));
                   }
                 }
-                if (!dragStartPlaneHit) dragStartPlaneHit = dragStartWorldPosition;
+                if (!dragStartPlaneHit) dragStartPlaneHit = _dsRefW();
               }
 
               // Delta from initial plane hit to current plane hit
@@ -76767,9 +77117,9 @@
 
               // Snap to point (post-process) — 2D subjects skip (frame space)
               if (!subj2D && snapToPoint && _snapTargetCache) {
-                const _candidatePos = vectorAdd(dragStartWorldPosition, totalWorldDelta);
+                const _candidatePos = vectorAdd(_dsRefW(), totalWorldDelta);
                 const _snappedPos = trySnapToPoint(_candidatePos, vpMatrix);
-                totalWorldDelta = vectorSubtract(_snappedPos, dragStartWorldPosition);
+                totalWorldDelta = vectorSubtract(_snappedPos, _dsRefW());
               }
 
               if (selectedVertexInfo) {
@@ -76833,29 +77183,29 @@
         const projectionMatrix = activeCamera.createProjectionMatrix();
         const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
         const ray = subj2D
-          ? { origin: mouseToFrame2D(event.clientX, event.clientY, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] }
+          ? { origin: mouseToFrame2D(event.clientX, event.clientY, _dsRefW()[2] + 1), direction: [0, 0, -1] }
           : getRayFromClick(event, vpMatrix);
 
         if (ray) {
           const denom = vectorDot(ray.direction, planeNormal);
           if (Math.abs(denom) > 1e-6) {
-            const t = vectorDot(vectorSubtract(dragStartWorldPosition, ray.origin), planeNormal) / denom;
+            const t = vectorDot(vectorSubtract(_dsRefW(), ray.origin), planeNormal) / denom;
             if (t >= 0 || projectionType !== 'perspective') {
               const hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
 
               if (!dragStartPlaneHit) {
                 const startEvent = { clientX: dragStartMousePosition.x, clientY: dragStartMousePosition.y };
                 const startRay = subj2D
-                  ? { origin: mouseToFrame2D(dragStartMousePosition.x, dragStartMousePosition.y, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] }
+                  ? { origin: mouseToFrame2D(dragStartMousePosition.x, dragStartMousePosition.y, _dsRefW()[2] + 1), direction: [0, 0, -1] }
                   : getRayFromClick(startEvent, vpMatrix);
                 if (startRay) {
                   const startDenom = vectorDot(startRay.direction, planeNormal);
                   if (Math.abs(startDenom) > 1e-6) {
-                    const startT = vectorDot(vectorSubtract(dragStartWorldPosition, startRay.origin), planeNormal) / startDenom;
+                    const startT = vectorDot(vectorSubtract(_dsRefW(), startRay.origin), planeNormal) / startDenom;
                     dragStartPlaneHit = vectorAdd(startRay.origin, vectorScale(startRay.direction, startT));
                   }
                 }
-                if (!dragStartPlaneHit) dragStartPlaneHit = dragStartWorldPosition;
+                if (!dragStartPlaneHit) dragStartPlaneHit = _dsRefW();
               }
 
               let totalWorldDelta = vectorSubtract(hitPoint, dragStartPlaneHit);
@@ -76869,9 +77219,9 @@
               }
 
               if (!subj2D && snapToPoint && _snapTargetCache) {
-                const _candidatePos = vectorAdd(dragStartWorldPosition, totalWorldDelta);
+                const _candidatePos = vectorAdd(_dsRefW(), totalWorldDelta);
                 const _snappedPos = trySnapToPoint(_candidatePos, vpMatrix);
-                totalWorldDelta = vectorSubtract(_snappedPos, dragStartWorldPosition);
+                totalWorldDelta = vectorSubtract(_snappedPos, _dsRefW());
               }
 
               // Multi-object translation (v20260807p: parent-space delta)
@@ -76935,7 +77285,7 @@
           screenAxisY = GIZMO_VIEW_AXIS_SCREEN[1];
           // Same substitution as translate-local (v20260812s). The pivot anchor is the
           // point being pushed here, so it is the point the depth axis belongs to.
-          worldAxis = _frozenDepthAxisDuringDrag(dragStartWorldPosition);
+          worldAxis = _frozenDepthAxisDuringDrag(_dsRefW());
         }
         const projectedAxisLength = Math.sqrt(screenAxisX * screenAxisX + screenAxisY * screenAxisY);
         if (projectedAxisLength < 0.001) return;
@@ -76944,7 +77294,7 @@
         const totalMouseDeltaY = event.clientY - dragStartMousePosition.y;
         const totalDotProduct = (totalMouseDeltaX * screenAxisX + totalMouseDeltaY * (-screenAxisY)) / projectedAxisLength;
 
-        const distance = vectorLength(vectorSubtract(dragStartWorldPosition, activeCamera.position));
+        const distance = vectorLength(vectorSubtract(_dsRefW(), activeCamera.position));
         const pixelToWorld = subj2D
           ? 1 / (BASE_DISPLAY_SCALE * (Math.min(width, height) / FRAME_SIZE))
           : getPixelToWorldFactor(distance);
@@ -76959,9 +77309,9 @@
         // Snap to point (post-process; 2D skips — frame space)
         if (!subj2D && pivotSnapToPoint && _snapTargetCache) {
           const _vpM = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
-          const _candidatePos = vectorAdd(dragStartWorldPosition, totalWorldDelta);
+          const _candidatePos = vectorAdd(_dsRefW(), totalWorldDelta);
           const _snappedPos = trySnapToPoint(_candidatePos, _vpM);
-          totalWorldDelta = vectorSubtract(_snappedPos, dragStartWorldPosition);
+          totalWorldDelta = vectorSubtract(_snappedPos, _dsRefW());
         }
 
         // Convert world delta to local-space pivot delta
@@ -76970,7 +77320,7 @@
         const RS_piv = matrixMultiply(selectedObject.rotationMatrix, orientedS_piv);
         const invRS_piv = matrixInverse(RS_piv);
         if (invRS_piv) {
-          const pivotDelta = vectorApplyMatrix(totalWorldDelta, invRS_piv);
+          const pivotDelta = vectorApplyMatrix(_worldDeltaToParent(selectedObject, totalWorldDelta), invRS_piv);   // v20260908e: world -> parent first
           const startPivot = selectedObject._dragStartPivot || [0, 0, 0];
           const newPivot = vectorAdd(startPivot, pivotDelta);
           // Write pivot + pivotShift directly from drag-start baseline
@@ -77003,30 +77353,30 @@
         // 2D MODE (v20260727c): fabricated straight-down ray in frame space
         const subj2D = isIn2DMode(selectedObject);
         if (subj2D) {
-          ray = { origin: mouseToFrame2D(event.clientX, event.clientY, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] };
+          ray = { origin: mouseToFrame2D(event.clientX, event.clientY, _dsRefW()[2] + 1), direction: [0, 0, -1] };
           planeNormal = [0, 0, 1];
         }
 
         if (ray) {
           const denom = vectorDot(ray.direction, planeNormal);
           if (Math.abs(denom) > 1e-6) {
-            const t = vectorDot(vectorSubtract(dragStartWorldPosition, ray.origin), planeNormal) / denom;
+            const t = vectorDot(vectorSubtract(_dsRefW(), ray.origin), planeNormal) / denom;
             if (t >= 0 || projectionType !== 'perspective') {
               const hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
 
               if (!dragStartPlaneHit) {
                 const startEvent = { clientX: dragStartMousePosition.x, clientY: dragStartMousePosition.y };
                 const startRay = subj2D
-                  ? { origin: mouseToFrame2D(dragStartMousePosition.x, dragStartMousePosition.y, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] }
+                  ? { origin: mouseToFrame2D(dragStartMousePosition.x, dragStartMousePosition.y, _dsRefW()[2] + 1), direction: [0, 0, -1] }
                   : getRayFromClick(startEvent, vpMatrix);
                 if (startRay) {
                   const startDenom = vectorDot(startRay.direction, planeNormal);
                   if (Math.abs(startDenom) > 1e-6) {
-                    const startT = vectorDot(vectorSubtract(dragStartWorldPosition, startRay.origin), planeNormal) / startDenom;
+                    const startT = vectorDot(vectorSubtract(_dsRefW(), startRay.origin), planeNormal) / startDenom;
                     dragStartPlaneHit = vectorAdd(startRay.origin, vectorScale(startRay.direction, startT));
                   }
                 }
-                if (!dragStartPlaneHit) dragStartPlaneHit = dragStartWorldPosition;
+                if (!dragStartPlaneHit) dragStartPlaneHit = _dsRefW();
               }
 
               let totalWorldDelta = vectorSubtract(hitPoint, dragStartPlaneHit);
@@ -77040,9 +77390,9 @@
               }
 
               if (!subj2D && pivotSnapToPoint && _snapTargetCache) {
-                const _candidatePos = vectorAdd(dragStartWorldPosition, totalWorldDelta);
+                const _candidatePos = vectorAdd(_dsRefW(), totalWorldDelta);
                 const _snappedPos = trySnapToPoint(_candidatePos, vpMatrix);
-                totalWorldDelta = vectorSubtract(_snappedPos, dragStartWorldPosition);
+                totalWorldDelta = vectorSubtract(_snappedPos, _dsRefW());
               }
 
               // Convert world delta to local pivot delta
@@ -77051,7 +77401,7 @@
               const RS_piv2 = matrixMultiply(selectedObject.rotationMatrix, orientedS_piv2);
               const invRS_piv2 = matrixInverse(RS_piv2);
               if (invRS_piv2) {
-                const pivotDelta = vectorApplyMatrix(totalWorldDelta, invRS_piv2);
+                const pivotDelta = vectorApplyMatrix(_worldDeltaToParent(selectedObject, totalWorldDelta), invRS_piv2);   // v20260908e
                 const startPivot = selectedObject._dragStartPivot || [0, 0, 0];
                 const newPivot = vectorAdd(startPivot, pivotDelta);
                 // Write pivot + pivotShift directly from drag-start baseline
@@ -77082,29 +77432,29 @@
         const projectionMatrix = activeCamera.createProjectionMatrix();
         const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
         const ray = subj2D
-          ? { origin: mouseToFrame2D(event.clientX, event.clientY, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] }
+          ? { origin: mouseToFrame2D(event.clientX, event.clientY, _dsRefW()[2] + 1), direction: [0, 0, -1] }
           : getRayFromClick(event, vpMatrix);
 
         if (ray) {
           const denom = vectorDot(ray.direction, planeNormal);
           if (Math.abs(denom) > 1e-6) {
-            const t = vectorDot(vectorSubtract(dragStartWorldPosition, ray.origin), planeNormal) / denom;
+            const t = vectorDot(vectorSubtract(_dsRefW(), ray.origin), planeNormal) / denom;
             if (t >= 0 || projectionType !== 'perspective') {
               const hitPoint = vectorAdd(ray.origin, vectorScale(ray.direction, t));
 
               if (!dragStartPlaneHit) {
                 const startEvent = { clientX: dragStartMousePosition.x, clientY: dragStartMousePosition.y };
                 const startRay = subj2D
-                  ? { origin: mouseToFrame2D(dragStartMousePosition.x, dragStartMousePosition.y, dragStartWorldPosition[2] + 1), direction: [0, 0, -1] }
+                  ? { origin: mouseToFrame2D(dragStartMousePosition.x, dragStartMousePosition.y, _dsRefW()[2] + 1), direction: [0, 0, -1] }
                   : getRayFromClick(startEvent, vpMatrix);
                 if (startRay) {
                   const startDenom = vectorDot(startRay.direction, planeNormal);
                   if (Math.abs(startDenom) > 1e-6) {
-                    const startT = vectorDot(vectorSubtract(dragStartWorldPosition, startRay.origin), planeNormal) / startDenom;
+                    const startT = vectorDot(vectorSubtract(_dsRefW(), startRay.origin), planeNormal) / startDenom;
                     dragStartPlaneHit = vectorAdd(startRay.origin, vectorScale(startRay.direction, startT));
                   }
                 }
-                if (!dragStartPlaneHit) dragStartPlaneHit = dragStartWorldPosition;
+                if (!dragStartPlaneHit) dragStartPlaneHit = _dsRefW();
               }
 
               let totalWorldDelta = vectorSubtract(hitPoint, dragStartPlaneHit);
@@ -77119,9 +77469,9 @@
               }
 
               if (!subj2D && pivotSnapToPoint && _snapTargetCache) {
-                const _candidatePos = vectorAdd(dragStartWorldPosition, totalWorldDelta);
+                const _candidatePos = vectorAdd(_dsRefW(), totalWorldDelta);
                 const _snappedPos = trySnapToPoint(_candidatePos, vpMatrix);
-                totalWorldDelta = vectorSubtract(_snappedPos, dragStartWorldPosition);
+                totalWorldDelta = vectorSubtract(_snappedPos, _dsRefW());
               }
 
               // Convert world delta to local pivot delta
@@ -77130,7 +77480,7 @@
               const RS_piv3 = matrixMultiply(selectedObject.rotationMatrix, orientedS_piv3);
               const invRS_piv3 = matrixInverse(RS_piv3);
               if (invRS_piv3) {
-                const pivotDelta = vectorApplyMatrix(totalWorldDelta, invRS_piv3);
+                const pivotDelta = vectorApplyMatrix(_worldDeltaToParent(selectedObject, totalWorldDelta), invRS_piv3);   // v20260908e
                 const startPivot = selectedObject._dragStartPivot || [0, 0, 0];
                 const newPivot = vectorAdd(startPivot, pivotDelta);
                 // Write pivot + pivotShift directly from drag-start baseline
@@ -78610,8 +78960,8 @@
             applyToolCursor();
             const dotFwd = document.getElementById('penTangentDotFwd');
             const dotBck = document.getElementById('penTangentDotBck');
-            if (dotFwd) { dotFwd.setAttribute('r', '5'); dotFwd.setAttribute('fill', 'white'); dotFwd.setAttribute('stroke-width', '1'); }
-            if (dotBck) { dotBck.setAttribute('r', '5'); dotBck.setAttribute('fill', 'white'); dotBck.setAttribute('stroke-width', '1'); }
+            if (dotFwd) { dotFwd.setAttribute('r', '5'); dotFwd.setAttribute('fill', 'var(--handle-fill)'); dotFwd.setAttribute('stroke-width', '1'); }
+            if (dotBck) { dotBck.setAttribute('r', '5'); dotBck.setAttribute('fill', 'var(--handle-fill)'); dotBck.setAttribute('stroke-width', '1'); }
             // Keep _penBezierDragDelta — it holds the adjusted asymmetric delta
           } else if (_penIsDraggingTangent && _penBezierLiveDelta) {
             // Remember delta for next anchor's C_fwd computation
@@ -79040,7 +79390,7 @@
         guide.setAttribute('width', fgw);
         guide.setAttribute('height', fgh);
         guide.setAttribute('fill', 'none');
-        const accentColor = document.getElementById('accentColorInput')?.value || '#2645d2';
+        const accentColor = document.getElementById('accentColorInput')?.value || '#919191';
         guide.setAttribute('stroke', accentColor);
         guide.setAttribute('stroke-width', '2');
         exportSVG.appendChild(guide);
@@ -79065,7 +79415,7 @@
         console.log('SVG copied to clipboard!');
 
         const originalBg = document.body.style.backgroundColor;
-        document.body.style.backgroundColor = '#e0ffe0';
+        document.body.style.backgroundColor = 'var(--flash-ok)';
         setTimeout(() => {
           document.body.style.backgroundColor = originalBg;
         }, 200);
@@ -80738,16 +81088,54 @@
       // is nothing to warn about.
       const RETIRED_SETTINGS_KEYS = ['animationEnabled', 'textToolEnabled'];
 
+      // --- THEME (v20260908b, dark-mode Phase 2) ---
+      // The preference is three-state (system / light / dark) and is what gets
+      // stored; the RESOLVED value is what lands on <html data-theme>. The head
+      // THEME BOOTSTRAP stamps the same resolution before first paint, so at boot
+      // applyTheme() is a no-op for the DOM and only refreshes the JS side.
+      const THEME_DEFAULT = 'system';
+      const _themeMedia = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+      let themePref = THEME_DEFAULT;
+      const resolveTheme = (pref) => (pref === 'light' || pref === 'dark') ? pref
+        : ((_themeMedia && _themeMedia.matches) ? 'dark' : 'light');
+      const applyTheme = (pref) => {
+        themePref = (pref === 'light' || pref === 'dark') ? pref : THEME_DEFAULT;
+        const resolved = resolveTheme(themePref);
+        if (document.documentElement.getAttribute('data-theme') !== resolved) {
+          document.documentElement.setAttribute('data-theme', resolved);
+        }
+        const sel = document.getElementById('themeSelect');
+        if (sel && sel.value !== themePref) sel.value = themePref;
+        // THE ONE COLOUR CACHE: the selection gizmo read its --gizmo-* tokens at
+        // build time (_readGizmoColors). Re-read, and re-stamp the only elements
+        // that took their colour at creation and are not rewritten per frame —
+        // the three scale boxes. Everything else re-reads .colors every frame.
+        if (selectionGizmoElements && selectionGizmoElements.colors) {
+          const c = _readGizmoColors();
+          selectionGizmoElements.colors = c;
+          const per = [c.x, c.y, c.z];
+          (selectionGizmoElements.boxes || []).forEach((b, i) => b.setAttribute('fill', per[i]));
+        }
+        // The ruler canvas reads its inks at draw time — one redraw is the theme.
+        try { tlDrawRuler(); } catch (e) { /* declared later; nothing to repaint at boot */ }
+        requestRender();   // the dirty-signal rule: every mutation reaches requestRender
+      };
+      if (_themeMedia) {
+        _themeMedia.addEventListener('change', () => { if (themePref === 'system') applyTheme('system'); });
+      }
+
       // `animationEnabled` / `setAnimationEnabled` moved to TOP LEVEL in
       // v20260812p — see the ANIMATION FEATURE GATE block. They were declared
       // here, inside init's closure, which is what made importScene's
       // auto-enable dead code.
 
       const loadSettings = () => {
+        let _savedTheme = THEME_DEFAULT;
         try {
           const saved = localStorage.getItem(SETTINGS_KEY);
           if (saved) {
             const settings = JSON.parse(saved);
+            if (settings.theme === 'light' || settings.theme === 'dark' || settings.theme === 'system') _savedTheme = settings.theme;
             if (settings.accentColor) {
               document.documentElement.style.setProperty('--accent-color', settings.accentColor);
               const picker = document.getElementById('accentColorInput');
@@ -80823,6 +81211,7 @@
         } catch (e) {
           console.warn('Failed to load settings:', e);
         }
+        applyTheme(_savedTheme);
         // Always sync spatial input steps to the current keyboard increment,
         // even on first launch with no saved settings.
         updateSpatialInputSteps(toDisplay(KEYBOARD_NUDGE_AMOUNT));
@@ -80840,6 +81229,15 @@
           console.warn('Failed to save settings:', e);
         }
       };
+
+      // Theme select (v20260908b)
+      const themeSelect = document.getElementById('themeSelect');
+      if (themeSelect) {
+        themeSelect.addEventListener('change', (e) => {
+          applyTheme(e.target.value);
+          saveSettings({ theme: themePref });
+        });
+      }
 
       // Accent Color picker
       const accentColorInput = document.getElementById('accentColorInput');
@@ -81053,13 +81451,16 @@
           // Clear localStorage
           localStorage.removeItem(SETTINGS_KEY);
 
+          // Reset theme to System (v20260908b)
+          applyTheme(THEME_DEFAULT);
+
           // Reset accent color to default
-          const defaultAccent = '#2645d2';
+          const defaultAccent = '#919191';
           document.documentElement.style.removeProperty('--accent-color');
           const picker = document.getElementById('accentColorInput');
           if (picker) picker.value = defaultAccent;
           const hexInp = document.getElementById('accentColorHexInput');
-          if (hexInp) hexInp.value = '2645D2';
+          if (hexInp) hexInp.value = '919191';
 
           // Reset display unit to px (re-convert parametric inputs first)
           const _oldUnit = displayUnit;
@@ -82567,7 +82968,7 @@
         line.setAttribute('y1', _cePy(allPts[i][1]));
         line.setAttribute('x2', _cePx(allPts[i + 1][0]));
         line.setAttribute('y2', _cePy(allPts[i + 1][1]));
-        line.setAttribute('stroke', '#999');
+        line.setAttribute('stroke', 'var(--tl-ink)');
         line.setAttribute('stroke-width', '1');
         tlCurvePolygon.appendChild(line);
       }
@@ -86479,6 +86880,9 @@
     const tlDrawRuler = () => {
       const canvas = tlRulerCanvas;
       if (!canvas) return;
+      // THEME (v20260908a): the ruler's inks are tokens read at DRAW time — a
+      // theme switch just calls tlDrawRuler() again. Never cache these.
+      const _rt = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
       const rect = canvas.parentElement.getBoundingClientRect();
       const w = rect.width;
       const h = rect.height;
@@ -86502,7 +86906,7 @@
       try {
         if (RenderCache.enabled && RenderCache.size()) {
           const accent = getComputedStyle(document.documentElement)
-            .getPropertyValue('--accent-color').trim() || '#2645d2';
+            .getPropertyValue('--accent-ink').trim() || '#919191';
           ctx.save();
           ctx.globalAlpha = 0.18;
           ctx.fillStyle = accent;
@@ -86524,8 +86928,8 @@
         }
       } catch (e) { /* never let a dev aid kill the ruler */ }
 
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+      ctx.fillStyle = _rt('--tl-ruler-text');
+      ctx.strokeStyle = _rt('--tl-ruler-tick');
       ctx.font = '9px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
@@ -86534,12 +86938,12 @@
         const x = (i / (total - 1)) * w;
         if (i % fps === 0) {
           // Major tick (every second)
-          ctx.fillStyle = 'rgba(0,0,0,0.6)';
+          ctx.fillStyle = _rt('--tl-ruler-ink');
           ctx.fillRect(x, h - 10, 1, 10);
           ctx.fillText(String(i), x, h - 11);
         } else if (i % (fps / 4) === 0 || (fps <= 12 && i % Math.max(1, Math.floor(fps / 2)) === 0)) {
           // Minor tick
-          ctx.fillStyle = 'rgba(0,0,0,0.15)';
+          ctx.fillStyle = _rt('--tl-ruler-tick');
           ctx.fillRect(x, h - 5, 1, 5);
         }
       }
@@ -86548,7 +86952,7 @@
       const range = animationTimeline.playbackRange;
       const rangeX = ((range - 1) / (total - 1)) * w;
       if (range < total) {
-        ctx.fillStyle = 'rgba(0,0,0,0.06)';
+        ctx.fillStyle = _rt('--tl-ruler-dim');
         ctx.fillRect(rangeX, 0, w - rangeX, h);
       }
       // ...and its MIRROR for the play range START (v20260826e): frames before the
@@ -86557,15 +86961,15 @@
       const pbStart = animationTimeline.playbackStart;
       if (pbStart > 0) {
         const startX = (pbStart / (total - 1)) * w;
-        ctx.fillStyle = 'rgba(0,0,0,0.06)';
+        ctx.fillStyle = _rt('--tl-ruler-dim');
         ctx.fillRect(0, 0, startX, h);
       }
       // Draggable range handle — always visible (clamped just inside the right edge
       // when the range is full). Grey by default, accent-blue when hovered/dragged.
       const hx = Math.max(1, Math.min(rangeX, w - 1));
       ctx.strokeStyle = _tlRangeHot
-        ? (getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#2645d2')
-        : 'rgba(0,0,0,0.35)';
+        ? (getComputedStyle(document.documentElement).getPropertyValue('--accent-ink').trim() || '#919191')
+        : _rt('--tl-ruler-handle');
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(hx, 0);
@@ -86585,8 +86989,8 @@
       const shx = pbStart > 0 ? Math.max(1, Math.min((pbStart / (total - 1)) * w, w - 1)) : null;
       if (shx !== null) {
         ctx.strokeStyle = _tlRangeStartHot
-          ? (getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#2645d2')
-          : 'rgba(0,0,0,0.35)';
+          ? (getComputedStyle(document.documentElement).getPropertyValue('--accent-ink').trim() || '#919191')
+          : _rt('--tl-ruler-handle');
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(shx, 0);

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260909f -->
+<!-- dim v20260909h -->
 
 <!--
   MIT License
@@ -267,6 +267,10 @@
          half their height, so the two must move together. They stay literal. */
       --control-h-compact: 24px;
       --toolbar-width: 48px;
+      /* THE SIDE PANELS ARE ONE WIDTH (v20260909g) - both containers and the top
+         bar's two edges read it, so the bar meets the Scene Objects panel by
+         construction at every window width. */
+      --panel-w: 280px;
       /* THE SIDEBAR SPINE (v20260905a, was a bare literal in 4 rules). Four
          unrelated row families — .prop-inline, .style-row, .xyz-row and
          .slider-fill — pin their label column to this, and that is the only
@@ -1184,7 +1188,7 @@
       position: absolute;
       top: 0px;
       left: var(--toolbar-width);
-      width: 280px;
+      width: var(--panel-w);
       padding: 0;
       color: var(--text-main);
       font-size: var(--font-size-label);
@@ -1363,7 +1367,7 @@
       position: absolute;
       top: 0px;
       right: 0px;
-      width: 280px;
+      width: var(--panel-w);
       padding: 0;
       color: var(--text-main);
       font-size: var(--font-size-label);
@@ -2740,9 +2744,18 @@
     }
 
     /* ─── Quick Style Bar ─── (geometry is shared with #historyBar above;
-       only its position is local) */
+       only its position is local). ONE ROW ON TOP (v20260909g, plan
+       PLAN-canvas-arena.md): the bar spans from the left panel to the Scene
+       Objects panel - `left` AND `right` set, so its width is the gap between
+       the two panels at every window width, and #historyBar is pinned to the
+       same right edge on top of it (later in the DOM, same z-index) instead of
+       being placed by JS beside the last group. */
     #quickStyleBar {
-      left: calc(var(--toolbar-width) + 280px);
+      left: calc(var(--toolbar-width) + var(--panel-w));
+      right: var(--panel-w);
+    }
+    #historyBar {
+      right: var(--panel-w);
     }
 
     /* Match left tab bar height: .left-tab is 32px + 1px bottom border = 33px from top.
@@ -7536,6 +7549,22 @@
       <span class="qs-label">Close</span>
       <input type="checkbox" id="qsClosePath" class="ui-checkbox" />
     </div>
+    <div class="qs-divider"></div>
+    <!-- WORKPLANE MIRROR (v20260909h): the same five options as #workplaneSelect in the
+         Workplane panel. It is a MIRROR, not a second control: a change here is
+         forwarded to the panel select and dispatched there, so the panel's handler
+         (mode / Selection / Camera routes, undo) runs exactly once; the panel's
+         sync paths copy value + disabled back here (syncQsWorkplane). -->
+    <div class="qs-group">
+      <span class="qs-label">Workplane</span>
+      <select id="qsWorkplaneSelect" title="Active workplane (mirrors the Workplane panel)">
+        <option value="vertical">XY (G)</option>
+        <option value="horizontal">XZ (G)</option>
+        <option value="side">YZ (G)</option>
+        <option value="camera-target-origin">Camera (Shift + G)</option>
+        <option value="selection">Selection (Alt + G)</option>
+      </select>
+    </div>
   </div>
 
   <!-- History Bar (top, right of Quick Style) -->
@@ -10967,6 +10996,23 @@
       pushUndoState('Toggle snap to grid');
     });
 
+    // QUICK-STYLE BAR MIRROR of the workplane select (v20260909h). One handler, on
+    // the panel select; the bar forwards. syncQsWorkplane() copies value + disabled
+    // from the panel select whenever the panel's own sync paths run.
+    const syncQsWorkplane = () => {
+      const src = document.getElementById('workplaneSelect');
+      const qs = document.getElementById('qsWorkplaneSelect');
+      if (!src || !qs) return;
+      if (qs.value !== src.value && document.activeElement !== qs) qs.value = src.value;
+      qs.disabled = src.disabled;
+    };
+    document.getElementById('qsWorkplaneSelect').addEventListener('change', (e) => {
+      const src = document.getElementById('workplaneSelect');
+      if (!src) return;
+      src.value = e.target.value;
+      src.dispatchEvent(new Event('change', { bubbles: true }));
+      syncQsWorkplane();   // Selection / Camera routes leave the panel on 'selection'
+    });
     document.getElementById('workplaneSelect').addEventListener('change', (e) => {
       if (e.target.value === 'selection') {
         setWorkplaneFromSelection();
@@ -11151,6 +11197,7 @@
         if (el) el.disabled = wp.lock || false;
       });
       syncWorkplaneVerbButtons();
+      syncQsWorkplane();
     };
 
 
@@ -11774,7 +11821,7 @@
       const cx = (candScreen[0] * FRAME_SIZE) / 2;
       const cy = (-candScreen[1] * FRAME_SIZE) / 2;
 
-      const viewScale = Math.min(width, height) / FRAME_SIZE;
+      const viewScale = getViewScale();
       const threshold = SNAP_TO_POINT_RADIUS / viewScale;
 
       let bestDist = Infinity;
@@ -18706,6 +18753,7 @@
           } else {
             wpSelect.value = this.mode;
           }
+          if (typeof syncQsWorkplane === 'function') syncQsWorkplane();
         }
         const offsetInput = document.getElementById('custom-offset-z-field');
         if (offsetInput) offsetInput.value = toDisplay(this.offset).toFixed(2);
@@ -18923,9 +18971,9 @@
     // z+1), direction: [0,0,-1]} against plane normal [0,0,1]) so the
     // existing ray-plane apply code lands exactly without a camera.
     const mouseToFrame2D = (mx, my, z = 0) => {
-      const vs = Math.min(width, height) / FRAME_SIZE;
+      const vs = getViewScale();
       return [((mx - (width / 2 + CANVAS_OFFSET_X)) / vs) / BASE_DISPLAY_SCALE,
-      -((my - height / 2) / vs) / BASE_DISPLAY_SCALE, z];
+      -((my - (height / 2 + CANVAS_OFFSET_Y)) / vs) / BASE_DISPLAY_SCALE, z];
     };
     // Pen on a 2D-Mode path (v20260727e): the cursor maps straight to frame
     // space — the camera ray × pen working plane would land the point where
@@ -19250,9 +19298,9 @@
             !('mode2D' in sOff) && sOn.mode2D === true && back.mode2D === true);
 
           // 6. mouseToFrame2D inverts the screen mapping.
-          const vs = Math.min(width, height) / FRAME_SIZE;
+          const vs = getViewScale();
           const mx = (width / 2 + CANVAS_OFFSET_X) + 2.5 * BASE_DISPLAY_SCALE * vs;
-          const my = (height / 2) - 1 * BASE_DISPLAY_SCALE * vs;
+          const my = (height / 2 + CANVAS_OFFSET_Y) - 1 * BASE_DISPLAY_SCALE * vs;
           const inv = mouseToFrame2D(mx, my, 7);
           t('mouseToFrame2D: inverse of the frame mapping (incl. y flip, z pass-through)',
             eq(inv[0], 2.5) && eq(inv[1], 1) && inv[2] === 7);
@@ -19268,9 +19316,9 @@
           // fabricated pair's plane sits at the path's z with the ray
           // starting one unit above it — so the intersection lands the
           // cursor's frame point at local z = 0 exactly.
-          const vsT = Math.min(width, height) / FRAME_SIZE;
+          const vsT = getViewScale();
           const mxT = (width / 2 + CANVAS_OFFSET_X) + 2 * BASE_DISPLAY_SCALE * vsT;
-          const myT = (height / 2) - 1.5 * BASE_DISPLAY_SCALE * vsT;
+          const myT = (height / 2 + CANVAS_OFFSET_Y) - 1.5 * BASE_DISPLAY_SCALE * vsT;
           const pp = pen2DRayPlane(p2, { clientX: mxT, clientY: myT });
           t('pen2DRayPlane: null for 3D; 2D pair intersects at cursor frame point, plane at path z',
             pen2DRayPlane(p3, { clientX: mxT, clientY: myT }) === null &&
@@ -19328,6 +19376,29 @@
     let RC_SMOOTH_ANCHOR_FIT = true;
     // Derive canvas offset from toolbar width CSS variable so it stays in sync
     const CANVAS_OFFSET_X = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--toolbar-width')) / 2 || 0;
+    // THE CANVAS ARENA (v20260909g, plan PLAN-canvas-arena.md). The paper fits the
+    // height left between the top bar and the COLLAPSED timeline row - never the
+    // full window, which put its top 33px under the quick-style bar and its
+    // bottom 32px under the timeline row on every landscape window. An EXPANDED
+    // timeline may cover the paper (owner's rule): only the one row is reserved.
+    //   CANVAS_INSET_V  = bar height + row height   (subtracted from the height)
+    //   CANVAS_OFFSET_Y = (bar - row) / 2             (the arena's centre vs the window's)
+    // Both are read from the DOM in updateCanvasArena() (resizeSVG calls it), never
+    // hard-coded. getViewScale() is THE view scale - the fifteen former
+    // `getViewScale()` sites (render, picking, the 2D-mode
+    // pixel maths, the HUD, the drags) all read it, and the frame origin is
+    // `height / 2 + CANVAS_OFFSET_Y` everywhere `height / 2` used to be, so the
+    // click lands where the paint is by construction, not by textual repetition.
+    let CANVAS_INSET_V = 0;
+    let CANVAS_OFFSET_Y = 0;
+    const updateCanvasArena = () => {
+      const bar = document.getElementById('quickStyleBar');
+      const barH = bar ? bar.offsetHeight : 0;
+      const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 0;
+      CANVAS_INSET_V = barH + rowH;
+      CANVAS_OFFSET_Y = (barH - rowH) / 2;
+    };
+    const getViewScale = () => Math.min(width, height - CANVAS_INSET_V) / FRAME_SIZE;
     const TRUCK_SPEED = 0.002;
 
     // Compute viewport-aware pixel-to-world scale factor
@@ -20304,9 +20375,9 @@
       const FS = FRAME_SIZE;
 
       // Use the same transform math as findHoveredVertex / getRayFromClick
-      const viewScale = Math.min(width, height) / FS;
+      const viewScale = getViewScale();
       const translateX = width / 2 + CANVAS_OFFSET_X;
-      const translateY = height / 2;
+      const translateY = height / 2 + CANVAS_OFFSET_Y;
 
       // C_fwd position
       const cFwdLocal = vectorAdd(anchorPt, _penBezierDragDelta);
@@ -20361,9 +20432,9 @@
         ? resolveObjectMVP(activePath, vpMatrix)
         : matrixMultiply(vpMatrix, modelMatrix);
       const FS = FRAME_SIZE;
-      const viewScale = Math.min(width, height) / FS;
+      const viewScale = getViewScale();
       const translateX = width / 2 + CANVAS_OFFSET_X;
-      const translateY = height / 2;
+      const translateY = height / 2 + CANVAS_OFFSET_Y;
 
       // Determine which indices to skip (last anchor's tangent handles — already managed separately)
       const skipIndices = new Set();
@@ -56567,6 +56638,7 @@
     const resizeSVG = () => {
       width = window.innerWidth;
       height = window.innerHeight;
+      updateCanvasArena();
       svg.setAttribute('width', width);
       svg.setAttribute('height', height);
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
@@ -57411,9 +57483,9 @@
     const findHoveredVertex = (mouseX, mouseY, vpMatrix) => {
       if (!selectedObject) return null;
 
-      const scale = Math.min(width, height) / FRAME_SIZE;
+      const scale = getViewScale();
       const translateX = width / 2 + CANVAS_OFFSET_X;
-      const translateY = height / 2;
+      const translateY = height / 2 + CANVAS_OFFSET_Y;
       const svgMouseX = (mouseX - translateX) / scale;
       const svgMouseY = (mouseY - translateY) / scale;
 
@@ -61959,8 +62031,8 @@
       const vpM = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
       // 2D MODE (v20260727c): test the exact curve the app draws
       const mvp = resolveObjectMVP(obj, vpM);
-      const viewScale = Math.min(width, height) / FRAME_SIZE;
-      const tX = width / 2 + CANVAS_OFFSET_X, tY = height / 2;
+      const viewScale = getViewScale();
+      const tX = width / 2 + CANVAS_OFFSET_X, tY = height / 2 + CANVAS_OFFSET_Y;
       const toScreen = (p) => {
         const tv = transformVertex(p, mvp);
         if (!tv) return null;
@@ -63037,6 +63109,7 @@
         } else if (wpSelect.value !== mode) {
           wpSelect.value = mode;
         }
+        syncQsWorkplane();
       }
       // From Selection needs a selection — setWorkplaneFromSelection is a silent
       // no-op without one, and a button that does nothing and says nothing is worse
@@ -72281,11 +72354,11 @@
       const projectionMatrix = activeCamera.createProjectionMatrix();
       const vpMatrix = matrixMultiply(projectionMatrix, viewMatrix);
 
-      const scale = Math.min(width, height) / FRAME_SIZE;
+      const scale = getViewScale();
       // Offset center by half the toolbar width (48px) so the canvas
       // is visually centered between left panels (toolbar+sidebar) and right sidebar
       const translateX = width / 2 + CANVAS_OFFSET_X;
-      const translateY = height / 2;
+      const translateY = height / 2 + CANVAS_OFFSET_Y;
 
       {
         const _mgT = `translate(${translateX}, ${translateY}) scale(${scale})`;
@@ -72864,7 +72937,7 @@
       if (_tlAwaitingFrame === _drawnFrame) _tlAwaitingFrame = null;
 
       const frameX = (width - FRAME_SIZE * scale) / 2 + CANVAS_OFFSET_X;
-      const frameY = (height - FRAME_SIZE * scale) / 2;
+      const frameY = (height - FRAME_SIZE * scale) / 2 + CANVAS_OFFSET_Y;
       // PER-FRAME CHROME IS A PURE FUNCTION OF POSE + SIZE (v20260904o). The
       // frame rect, the frame guide, the axis indicator, the HUD bar layout
       // (a getComputedStyle for --timeline-height + ~16 style writes) and the
@@ -72897,7 +72970,7 @@
       }
 
       const indicatorX = width / 2 + CANVAS_OFFSET_X - FRAME_SIZE / 2 * scale + 80;
-      const indicatorY = height / 2 + FRAME_SIZE / 2 * scale - 80;
+      const indicatorY = height / 2 + CANVAS_OFFSET_Y + FRAME_SIZE / 2 * scale - 80;
       axisIndicatorGroup.setAttribute('transform', `translate(${indicatorX}, ${indicatorY})`);
       axisIndicator.update(viewMatrix);
       }   // end of the chrome gate (frame rect … axis indicator)
@@ -76633,7 +76706,7 @@
         // internal units, no camera, Z locked (inert axis).
         const subj2D = isIn2DMode(selectedVertexInfo ? selectedVertexInfo.object : selectedObject);
         if (subj2D) {
-          const s2d = 1 / (BASE_DISPLAY_SCALE * (Math.min(width, height) / FRAME_SIZE));
+          const s2d = 1 / (BASE_DISPLAY_SCALE * (getViewScale()));
           if (lockedAxis === 'x') moveVec = [deltaX * s2d, 0, 0];
           else if (lockedAxis === 'y') moveVec = [0, -deltaY * s2d, 0];
           else if (lockedAxis === 'z') moveVec = [0, 0, 0];
@@ -76937,7 +77010,7 @@
           const mdx = event.clientX - dragStartMousePosition.x, mdy = event.clientY - dragStartMousePosition.y;
           const dot = (mdx * sx + mdy * (-sy)) / projLen;
           const dist = vectorLength(vectorSubtract(subjectPosition, activeCamera.position));
-          const p2w = subj2D ? 1 / (BASE_DISPLAY_SCALE * (Math.min(width, height) / FRAME_SIZE)) : getPixelToWorldFactor(dist);
+          const p2w = subj2D ? 1 / (BASE_DISPLAY_SCALE * (getViewScale())) : getPixelToWorldFactor(dist);
           let signed = d.startSigned + dot * p2w / projLen;
           d.unitsPerPx = p2w / projLen;   // for the release-at-zero band (a few px, not a fixed unit)
           if (activeWorkplane.snapToGrid) signed = Math.round(signed / activeWorkplane.gridSize) * activeWorkplane.gridSize;
@@ -77018,7 +77091,7 @@
 
         const distance = vectorLength(vectorSubtract(subjectPosition, activeCamera.position));
         const pixelToWorld = subj2D
-          ? 1 / (BASE_DISPLAY_SCALE * (Math.min(width, height) / FRAME_SIZE))
+          ? 1 / (BASE_DISPLAY_SCALE * (getViewScale()))
           : getPixelToWorldFactor(distance);
         let totalMoveAmount = totalDotProduct * pixelToWorld / projectedAxisLength;
 
@@ -77344,7 +77417,7 @@
 
         const distance = vectorLength(vectorSubtract(_dsRefW(), activeCamera.position));
         const pixelToWorld = subj2D
-          ? 1 / (BASE_DISPLAY_SCALE * (Math.min(width, height) / FRAME_SIZE))
+          ? 1 / (BASE_DISPLAY_SCALE * (getViewScale()))
           : getPixelToWorldFactor(distance);
         let totalMoveAmount = totalDotProduct * pixelToWorld / projectedAxisLength;
 
@@ -78312,7 +78385,7 @@
         // internal units, no camera, Z locked (inert axis).
         const subj2D = isIn2DMode(selectedVertexInfo ? selectedVertexInfo.object : selectedObject);
         if (subj2D) {
-          const s2d = 1 / (BASE_DISPLAY_SCALE * (Math.min(width, height) / FRAME_SIZE));
+          const s2d = 1 / (BASE_DISPLAY_SCALE * (getViewScale()));
           if (lockedAxis === 'x') totalWorldDelta = [totalMouseDeltaX * s2d, 0, 0];
           else if (lockedAxis === 'y') totalWorldDelta = [0, -totalMouseDeltaY * s2d, 0];
           else if (lockedAxis === 'z') totalWorldDelta = [0, 0, 0];
@@ -80878,21 +80951,9 @@
         const dropdown = document.getElementById('historyDropdown');
         const chevron = histBar ? histBar.querySelector('.history-chevron') : null;
 
-        // Position historyBar right of quickStyleBar
-        if (qsBar && histBar) {
-          const positionHistoryBar = () => {
-            const qsRect = qsBar.getBoundingClientRect();
-            const parentRect = qsBar.offsetParent ? qsBar.offsetParent.getBoundingClientRect() : { left: 0 };
-            histBar.style.left = (qsRect.right - parentRect.left) + 'px';
-          };
-          positionHistoryBar();
-          // Reposition on window resize
-          window.addEventListener('resize', positionHistoryBar);
-          // Also observe quickStyleBar size changes (e.g. when tool changes)
-          if (typeof ResizeObserver !== 'undefined') {
-            new ResizeObserver(positionHistoryBar).observe(qsBar);
-          }
-        }
+        // #historyBar is pinned to the right panel's edge by CSS since v20260909g
+        // (right: var(--panel-w)); the JS that placed it beside the quick-style
+        // bar's last group is gone with the gap it used to sit in.
 
         // Toggle dropdown
         if (toggle && dropdown && chevron) {

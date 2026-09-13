@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260913d -->
+<!-- dim v20260914f -->
 
 <!--
   MIT License
@@ -1157,6 +1157,65 @@
       height: 1px;
       background: var(--border-light);
       margin: 4px auto;
+    }
+
+    /* PEN MODE FLYOUT (v20260914d): the Illustrator tool-group flyout. Opens
+       to the right of the Pen button on a long press or a right-click; one
+       row per mode with its icon and key. Every colour is a token. */
+    .tool-flyout {
+      position: fixed;
+      z-index: 200;   /* above the floating tool drawer (11-12); the modal scrim is 100000 */
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 4px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-light);
+      border-radius: 0;
+      box-shadow: var(--shadow-float);
+    }
+
+    .tool-flyout button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 28px;
+      padding: 0 10px 0 6px;
+      border: none;
+      border-radius: 0;
+      background: transparent;
+      color: var(--text-secondary);
+      font: inherit;
+      font-size: var(--font-size-btn);
+      white-space: nowrap;
+      cursor: pointer;
+      transition: background var(--dur), color var(--dur);
+    }
+
+    .tool-flyout button:hover,
+    .tool-flyout button.hot {
+      background-color: var(--tint-hover);
+      color: var(--text-main);
+    }
+
+    .tool-flyout button.active {
+      background: var(--bg-bar);
+      color: var(--text-on-bar);
+    }
+
+    .tool-flyout button svg {
+      width: var(--icon-size);
+      height: var(--icon-size);
+      fill: none;
+      stroke: currentColor;
+      flex: none;
+    }
+
+    .tool-flyout .flyout-key {
+      margin-left: auto;
+      padding-left: 12px;
+      opacity: 0.7;
+      font-size: var(--font-size-small);
     }
 
     .tool-panel-label {
@@ -5572,6 +5631,8 @@
         d="M15.09,6.6c-.52-.21-1.09.07-1.25.58l-1.23,2.77.82-4.41c.1-.58-.25-1.17-.82-1.29-.61-.13-1.2.27-1.3.88l-.7,4.19v-5.28c-.01-.6-.49-1.08-1.09-1.08s-1.08.48-1.08,1.08v5.66s-.9-4.69-.9-4.69c-.1-.52-.54-.93-1.07-.93-.7,0-1.18.63-1.06,1.28l1.23,6.36c-.41-.62-1.2-1.15-1.76-1.47-.53-.31-1.64-.03-1.51.73.03.19.24.56.35.72l3.31,4.65c.33.45.85.71,1.41.71h3.69c.65,0,1.21-.44,1.37-1.07l2.12-8.22c.13-.47-.09-.99-.54-1.17Z" />
     </svg>
   </div>
+  <!-- PEN MODE FLYOUT (v20260914d): rows built by buildPenFlyout() from PEN_FLYOUT_MODES -->
+  <div id="penFlyout" class="tool-flyout" hidden role="menu" aria-label="Pen modes"></div>
   <div id="toolToolbar">
     <button data-tool="select" class="active" title="Select (V)">
       <svg viewBox="0 0 20 20" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
@@ -5634,7 +5695,7 @@
       </svg>
     </button>
     <div class="toolbar-divider"></div>
-    <button data-tool="pen" title="Pen (P)">
+    <button data-tool="pen" title="Pen (P) &middot; hold or right-click for the modes: + Add Point, &minus; Remove Point, &#8679;C Scissors, &#8679;P Anchor Point">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
         <polygon points="10 3 16 12 12 17.86 8 17.86 4 12 10 3" />
         <circle cx="10" cy="12.43" r="1.5" />
@@ -6857,11 +6918,12 @@
             <div class="xyz-row">
               <label for="penModeSelect">Mode</label>
               <div class="xyz-inputs">
-                <select id="penModeSelect">
-                  <option value="draw" selected>Draw</option>
-                  <option value="add">Add Point</option>
-                  <option value="remove">Remove Point</option>
-                  <option value="cut">Scissors</option>
+                <select id="penModeSelect" title="P Draw &middot; + Add Point &middot; &minus; Remove Point &middot; &#8679;C Scissors &middot; &#8679;P Anchor Point">
+                  <option value="draw" selected>Draw (P)</option>
+                  <option value="add">Add Point (+)</option>
+                  <option value="remove">Remove Point (&minus;)</option>
+                  <option value="cut">Scissors (&#8679;C)</option>
+                  <option value="anchor">Anchor Point (&#8679;P)</option>
                 </select>
               </div>
             </div>
@@ -6899,6 +6961,11 @@
             <div class="prop-row prop-inline">
               <label for="penMoveCoincidentCb" class="ui-checkbox-label">Move Coincident Points</label>
               <input type="checkbox" id="penMoveCoincidentCb" class="ui-checkbox" checked />
+            </div>
+            <!-- AUTO ADD / REMOVE (v20260914e): Illustrator's hover switch as a Draw-mode option -->
+            <div class="prop-row prop-inline" id="penAutoSwitchRow">
+              <label for="penAutoSwitchCb" class="ui-checkbox-label" title="Draw mode: over a segment of the path the click adds a point, over an anchor it removes one. Hold Shift to place a point instead.">Auto Add / Remove</label>
+              <input type="checkbox" id="penAutoSwitchCb" class="ui-checkbox" />
             </div>
             <div class="prop-row prop-row-plain" style="padding: 4px 10px;">
               <button id="penConfirmBtn" class="ui-btn" style="width: 100%;">Confirm Path</button>
@@ -11986,12 +12053,26 @@
       // authored). Solid nib with the eye as a counter in the same subpath,
       // plus a 1px plus/minus glyph at the lower right. Hotspot stays (10,3)
       // — the nib tip — so every pen mode points at the same pixel.
+      // v20260914b: the owner moved the plus / minus glyph to the UPPER right
+      // (bar 13..19 at y 4, stem x 16 from 1 to 7), clear of the nib's foot.
       penAdd: {
-        body: '<path d="M10,3L4,12l4,5.86h4l4-5.86L10,3ZM10,13.93c-.83,0-1.5-.67-1.5-1.5s.67-1.5,1.5-1.5,1.5.67,1.5,1.5-.67,1.5-1.5,1.5Z"/><line stroke="#000" stroke-miterlimit="10" stroke-width="1" x1="15" y1="17" x2="19" y2="17"/><line stroke="#000" stroke-miterlimit="10" stroke-width="1" x1="17" y1="19" x2="17" y2="15"/>',
+        body: '<path d="M10,3L4,12l4,5.86h4l4-5.86L10,3ZM10,13.93c-.83,0-1.5-.67-1.5-1.5s.67-1.5,1.5-1.5,1.5.67,1.5,1.5-.67,1.5-1.5,1.5Z"/><line stroke="#000" stroke-miterlimit="10" stroke-width="1" x1="13" y1="4" x2="19" y2="4"/><line stroke="#000" stroke-miterlimit="10" stroke-width="1" x1="16" y1="7" x2="16" y2="1"/>',
         size: 20, x: 10, y: 3
       },
       penRemove: {
-        body: '<g transform="translate(0,-28.5)"><path d="M10,31.5l-6,9,4,5.86h4l4-5.86-6-9ZM10,42.43c-.83,0-1.5-.67-1.5-1.5s.67-1.5,1.5-1.5,1.5.67,1.5,1.5-.67,1.5-1.5,1.5Z"/><line stroke="#000" stroke-miterlimit="10" stroke-width="1" x1="15" y1="45.5" x2="19" y2="45.5"/></g>',
+        body: '<g transform="translate(0,-28.5)"><path d="M10,31.5l-6,9,4,5.86h4l4-5.86-6-9ZM10,42.43c-.83,0-1.5-.67-1.5-1.5s.67-1.5,1.5-1.5,1.5.67,1.5,1.5-.67,1.5-1.5,1.5Z"/><line stroke="#000" stroke-miterlimit="10" stroke-width="1" x1="13" y1="32.5" x2="19" y2="32.5"/></g>',
+        size: 20, x: 10, y: 3
+      },
+      // Retract hover (v20260914c): the solid nib with the caret glyph where
+      // the +/- glyphs sit - "this click converts the anchor's continuation".
+      penRetract: {
+        body: '<path d="M10,3L4,12l4,5.86h4l4-5.86L10,3ZM10,13.93c-.83,0-1.5-.67-1.5-1.5s.67-1.5,1.5-1.5,1.5.67,1.5,1.5-.67,1.5-1.5,1.5Z"/><polyline fill="none" stroke="#000" stroke-miterlimit="10" stroke-width="1" points="13 7 16 1 19 7"/>',
+        size: 20, x: 10, y: 3
+      },
+      // Anchor Point mode (v20260914b) - owner artwork: the convert-anchor
+      // caret. Hotspot at the apex (10,3), the same pixel as every pen mode.
+      penAnchor: {
+        body: '<polyline fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="4 17 10 3 16 17"/><polyline fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" points="4 17 10 3 16 17"/>',
         size: 20, x: 10, y: 3
       },
       scale: {
@@ -12085,13 +12166,17 @@
     // Session preference — never serialized; re-entering the pen keeps the
     // last mode and the drawer shows it (no hidden state).
     let penMode = 'draw';
+    // Every hint ends with the mode keys (v20260914a) so the bindings are
+    // discoverable where the mode is used.
+    const PEN_MODE_KEYS_HINT = 'Keys: P draw \u00b7 + add \u00b7 \u2212 remove \u00b7 \u21e7C scissors \u00b7 \u21e7P anchor point';
     const PEN_MODE_HINTS = {
-      draw: 'Click to place points.\nClick the first point to close the path.',
-      add: 'Click anywhere on the selected path to add a point there.',
-      remove: 'Click an anchor of the selected path to remove it.',
-      cut: 'Click anywhere on the selected path to cut it there.\nA closed path opens; an open path splits in two.'
+      draw: 'Click to place points. Drag to pull out handles.\nClick the first point to close the path; click the last anchor to retract its handle.\n' + PEN_MODE_KEYS_HINT,
+      add: 'Click anywhere on the selected path to add a point there.\n' + PEN_MODE_KEYS_HINT,
+      remove: 'Click an anchor of the selected path to remove it.\n' + PEN_MODE_KEYS_HINT,
+      cut: 'Click anywhere on the selected path to cut it there.\nA closed path opens; an open path splits in two.\n' + PEN_MODE_KEYS_HINT,
+      anchor: 'Click an anchor to make it a corner; click a handle to retract it. Drag from an anchor to pull out handles.\nDrag a handle to move it alone; Option re-mirrors. Shift = 45\u00b0.\n' + PEN_MODE_KEYS_HINT
     };
-    const PEN_MODE_CURSORS = { draw: 'pen', add: 'penAdd', remove: 'penRemove', cut: 'penCut' };
+    const PEN_MODE_CURSORS = { draw: 'pen', add: 'penAdd', remove: 'penRemove', cut: 'penCut', anchor: 'penAnchor' };
     // Toolbar / panel icon body for the current pen mode (v20260725s, owner
     // artwork). The OUTLINE nib (unchanged from the plain pen button) plus the
     // same 1px plus/minus glyph the cursors carry, so the button states read
@@ -12108,10 +12193,15 @@
           + '<circle fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" cx="6" cy="16.4" r="1.6"/>'
           + '<circle fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" cx="14" cy="16.4" r="1.6"/>';
       }
+      // Anchor Point (v20260914b): the owner's caret, its own image like the scissors.
+      if (mode === 'anchor') {
+        return '<polyline fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" points="4 17 10 3 16 17"/>';
+      }
       const nib = '<polygon fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" points="10 3 16 12 12 17.86 8 17.86 4 12 10 3"/>'
         + '<circle fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" cx="10" cy="12.43" r="1.5"/>';
-      const bar = '<line fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="1" stroke-linecap="butt" x1="15" y1="17" x2="19" y2="17"/>';
-      const stem = '<line fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="1" stroke-linecap="butt" x1="17" y1="19" x2="17" y2="15"/>';
+      // v20260914b: the owner's glyph moved to the upper right (see the cursors).
+      const bar = '<line fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="1" stroke-linecap="butt" x1="13" y1="4" x2="19" y2="4"/>';
+      const stem = '<line fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="1" stroke-linecap="butt" x1="16" y1="7" x2="16" y2="1"/>';
       return nib + (mode === 'add' ? bar + stem : (mode === 'remove' ? bar : ''));
     };
     // The left toolbar's Pen button always advertises the mode the next click
@@ -15470,6 +15560,101 @@
         }
       });
     });
+
+    // --- PEN MODE FLYOUT (v20260914d, owner: "long press the pen tool button
+    // to show the other options like Illustrator") ------------------------
+    // A LONG PRESS (350 ms) or a RIGHT-CLICK on the toolbar Pen button opens a
+    // flyout to its right: one row per mode, icon (penModeIconBody) + key.
+    // Choosing a row = setTool('pen') + setPenMode(mode) - the same single
+    // writer the keys and the drawer use. Illustrator's press-slide-release
+    // works too: while the press that opened it is still down, releasing over
+    // a row chooses it. The click that a long press would otherwise deliver to
+    // the button is swallowed (capture listener), so a long press never
+    // toggles the tool. A quick click is unchanged.
+    const PEN_FLYOUT_MODES = [
+      { mode: 'draw', label: 'Pen', key: 'P' },
+      { mode: 'add', label: 'Add Point', key: '+' },
+      { mode: 'remove', label: 'Remove Point', key: '\u2212' },
+      { mode: 'cut', label: 'Scissors', key: '\u21e7C' },
+      { mode: 'anchor', label: 'Anchor Point', key: '\u21e7P' },
+    ];
+    const PEN_FLYOUT_HOLD_MS = 350;
+    let _penFlyoutTimer = null, _penFlyoutSwallowClick = false, _penFlyoutPressOpen = false;
+    const penFlyoutEl = document.getElementById('penFlyout');
+    const penToolBtn = document.querySelector('#toolToolbar button[data-tool="pen"]');
+    const buildPenFlyout = () => {
+      if (!penFlyoutEl) return;
+      penFlyoutEl.innerHTML = '';
+      for (const m of PEN_FLYOUT_MODES) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.dataset.penMode = m.mode;
+        b.setAttribute('role', 'menuitem');
+        b.innerHTML = '<svg viewBox="0 0 20 20" stroke-linecap="round" stroke-linejoin="round">' + penModeIconBody(m.mode) + '</svg>'
+          + '<span>' + m.label + '</span><span class="flyout-key">' + m.key + '</span>';
+        b.addEventListener('click', () => choosePenFlyout(m.mode));
+        b.addEventListener('pointerenter', () => { penFlyoutEl.querySelectorAll('button').forEach(x => x.classList.toggle('hot', x === b)); });
+        penFlyoutEl.appendChild(b);
+      }
+    };
+    const closePenFlyout = () => {
+      if (!penFlyoutEl || penFlyoutEl.hidden) return;
+      penFlyoutEl.hidden = true;
+      _penFlyoutPressOpen = false;
+      document.removeEventListener('pointerdown', _penFlyoutOutside, true);
+      document.removeEventListener('pointerup', _penFlyoutRelease, true);
+      document.removeEventListener('keydown', _penFlyoutKey, true);
+    };
+    const choosePenFlyout = (mode) => {
+      closePenFlyout();
+      if (currentTool !== 'pen') setTool('pen');
+      setPenMode(mode);
+    };
+    const _penFlyoutOutside = (e) => { if (!penFlyoutEl.contains(e.target) && e.target !== penToolBtn && !penToolBtn.contains(e.target)) closePenFlyout(); };
+    const _penFlyoutRelease = (e) => {
+      // Press-slide-release: the press that opened the flyout ends over a row.
+      if (!_penFlyoutPressOpen) return;
+      _penFlyoutPressOpen = false;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const row = el && el.closest && el.closest('#penFlyout button[data-pen-mode]');
+      if (row) choosePenFlyout(row.dataset.penMode);
+    };
+    const _penFlyoutKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); closePenFlyout(); } };
+    const openPenFlyout = (fromPress) => {
+      if (!penFlyoutEl || !penToolBtn) return;
+      buildPenFlyout();
+      penFlyoutEl.querySelectorAll('button').forEach(b => b.classList.toggle('active', currentTool === 'pen' && b.dataset.penMode === penMode));
+      penFlyoutEl.hidden = false;
+      const r = penToolBtn.getBoundingClientRect();
+      penFlyoutEl.style.left = (r.right + 4) + 'px';
+      const h = penFlyoutEl.offsetHeight;
+      penFlyoutEl.style.top = Math.max(4, Math.min(r.top, window.innerHeight - h - 4)) + 'px';
+      _penFlyoutPressOpen = !!fromPress;
+      document.addEventListener('pointerdown', _penFlyoutOutside, true);
+      document.addEventListener('pointerup', _penFlyoutRelease, true);
+      document.addEventListener('keydown', _penFlyoutKey, true);
+    };
+    if (penToolBtn && penFlyoutEl) {
+      penToolBtn.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        clearTimeout(_penFlyoutTimer);
+        _penFlyoutTimer = setTimeout(() => { _penFlyoutSwallowClick = true; openPenFlyout(true); }, PEN_FLYOUT_HOLD_MS);
+      });
+      const cancelHold = () => { clearTimeout(_penFlyoutTimer); _penFlyoutTimer = null; };
+      penToolBtn.addEventListener('pointerup', cancelHold);
+      penToolBtn.addEventListener('pointerleave', cancelHold);
+      penToolBtn.addEventListener('pointercancel', cancelHold);
+      // The click a long press still delivers must not toggle the tool.
+      penToolBtn.addEventListener('click', (e) => {
+        if (!_penFlyoutSwallowClick) return;
+        _penFlyoutSwallowClick = false;
+        e.stopImmediatePropagation();
+        e.preventDefault();
+      }, true);
+      penToolBtn.addEventListener('contextmenu', (e) => { e.preventDefault(); openPenFlyout(false); });
+      window.addEventListener('resize', closePenFlyout);
+      window.addEventListener('blur', closePenFlyout);
+    }
 
     {
       const gizmoModeSelect = document.getElementById('gizmoModeSelect');
@@ -20566,7 +20751,16 @@
       const HIT_RADIUS_SQ = 196; // 14px
       let bestIdx = -1;
       let bestDistSq = Infinity;
-
+      let bestIsAnchor = false;
+      // TIE-BREAK (v20260914e): a sharp bezier anchor has its control points
+      // COINCIDENT with it, and the lowest index used to win the tie - the
+      // C_bck (or, for the first anchor, C_fwd). So Remove mode could not
+      // remove a corner (the range helper refuses control points), Anchor
+      // Point mode's drag-from-anchor grew one handle instead of two, and a
+      // Draw-mode drag of a corner pulled a handle out instead of moving the
+      // point. On an exact tie the ANCHOR wins; a control point that is
+      // merely near its anchor on screen is still its own hit.
+      const isBez = activePath.algorithm === 'bezier';
       for (let i = 0; i < activePath.localVertices.length; i++) {
         if (skipIndices.has(i)) continue;
         const v = activePath.localVertices[i];
@@ -20579,9 +20773,12 @@
         const dx = mouseX - screenX;
         const dy = mouseY - screenY;
         const dSq = dx * dx + dy * dy;
-        if (dSq < HIT_RADIUS_SQ && dSq < bestDistSq) {
+        if (dSq >= HIT_RADIUS_SQ) continue;
+        const isAnchor = isBez ? !!(bezierRoleOf(activePath, i) || { isAnchor: true }).isAnchor : true;
+        if (dSq < bestDistSq - 1e-9 || (Math.abs(dSq - bestDistSq) <= 1e-9 && isAnchor && !bestIsAnchor)) {
           bestIdx = i;
           bestDistSq = dSq;
+          bestIsAnchor = isAnchor;
         }
       }
       return bestIdx >= 0 ? { vertexIndex: bestIdx, distSq: bestDistSq } : null;
@@ -61767,6 +61964,12 @@
     let _penDraggingHandle = null;       // 'fwd' | 'bck' | null — which handle is being independently dragged
     let _penHoveredHandle = null;        // 'fwd' | 'bck' | null — which handle the cursor is hovering over
     let _penDraggingVertexIdx = -1;      // Index of ANY vertex being dragged in pen tool (-1 = none)
+    let _penAnchorGrow = null;           // ANCHOR POINT mode (v20260914b): { vi, fwd, bck, anchorLocal, moved } while pressing on an anchor
+    let _penRetractArmed = false;        // RETRACT (v20260914c): the press landed on the LAST anchor while its forward handle is pending
+    let penAutoSwitch = false;           // AUTO ADD / REMOVE (v20260914e): Draw mode's hover switch (Pen drawer checkbox, persisted in settings)
+    let _penAutoHover = null;            // 'add' | 'remove' | null - what the hover currently promises (drives the cursor)
+    let _penAutoRemoveArmed = -1;        // the anchor a Draw-mode press landed on with the switch promising 'remove' (fires at mouseup if nothing moved)
+    let _penHandleRetractArmed = -1;     // ANCHOR POINT mode (v20260914f): the handle a press landed on; a click (no move) retracts it onto its anchor
     let _penHoveredVertexIdx = -1;       // Index of vertex the cursor is hovering over (-1 = none)
     let _penVertexDragSmooth = false;    // Was the node smooth (collinear) when drag started?
     let _penVertexDragStartDir = null;   // v20260725x: dragged handle's unit axis at drag start (Shift lock)
@@ -62395,6 +62598,183 @@
 
     let _penAddHit = null;   // current Add-Point hover result (preview + click)
 
+    // The start of a pen VERTEX drag (anchor or control point). Extracted
+    // verbatim from the Draw branch (v20260914b) so Anchor Point mode's handle
+    // drags share it: captures the node's smooth state and both handle axes
+    // for the modifier scheme, then pushes the gesture's undo baseline.
+    // The index of the LAST anchor of the active path's last subpath (the
+    // anchor whose forward handle is the pending _penBezierDragDelta).
+    const penLastAnchorIdx = (path) => {
+      const sp = path && path.subPathData && path.subPathData.length ? path.subPathData[path.subPathData.length - 1] : null;
+      return sp && sp.count >= 1 ? sp.start + sp.count - 1 : -1;
+    };
+    const penBeginVertexDrag = (vtxHit, event) => {
+      _penDraggingVertexIdx = vtxHit.vertexIndex;
+      _penDragStartScreenPos = { x: event.clientX, y: event.clientY };
+
+      // Detect smooth/corner state at drag-start for bezier control points
+      _penVertexDragSmooth = false;
+      // v20260725x: the modifier scheme needs the axes AS THEY WERE when
+      // the drag began — Shift locks to the handle's own start axis, and
+      // Option (on a corner) locks to the opposite handle's reverse axis.
+      // Capturing at mousedown keeps both stable for the whole gesture.
+      _penVertexDragStartDir = null;
+      _penVertexDragOppDir = null;
+      if (activePath.algorithm === 'bezier' && activePath.subPathData) {
+        const vi = vtxHit.vertexIndex;
+        const sp = activePath.subPathData.find(s => vi >= s.start && vi < s.start + s.count);
+        if (sp) {
+          const relIdx = vi - sp.start;
+          const mod = relIdx % 3;
+          const { anchorIdx: aIdx, mirrorIdx: mIdx } = getBezierMirrorInfo(activePath, vi, relIdx, mod, sp);
+          if (mod === 1 && mIdx >= 0) {
+            _penVertexDragSmooth = areCPsSmooth(
+              activePath.localVertices[vi - 1],
+              activePath.localVertices[vi],
+              activePath.localVertices[mIdx]
+            );
+          } else if (mod === 2 && mIdx >= 0) {
+            _penVertexDragSmooth = areCPsSmooth(
+              activePath.localVertices[vi + 1],
+              activePath.localVertices[vi],
+              activePath.localVertices[mIdx]
+            );
+          }
+          const _aPos = aIdx >= 0 ? activePath.localVertices[aIdx] : null;
+          if (_aPos) {
+            const sd = vectorSubtract(activePath.localVertices[vi], _aPos);
+            if (vectorLength(sd) > 1e-9) _penVertexDragStartDir = vectorNormalize(sd);
+            if (mIdx >= 0 && activePath.localVertices[mIdx]) {
+              const od = vectorSubtract(activePath.localVertices[mIdx], _aPos);
+              if (vectorLength(od) > 1e-9) _penVertexDragOppDir = vectorNormalize(od);
+            }
+          }
+        }
+      }
+      pushUndoState();
+      svg.style.cursor = 'grabbing';
+    };
+    // The cursor on the pen's working plane, in the active path's LOCAL space
+    // (ray x plane, grid snap; the 2D-Mode fabricated pair). Null when the
+    // ray misses the plane. The tangent-drag block's arithmetic, factored for
+    // Anchor Point mode's handle-grow gesture (v20260914b).
+    const penCursorLocal = (event) => {
+      if (!activePath) return null;
+      const vpMatrix = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
+      const _pen2D = pen2DRayPlane(activePath, event);
+      const ray = _pen2D ? _pen2D.ray : getRayFromClick(event, vpMatrix);
+      if (!ray) return null;
+      const workingPlane = _pen2D ? _pen2D.plane : getPenWorkingPlane();
+      const n = workingPlane.normal, pp = workingPlane.point;
+      const denom = ray.direction[0] * n[0] + ray.direction[1] * n[1] + ray.direction[2] * n[2];
+      if (Math.abs(denom) <= 1e-6) return null;
+      const t = vectorSubtract(pp, ray.origin).reduce((s, v, k) => s + v * n[k], 0) / denom;
+      if (t < 0) return null;
+      let cursorWorld = vectorAdd(ray.origin, vectorScale(ray.direction, t));
+      if (activeWorkplane.snapToGrid) {
+        const basis = _pen2D ? { u: [1, 0, 0], v: [0, 1, 0] } : getGridBasis();
+        cursorWorld = snapPointToPlaneLocal(cursorWorld, pp, basis.u, basis.v, activeWorkplane.gridSize);
+      }
+      const rel = vectorSubtract(cursorWorld, activePath.position);
+      return vectorApplyMatrix(rel, matrixTranspose(activePath.rotationMatrix));
+    };
+
+    // Insert a point on `obj` at a curve hit - the Add-mode body (v20260725r),
+    // extracted in v20260914e so Draw mode's auto-switch shares it exactly.
+    // Returns true when a point was inserted.
+    const penAddPointAtHit = (obj, hit) => {
+      if (!obj || !hit) return false;
+      // SHAPE KEYS (v20260731i): a b-spline insert makes the clicked point a
+      // CONTROL point, which has no shape-preserving equivalent for a stored
+      // pose - ask BEFORE anything is mutated, and abort the whole insert on
+      // cancel. bezier / linear propagate exactly, from parameters captured
+      // here because the insert moves them.
+      let _shPre = null;
+      if (hit.span) {
+        if (hit.span.kind === 'bspline') {
+          if (typeof _tlShapeConfirmDrop === 'function'
+            && !_tlShapeConfirmDrop(obj, 'Adding a point to this B-spline path')) return false;
+        } else {
+          _shPre = {
+            kind: hit.span.kind, t: hit.t,
+            baseIdx: hit.span.baseIdx, aIdx: hit.span.aIdx,
+            closure: !!hit.span.closure,
+            spStart: hit.span.sp.start, spCount: hit.span.sp.count,
+          };
+        }
+      }
+      pushUndoState();
+      const newIdx = penInsertAtHit(obj, hit);
+      if (newIdx < 0) return false;
+      if (_shPre) _tlShapeCarryInsert(obj, _shPre);
+      notifyPathUpdated(obj);
+      _penAddHit = null;
+      resetPenBezierState();
+      updateTreeView();
+      updatePropertiesPanel();
+      requestRender();
+      pushUndoState('Add point');
+      return true;
+    };
+    // Remove the anchor cluster at vertex `vi` of `obj` - the Remove-mode body
+    // (v20260725o/p), extracted in v20260914e for the auto-switch. Returns true
+    // when something was removed; an emptied path is removed from the scene
+    // and activePath cleared (the ghost-object fix, v20260724a).
+    const penRemoveVertexCluster = (obj, vi) => {
+      const range = penRemoveClusterRange(obj, vi);
+      if (!range) return false;
+      pushUndoState();
+      const _shLenBefore = obj.localVertices.length;   // SHAPE KEYS (v20260731h)
+      // Splice from the TOP of the range down so the lower indices stay valid;
+      // removeVertexFromSubPaths keeps subPathData coherent on every step (and
+      // bails once the path is empty).
+      for (let k = range.start + range.count - 1; k >= range.start; k--) {
+        removeVertexFromSubPaths(obj, k);
+        if (obj.localVertices.length === 0) break;
+      }
+      if (obj.localVertices.length === 0) {
+        removeEmptiedObject(obj);
+        if (activePath === obj) activePath = null;
+      } else {
+        // SHAPE KEYS (v20260731h): carry the poses through the same removal.
+        // The count comes from the BUFFER, not range.count - the only honest
+        // source for "how many went" is the length delta.
+        const _shRemoved = _shLenBefore - obj.localVertices.length;
+        if (_shRemoved > 0) _tlShapeCarry(obj, (n) => { n.splice(range.start, _shRemoved); return n; });
+        notifyPathUpdated(obj);
+      }
+      resetPenBezierState();
+      updateTreeView();
+      updatePropertiesPanel();
+      requestRender();
+      pushUndoState('Remove point');
+      return true;
+    };
+    // AUTO ADD / REMOVE (v20260914e, owner: "the hover auto-switch as a
+    // Draw-mode option"): what Draw mode's click would do at (x, y) with the
+    // switch on - 'remove' over a removable anchor, 'add' over a segment of
+    // the active path, null where the click keeps its Draw meaning. The
+    // exceptions keep every existing Draw gesture: the close target (first
+    // anchor), the handle dots, the just-placed LAST anchor (its click is the
+    // retract, and deleting the point you are drawing from would be a trap),
+    // and control points (they drag). Hover and click use THIS one predicate.
+    const penAutoTargetAt = (x, y) => {
+      if (!activePath || !activePath.localVertices || activePath.localVertices.length < 2) return null;
+      if (penCloseTargetAt(x, y)) return null;
+      if (activePath.algorithm === 'bezier' && _penBezierDragDelta) {
+        const h = getHandleScreenPositions();
+        for (const k of ['fwd', 'bck']) if (h[k] && (x - h[k].x) ** 2 + (y - h[k].y) ** 2 < 196) return null;
+      }
+      const vtx = findPenHoveredVertex(x, y);
+      if (vtx) {
+        const vi = vtx.vertexIndex;
+        if (vi === penLastAnchorIdx(activePath)) return null;
+        const role = bezierRoleOf(activePath, vi);
+        if (role && !role.isAnchor) return null;
+        return penRemoveClusterRange(activePath, vi) ? 'remove' : null;
+      }
+      return penCurveHitTest(activePath, x, y) ? 'add' : null;
+    };
     const penRemoveClusterRange = (obj, vi) => {
       const role = bezierRoleOf(obj, vi);
       if (!role) return { start: vi, count: 1 };
@@ -62418,6 +62798,10 @@
       _penDraggingHandle = null;
       _penHoveredHandle = null;
       _penDraggingVertexIdx = -1;
+      _penAnchorGrow = null;
+      _penRetractArmed = false;
+      _penAutoRemoveArmed = -1;
+      _penHandleRetractArmed = -1;
       _penHoveredVertexIdx = -1;
       _penVertexDragSmooth = false;
       const tg = document.getElementById('penTangentPreviewGroup');
@@ -74875,40 +75259,7 @@
             return;   // dragMode stays 'draw-pen' (see the note in the remove branch)
           }
           const hit = activePath ? penCurveHitTest(activePath, event.clientX, event.clientY) : null;
-          if (hit) {
-            const obj = activePath;
-            // SHAPE KEYS (v20260731i): a b-spline insert makes the clicked
-            // point a CONTROL point, which has no shape-preserving equivalent
-            // for a stored pose — ask BEFORE anything is mutated, and abort
-            // the whole insert on cancel. bezier / linear propagate exactly,
-            // from parameters captured here because the insert moves them.
-            let _shPre = null;
-            if (hit.span) {
-              if (hit.span.kind === 'bspline') {
-                if (typeof _tlShapeConfirmDrop === 'function'
-                  && !_tlShapeConfirmDrop(obj, 'Adding a point to this B-spline path')) return;
-              } else {
-                _shPre = {
-                  kind: hit.span.kind, t: hit.t,
-                  baseIdx: hit.span.baseIdx, aIdx: hit.span.aIdx,
-                  closure: !!hit.span.closure,
-                  spStart: hit.span.sp.start, spCount: hit.span.sp.count,
-                };
-              }
-            }
-            pushUndoState();
-            const newIdx = penInsertAtHit(obj, hit);
-            if (newIdx >= 0) {
-              if (_shPre) _tlShapeCarryInsert(obj, _shPre);
-              notifyPathUpdated(obj);
-              _penAddHit = null;
-              resetPenBezierState();
-              updateTreeView();
-              updatePropertiesPanel();
-              requestRender();
-              pushUndoState('Add point');
-            }
-          }
+          if (hit) penAddPointAtHit(activePath, hit);   // v20260914e: the body is the shared helper
           return;     // dragMode stays 'draw-pen' (H4.16b — keeps activePath)
         }
         if (penMode === 'remove') {
@@ -74923,39 +75274,7 @@
               ).then(doBake => { if (doBake) bakeToPath(activePath); });
               return;   // dragMode stays 'draw-pen' — see the note below
             }
-            const range = penRemoveClusterRange(activePath, hit.vertexIndex);
-            if (range) {
-              pushUndoState();
-              const obj = activePath;
-              const _shLenBefore = obj.localVertices.length;   // SHAPE KEYS (v20260731h)
-              // Splice from the TOP of the range down so the lower indices
-              // stay valid; removeVertexFromSubPaths keeps subPathData
-              // coherent on every step (and bails once the path is empty).
-              for (let k = range.start + range.count - 1; k >= range.start; k--) {
-                removeVertexFromSubPaths(obj, k);
-                if (obj.localVertices.length === 0) break;
-              }
-              if (obj.localVertices.length === 0) {
-                removeEmptiedObject(obj);   // ghost-object fix (v20260724a)
-                activePath = null;
-              } else {
-                // SHAPE KEYS (v20260731h): carry the poses through the same
-                // removal. The count comes from the BUFFER, not range.count —
-                // removeVertexFromSubPaths carries a legacy-inconsistency
-                // fallback and the loop breaks early on an emptied path, so the
-                // only honest source for "how many went" is the length delta.
-                const _shRemoved = _shLenBefore - obj.localVertices.length;
-                if (_shRemoved > 0) {
-                  _tlShapeCarry(obj, (n) => { n.splice(range.start, _shRemoved); return n; });
-                }
-                notifyPathUpdated(obj);
-              }
-              resetPenBezierState();
-              updateTreeView();
-              updatePropertiesPanel();
-              requestRender();
-              pushUndoState('Remove point');
-            }
+            penRemoveVertexCluster(activePath, hit.vertexIndex);   // v20260914e: the body is the shared helper
           }
           // dragMode DELIBERATELY stays 'draw-pen' (set at the top of this
           // branch) — do NOT reset it to 'none' here (user report, fixed in
@@ -74971,6 +75290,69 @@
           // which resetPenBezierState() above has already cleared.
           return;
         }
+        if (penMode === 'anchor') {
+          // ANCHOR POINT mode (v20260914b, P2.6 of PLAN-path-edit-parity; the
+          // Illustrator Convert Anchor Point tool). Bezier-only. Click an
+          // anchor -> a CORNER (both handles collapse onto it, decided at
+          // mouseup when nothing moved); drag from an anchor -> symmetric
+          // handles grow (Shift = the 45 deg grid, a creation gesture); drag
+          // a handle -> that handle moves ALONE, Option re-mirrors (the
+          // plain / Option roles of the Draw scheme swap on a smooth node -
+          // _penAltEff in mousemove). A non-bezier path gets the CONVERT
+          // OFFER on the action, the primitive-guard pattern (owner
+          // decisions 2026-09-14: in place, undoable; on first click; the
+          // same one dialog for linear, whose conversion is exact).
+          if (!activePath) return;
+          if (activePath.primitiveData) {
+            showAppConfirm(
+              'Bake to Path?',
+              'This shape is a parametric primitive.\nBake to path to edit its anchors?\n\n(This will make the shape non-parametric.)'
+            ).then(doBake => { if (doBake) bakeToPath(activePath); });
+            return;
+          }
+          const hitA = findPenHoveredVertex(event.clientX, event.clientY);
+          if (!hitA) return;
+          if (activePath.algorithm !== 'bezier') {
+            const objNB = activePath;
+            const exact = objNB.algorithm === 'linear';
+            showAppConfirm(
+              'Convert to B\u00e9zier?',
+              'Anchor Point mode edits B\u00e9zier anchors.\nConvert this ' + (exact ? 'linear' : 'B-spline')
+              + ' path to B\u00e9zier' + (exact ? ' (exact)' : '') + '?\n\n(In place - Undo restores the original.)'
+            ).then(ok => {
+              if (!ok || activePath !== objNB) return;
+              pushUndoState();
+              if (!convertPathToBezier(objNB)) return;
+              selectedVertexInfo = null; hoveredVertexInfo = null; selectedVertices = [];
+              resetPenBezierState();          // the vertex layout changed
+              notifyPathUpdated(objNB);
+              updateSubPathUI(); updatePropertiesPanel(); updateStylePanel();
+              requestRender();
+              pushUndoState('Convert to Bezier');
+            });
+            return;
+          }
+          const roleA = bezierRoleOf(activePath, hitA.vertexIndex);
+          if (!roleA) return;
+          if (roleA.isAnchor) {
+            const vi = hitA.vertexIndex;
+            const comps = bezierAnchorCompanions(activePath, vi, roleA);
+            _penAnchorGrow = {
+              vi, fwd: comps.includes(vi + 1) ? vi + 1 : -1, bck: comps.includes(vi - 1) ? vi - 1 : -1,
+              anchorLocal: [...activePath.localVertices[vi]], moved: false
+            };
+            _penDragStartScreenPos = { x: event.clientX, y: event.clientY };
+            pushUndoState();
+            return;
+          }
+          // A handle: the shared vertex drag, alone by default (mousemove). A
+          // CLICK (no move) RETRACTS it onto its anchor at mouseup (v20260914f,
+          // owner: "when a handle is clicked, Illustrator removes that handle").
+          penBeginVertexDrag(hitA, event);
+          _penHandleRetractArmed = hitA.vertexIndex;
+          return;
+        }
+
         // Draw mode: clicking the FIRST anchor closes the path and confirms
         // it. Delegates to confirmPenPath via its own Close Path checkbox, so
         // the closing + undo + reset logic has exactly one implementation.
@@ -75052,53 +75434,29 @@
         if (activePath && activePath.localVertices.length > 0) {
           const vtxHit = findPenHoveredVertex(event.clientX, event.clientY);
           if (vtxHit) {
-            _penDraggingVertexIdx = vtxHit.vertexIndex;
-            _penDragStartScreenPos = { x: event.clientX, y: event.clientY };
-
-            // Detect smooth/corner state at drag-start for bezier control points
-            _penVertexDragSmooth = false;
-            // v20260725x: the modifier scheme needs the axes AS THEY WERE when
-            // the drag began — Shift locks to the handle's own start axis, and
-            // Option (on a corner) locks to the opposite handle's reverse axis.
-            // Capturing at mousedown keeps both stable for the whole gesture.
-            _penVertexDragStartDir = null;
-            _penVertexDragOppDir = null;
-            if (activePath.algorithm === 'bezier' && activePath.subPathData) {
-              const vi = vtxHit.vertexIndex;
-              const sp = activePath.subPathData.find(s => vi >= s.start && vi < s.start + s.count);
-              if (sp) {
-                const relIdx = vi - sp.start;
-                const mod = relIdx % 3;
-                const { anchorIdx: aIdx, mirrorIdx: mIdx } = getBezierMirrorInfo(activePath, vi, relIdx, mod, sp);
-                if (mod === 1 && mIdx >= 0) {
-                  _penVertexDragSmooth = areCPsSmooth(
-                    activePath.localVertices[vi - 1],
-                    activePath.localVertices[vi],
-                    activePath.localVertices[mIdx]
-                  );
-                } else if (mod === 2 && mIdx >= 0) {
-                  _penVertexDragSmooth = areCPsSmooth(
-                    activePath.localVertices[vi + 1],
-                    activePath.localVertices[vi],
-                    activePath.localVertices[mIdx]
-                  );
-                }
-                const _aPos = aIdx >= 0 ? activePath.localVertices[aIdx] : null;
-                if (_aPos) {
-                  const sd = vectorSubtract(activePath.localVertices[vi], _aPos);
-                  if (vectorLength(sd) > 1e-9) _penVertexDragStartDir = vectorNormalize(sd);
-                  if (mIdx >= 0 && activePath.localVertices[mIdx]) {
-                    const od = vectorSubtract(activePath.localVertices[mIdx], _aPos);
-                    if (vectorLength(od) > 1e-9) _penVertexDragOppDir = vectorNormalize(od);
-                  }
-                }
-              }
-            }
-
-            pushUndoState();
-            svg.style.cursor = 'grabbing';
+            penBeginVertexDrag(vtxHit, event);
+            // RETRACT (v20260914c, Illustrator's click-the-last-anchor): a press
+            // on the LAST anchor while its forward handle is pending arms the
+            // retract; mouseup fires it if nothing moved (a real drag still
+            // moves the anchor, handle and all).
+            _penRetractArmed = !!(penMode === 'draw' && activePath.algorithm === 'bezier'
+              && _penBezierDragDelta && vtxHit.vertexIndex === penLastAnchorIdx(activePath));
+            // AUTO REMOVE (v20260914e): with the switch on, a CLICK (no move) on
+            // a removable anchor removes it at mouseup - the hover's predicate;
+            // a drag still moves the point.
+            _penAutoRemoveArmed = (penAutoSwitch && !event.shiftKey && !activePath.primitiveData
+              && penAutoTargetAt(event.clientX, event.clientY) === 'remove') ? vtxHit.vertexIndex : -1;
             return; // Don't place a new anchor
           }
+        }
+
+        // AUTO ADD (v20260914e): no vertex under the cursor but a segment of the
+        // active path - insert there instead of placing a new point (Shift
+        // suspends the switch, so a point CAN be placed on a segment).
+        if (penAutoSwitch && !event.shiftKey && activePath && !activePath.primitiveData) {
+          const hitAuto = penAutoTargetAt(event.clientX, event.clientY) === 'add'
+            ? penCurveHitTest(activePath, event.clientX, event.clientY) : null;
+          if (hitAuto) { penAddPointAtHit(activePath, hitAuto); return; }   // dragMode stays 'draw-pen' (H4.16b)
         }
 
         // Pen Tool Logic
@@ -76084,6 +76442,25 @@
           _snapIndicatorTarget = null;
         }
       }
+      // --- AUTO ADD / REMOVE hover (v20260914e) ---
+      // Draw mode with the switch on reads the hover like Illustrator: over a
+      // removable anchor the click removes (pen-minus cursor), over a segment
+      // it inserts (pen-plus cursor + the Add preview below); Shift suspends
+      // it. penAutoTargetAt is the ONE predicate the click uses too.
+      {
+        const prev = _penAutoHover;
+        _penAutoHover = null;
+        if (currentTool === 'pen' && penMode === 'draw' && penAutoSwitch && activePath
+          && !activePath.primitiveData && dragMode === 'none' && !event.shiftKey) {
+          _penAutoHover = penAutoTargetAt(event.clientX, event.clientY);
+        }
+        if (_penAutoHover !== prev) {
+          if (_penAutoHover === 'add') svg.style.cursor = buildToolCursor('penAdd');
+          else if (_penAutoHover === 'remove') svg.style.cursor = buildToolCursor('penRemove');
+          else if (prev) applyToolCursor();
+        }
+      }
+
       // --- Pen ADD POINT hover preview (v20260725r) ---
       // Highlights the hovered SEGMENT and marks the exact point the click
       // would insert. Follows the v20260725q principle: the cursor stays the
@@ -76097,7 +76474,7 @@
           // hit-test, same segment highlight + dot, because the two answer
           // the same question ("which point on the path is under the
           // cursor?") and only differ in what the click then does.
-          if (currentTool === 'pen' && (penMode === 'add' || penMode === 'cut') && activePath
+          if (currentTool === 'pen' && (penMode === 'add' || penMode === 'cut' || _penAutoHover === 'add') && activePath
             && !activePath.primitiveData && dragMode === 'none') {
             _penAddHit = penCurveHitTest(activePath, event.clientX, event.clientY);
             if (_penAddHit) {
@@ -76214,7 +76591,15 @@
             // that cannot happen. The hovered anchor scales up instead
             // (drawVertexGizmos) — the A tool's established hover idiom.
             if (penMode === 'draw') {
-              svg.style.cursor = newHoveredIdx >= 0 ? 'grab' : currentToolCursor;
+              // RETRACT affordance (v20260914c): over the last anchor with a
+              // pending forward handle the nib carries the caret - a click
+              // there retracts, a drag still moves.
+              const retractable = newHoveredIdx >= 0 && activePath.algorithm === 'bezier'
+                && _penBezierDragDelta && newHoveredIdx === penLastAnchorIdx(activePath);
+              // AUTO ADD / REMOVE (v20260914e): the switch's promise beats the grab.
+              const autoCur = _penAutoHover === 'remove' ? buildToolCursor('penRemove')
+                : (_penAutoHover === 'add' ? buildToolCursor('penAdd') : null);
+              svg.style.cursor = retractable ? buildToolCursor('penRetract') : (autoCur || (newHoveredIdx >= 0 ? 'grab' : currentToolCursor));
             } else {
               applyToolCursor();
             }
@@ -76446,6 +76831,35 @@
 
       // --- General Vertex Drag ---
       // Move any vertex the user grabbed in the pen tool
+      // ANCHOR POINT mode (v20260914b): a drag from an anchor grows symmetric
+      // handles - forward = anchor + delta, backward = anchor - delta, on the
+      // companions that exist (an open end has one). Below the 5px threshold
+      // it is still a click (the collapse, decided at mouseup).
+      if (dragMode === 'draw-pen' && _penAnchorGrow && activePath) {
+        const g = _penAnchorGrow;
+        if (!g.moved && _penDragStartScreenPos) {
+          const sdx = event.clientX - _penDragStartScreenPos.x, sdy = event.clientY - _penDragStartScreenPos.y;
+          if ((sdx * sdx + sdy * sdy) < 25) return;
+        }
+        const cursorLocal = penCursorLocal(event);
+        if (!cursorLocal) return;
+        g.moved = true;
+        let delta = vectorSubtract(cursorLocal, g.anchorLocal);
+        if (event.shiftKey) {   // a CREATION gesture: Shift is the 45 deg grid (v20260725x), in the path's plane
+          const _b = isIn2DMode(activePath) ? { u: [1, 0, 0], v: [0, 1, 0] } : getGridBasis();
+          const _invR = matrixTranspose(activePath.rotationMatrix);
+          delta = constrainDelta45(delta,
+            vectorNormalize(vectorApplyMatrix(_b.u, _invR)),
+            vectorNormalize(vectorApplyMatrix(_b.v, _invR)));
+        }
+        if (g.fwd >= 0) activePath.localVertices[g.fwd] = vectorAdd(g.anchorLocal, delta);
+        if (g.bck >= 0) activePath.localVertices[g.bck] = vectorSubtract(g.anchorLocal, delta);
+        svg.style.cursor = 'grabbing';
+        notifyPathUpdated(activePath);
+        requestRender();
+        return;
+      }
+
       if (dragMode === 'draw-pen' && _penDraggingVertexIdx >= 0 && activePath) {
         svg.style.cursor = 'grabbing';
 
@@ -76501,6 +76915,11 @@
         // before anything else reads it, so the mirror below and the final
         // write both see the constrained point.
         let _dragPos = cursorLocal;
+        // ANCHOR POINT mode (v20260914b): a plain handle drag moves the handle
+        // ALONE and Option re-mirrors - on a SMOOTH node that is the Draw
+        // scheme with Option inverted (smooth + Option = break); on a corner
+        // the plain drag is already alone and Option is already make-mirror.
+        const _penAltEff = (penMode === 'anchor' && _penVertexDragSmooth) ? !event.altKey : event.altKey;
         {
           const role = bezierRoleOf(activePath, vi);
           if (role) {
@@ -76511,14 +76930,14 @@
               const anchorPos = anchorIdx >= 0 ? activePath.localVertices[anchorIdx] : null;
               if (anchorPos) {
                 _dragPos = resolveHandleDragPos(anchorPos, cursorLocal, {
-                  shiftKey: event.shiftKey, altKey: event.altKey,
+                  shiftKey: event.shiftKey, altKey: _penAltEff,
                   smoothAtStart: _penVertexDragSmooth,
                   startDir: _penVertexDragStartDir, oppDir: _penVertexDragOppDir
                 });
               }
               applyHandleMirror(activePath, vi, _dragPos, {
                 smoothAtStart: _penVertexDragSmooth,
-                altKey: event.altKey, shiftKey: event.shiftKey
+                altKey: _penAltEff, shiftKey: event.shiftKey
               });
             }
           }
@@ -79221,6 +79640,25 @@
           _doodleLastPoint = null;
         }
 
+        // ANCHOR POINT mode mouseup (v20260914b): a CLICK on an anchor collapses
+        // its handles onto it (a corner; straight neighbours); a DRAG has
+        // already grown them. Labelled push unless the path is still a pending
+        // creation (the Move-point rule below).
+        if (dragMode === 'draw-pen' && _penAnchorGrow && activePath) {
+          const g = _penAnchorGrow;
+          if (!g.moved) {
+            if (g.fwd >= 0) activePath.localVertices[g.fwd] = [...g.anchorLocal];
+            if (g.bck >= 0) activePath.localVertices[g.bck] = [...g.anchorLocal];
+          }
+          if (!activePath._preCreationSceneState) pushUndoState(g.moved ? 'Pull out handles' : 'Corner point');
+          _penAnchorGrow = null;
+          _penDragStartScreenPos = null;
+          _penHoveredVertexIdx = -1;
+          applyToolCursor();
+          notifyPathUpdated(activePath);
+          requestRender();
+        }
+
         // --- General vertex drag mouseup ---
         // UNDOABLE (v20260904g). Nothing pushed for a pen point drag: the
         // mouseup fell through to `setSelectedObject(activePath)` below, whose
@@ -79233,6 +79671,36 @@
           pushUndoState('Move point');
         }
         if (dragMode === 'draw-pen' && _penDraggingVertexIdx >= 0) {
+          // RETRACT (v20260914c): a CLICK (no move) on the last anchor drops its
+          // pending forward handle, so the next segment leaves straight - the
+          // backward handle and the curve behind it are untouched.
+          const _noMove = !!(_penDragStartScreenPos
+            && Math.hypot(event.clientX - _penDragStartScreenPos.x, event.clientY - _penDragStartScreenPos.y) < 5);
+          if (_penRetractArmed && _noMove) {
+            _penBezierDragDelta = null;
+          }
+          // HANDLE RETRACT (v20260914f, Anchor Point mode): a click on a handle
+          // moves that control point ONTO its anchor. The stride-3 array has no
+          // "no handle" - a coincident control point IS the retracted handle,
+          // exactly what Illustrator's Convert Anchor Point click leaves behind;
+          // the next drag from that anchor grows a fresh pair (v20260914b).
+          let _hRetract = -1;
+          if (_penHandleRetractArmed >= 0 && _noMove && activePath) {
+            const rr = bezierRoleOf(activePath, _penHandleRetractArmed);
+            if (rr && !rr.isAnchor) {
+              const { anchorIdx } = getBezierMirrorInfo(activePath, _penHandleRetractArmed, rr.relIdx, rr.mod, rr.sp);
+              if (anchorIdx >= 0 && activePath.localVertices[anchorIdx]) {
+                activePath.localVertices[_penHandleRetractArmed] = [...activePath.localVertices[anchorIdx]];
+                _hRetract = _penHandleRetractArmed;
+              }
+            }
+          }
+          _penHandleRetractArmed = -1;
+          // AUTO REMOVE (v20260914e): the armed anchor goes after the block's
+          // own cleanup (the helper may empty the path and clear activePath).
+          const _autoRm = (_penAutoRemoveArmed >= 0 && _noMove) ? _penAutoRemoveArmed : -1;
+          _penAutoRemoveArmed = -1;
+          _penRetractArmed = false;
           _penDraggingVertexIdx = -1;
           _penHoveredVertexIdx = -1;
           _penVertexDragSmooth = false;
@@ -79240,6 +79708,8 @@
           applyToolCursor();
           notifyPathUpdated(activePath);
           requestRender();
+          if (_autoRm >= 0 && activePath) penRemoveVertexCluster(activePath, _autoRm);
+          if (_hRetract >= 0 && activePath && !activePath._preCreationSceneState) pushUndoState('Retract handle');
         }
 
         // --- Bezier Tangent mouseup: finalize tangent state ---
@@ -79260,10 +79730,16 @@
           } else if (_penIsDraggingTangent && _penBezierLiveDelta) {
             // Remember delta for next anchor's C_fwd computation
             _penBezierDragDelta = [..._penBezierLiveDelta];
-          } else {
-            // Sharp click — coincident controls
+          } else if (_penDragAnchorLocalPos) {
+            // Sharp click on a NEW anchor — coincident controls
             _penBezierDragDelta = null;
           }
+          // v20260914c: any OTHER draw-pen mouseup - a drag or click on some
+          // other vertex, an Anchor Point gesture - KEEPS the pending forward
+          // handle. It used to fall into the sharp-click reset, so adjusting an
+          // earlier point silently straightened the next segment (measured: a
+          // click on a middle anchor nulled the delta and hid the handles). The
+          // explicit retract is the click on the LAST anchor (_penRetractArmed).
           // Clear drag-in-progress state (but keep _penBezierDragDelta for next anchor)
           _penDragAnchorIdx = -1;
           _penDragAnchorLocalPos = null;
@@ -80009,6 +80485,32 @@
 
       if (!event.metaKey && !event.ctrlKey && !event.altKey) {
 
+        // PEN MODE KEYS (v20260914a, P3.10 of PLAN-path-edit-parity): the
+        // Illustrator bindings where they are free - `+` (or `=`) Add Point,
+        // `-` Remove Point - and Shift+C for Scissors because C alone is the
+        // camera. Each is ONE setPenMode call (the single writer owns the
+        // dropdown, cursor, hint and toolbar glyph); pressed outside the pen
+        // it enters the pen first, so the selected path becomes the edit
+        // target exactly as a P press would (adoptSelectionAsActivePath). P
+        // itself now means DRAW (Illustrator's P is the Pen, not "the last
+        // sub-tool"); the toolbar button keeps re-entering in the last mode.
+        // Shift+C is read from shiftKey, not the letter case, so a caps-lock
+        // C still reaches the camera. X was ruled out: it is the HELD axis
+        // lock (isXPressed) - the v20260718k collision class.
+        {
+          const _pk = event.key;
+          const _penKeyMode = (_pk === '+' || _pk === '=') ? 'add'
+            : (_pk === '-' || _pk === '_') ? 'remove'
+            : ((_pk === 'c' || _pk === 'C') && event.shiftKey) ? 'cut'
+            : ((_pk === 'p' || _pk === 'P') && event.shiftKey) ? 'anchor' : null;   // v20260914b (owner: stability over Illustrator's Shift+C)
+          if (_penKeyMode) {
+            event.preventDefault();
+            if (currentTool !== 'pen') setTool('pen');
+            setPenMode(_penKeyMode);
+            return;
+          }
+        }
+
         // Block Camera Shortcuts if locked
         if (activeCamera.lock && ['1', '3', '7', '9', '0', '5', '2', '4', '6', '8', '!'].includes(event.key)) {
           return;
@@ -80136,6 +80638,7 @@
           case 'P':
             event.preventDefault();
             setTool('pen');
+            setPenMode('draw');   // v20260914a: P is the Pen = Draw (the modes have their own keys)
             break;
           case 'm':
           case 'M':
@@ -81489,6 +81992,9 @@
             }
             keepGridOnHide = settings.keepGridOnHide === true;
             const kg = document.getElementById('keepGridOnHideCheckbox'); if (kg) kg.checked = keepGridOnHide;
+            // AUTO ADD / REMOVE (v20260914e): a pen preference, absent key = off.
+            penAutoSwitch = settings.penAutoSwitch === true;
+            const pas = document.getElementById('penAutoSwitchCb'); if (pas) pas.checked = penAutoSwitch;
           }
         } catch (e) {
           console.warn('Failed to load settings:', e);
@@ -81511,6 +82017,18 @@
           console.warn('Failed to save settings:', e);
         }
       };
+
+      // AUTO ADD / REMOVE (v20260914e): the Pen drawer checkbox, persisted.
+      {
+        const pas = document.getElementById('penAutoSwitchCb');
+        if (pas) pas.addEventListener('change', () => {
+          penAutoSwitch = pas.checked;
+          saveSettings({ penAutoSwitch });
+          _penAutoHover = null;
+          if (currentTool === 'pen') applyToolCursor();
+          requestRender();
+        });
+      }
 
       // Theme select (v20260908b)
       const themeSelect = document.getElementById('themeSelect');

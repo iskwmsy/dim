@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260913c -->
+<!-- dim v20260913d -->
 
 <!--
   MIT License
@@ -19515,9 +19515,11 @@
     // Compute viewport-aware pixel-to-world scale factor
     // Returns the number of world units per pixel at a given depth
     const getPixelToWorldFactor = (depth) => {
-      const rect = svg.getBoundingClientRect();
-      const viewportPixels = Math.min(rect.width, rect.height);
-      if (viewportPixels < 1) return TRUCK_SPEED * depth; // fallback
+      // The frame's pixel height = FRAME_SIZE * the view scale (v20260913d: it
+      // read min(rect.width, rect.height), the pre-arena frame - drags ran 9%
+      // fast at 1024x768; same fix as getRayFromClick).
+      const viewportPixels = FRAME_SIZE * getViewScale();
+      if (!(viewportPixels >= 1)) return TRUCK_SPEED * depth; // fallback
       if (projectionType === 'perspective') {
         return 2 * depth * Math.tan(activeCamera.fovRadians / 2) / viewportPixels;
       } else {
@@ -74183,9 +74185,20 @@
 
     const getRayFromClick = (event, vpMatrix) => {
       const rect = svg.getBoundingClientRect();
-      const scale = Math.min(rect.width, rect.height) / FRAME_SIZE;
+      // THE FRAME MAPPING IS THE RENDER'S (v20260913d, owner: "the Pen tool
+      // cursor is not pointing where the edit is dropped"). The paper is drawn
+      // at getViewScale() about (width/2 + CANVAS_OFFSET_X, height/2 +
+      // CANVAS_OFFSET_Y) since the canvas arena (v20260909g); this function
+      // kept the pre-arena `min(rect.width, rect.height)` scale and no vertical
+      // offset (its `rect.*` spelling escaped that release's grep), so EVERY
+      // click ray - pen placement, object / vertex / pivot / workplane drags,
+      // doodle - was built 9% too coarse at 1024x768 and every point landed
+      // toward the frame centre (measured 13-19 px off at the frame's edge,
+      // identical under two cameras). One mapping, read from the same
+      // functions the draw uses.
+      const scale = getViewScale();
       const offsetX = (rect.width - FRAME_SIZE * scale) / 2 + CANVAS_OFFSET_X;
-      const offsetY = (rect.height - FRAME_SIZE * scale) / 2;
+      const offsetY = (rect.height - FRAME_SIZE * scale) / 2 + CANVAS_OFFSET_Y;
 
       // Mouse relative to SVG top-left
       const mx = event.clientX - rect.left;

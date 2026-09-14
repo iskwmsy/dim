@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260914zzo -->
+<!-- dim v20260914zzv -->
 
 <!--
   MIT License
@@ -3621,6 +3621,46 @@
       border-radius: 50%;
       background: var(--accent-color);
       pointer-events: none;
+    }
+
+    /* SCENE ROOT ROW (v20260914zzu, PLAN-scene-zsort S4): the one fixed row
+       above the objects in the Scene Objects tree. Not an object: not
+       selectable, not draggable, no lock / eye. Its checkbox is Z-Sort for the
+       WHOLE scene (sceneRender.zSort); while on, a second row carries the two
+       options a z-sorted Group has, Depth and Masks. Every colour is a token;
+       the option row's select is a stock .ui-select. */
+    .scene-root-row {
+      cursor: default;
+    }
+
+    .scene-root-row .tree-item-name {
+      font-weight: 600;
+    }
+
+    .scene-root-opts {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: var(--row-h-list);
+      padding: 1px 8px 3px 26px;
+      font-size: var(--font-size-field);
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border-light);
+      margin-bottom: 2px;
+    }
+
+    .scene-root-opts label {
+      white-space: nowrap;
+    }
+
+    .scene-root-opts select.ui-select {
+      flex: 0 1 118px;
+      min-width: 0;
+      width: auto;
+    }
+
+    .scene-root-opts .ui-checkbox {
+      margin-left: auto;
     }
 
     /* Scene action icon bar */
@@ -14224,6 +14264,32 @@
     // subwindow's guide and the export.
     const FRAME_GUIDE_RATIOS = { '16:9': [960, 540], '9:16': [540, 960], '4:5': [768, 960] };
     let _currentFrameGuide = document.getElementById('frameGuideSelect')?.value || 'none';
+    // SCENE Z-SORT (PLAN-scene-zsort S1, v20260914zzr): the scene root's render
+    // options - the three a Group carries (Z-Sort Children / Depth / Masks),
+    // held on ONE lexical object beside the other scene-level scalars. Model
+    // and persistence only in S1: nothing draws through it until S2 builds the
+    // root. Serialized as sceneData.sceneRender ONLY while zSort is on (absent
+    // = off, so every legacy file and every file this build writes with the
+    // option off is byte-identical); loaded next to frameGuide with absent =
+    // OFF (unlike frameGuide's "leave untouched" - Clear Scene imports a
+    // payload without the key and must reset it); in captureSceneState so a
+    // toggle is one labelled scene-undo entry. Default Depth is descendants:
+    // the reason to sort a scene is objects crossing each other.
+    const SCENE_RENDER_DEFAULTS = Object.freeze({ zSort: false, zSortMode: 'descendants', maskRender: true });
+    const sceneRender = { ...SCENE_RENDER_DEFAULTS };
+    const _sceneRenderSnapshot = () => ({
+      zSort: !!sceneRender.zSort,
+      zSortMode: sceneRender.zSortMode === 'children' ? 'children' : 'descendants',
+      maskRender: sceneRender.maskRender !== false
+    });
+    // One applier for the loader and the undo restore: a plain data object, or
+    // anything falsy for the defaults. Unknown values fall back field by field.
+    const _applySceneRender = (data) => {
+      const d = (data && typeof data === 'object') ? data : SCENE_RENDER_DEFAULTS;
+      sceneRender.zSort = !!d.zSort;
+      sceneRender.zSortMode = d.zSortMode === 'children' ? 'children' : 'descendants';
+      sceneRender.maskRender = d.maskRender !== false;
+    };
 
 
     // --- Deep Clone ---
@@ -14306,6 +14372,7 @@
         objects: sceneObjects.map(obj => serializeObject(obj, { undo: true })),   // v20260904e: snapshots keep disabled blocks
         backgroundColor: _currentBackgroundColor,
         frameGuide: _currentFrameGuide,
+        sceneRender: _sceneRenderSnapshot(),   // SCENE Z-SORT S1 (v20260914zzr): always present so a toggle diffs
         // Reference image (v20260724h Phase 2): enters the scene undo diff so
         // position/scale/opacity edits and add/remove are undoable. null when
         // inactive (diffs cleanly against a present image on remove). The data
@@ -14500,6 +14567,9 @@
         if (fgSelect) fgSelect.value = state.frameGuide;
         _currentFrameGuide = state.frameGuide;
       }
+      // SCENE Z-SORT S1 (v20260914zzr): an entry older than the field restores
+      // the defaults (off) - the same reading the loader gives an absent key.
+      _applySceneRender(state.sceneRender);
       // Restore Reference Image (v20260724h Phase 2 — undo/redo). Same shared
       // authoritative helper as importScene; absent in an old undo snapshot
       // (pre-Phase-2 entries) is treated as "no image", matching capture.
@@ -25584,6 +25654,26 @@
           }
         }
 
+        // ART SIDE (v20260914zzp, the surface-mapping twin of the spline-flow
+        // probe): the field's front is the side of dPn/du x dPn/dv, but the
+        // decal's art faces along surfaceNormalAt - the +Normal Offset
+        // direction, oriented OUTWARD by normalSign from the profile winding
+        // - which is the raw cross product only when normalSign is +1. A
+        // profile wound the other way put the art on the field's back side
+        // (measured: the Earth with its sphere profile reversed tagged every
+        // eye-facing country 'back'). One sign per build, from the map.
+        const artSign = SurfaceMapper._rcArtSign(
+          (u, v, d) => {
+            const p = surfacePointN(u, v);
+            if (!p || d === 0) return p;
+            const sn = surfaceNormalAt(u, v);
+            return [p[0] + sn[0] * d, p[1] + sn[1] * d, p[2] + sn[2] * d];
+          },
+          uMin, uMax, vMin, vMax);
+        const artLayer = artSign < 0
+          ? (L) => (L === 'front' ? 'back' : 'front')
+          : (L) => L;
+
         // --- 3. Domain cuts: open rail/profile in around mode -----------
         // The surface is genuinely discontinuous at integer u (or v), so
         // the subject is pre-cut into period bands; band edges are plain
@@ -25863,7 +25953,7 @@
             if (!count) continue;
             fragments.push({
               d: d.trim(), zSum, count, avgZ: zSum / count,
-              type: 'split', layer, subpathIdx: 0,
+              type: 'split', layer, artSign, subpathIdx: 0,
               strokes, useNonzero: foldSmoothed,
               dMerged: (strokeMerge && dMerged) ? dMerged.trim() : null,
               u0: u0 <= u1 ? u0 : 0, u1: u0 <= u1 ? u1 : 1,
@@ -25872,8 +25962,9 @@
             });
           }
         };
-        packageLayer(frontRings, 'front');
-        packageLayer(backRings, 'back');
+        // `layer` names the side of the ART that faces the camera (artSign).
+        packageLayer(frontRings, artLayer('front'));
+        packageLayer(backRings, artLayer('back'));
 
         // Degenerate open subpaths (v20260704k): split as polylines and
         // emit stroke-only fragments — same refinement, no fill ring.
@@ -25915,7 +26006,7 @@
               sd = sd.trim();
               fragments.push({
                 d: sd, zSum, count, avgZ: zSum / count,
-                type: 'split', layer: side, subpathIdx: 0,
+                type: 'split', layer: artLayer(side), artSign, subpathIdx: 0,
                 strokes: [null, sd], strokeOnly: true, useNonzero: false,
                 startUV: null, endUV: null,
                 startIsCrossing: false, endIsCrossing: false
@@ -25935,6 +26026,34 @@
             .map(([u, v]) => ({ u, v, w: [...surfacePointN(u, v)] })),
           fragments);
         return fragments;
+      }
+
+      // ART-SIDE SIGN of a region-clip field (v20260914zzp). `at(s, t, d)`
+      // returns the world point of domain sample (s, t) displaced by d
+      // along the ART direction (the source's dropped axis for spline flow,
+      // the +Normal Offset direction for surface mapping). Returns +1 when
+      // the field's normal dP/ds x dP/dt points to the art side, -1 when
+      // the art is on the field's back, so the builders can relabel their
+      // front/back tags to mean "the ART faces the camera". Probes the
+      // domain centre, then the four quarter points; every probe degenerate
+      // (a clamped overflow edge collapses the differences, a NaN) keeps +1
+      // - the field's own orientation, the pre-zzp behaviour.
+      static _rcArtSign(at, sMin, sMax, tMin, tMax) {
+        const hs = (sMax - sMin) * 1e-3 || 1e-6, ht = (tMax - tMin) * 1e-3 || 1e-6;
+        const hd = Math.max(hs, ht);
+        const samples = [[0.5, 0.5], [0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]];
+        for (const [fs, ft] of samples) {
+          const s = sMin + fs * (sMax - sMin), t = tMin + ft * (tMax - tMin);
+          const p0 = at(s, t, 0), ps = at(s + hs, t, 0), pt = at(s, t + ht, 0), pd = at(s, t, hd);
+          if (!p0 || !ps || !pt || !pd) continue;
+          const ax = ps[0] - p0[0], ay = ps[1] - p0[1], az = ps[2] - p0[2];
+          const bx = pt[0] - p0[0], by = pt[1] - p0[1], bz = pt[2] - p0[2];
+          const nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+          const g = nx * (pd[0] - p0[0]) + ny * (pd[1] - p0[1]) + nz * (pd[2] - p0[2]);
+          if (!isFinite(g) || g === 0) continue;
+          return g < 0 ? -1 : 1;
+        }
+        return 1;
       }
 
       // Region-clip fragment builder for the spline-flow pipeline
@@ -26139,12 +26258,41 @@
           const p = project(srcPtOf(x, y));
           return (p && p.world) ? p.world : null;
         };
+        const worldAt2 = (p3) => {          // full source-local 3D point (art-side probe)
+          const p = project(p3);
+          return (p && p.world) ? p.world : null;
+        };
         // Stage 5: grid-batched field — ONE projection per node, normals
         // from neighbor differences (replaces the 3-projection
         // finite-difference evalG of Stage 4).
         const field = SilhouetteField.buildFromPoints(
           worldAt, camPos, xMin, xMax, yMin, yMax, RC_GRID_N);
         const region = SilhouetteField.buildFrontRegion(field);
+
+        // ART SIDE (v20260914zzp; owner report: Backside View on a spline
+        // flow painted the sticker's backing over art that FACED the
+        // camera). The field's 'front' is the side of dP/ds x dP/dt, and
+        // (s, t) is the source's dominant plane in natural axis order - for
+        // an XZ-flat source (drawn on the ground workplane) that pair is
+        // left-handed about the sheet's own +Y (X x Z = -Y), so the field's
+        // front was the BACK of the art: the uv-cross handedness trap the
+        // fold's View mode hit in v20260817a, in the mapping's field
+        // domain. The sticker's front is where the source's DROPPED axis
+        // maps to (+Y for an XZ sheet, +Z for XY - the side the authoring
+        // camera sees; fold's own definition). Measured from the map, never
+        // tabulated by axis pair (the v20260819f lesson): mirrors (negative
+        // scaleU*scaleV - previously an XOR in the group sticker pass), the
+        // rigid frame's -side*w and every rail-frame convention fold in for
+        // free. One sign per build: the Jacobian sign of a smooth map is
+        // constant over its connected domain. Degenerate probes (a clamped
+        // overflow edge, a NaN) fall through to the next sample; all
+        // degenerate keeps the field's own orientation.
+        const artSign = SurfaceMapper._rcArtSign(
+          (s, t, d) => { const p = srcPtOf(s, t); p[axDrop] += d; return worldAt2(p); },
+          xMin, xMax, yMin, yMax);
+        const artLayer = artSign < 0
+          ? (L) => (L === 'front' ? 'back' : 'front')
+          : (L) => L;
 
         // --- 3. Domain cuts: around mode on an OPEN target ---------------
         // u is affine in source (x, y); the preimages of integer u are
@@ -26457,15 +26605,18 @@
             if (!count) continue;
             fragments.push({
               d: d.trim(), zSum, count, avgZ: zSum / count,
-              type: 'split', layer, strokes, useNonzero: foldSmoothed,
+              type: 'split', layer, artSign, strokes, useNonzero: foldSmoothed,
               dMerged: (strokeMerge && dMerged) ? dMerged.trim() : null,
               u0: u0 <= u1 ? u0 : 0, u1: u0 <= u1 ? u1 : 1,
               bounds, zBounds
             });
           }
         };
-        packageLayer(frontRings, 'front');
-        packageLayer(backRings, 'back');
+        // `layer` names the side of the ART that faces the camera (see
+        // artSign above) - the field's own front/back is relabelled when
+        // the map puts the art on the field's -normal side.
+        packageLayer(frontRings, artLayer('front'));
+        packageLayer(backRings, artLayer('back'));
 
         // Degenerate open subpaths (v20260704k): split as polylines and
         // emit stroke-only fragments — same refinement, no fill ring.
@@ -26515,7 +26666,7 @@
               sd = sd.trim();
               fragments.push({
                 d: sd, zSum, count, avgZ: zSum / count,
-                type: 'split', layer: side,
+                type: 'split', layer: artLayer(side), artSign,
                 strokes: [null, sd],
                 bounds, zBounds
               });
@@ -41315,6 +41466,18 @@
 
         // Restore this group's own SVG container if it was previously hidden
         if (this.svgElement) this.svgElement.style.display = '';
+        // S0 of PLAN-scene-zsort (v20260914zzq): Group.draw RETURNS its
+        // children's draw promises. Path.draw is async (its revolve / mesh /
+        // sweep helpers await; the faces themselves are pushed synchronously,
+        // see the _pushedFaces note in Path.draw), and render() awaits only the
+        // TOP-LEVEL draws - so a Path nested in a group had its async tail
+        // unawaited by every frame-level consumer (FlattenPreview settle, the
+        // animation exporters, the harnesses). Every child.draw() below is
+        // collected here and the function ends with Promise.all of them; the
+        // z-sort commit and everything else in this function stay synchronous
+        // exactly as before - nothing in here awaits. Prerequisite for a scene
+        // root that draws through Group.draw (the root must be awaitable).
+        const _childDraws = [];
 
         // Calculate Local transformation
         const localMatrix = this.getLocalMatrix();
@@ -41470,7 +41633,7 @@
 
           for (const child of this.children) {
             const _pk0 = sharedFaceList.length;
-            child.draw(currentMVP, { ...childOpts, externalFaceList: sharedFaceList, deepZSort: isDeep });
+            _childDraws.push(child.draw(currentMVP, { ...childOpts, externalFaceList: sharedFaceList, deepZSort: isDeep }));
             _stampPickOwner(child, sharedFaceList, _pk0);
           }
 
@@ -41654,9 +41817,9 @@
             // encounter order) — REVERSED when the band shows its BACK.
             // Facing comes from the RC layer tag (mapping gets it from the
             // silhouette field for free, where fold needed the projected-
-            // area sign), corrected for mirrored mappings (negative
-            // scaleU·scaleV flips the field's normal orientation and with
-            // it the tags). Section identity is the u-extent in group
+            // area sign); since v20260914zzp the tag already names the side
+            // of the ART (the builders fold the map's orientation - axis
+            // pair, mirror, frame - into it). Section identity is the u-extent in group
             // mapping space: pieces of one band OVERLAP in u across
             // children; same-layer bands that merely TOUCH at a domain cut
             // stay separate (strict-overlap test), so each wrap of a spiral
@@ -41672,7 +41835,14 @@
                 }
               });
               for (const [mk, faces] of mapKeys) {
-                const mirror = ((mk.scaleU ?? 1) * (mk.scaleV ?? 1)) < 0;
+                // v20260914zzp: the RC builders now tag `layer` by the side
+                // of the ART that faces the camera (artSign, measured from
+                // the map's own Jacobian), so the scaleU*scaleV mirror XOR
+                // that lived here is folded into the tag - for spline flow
+                // a negative scale flips the field's normal AND the probe,
+                // for surface mapping the field lives in UV space, where a
+                // mirrored decal never moved the art off the +offset side
+                // and the XOR was reversing a front-facing decal.
                 const sorted = faces.slice().sort((a, b) =>
                   (a._mapOrd.u0 + a._mapOrd.u1) - (b._mapOrd.u0 + b._mapOrd.u1));
                 const sections = [];
@@ -41691,7 +41861,7 @@
                 const out = [];
                 for (const sec of sections) {
                   const members = sec.members.slice().sort((a, b) => a._mapIdx - b._mapIdx);
-                  const backFacing = (sec.layer === 'back') !== mirror;
+                  const backFacing = (sec.layer === 'back');
                   const gSec = document.createElementNS('http://www.w3.org/2000/svg', 'g');
                   (backFacing ? members.slice().reverse() : members)
                     .forEach(m => gSec.appendChild(m.element));
@@ -41836,7 +42006,7 @@
             // Pass the shared face list through to children recursively
             for (const child of this.children) {
               const _pk0 = externalFaceList.length;
-              child.draw(currentMVP, { ...childOpts, externalFaceList, deepZSort: true });
+              _childDraws.push(child.draw(currentMVP, { ...childOpts, externalFaceList, deepZSort: true }));
               _stampPickOwner(child, externalFaceList, _pk0);
             }
           } else {
@@ -41844,7 +42014,7 @@
             // Render children normally into this group's svgElement,
             // then push the whole group as a single face entry.
             for (const child of this.children) {
-              child.draw(currentMVP, childOpts);
+              _childDraws.push(child.draw(currentMVP, childOpts));
             }
             this._applyBacksideView(currentMVP, foldThread, activeMapping); // BACKSIDE: VIEW (v20260817a)
             // Compute z of group's position for sorting
@@ -41864,10 +42034,11 @@
         } else {
           // --- Normal Mode (existing behavior) ---
           for (const child of this.children) {
-            child.draw(currentMVP, childOpts);
+            _childDraws.push(child.draw(currentMVP, childOpts));
           }
           this._applyBacksideView(currentMVP, foldThread, activeMapping); // BACKSIDE: VIEW (v20260817a)
         }
+        return Promise.all(_childDraws);   // S0 (v20260914zzq): awaitable subtree
       }
     }
 
@@ -56459,6 +56630,59 @@
 
     // --- Scene Objects ---
     const sceneObjects = [];
+
+    // SCENE Z-SORT S2 (v20260914zzs, PLAN-scene-zsort): THE SCENE ROOT.
+    // One Group instance that wraps the scene at DRAW time only: its element
+    // IS #pathGroup (the constructor's own <g> is detached), its `children`
+    // is a live accessor over sceneObjects, identity transform, never in
+    // sceneObjects, never serialized as an object, never selectedObject.
+    // While sceneRender.zSort is on, drawScene() draws the scene THROUGH
+    // Group.draw's z-sort branch, so the whole machine is reused verbatim -
+    // deep flatten (Depth: descendants), the fold and mapping sticker-section
+    // passes (they run at the top z-sorted group, i.e. here), MaskRender with
+    // the root as host (`_mrIds` lives on it), the mean-z fallback, the
+    // replaceChildren commit INTO #pathGroup and _stampPickOwner on every
+    // top-level child's faces. The picture is DEFINED as "select all, Group,
+    // same options" minus the wrapper <g> - the oracle S2 was gated on.
+    // With the option off the pre-S2 Promise.all runs untouched (off-state
+    // byte-identical by construction), plus the one thing Group.draw would
+    // have done on its own first un-sorted frame: put the top-level <g>s
+    // back into #pathGroup (`_zsDomCommitted`), in sceneObjects order.
+    // Built lazily on first use: `new Group()` appends to pathGroup, and the
+    // root must exist only once the DOM and the class are both live.
+    let _sceneRoot = null;
+    const getSceneRoot = () => {
+      if (_sceneRoot) return _sceneRoot;
+      const root = new Group('Scene');
+      root.svgElement.remove();
+      root.svgElement = pathGroup;
+      root.id = 'SceneRoot';
+      root.isSceneRoot = true;
+      Object.defineProperty(root, 'children', { get: () => sceneObjects, set: () => {}, configurable: true });
+      _sceneRoot = root;
+      return root;
+    };
+    // The ONE scene draw. Every frame-level consumer (the main loop, the
+    // SubView camera-B pass, the animation exporters and their previews, the
+    // harnesses) calls this instead of mapping sceneObjects itself, so the
+    // root option cannot be missed by a site. Returns a promise of the
+    // subtree's draws either way (S0 made Group.draw awaitable for this).
+    const drawScene = (vp, cam) => {
+      if (sceneRender.zSort) {
+        const root = getSceneRoot();
+        root.zSortChildren = true;
+        root.zSortMode = sceneRender.zSortMode === 'children' ? 'children' : 'descendants';
+        root.maskRender = sceneRender.maskRender !== false;
+        root.renderIntersections = false;
+        root.pathRender = false;
+        return Promise.resolve(root.draw(vp, { cameraVP: vp, camera: cam }));
+      }
+      if (_sceneRoot && _sceneRoot._zsDomCommitted) {
+        pathGroup.replaceChildren(...sceneObjects.map(o => o.svgElement).filter(Boolean));
+        _sceneRoot._zsDomCommitted = false;
+      }
+      return Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp, camera: cam })));
+    };
     // Default scene objects removed — test scene is auto-loaded on startup.
 
     // --- Gizmo Creation ---
@@ -62892,6 +63116,106 @@
           container.appendChild(childUl);
         }
       };
+
+      // SCENE ROOT ROW (v20260914zzu, PLAN-scene-zsort S4): one fixed row
+      // above the objects, rebuilt with the tree like every item. It is not an
+      // object - no selection, no drag, no lock / eye - so none of the
+      // selectedObject consumers ever see it (the reason the plan chose this
+      // shape over a selectable root). Its checkbox is Z-Sort for the WHOLE
+      // scene; while on, a second row shows Depth (children / all
+      // descendants) and Masks, the two options a z-sorted Group has. Each
+      // control writes sceneRender through the lock-toggle pattern: a bare
+      // pushUndoState before, the labelled one after, requestRender in
+      // between (the draw reads sceneRender every frame).
+      {
+        const _sceneEdit = (label, fn) => {
+          pushUndoState();
+          fn();
+          requestRender();
+          updateTreeView();
+          pushUndoState(label);
+        };
+        const rootLi = document.createElement('li');
+        rootLi.className = 'scene-tree-item scene-root-row';
+        rootLi.style.paddingLeft = '5px';
+        rootLi.title = 'The scene. Z-Sort orders every object in the scene by depth, as Z-Sort Children does inside a group.';
+        const rootIcon = document.createElement('span');
+        rootIcon.className = 'tree-type-icon';
+        rootIcon.innerHTML = '<svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="18" height="18"/><path d="M6,19l6-6,6,6,6-6"/>' + '<' + '/svg>';
+        rootLi.appendChild(rootIcon);
+        const rootName = document.createElement('span');
+        rootName.className = 'tree-item-name';
+        rootName.textContent = 'Scene';
+        rootLi.appendChild(rootName);
+        const rootStatus = document.createElement('span');
+        rootStatus.style.display = 'flex';
+        rootStatus.style.alignItems = 'center';
+        rootStatus.style.gap = '4px';
+        rootStatus.style.marginLeft = 'auto';
+        rootStatus.style.flexShrink = '0';
+        const zsLabel = document.createElement('label');
+        zsLabel.className = 'ui-checkbox-label';
+        zsLabel.textContent = 'Z-Sort';
+        zsLabel.htmlFor = 'sceneZSortCb';
+        zsLabel.style.cursor = 'pointer';
+        const zsCb = document.createElement('input');
+        zsCb.type = 'checkbox';
+        zsCb.id = 'sceneZSortCb';
+        zsCb.className = 'ui-checkbox';
+        zsCb.checked = !!sceneRender.zSort;
+        zsCb.title = 'Z-sort the whole scene (every object, by depth)';
+        zsCb.addEventListener('click', (e) => e.stopPropagation());
+        zsCb.addEventListener('change', (e) => {
+          const on = !!e.target.checked;
+          _sceneEdit(on ? 'Scene z-sort on' : 'Scene z-sort off', () => { sceneRender.zSort = on; });
+        });
+        rootStatus.appendChild(zsLabel);
+        rootStatus.appendChild(zsCb);
+        rootLi.appendChild(rootStatus);
+        sceneTree.appendChild(rootLi);
+
+        if (sceneRender.zSort) {
+          const optLi = document.createElement('li');
+          optLi.className = 'scene-root-opts';
+          const depthLabel = document.createElement('label');
+          depthLabel.textContent = 'Depth';
+          depthLabel.htmlFor = 'sceneZSortModeInput';
+          const depthSel = document.createElement('select');
+          depthSel.id = 'sceneZSortModeInput';
+          depthSel.className = 'ui-select';
+          depthSel.title = 'Children: each top-level object is one block. All Descendants: every face in the scene sorts together (a nested group\'s own render method is not consulted)';
+          for (const [v, t] of [['children', 'Children'], ['descendants', 'All Descendants']]) {
+            const o = document.createElement('option');
+            o.value = v; o.textContent = t;
+            depthSel.appendChild(o);
+          }
+          depthSel.value = sceneRender.zSortMode === 'children' ? 'children' : 'descendants';
+          depthSel.addEventListener('change', (e) => {
+            const v = e.target.value === 'children' ? 'children' : 'descendants';
+            _sceneEdit('Scene z-sort depth', () => { sceneRender.zSortMode = v; });
+          });
+          const maskLabel = document.createElement('label');
+          maskLabel.className = 'ui-checkbox-label';
+          maskLabel.textContent = 'Masks';
+          maskLabel.htmlFor = 'sceneMaskRenderCb';
+          maskLabel.style.cursor = 'pointer';
+          maskLabel.title = 'Render Intersections for the scene: the Masks (vector z-buffer) method, as on a group';
+          const maskCb = document.createElement('input');
+          maskCb.type = 'checkbox';
+          maskCb.id = 'sceneMaskRenderCb';
+          maskCb.className = 'ui-checkbox';
+          maskCb.checked = sceneRender.maskRender !== false;
+          maskCb.addEventListener('change', (e) => {
+            const on = !!e.target.checked;
+            _sceneEdit(on ? 'Scene masks on' : 'Scene masks off', () => { sceneRender.maskRender = on; });
+          });
+          optLi.appendChild(depthLabel);
+          optLi.appendChild(depthSel);
+          optLi.appendChild(maskCb);
+          optLi.appendChild(maskLabel);
+          sceneTree.appendChild(optLi);
+        }
+      }
 
       // Show newest objects on top (reverse iteration)
       // Only iterate ROOT objects (parent === null)
@@ -71119,7 +71443,7 @@
         animationTimeline.currentFrame = f;
         tlApplyFrame(f);
         const vp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
-        await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp, camera: activeCamera })));
+        await drawScene(vp, activeCamera);   // v20260914zzs: the one scene draw
         const live = this._normalize(this._pg().innerHTML);
         const cached = this._normalize(g.innerHTML);
         this._audits++;
@@ -71168,7 +71492,7 @@
             animationTimeline.currentFrame = f;
             tlApplyFrame(f);
             const vp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
-            await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp, camera: activeCamera })));
+            await drawScene(vp, activeCamera);   // v20260914zzs: the one scene draw
             const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             for (const c of pg.children) g.appendChild(c.cloneNode(true));
             this._namespace(g, tag + f + '_');
@@ -71255,7 +71579,7 @@
         if (!this._presenting) return false;
         this._restoreLive();
         const vp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
-        await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp, camera: activeCamera })));
+        await drawScene(vp, activeCamera);   // v20260914zzs: the one scene draw
         return true;
       },
 
@@ -71296,7 +71620,7 @@
             animationTimeline.currentFrame = f;
             tlApplyFrame(f);
             const vp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
-            await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp, camera: activeCamera })));
+            await drawScene(vp, activeCamera);   // v20260914zzs: the one scene draw
             const live = this._normalize(pg.innerHTML);
             const cached = this._normalize(g.innerHTML);
             checked++;
@@ -71566,7 +71890,7 @@
           // `camera: cam` rides the drawOptions rail beside cameraVP: inert
           // before Phase 1 lands, load-bearing after — and it can never
           // disagree with the swapped globals, because it IS them.
-          await Promise.all(sceneObjects.map(o => o.draw(vp, { cameraVP: vp, camera: cam })));
+          await drawScene(vp, cam);   // v20260914zzs: the one scene draw (camera B forwarded on childOpts)
           const g = document.createElementNS(svgNS, 'g');
           for (const c of pathGroup.children) g.appendChild(c.cloneNode(true));
           // 'sub<gen>_' is DISJOINT from the live tree's bare ids and from
@@ -73333,7 +73657,7 @@
         sceneDirty = false;
         render._drawHdr = _drawHdr;
         if (!RenderCache.step(_drawnFrame)) {
-          await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix, camera: activeCamera })));
+          await drawScene(vpMatrix, activeCamera);   // v20260914zzs: the one scene draw
         }
       }
       const _lapT3 = performance.now();
@@ -75013,6 +75337,28 @@
     // ONE COPY (v20260914zzb, dead-code sweep stage 4): onMouseDown and
     // onMouseUp each carried a byte-identical local of this.
     const findObjectByElement = (el, objects) => {
+      // SCENE Z-SORT S3 (v20260914zzt, PLAN-scene-zsort): with the scene root
+      // sorting, a top-level object's faces are committed straight into
+      // #pathGroup and its own <g> is EVICTED (Group.draw's z-sort commit, now
+      // running one level up), so the contains() walk below finds nothing for
+      // them - measured: 0 of 8 face hits on the test scene resolved. The
+      // producing Path already stamps every face it pushes (_dimPickOwner, the
+      // v20260807p Select Child mechanism), so at the TOP-LEVEL call the stamp
+      // is read first and climbed to its outermost ancestor - the same answer
+      // the walk gives wherever the walk still works (the stamp names the leaf
+      // whose faces the walk would have found inside the same top-level <g>).
+      // A stale stamp whose ancestor left the scene falls through to the walk;
+      // recursive calls (objects !== sceneObjects) are untouched.
+      if (objects === sceneObjects) {
+        for (let n = el; n && n !== pathGroup; n = n.parentNode) {
+          const owner = n._dimPickOwner;
+          if (!owner) continue;
+          let top = owner;
+          while (top.parent) top = top.parent;
+          if (sceneObjects.includes(top)) return top;
+          break;
+        }
+      }
       for (const obj of objects) {
         if (obj.svgElement && (obj.svgElement === el || obj.svgElement.contains(el))) return obj;
         if (obj.isGroup) {
@@ -83046,6 +83392,9 @@
       sceneData.backgroundColor = _currentBackgroundColor;
       sceneData.frameGuide = _currentFrameGuide;
       sceneData.scaleStrokeWithZoom = scaleStrokeWithZoom;
+      // SCENE Z-SORT S1 (v20260914zzr): key present only while ON - off = absent
+      // = byte-identical to every file written before the field existed.
+      if (sceneRender.zSort) sceneData.sceneRender = _sceneRenderSnapshot();
       // Reference image (v20260724g): file export has no size limit (unlike the
       // localStorage autosave), so the data URL rides along unconditionally.
       // null when inactive → harmless, treated as absent on import.
@@ -83442,6 +83791,10 @@
         if (fgSelect) fgSelect.value = data.frameGuide;
         _currentFrameGuide = data.frameGuide;
       }
+      // SCENE Z-SORT S1 (v20260914zzr): absent = OFF, deliberately not "leave
+      // untouched" - Clear Scene imports a keyless payload and must reset it,
+      // and a legacy file must open with the scene sort off.
+      _applySceneRender(data.sceneRender);
 
       // Restore Scale Stroke with Zoom
       if (data.scaleStrokeWithZoom !== undefined) {
@@ -91373,7 +91726,7 @@
 
           // Draw all scene objects with current camera — this is the same call as in render()
           const vpMatrix = _getVpMatrix();
-          await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix, camera: activeCamera })));
+          await drawScene(vpMatrix, activeCamera);   // v20260914zzs: the one scene draw
 
           // Capture clean SVG using the existing generateSVGString pipeline
           const svgString = generateSVGString();
@@ -91518,7 +91871,7 @@
           animationTimeline.currentFrame = i;
           tlApplyFrame(i);
           const vpMatrix = _getVpMatrix();
-          await Promise.all(sceneObjects.map(obj => obj.draw(vpMatrix, { cameraVP: vpMatrix, camera: activeCamera })));
+          await drawScene(vpMatrix, activeCamera);   // v20260914zzs: the one scene draw
 
           // Capture this frame as a clean SVG string, then parse it back into nodes
           const svgString = generateSVGString();

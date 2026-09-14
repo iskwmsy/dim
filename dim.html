@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260914zzv -->
+<!-- dim v20260914zzzf -->
 
 <!--
   MIT License
@@ -3815,6 +3815,25 @@
     }
 
 
+    /* ROUND CORNERS - the live corner widget (v20260914zzzc, PLAN-round-corners
+       S3): one dot per selected qualifying corner, on the corner's bisector,
+       inside the corner. Fill / stroke are tokens set HERE (not inline) so the
+       hover and drag states can change them; the stroke width rides
+       vector-effect so it never scales with the view. */
+    #vertexGizmoGroup circle.corner-widget {
+      fill: var(--handle-fill);
+      stroke: var(--accent-ink);
+      stroke-width: 1.5px;
+      vector-effect: non-scaling-stroke;
+      cursor: pointer;
+    }
+
+    #vertexGizmoGroup circle.corner-widget:hover,
+    #vertexGizmoGroup circle.corner-widget.dragging {
+      fill: var(--accent-color);
+      stroke: var(--accent-color);
+    }
+
     #vertexGizmoGroup text.vertex-index-label {
       font-family: 'Avenir Next Condensed', var(--font-family-sans);
       font-weight: 500;
@@ -6473,6 +6492,32 @@
             <div class="prop-row prop-inline" id="dsMoveHandlesRow">
               <label for="dsMoveHandlesCb" class="ui-checkbox-label">Move Handles with Anchor</label>
               <input type="checkbox" id="dsMoveHandlesCb" class="ui-checkbox" checked />
+            </div>
+            <!-- ROUND CORNERS (v20260914zzzd, PLAN-round-corners S4): shown under the
+                 A tool while the selection holds at least one qualifying corner
+                 (updateCornerRows). Radius is live on input (display units); Type
+                 applies to the selected corners AND is the default a newly rounded
+                 corner takes; Bake Corners writes the rounding into the path. -->
+            <div id="dsCornersSection" style="display:none;">
+              <div class="prop-row prop-inline" id="dsCornersHeaderRow">
+                <label class="ui-checkbox-label" style="font-weight:600;">Corners</label>
+              </div>
+              <div class="prop-row prop-inline" id="dsCornerRadiusRow">
+                <label for="dsCornerRadiusInput" class="ui-checkbox-label">Radius</label>
+                <input type="number" id="dsCornerRadiusInput" class="ui-input" step="0.01" min="0" style="width:88px;" title="Corner radius (a clamped corner keeps its largest radius)" />
+              </div>
+              <div class="prop-row prop-inline" id="dsCornerTypeRow">
+                <label for="dsCornerTypeInput" class="ui-checkbox-label">Type</label>
+                <select id="dsCornerTypeInput" class="ui-select" style="width:118px;" title="Arc: a circular corner (tangent-continuous). B-Spline (Cubic): a softer blend with no curvature step at the straight edges. B-Spline (Quad): the quadratic blend, the app's quad b-spline reading. Option-click a corner's dot to cycle them.">
+                  <option value="" hidden>&mdash;</option>
+                  <option value="arc">Arc</option>
+                  <option value="bspline">B-Spline (Cubic)</option>
+                  <option value="bspline2">B-Spline (Quad)</option>
+                </select>
+              </div>
+              <div class="prop-row prop-inline" id="dsCornerBakeRow">
+                <button id="dsBakeCornersBtn" class="ui-btn ui-btn-small" title="Write the rounded corners into the path (it becomes a Bezier path; the corner widgets go)">Bake Corners</button>
+              </div>
             </div>
           </div>
 
@@ -12427,6 +12472,7 @@
           if (marqueeMultiObjRow) marqueeMultiObjRow.style.display = 'none';
           if (dsMoveHandlesRow) dsMoveHandlesRow.style.display = 'none';
           if (selectChildRow) selectChildRow.style.display = 'flex';
+          updateCornerRows();   // ROUND CORNERS S4: hidden outside A
         } else if (tool === 'directSelect') {
           marqueeContainer.classList.remove('hidden');
           marqueeContainer.style.display = 'block';
@@ -12435,6 +12481,7 @@
           if (dsMoveHandlesRow) dsMoveHandlesRow.style.display = 'flex';
           // v20260807q: the A tool gets the same row — same checkbox, same state.
           if (selectChildRow) selectChildRow.style.display = 'flex';
+          updateCornerRows();   // ROUND CORNERS S4
         } else {
           marqueeContainer.classList.add('hidden');
           marqueeContainer.style.display = 'none';
@@ -19633,8 +19680,16 @@
     //   false — backup: the Catmull-Rom bridge through refined points
     //           (v20260704e behavior), kept intact for instant rollback.
     let RC_SMOOTH_ANCHOR_FIT = true;
-    // Derive canvas offset from toolbar width CSS variable so it stays in sync
-    const CANVAS_OFFSET_X = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--toolbar-width')) / 2 || 0;
+    // ROUND CORNERS (PLAN-round-corners S1, v20260914zzza): the rollback flag.
+    // false makes Path.getEffectiveGeometry() the identity for every path,
+    // corners or not - one line to switch the feature off if a consumer
+    // misbehaves after shipping. The corner DATA stays on the paths either way.
+    let CORNERS_ENABLED = true;
+    // Derive canvas offset from toolbar width CSS variable so it stays in sync.
+    // v20260914zzx/zzy: a `let` - updateCanvasArena() re-derives it (see THE
+    // ARENA IS THE TOOL RAIL'S RIGHT EDGE below); this toolbar/2 value is the
+    // boot default.
+    let CANVAS_OFFSET_X = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--toolbar-width')) / 2 || 0;
     // THE CANVAS ARENA (v20260909g, plan PLAN-canvas-arena.md). The paper fits the
     // height left between the top bar and the COLLAPSED timeline row - never the
     // full window, which put its top 33px under the quick-style bar and its
@@ -19650,14 +19705,32 @@
     // click lands where the paint is by construction, not by textual repetition.
     let CANVAS_INSET_V = 0;
     let CANVAS_OFFSET_Y = 0;
+    // THE ARENA IS THE TOOL RAIL'S RIGHT EDGE TO THE WINDOW'S RIGHT EDGE
+    // (v20260914zzy; owner's rule). The v20260909g arena fitted the paper
+    // VERTICALLY between the bars but still sized it from the FULL window
+    // width, so on a window narrower than it is tall the height-limited paper
+    // ran under the tool rail and past the right window edge, taking the HUD
+    // pills (placed from the paper's edges) off the window (owner report).
+    // CANVAS_INSET_H = the tool rail's width, CANVAS_OFFSET_X = half of it
+    // (the paper is centred in the space right of the rail, as it always was),
+    // and getViewScale subtracts the inset: a wide window keeps its
+    // height-limited paper to the pixel; a narrow one gets a WIDTH-limited
+    // paper spanning rail edge to window edge. The two side PANELS are NOT
+    // subtracted - they may cover the paper (v20260914zzx read the quick-style
+    // bar's span instead and shrank the paper between the panels; withdrawn
+    // the same day at the owner's call).
+    let CANVAS_INSET_H = 0;
     const updateCanvasArena = () => {
       const bar = document.getElementById('quickStyleBar');
       const barH = bar ? bar.offsetHeight : 0;
       const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 0;
       CANVAS_INSET_V = barH + rowH;
       CANVAS_OFFSET_Y = (barH - rowH) / 2;
+      const railW = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--toolbar-width')) || 0;
+      CANVAS_INSET_H = railW;
+      CANVAS_OFFSET_X = railW / 2;
     };
-    const getViewScale = () => Math.min(width, height - CANVAS_INSET_V) / FRAME_SIZE;
+    const getViewScale = () => Math.min(width - CANVAS_INSET_H, height - CANVAS_INSET_V) / FRAME_SIZE;
     const TRUCK_SPEED = 0.002;
 
     // Compute viewport-aware pixel-to-world scale factor
@@ -20286,6 +20359,234 @@
         }
       }
       return bezierSegments;
+    };
+
+    // =====================================================================
+    // ROUND CORNERS - the geometry (PLAN-round-corners S0, v20260914zzz).
+    // Pure functions, no DOM, no scene state. Nothing draws through them yet:
+    // S1 adds Path.corners + getEffectiveGeometry(), which is the ONLY
+    // consumer this is written for.
+    //
+    // Corner P with neighbours A (before) and B (after) - 3D points; the
+    // rounding lives in the plane of A, P, B. u = unit(A - P), v = unit(B - P),
+    // half-angle phi = angle(u, v) / 2, turning angle alpha = pi - 2 phi. The
+    // user's parameter is Illustrator's RADIUS r; the CUT-BACK along each edge
+    // is t = r / tan(phi) (t = r at a right angle), tangent points
+    // T1 = P + u t (on PA), T2 = P + v t (on PB). Both modes share T1 / T2, so
+    // switching the type keeps the corner's footprint and changes only the
+    // blend between them.
+    //   'arc'     - G1: one cubic with handles of length k = 4/3 tan(alpha/4) r
+    //               along the tangents (the standard circular-arc cubic, radial
+    //               error <= 2.7e-4 r up to alpha = 90 degrees); a sharper
+    //               corner (alpha > 90 degrees) is split at the bisector into
+    //               two such cubics, Illustrator's own practice.
+    //   'bspline' - G2: the control polygon [E1, T1, P, T2, E2] with
+    //               E1 = P + 2 u t, E2 = P + 2 v t, read as a UNIFORM cubic
+    //               B-spline through the renderer's own interior formulas
+    //               (getCubicBezierControlPoints3D's middle segments) -> two
+    //               cubics. A uniform cubic B-spline segment over c0..c3 starts
+    //               at (c0 + 4 c1 + c2) / 6 with P'(0) = (c2 - c0) / 2 and
+    //               P''(0) = c0 - 2 c1 + c2; with c0, c1, c2 collinear P'' is
+    //               parallel to P', so the curvature is ZERO at the junction and
+    //               the tangent is the edge - and the start point is
+    //               P + u (2t + 4t) / 6 = T1 exactly. Same at the far end. The
+    //               path stays linear; the output is cubics any host carries.
+    // Clamp: t <= min(|PA|, |PB|) (the neighbour-corner interplay along a
+    // shared edge is the applier's job, S1). Degenerate corners return null:
+    // a zero-length edge, a straight or fully folded corner, r <= 0.
+    // Returns { r, t, tMax, clamped, phi, alpha, T1, T2, C, segs:[{p0,p1,p2,p3}] }
+    // - segs run from T1 to T2 in the path's direction (A -> P -> B).
+    // =====================================================================
+    // The three corner types, normalised in ONE place (v20260914zzzf): 'arc',
+    // 'bspline' (the cubic uniform B-spline blend) and 'bspline2' (the
+    // quadratic one - the app's bspline2 reading, owner request). Anything
+    // else reads as 'arc'.
+    const cornerModeOf = (m) => (m === 'bspline' ? 'bspline' : (m === 'bspline2' ? 'bspline2' : 'arc'));
+    const roundCornerGeometry = (A, P, B, r, mode) => {
+      if (!A || !P || !B || !(r > 0)) return null;
+      mode = cornerModeOf(mode);
+      const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+      const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+      const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+      const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+      const len = (a) => Math.sqrt(dot(a, a));
+      const pa = sub(A, P), pb = sub(B, P);
+      const la = len(pa), lb = len(pb);
+      if (!(la > 1e-12) || !(lb > 1e-12)) return null;
+      const u = mul(pa, 1 / la), v = mul(pb, 1 / lb);
+      const c2 = Math.max(-1, Math.min(1, dot(u, v)));   // cos(2 phi)
+      const phi = Math.acos(c2) / 2;
+      if (!(phi > 1e-9) || !(phi < Math.PI / 2 - 1e-9)) return null;   // folded back / straight
+      const tanPhi = Math.tan(phi);
+      const tMax = Math.min(la, lb);
+      let t = r / tanPhi, clamped = false, rEff = r;
+      if (t > tMax) { t = tMax; rEff = t * tanPhi; clamped = true; }
+      const T1 = add(P, mul(u, t)), T2 = add(P, mul(v, t));
+      // Bisector (unit) and the arc centre C = P + bis * r / sin(phi)
+      const bisRaw = add(u, v); const bisL = len(bisRaw);
+      const bis = mul(bisRaw, 1 / bisL);
+      const C = add(P, mul(bis, rEff / Math.sin(phi)));
+      const alpha = Math.PI - 2 * phi;
+      const segs = [];
+      if (mode === 'bspline') {
+        const E1 = add(P, mul(u, 2 * t)), E2 = add(P, mul(v, 2 * t));
+        const c = [E1, T1, P, T2, E2];
+        // The renderer's UNIFORM interior segment (getCubicBezierControlPoints3D,
+        // middle loop), written out so this stays a pure function of five points.
+        const uni = (c0, c1, c2_, c3) => ({
+          p0: mul(add(add(c0, mul(c1, 4)), c2_), 1 / 6),
+          p1: mul(add(mul(c1, 4), mul(c2_, 2)), 1 / 6),
+          p2: mul(add(mul(c1, 2), mul(c2_, 4)), 1 / 6),
+          p3: mul(add(add(c1, mul(c2_, 4)), c3), 1 / 6)
+        });
+        segs.push(uni(c[0], c[1], c[2], c[3]), uni(c[1], c[2], c[3], c[4]));
+      } else if (mode === 'bspline2') {
+        // QUADRATIC uniform B-spline blend (v20260914zzzf): control polygon
+        // [E1, T1', P, T2', E2'] with spacing d = 2t/3 - a quadratic segment
+        // over (c0, c1, c2) starts at (c0 + c1)/2, so the curve leaves the edge
+        // at P + 1.5 d u = P + t u = T1 exactly (the shared footprint), with
+        // the edge tangent (c1 - c0) and ZERO curvature (c0 - 2 c1 + c2 = 0 for
+        // the collinear, equally spaced triple). Three quadratics, degree-
+        // elevated to cubics the way getQuadraticBezierControlPoints3D does
+        // (p1 = p0 + 2/3 (ctrl - p0), p2 = p3 + 2/3 (ctrl - p3)); the joins
+        // are C1 (a quadratic B-spline's own continuity).
+        const d = (2 / 3) * t;
+        const c = [add(P, mul(u, 2 * d)), add(P, mul(u, d)), P, add(P, mul(v, d)), add(P, mul(v, 2 * d))];
+        const mid = (a, b) => mul(add(a, b), 0.5);
+        const quad = (c0, c1, c2_) => { const p0 = mid(c0, c1), p3 = mid(c1, c2_); return { p0, p1: add(p0, mul(sub(c1, p0), 2 / 3)), p2: add(p3, mul(sub(c1, p3), 2 / 3)), p3 }; };
+        segs.push(quad(c[0], c[1], c[2]), quad(c[1], c[2], c[3]), quad(c[2], c[3], c[4]));
+      } else {
+        // Direction of travel along the curve: at T1 it is -u (from A toward P),
+        // at T2 it is +v (from P toward B).
+        const arcCubic = (S, dS, E, dE, sweep) => {
+          const k = (4 / 3) * Math.tan(sweep / 4) * rEff;
+          return { p0: S, p1: add(S, mul(dS, k)), p2: sub(E, mul(dE, k)), p3: E };
+        };
+        if (alpha <= Math.PI / 2 + 1e-12) {
+          segs.push(arcCubic(T1, mul(u, -1), T2, v, alpha));
+        } else {
+          // Split at the bisector: M is the arc point nearest P; its tangent
+          // is perpendicular to the bisector, pointing from the u side to the v side.
+          const M = add(C, mul(bis, -rEff));
+          const dMraw = sub(v, u); const dM = mul(dMraw, 1 / len(dMraw));
+          segs.push(arcCubic(T1, mul(u, -1), M, dM, alpha / 2));
+          segs.push(arcCubic(M, dM, T2, v, alpha / 2));
+        }
+      }
+      return { r: rEff, t, tMax, clamped, phi, alpha, T1, T2, C, segs, mode };
+    };
+
+    const Corners = {
+      // Console: Corners.selfTest() - 10 cases. Pure geometry, no scene needed.
+      selfTest() {
+        const results = [];
+        const ok = (name, pass, detail) => { results.push({ name, pass: !!pass, detail }); };
+        const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+        const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        const len = (a) => Math.sqrt(dot(a, a));
+        const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+        const near = (a, b, eps) => len(sub(a, b)) <= eps;
+        const bez = (s, tt) => { const m = 1 - tt; return [0, 1, 2].map(i => m * m * m * s.p0[i] + 3 * m * m * tt * s.p1[i] + 3 * m * tt * tt * s.p2[i] + tt * tt * tt * s.p3[i]); };
+        const d1 = (s, tt) => { const m = 1 - tt; return [0, 1, 2].map(i => 3 * (m * m * (s.p1[i] - s.p0[i]) + 2 * m * tt * (s.p2[i] - s.p1[i]) + tt * tt * (s.p3[i] - s.p2[i]))); };
+        const d2 = (s, tt) => { const m = 1 - tt; return [0, 1, 2].map(i => 6 * (m * (s.p2[i] - 2 * s.p1[i] + s.p0[i]) + tt * (s.p3[i] - 2 * s.p2[i] + s.p1[i]))); };
+        const curv = (s, tt) => { const a = d1(s, tt), b = d2(s, tt); const c = cross(a, b); const l = len(a); return l > 0 ? len(c) / (l * l * l) : 0; };
+        const radialErr = (g) => { let worst = 0; for (const s of g.segs) for (let i = 0; i <= 64; i++) { const p = bez(s, i / 64); worst = Math.max(worst, Math.abs(len(sub(p, g.C)) - g.r)); } return worst; };
+        const unitDir = (a) => { const l = len(a); return [a[0] / l, a[1] / l, a[2] / l]; };
+
+        // 1. Right-angle corner, arc: footprint, tangents, radial error
+        const A = [-10, 0, 0], P = [0, 0, 0], B = [0, 10, 0];
+        const g1 = roundCornerGeometry(A, P, B, 2, 'arc');
+        ok('arc 90: one cubic, t = r, T1/T2 on the edges', g1 && g1.segs.length === 1 && Math.abs(g1.t - 2) < 1e-12 && near(g1.T1, [-2, 0, 0], 1e-12) && near(g1.T2, [0, 2, 0], 1e-12), g1 && { t: g1.t, T1: g1.T1, T2: g1.T2 });
+        const e1 = g1 ? radialErr(g1) : Infinity;
+        ok('arc 90: radial error <= 3e-4 r', e1 <= 3e-4 * 2, e1);
+        const tan1 = g1 && unitDir(d1(g1.segs[0], 0)), tan2 = g1 && unitDir(d1(g1.segs[0], 1));
+        ok('arc 90: tangents are the edges (-u at T1, +v at T2)', g1 && near(tan1, [1, 0, 0], 1e-12) && near(tan2, [0, 1, 0], 1e-12), { tan1, tan2 });
+        // The standard cubic arc (k = 4/3 tan(alpha/4) r) trades a 2.2% curvature
+        // DIP at its ends (0.9786 / r at 90 degrees) for its 2.7e-4 r radial
+        // accuracy - measured here as 0.4893 for r = 2, the first cut of this
+        // assert expected 0.5 and failed. The G1 claim is the tangent test above;
+        // the curvature is "about 1/r", within 3%.
+        ok('arc 90: junction curvature within 3% of 1/r (the cubic arc\'s known 2.2% dip)', g1 && Math.abs(curv(g1.segs[0], 0) - 0.5) < 0.015 && Math.abs(curv(g1.segs[0], 1) - 0.5) < 0.015, g1 && [curv(g1.segs[0], 0), curv(g1.segs[0], 1)]);
+
+        // 2. Sharp corner (interior 30 degrees, alpha 150): two cubics, still on the circle
+        const B2 = [10 * Math.cos(Math.PI / 6), 10 * Math.sin(Math.PI / 6), 0];
+        const g2 = roundCornerGeometry([10, 0, 0], P, B2, 1, 'arc');
+        const e2 = g2 ? radialErr(g2) : Infinity;
+        ok('arc 30 (alpha 150): two cubics, radial error <= 3e-4 r, T1/T2 at t = r/tan(15deg)', g2 && g2.segs.length === 2 && e2 <= 3e-4 && Math.abs(g2.t - 1 / Math.tan(Math.PI / 12)) < 1e-9 && near(g2.segs[0].p3, g2.segs[1].p0, 1e-12), { err: e2, t: g2 && g2.t });
+
+        // 3. B-spline: endpoints, tangents, ZERO junction curvature, C2 at the inner join
+        const g3 = roundCornerGeometry(A, P, B, 2, 'bspline');
+        const s0 = g3 && g3.segs[0], s1 = g3 && g3.segs[1];
+        ok('bspline 90: two cubics from T1 to T2 exactly', g3 && g3.segs.length === 2 && near(s0.p0, g3.T1, 1e-12) && near(s1.p3, g3.T2, 1e-12), g3 && { p0: s0.p0, p3: s1.p3 });
+        ok('bspline 90: tangents are the edges', g3 && near(unitDir(d1(s0, 0)), [1, 0, 0], 1e-12) && near(unitDir(d1(s1, 1)), [0, 1, 0], 1e-12));
+        ok('bspline 90: curvature 0 at both junctions with the straight edges', g3 && curv(s0, 0) < 1e-12 && curv(s1, 1) < 1e-12, g3 && [curv(s0, 0), curv(s1, 1)]);
+        ok('bspline 90: C2 at the inner join', g3 && near(s0.p3, s1.p0, 1e-12) && near(d1(s0, 1), d1(s1, 0), 1e-9) && near(d2(s0, 1), d2(s1, 0), 1e-9));
+
+        // 4. Same math as the renderer: the CLOSED builder over the five control points
+        //    yields our two segments as its segments 1 and 2.
+        let same = false;
+        if (g3) {
+          const t = g3.t; const E1 = [-2 * t, 0, 0], E2 = [0, 2 * t, 0];
+          const built = getCubicBezierControlPoints3D([E1, g3.T1, P, g3.T2, E2], true);
+          same = built.length === 5 && ['p0', 'p1', 'p2', 'p3'].every(k => near(built[1][k], s0[k], 1e-12) && near(built[2][k], s1[k], 1e-12));
+        }
+        ok('bspline: identical to getCubicBezierControlPoints3D interior segments', same);
+
+        // 5. Both modes share the footprint
+        ok('arc and bspline share T1 / T2', g1 && g3 && near(g1.T1, g3.T1, 1e-12) && near(g1.T2, g3.T2, 1e-12));
+
+        // 6. Clamp: a radius larger than the edges allow
+        const g6 = roundCornerGeometry([-3, 0, 0], P, [0, 10, 0], 50, 'arc');
+        ok('clamp: t = shorter edge, effective r reduced, flag set', g6 && g6.clamped && Math.abs(g6.t - 3) < 1e-12 && g6.r < 50 && near(g6.T1, [-3, 0, 0], 1e-12), g6 && { t: g6.t, r: g6.r });
+
+        // 7. Symmetry: swapping A and B mirrors the curve (reversed order)
+        const g7 = roundCornerGeometry(B, P, A, 2, 'arc');
+        ok('symmetry: A<->B reverses the same curve', g1 && g7 && near(g7.T1, g1.T2, 1e-12) && near(g7.segs[0].p1, g1.segs[0].p2, 1e-12));
+
+        // 8. A tilted 3D corner stays in its own plane and on its circle
+        const A8 = [3, 1, -2], P8 = [1, 4, 2], B8 = [-5, 2, 3];
+        const g8 = roundCornerGeometry(A8, P8, B8, 0.7, 'bspline');
+        const nrm = g8 && unitDir(cross(sub(A8, P8), sub(B8, P8)));
+        let offPlane = 0, e8 = 0;
+        if (g8) { for (const s of g8.segs) for (let i = 0; i <= 32; i++) { const p = bez(s, i / 32); offPlane = Math.max(offPlane, Math.abs(dot(sub(p, P8), nrm))); } const ga = roundCornerGeometry(A8, P8, B8, 0.7, 'arc'); e8 = radialErr(ga); }
+        ok('3D corner: curve in the A-P-B plane (bspline) and on its circle (arc)', g8 && offPlane < 1e-12 && e8 <= 3e-4 * 0.7, { offPlane, e8 });
+
+        // 9. Degenerate inputs return null, never throw
+        let deg = true;
+        try {
+          deg = roundCornerGeometry([-1, 0, 0], P, [1, 0, 0], 1, 'arc') === null      // straight
+            && roundCornerGeometry([-1, 0, 0], P, [-2, 0, 0], 1, 'arc') === null      // folded back
+            && roundCornerGeometry(P, P, B, 1, 'arc') === null                        // zero edge
+            && roundCornerGeometry(A, P, B, 0, 'arc') === null                        // r = 0
+            && roundCornerGeometry(A, P, B, -1, 'bspline') === null;
+        } catch (e) { deg = false; }
+        ok('degenerate: straight / folded / zero edge / r <= 0 -> null', deg);
+
+        // 10. Unknown mode reads as arc
+        const g10 = roundCornerGeometry(A, P, B, 2, 'whatever');
+        ok('unknown mode -> arc', g10 && g10.mode === 'arc' && g10.segs.length === 1);
+
+        // 11. Quadratic B-spline (bspline2, v20260914zzzf): three cubics from T1 to T2,
+        //     edge tangents, zero junction curvature, C1 at the joins, the CLOSED
+        //     quadratic builder's segments 0..2 over the five control points.
+        const gq = roundCornerGeometry(A, P, B, 2, 'bspline2');
+        const q0 = gq && gq.segs[0], q1 = gq && gq.segs[1], q2 = gq && gq.segs[2];
+        ok('bspline2 90: three cubics from T1 to T2 exactly, footprint shared with arc', gq && gq.segs.length === 3 && near(q0.p0, gq.T1, 1e-12) && near(q2.p3, gq.T2, 1e-12) && g1 && near(gq.T1, g1.T1, 1e-12) && near(gq.T2, g1.T2, 1e-12));
+        ok('bspline2 90: tangents are the edges, curvature 0 at both junctions', gq && near(unitDir(d1(q0, 0)), [1, 0, 0], 1e-12) && near(unitDir(d1(q2, 1)), [0, 1, 0], 1e-12) && curv(q0, 0) < 1e-12 && curv(q2, 1) < 1e-12, gq && [curv(q0, 0), curv(q2, 1)]);
+        ok('bspline2 90: C1 at both inner joins', gq && near(q0.p3, q1.p0, 1e-12) && near(q1.p3, q2.p0, 1e-12) && near(d1(q0, 1), d1(q1, 0), 1e-9) && near(d1(q1, 1), d1(q2, 0), 1e-9));
+        let sameQ = false;
+        if (gq) {
+          const dq = (2 / 3) * gq.t; const cq = [[-2 * dq, 0, 0], [-dq, 0, 0], P, [0, dq, 0], [0, 2 * dq, 0]];
+          const builtQ = getQuadraticBezierControlPoints3D(cq, true);
+          sameQ = builtQ.length === 5 && [0, 1, 2].every(i => ['p0', 'p1', 'p2', 'p3'].every(k => near(builtQ[i][k], gq.segs[i][k], 1e-12)));
+        }
+        ok('bspline2: identical to getQuadraticBezierControlPoints3D closed segments 0..2', sameQ);
+
+        const passed = results.filter(r => r.pass).length;
+        console.log(`[Corners] selfTest: ${passed}/${results.length} ${passed === results.length ? 'ALL PASS' : 'FAILURES'}`);
+        if (passed !== results.length) console.table(results.filter(r => !r.pass));
+        return passed === results.length;
+      }
     };
 
     // --- Gizmo Helpers ---
@@ -22310,7 +22611,7 @@
       // rebuild that animation uses writes localVertices directly - a sweep
       // along a keyframed primitive rail used to keep yesterday's frames).
       static ensureRailArc(rail) {
-        const vk = SurfaceMapper._rcVertsChecksum(rail.localVertices) + '|' + (rail.algorithm || '') + '|'
+        const vk = SurfaceMapper._rcVertsChecksum(rail.localVertices) + '|' + Path.cornersKey(rail) + '|' + (rail.algorithm || '') + '|'
           + (rail.loop ? 1 : 0) + '|' + (rail.subPathData ? rail.subPathData.length : 0);
         if (rail._railVertsKey !== vk) {
           rail._railVertsKey = vk;
@@ -25387,8 +25688,8 @@
         // onto it (used by both the fragment key and the shared field cache).
         const surfGeomKey = [
           SurfaceMapper._rcMatKey(surfacePath?.getWorldMatrix?.()),
-          SurfaceMapper._rcVertsChecksum(surfacePath?.localVertices),
-          railForKey ? SurfaceMapper._rcVertsChecksum(railForKey.localVertices) : '-',
+          SurfaceMapper._rcVertsChecksum(surfacePath?.localVertices) + '|' + Path.cornersKey(surfacePath),
+          railForKey ? SurfaceMapper._rcVertsChecksum(railForKey.localVertices) + '|' + Path.cornersKey(railForKey) : '-',
           railForKey ? SurfaceMapper._rcMatKey(railForKey.getWorldMatrix?.()) : '-',
           JSON.stringify(surfacePath?.extrudeSettings) + JSON.stringify(surfacePath?.revolveSettings),
           JSON.stringify(surfacePath?.sweepSettings) + JSON.stringify(surfacePath?.loftSettings)
@@ -25400,7 +25701,7 @@
           camPos.join(','),
           SurfaceMapper._rcMatKey(options.vpMatrix),
           SurfaceMapper._rcMatKey(options.sourceMatrix),
-          SurfaceMapper._rcVertsChecksum(sourcePath.localVertices),
+          SurfaceMapper._rcVertsChecksum(sourcePath.localVertices) + '|' + Path.cornersKey(sourcePath),   // ROUND CORNERS S1
           // v20260904r: the source's STRUCTURE — nothing clears _rcFragCache, and
           // the Loop checkbox / an algorithm change left stale fragments until
           // the camera moved.
@@ -26088,8 +26389,8 @@
           SurfaceMapper._rcMatKey(options.sourceMatrix),
           SurfaceMapper._rcMatKey(options.mappingAnchorWorldMatrix),
           SurfaceMapper._rcMatKey(ctx.tgtWorldMatrix),
-          SurfaceMapper._rcVertsChecksum(sourcePath.localVertices),
-          SurfaceMapper._rcVertsChecksum(targetPath.localVertices),
+          SurfaceMapper._rcVertsChecksum(sourcePath.localVertices) + '|' + Path.cornersKey(sourcePath),   // ROUND CORNERS S1
+          SurfaceMapper._rcVertsChecksum(targetPath.localVertices) + '|' + Path.cornersKey(targetPath),
           sourcePath.algorithm + (sourcePath.loop ? 'L' : 'O') + (sourcePath.subPathData ? sourcePath.subPathData.map(sp => sp.count + (sp.closed ? 'c' : 'o')).join(',') : ''),   // v20260904r
           JSON.stringify([options.hOffset, options.targetOffset, options.scaleU,
           options.scaleV, options.rotation, options.rotationX, options.rotationY,
@@ -42405,6 +42706,11 @@
         // camera horizon into pieces that carry the analytic `xr` depth record
         // - exactly what an extrude side is. Off = the plain flat draw.
         this.silhouetteSplit = false;
+        // ROUND CORNERS (v20260914zzza, PLAN-round-corners S1): a sparse map
+        // { vertexIndex: { r, mode: 'arc' | 'bspline' } } keyed by RAW vertex
+        // index. Empty on every path today; applied ONLY through
+        // getEffectiveGeometry() (below), never by mutating localVertices.
+        this.corners = {};
         // Fixed duplicate ID gen
         this.id = `Path_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -42489,7 +42795,217 @@
       // (which delegated to it) were removed in v20260706p. The live
       // getSegments() is the algorithm-dispatch version further down.
 
+      // =================================================================
+      // ROUND CORNERS - the effective geometry (PLAN-round-corners S1,
+      // v20260914zzza). ONE accessor: the raw {localVertices, algorithm,
+      // subPathData} when this path has no live corner (the identity - what
+      // every scene without corners takes, zero cost), else the EXPANDED buffer
+      // in bezier form: straight runs as exact straight cubics (handles at
+      // 1/3 and 2/3, the linear generator's own form), each rounded corner as
+      // its roundCornerGeometry cubics. Sources: 'linear' subpaths (every
+      // interior vertex of an open one, every vertex of a closed one) and
+      // 'bezier' anchors whose BOTH adjacent segments are straight; b-spline
+      // readings are the identity (control points are not on the curve, the
+      // data stays inert). A closed subpath emits the full ring and ends on an
+      // anchor coincident with its first (the convertPathToBezier convention).
+      // Neighbouring corners sharing an edge are shrunk together so
+      // t_i + t_j <= |edge|. Cached on the path, keyed on the raw vertex
+      // checksum + algorithm + subPathData + corners, so every drag and every
+      // shape-key pose rebuilds at O(corners). Entries whose index is out of
+      // range or whose vertex does not qualify are IGNORED (a misaligned
+      // entry degrades to "not rounded", never throws) and counted on the
+      // result (`ignored`) for the console.
+      // Readers go through _withEffectiveGeometry(), which swaps the three
+      // fields on `this` for the call and restores them in finally (the
+      // SubView camera-swap pattern); while swapped the accessor answers the
+      // identity so a nested reader cannot expand twice. Editing, picking and
+      // the A tool's nodes never call it: they own the RAW buffer.
+      // =================================================================
+      static cornersKey(p) {
+        const c = p && p.corners;
+        if (!c) return '';
+        const ks = Object.keys(c);
+        if (!ks.length) return '';
+        return ks.sort((a, b) => a - b).map(k => k + ':' + (+c[k].r || 0) + ({ bspline: 'b', bspline2: 'q' }[cornerModeOf(c[k].mode)] || 'a')).join(',');
+      }
+      hasLiveCorners() {
+        return !!(CORNERS_ENABLED && this.corners && Object.keys(this.corners).length);
+      }
+      getEffectiveGeometry() {
+        const raw = { localVertices: this.localVertices, algorithm: this.algorithm, subPathData: this.subPathData, expanded: false, ignored: 0 };
+        if (this._effActive || !this.hasLiveCorners()) return raw;
+        if (this.algorithm !== 'linear' && this.algorithm !== 'bezier') return raw;
+        const spd = this.subPathData || [{ start: 0, count: this.localVertices.length, closed: !!this.loop }];
+        const key = SurfaceMapper._rcVertsChecksum(this.localVertices) + '|' + this.algorithm + '|'
+          + spd.map(s => s.start + ',' + s.count + (s.closed ? 'c' : 'o')).join(';') + '|' + Path.cornersKey(this);
+        if (this._effGeoCache && this._effGeoCache.key === key) return this._effGeoCache.value;
+        const value = this._expandCorners(spd);
+        this._effGeoCache = { key, value };
+        return value;
+      }
+      _withEffectiveGeometry(eff, fn) {
+        const lv = this.localVertices, al = this.algorithm, sp = this.subPathData;
+        this.localVertices = eff.localVertices; this.algorithm = 'bezier'; this.subPathData = eff.subPathData;
+        this._effActive = true;
+        try { return fn(); }
+        finally { this.localVertices = lv; this.algorithm = al; this.subPathData = sp; this._effActive = false; }
+      }
+      // The expansion itself. Works on a per-subpath list of CUBICS with the
+      // raw vertex index of each cubic's start junction, so linear and bezier
+      // sources take one code path and a corner between a straight and a
+      // curved segment simply does not qualify (v2: curve trimming).
+      _expandCorners(spd) {
+        const V = this.localVertices, n = V.length;
+        const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+        const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+        const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+        const len = (a) => Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+        const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+        const P3 = (v) => [v[0], v[1], v[2] || 0];
+        const straight = (a, b) => ({ p0: P3(a), p1: add(P3(a), mul(sub(P3(b), P3(a)), 1 / 3)), p2: add(P3(a), mul(sub(P3(b), P3(a)), 2 / 3)), p3: P3(b), straight: true });
+        const isStraight = (c) => {
+          const ch = sub(c.p3, c.p0); const L = len(ch); if (!(L > 1e-12)) return false;
+          const tol = 1e-9 * L;
+          return len(cross(sub(c.p1, c.p0), ch)) / L <= tol && len(cross(sub(c.p2, c.p0), ch)) / L <= tol;
+        };
+        const outVerts = [], outSpd = [];
+        let ignored = 0;
+        const isBez = this.algorithm === 'bezier';
+        for (const sp of spd) {
+          const s0 = sp.start, cnt = Math.min(sp.count, n - s0);
+          if (cnt < 2) {
+            const st = outVerts.length; for (let i = 0; i < cnt; i++) outVerts.push(V[s0 + i]);
+            outSpd.push({ start: st, count: cnt, closed: !!sp.closed }); continue;
+          }
+          const cubics = [], jv = [];
+          if (!isBez) {
+            for (let i = 0; i < cnt - 1; i++) { cubics.push(straight(V[s0 + i], V[s0 + i + 1])); jv.push(s0 + i); }
+            if (sp.closed) { cubics.push(straight(V[s0 + cnt - 1], V[s0])); jv.push(s0 + cnt - 1); }
+          } else {
+            let k = 0;
+            while (k < cnt - 1) {
+              const rem = cnt - 1 - k, b = s0 + k;
+              if (rem >= 3) { const c = { p0: P3(V[b]), p1: P3(V[b + 1]), p2: P3(V[b + 2]), p3: P3(V[b + 3]) }; c.straight = isStraight(c); cubics.push(c); jv.push(b); k += 3; }
+              else if (rem === 2) { const p0 = P3(V[b]), p1 = P3(V[b + 1]), p2 = P3(V[b + 2]); const c = { p0, p1: add(p0, mul(sub(p1, p0), 2 / 3)), p2: add(p2, mul(sub(p1, p2), 2 / 3)), p3: p2 }; c.straight = isStraight(c); cubics.push(c); jv.push(b); k += 2; }
+              else { cubics.push(straight(V[b], V[b + 1])); jv.push(b); k += 1; }
+            }
+            if (sp.closed) {
+              const last = P3(V[s0 + cnt - 1]), first = P3(V[s0]);
+              if (len(sub(last, first)) > 1e-12) { cubics.push(straight(last, first)); jv.push(s0 + cnt - 1); }
+            }
+          }
+          const m = cubics.length;
+          if (!m) { const st = outVerts.length; for (let i = 0; i < cnt; i++) outVerts.push(V[s0 + i]); outSpd.push({ start: st, count: cnt, closed: !!sp.closed }); continue; }
+          const geo = new Array(m).fill(null);
+          const cornerAt = (j) => { const e = this.corners[jv[j]]; return (e && +e.r > 0) ? e : null; };
+          const prevOf = (j) => (j > 0 ? j - 1 : (sp.closed ? m - 1 : -1));
+          for (let j = 0; j < m; j++) {
+            const e = cornerAt(j); if (!e) continue;
+            const pj = prevOf(j);
+            if (pj < 0 || !cubics[pj].straight || !cubics[j].straight) { ignored++; continue; }
+            const g = roundCornerGeometry(cubics[pj].p0, cubics[j].p0, cubics[j].p3, +e.r, e.mode);
+            if (!g) { ignored++; continue; }
+            geo[j] = { g, e };
+          }
+          for (let j = 0; j < m; j++) {
+            const nj = (j + 1 < m) ? j + 1 : (sp.closed ? 0 : -1);
+            if (nj < 0 || !geo[j] || !geo[nj] || nj === j) continue;
+            const L = len(sub(cubics[j].p3, cubics[j].p0));
+            const tj = geo[j].g.t, tn = geo[nj].g.t;
+            if (tj + tn > L + 1e-12) {
+              const s = L / (tj + tn);
+              for (const jj of [j, nj]) {
+                const pj = prevOf(jj);
+                const g2 = roundCornerGeometry(cubics[pj].p0, cubics[jj].p0, cubics[jj].p3, geo[jj].g.r * s, geo[jj].e.mode);
+                if (g2) geo[jj].g = g2; else { geo[jj] = null; ignored++; }
+              }
+            }
+          }
+          const startPt = geo[0] ? geo[0].g.T2 : cubics[0].p0;
+          const stOut = outVerts.length;
+          outVerts.push(startPt);
+          const pushCubic = (c) => { outVerts.push(c.p1, c.p2, c.p3); };
+          for (let j = 0; j < m; j++) {
+            const c = cubics[j];
+            const nj = (j + 1 < m) ? j + 1 : (sp.closed ? 0 : -1);
+            const a = geo[j] ? geo[j].g.T2 : c.p0;
+            const b = (nj >= 0 && geo[nj]) ? geo[nj].g.T1 : c.p3;
+            if (c.straight) { if (len(sub(b, a)) > 1e-12) pushCubic(straight(a, b)); }
+            else pushCubic(c);
+            if (nj >= 0 && geo[nj]) for (const s of geo[nj].g.segs) pushCubic(s);
+          }
+          outSpd.push({ start: stOut, count: outVerts.length - stOut, closed: !!sp.closed });
+        }
+        // Entries that name no junction at all (an index past the buffer, a
+        // subpath end, a non-anchor slot of a bezier buffer) are ignored too.
+        const used = new Set();
+        for (const sp of spd) { const s0 = sp.start, cnt = Math.min(sp.count, n - s0); for (let i = 0; i < cnt; i++) used.add(s0 + i); }
+        for (const k of Object.keys(this.corners)) { const e = this.corners[k]; if (e && +e.r > 0 && !used.has(+k)) ignored++; }
+        return { localVertices: outVerts, algorithm: 'bezier', subPathData: outSpd, expanded: true, ignored };
+      }
+
+      // ROUND CORNERS - THE JUNCTION (S3, v20260914zzzc). Which vertices may
+      // carry a corner, and the three points the rounding needs: { P, A, B }
+      // in LOCAL space with A the far end of the straight edge before P and B
+      // the far end of the one after. null = does not qualify: a subpath end,
+      // a b-spline reading, a bezier handle slot, an anchor beside a curve, a
+      // degenerate corner. The same rule _expandCorners applies, exposed for
+      // the widget, the clamp and the drawer.
+      _cornerJunction(vi) {
+        const V = this.localVertices; if (!V || !(vi >= 0 && vi < V.length)) return null;
+        if (this.algorithm !== 'linear' && this.algorithm !== 'bezier') return null;
+        const spd = this.subPathData || [{ start: 0, count: V.length, closed: !!this.loop }];
+        const sp = spd.find(s => vi >= s.start && vi < s.start + s.count); if (!sp) return null;
+        const s0 = sp.start, cnt = Math.min(sp.count, V.length - s0), rel = vi - s0;
+        const P3 = (v) => [v[0], v[1], v[2] || 0];
+        const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+        const len = (a) => Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+        const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+        const straight4 = (p0, p1, p2, p3) => { const ch = sub(p3, p0); const L = len(ch); if (!(L > 1e-12)) return false; const tol = 1e-9 * L; return len(cross(sub(p1, p0), ch)) / L <= tol && len(cross(sub(p2, p0), ch)) / L <= tol; };
+        let A = null, B = null;
+        if (this.algorithm === 'linear') {
+          if (cnt < 3) return null;
+          const pi = sp.closed ? (rel - 1 + cnt) % cnt : rel - 1;
+          const ni = sp.closed ? (rel + 1) % cnt : rel + 1;
+          if (pi < 0 || ni >= cnt) return null;
+          A = P3(V[s0 + pi]); B = P3(V[s0 + ni]);
+        } else {
+          if (rel % 3 !== 0 || (cnt - 1) % 3 !== 0) return null;   // anchors of a phase-clean buffer only
+          const S = (cnt - 1) / 3, j = rel / 3;
+          const anchor = (k) => P3(V[s0 + 3 * k]);
+          const segStraight = (k) => straight4(anchor(k), P3(V[s0 + 3 * k + 1]), P3(V[s0 + 3 * k + 2]), anchor(k + 1));   // segment k: anchor k -> k+1
+          const first = anchor(0), last = anchor(S);
+          const coincident = len(sub(last, first)) <= 1e-12;
+          // previous straight edge
+          if (j > 0) { if (!segStraight(j - 1)) return null; A = anchor(j - 1); }
+          else if (sp.closed) {
+            if (coincident) { if (S < 1 || !segStraight(S - 1)) return null; A = anchor(S - 1); }
+            else A = last;   // the implicit closing segment is straight by definition
+          } else return null;
+          // next straight edge
+          if (j < S) { if (!segStraight(j)) return null; B = anchor(j + 1); }
+          else if (sp.closed) {
+            if (coincident) return null;   // the coincident closing anchor is not a corner of its own
+            B = first;
+          } else return null;
+        }
+        const P = P3(V[vi]);
+        const la = len(sub(A, P)), lb = len(sub(B, P));
+        if (!(la > 1e-12) || !(lb > 1e-12)) return null;
+        const u = sub(A, P).map(x => x / la), v = sub(B, P).map(x => x / lb);
+        const c2 = Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1] + u[2] * v[2]));
+        const phi = Math.acos(c2) / 2;
+        if (!(phi > 1e-6) || !(phi < Math.PI / 2 - 1e-6)) return null;
+        const bisRaw = [u[0] + v[0], u[1] + v[1], u[2] + v[2]]; const bl = len(bisRaw);
+        return { P, A, B, u, v, bis: bisRaw.map(x => x / bl), phi, tMax: Math.min(la, lb), rMax: Math.min(la, lb) * Math.tan(phi) };
+      }
+
       getBezierSegments() {
+        const eff = this.getEffectiveGeometry();   // ROUND CORNERS S1: expanded when live corners exist
+        if (eff.expanded) return this._withEffectiveGeometry(eff, () => this._getBezierSegmentsRaw());
+        return this._getBezierSegmentsRaw();
+      }
+      _getBezierSegmentsRaw() {
         // Exclusive Pipeline for Surface Mapper:
         // Converts ALL geometry (Linear, Quad, Cubic, Irregular) into strict Cubic Bezier segments.
         const flat = [];
@@ -45141,7 +45657,7 @@
           ? Path._foldCreaseRoles(fr, eyeL || null, !!fs.forceSplit)
           : null;
         const roleSig = roleInfo ? `|R:${roleInfo.roles.map(r => r[0]).join('')}|DC:${fs.drawCrease ? 1 : 0}${fs.creaseShowAt0 ? 1 : 0}` : '';
-        const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.autoExtent ? 'AE:' + fr.creaseList.map(ck => (ck.extentA ?? 0) + ',' + (ck.extentB ?? 1)).join(';') + '|' : ''}${fs.mode}|${fs.mode === 'wave' ? [fs.waveCount, fs.waveSize, fs.waveShape, fs.waveExtend, fs.wavePaper || 'conserve'].join(',') + '|' : ''}${fs.creases.map(c2 => [c2.position, c2.positionV, c2.rotation, c2.angle, c2.extentA, c2.extentB, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}${inhSig}${roleSig}`;
+        const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.autoExtent ? 'AE:' + fr.creaseList.map(ck => (ck.extentA ?? 0) + ',' + (ck.extentB ?? 1)).join(';') + '|' : ''}${fs.mode}|${fs.mode === 'wave' ? [fs.waveCount, fs.waveSize, fs.waveShape, fs.waveExtend, fs.wavePaper || 'conserve'].join(',') + '|' : ''}${fs.creases.map(c2 => [c2.position, c2.positionV, c2.rotation, c2.angle, c2.extentA, c2.extentB, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}|${Path.cornersKey(this)}${inhSig}${roleSig}`;
         const fdHit = this._foldCache ? this._foldCache.get(key) : null;
         if (fdHit) return fdHit.val;
 
@@ -45669,7 +46185,7 @@
       // no reliance on notifyPathUpdated coverage.
       _trimArcData() {
         const spSig = this.subPathData.map(sp => `${sp.start},${sp.count},${sp.closed ? 1 : 0}`).join(';');
-        const key = `${this.algorithm}|${this.loop ? 1 : 0}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}`;
+        const key = `${this.algorithm}|${this.loop ? 1 : 0}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}|${Path.cornersKey(this)}`;
         if (this._trimArcCache && this._trimArcCache.key === key) return this._trimArcCache;
         const evalC = (g, t) => {
           const u = 1 - t;
@@ -46406,6 +46922,11 @@
       // single-cap output, bit-identical. Result is cached per geometry
       // (subPathData signature + vertex checksum).
       _getCapIslands() {
+        const _eff = this.getEffectiveGeometry();   // ROUND CORNERS S1: the caps of a rounded profile
+        if (_eff.expanded) return this._withEffectiveGeometry(_eff, () => this._getCapIslandsRaw());
+        return this._getCapIslandsRaw();
+      }
+      _getCapIslandsRaw() {
         const sp = this.subPathData;
         if (!sp || sp.length < 2 || !this.localVertices.length) return null;
         for (const s of sp) if (!s.closed) return null;
@@ -46728,6 +47249,10 @@
 
         // Helper to get path data based on algorithm
         const getPathData = (mvp) => {
+          // ROUND CORNERS S1 (v20260914zzza): a path with live corners draws its
+          // expanded bezier form; the swap restores the raw fields in finally.
+          const _effG = this.getEffectiveGeometry();
+          if (_effG.expanded) return this._withEffectiveGeometry(_effG, () => this.drawCubicBezier(mvp));
           if (this.algorithm === 'linear') return this.drawLinear(mvp);
           if (this.algorithm === 'bspline' || this.algorithm === 'bspline2') return this.drawBSpline(mvp);
           if (this.algorithm === 'bezier') return this.drawCubicBezier(mvp);
@@ -56179,6 +56704,11 @@
       // Returns array of objects: { type: 'L'|'C', points: [v0, v1, ...] }
       // This allows both Face drawing and Side generation to use the same logic
       getSegments() {
+        const eff = this.getEffectiveGeometry();   // ROUND CORNERS S1: expanded when live corners exist
+        if (eff.expanded) return this._withEffectiveGeometry(eff, () => this._getSegmentsRaw());
+        return this._getSegmentsRaw();
+      }
+      _getSegmentsRaw() {
         if (this.algorithm === 'linear') return this.getLinearSegments();
         if (this.algorithm === 'bspline' || this.algorithm === 'bspline2') return this.getBSplineSegments();
         if (this.algorithm === 'bezier') return this.getCubicBezierSegments();
@@ -58012,8 +58542,47 @@
             vertexGizmoGroup.appendChild(textEl);
           }
         }
+
+        // --- ROUND CORNERS: the corner widgets (S3, v20260914zzzc) ---
+        // One dot per SELECTED qualifying corner of this object, on the
+        // corner's bisector inside the corner: at the arc's apex when the
+        // corner is rounded, plus a fixed 12 px inset so an unrounded corner
+        // still shows a grabbable dot (Illustrator's affordance). The drag
+        // handler (a capture-phase svg mousedown on .corner-widget) reads
+        // Path._cornerWidgets, stamped fresh every draw.
+        if (currentTool === 'directSelect' && !obj.primitiveData && obj._cornerJunction) {
+          const selHere = [];
+          if (selectedVertexInfo && selectedVertexInfo.object === obj) selHere.push(selectedVertexInfo.vertexIndex);
+          for (const sv of selectedVertices) if (sv.object === obj && !selHere.includes(sv.vertexIndex)) selHere.push(sv.vertexIndex);
+          for (const vi of selHere) {
+            const J = obj._cornerJunction(vi); if (!J) continue;
+            const e = obj.corners && obj.corners[vi];
+            const r = (e && +e.r > 0) ? Math.min(+e.r, J.rMax) : 0;
+            const wApex = r > 0 ? r * (1 - Math.sin(J.phi)) / Math.sin(J.phi) : 0;   // apex distance from P along the bisector
+            const tP = transformVertex(J.P, mvpMatrix);
+            const tW = transformVertex([J.P[0] + J.bis[0] * wApex, J.P[1] + J.bis[1] * wApex, J.P[2] + J.bis[2] * wApex], mvpMatrix);
+            const eps = 0.05 * J.tMax;
+            const tD = transformVertex([J.P[0] + J.bis[0] * eps, J.P[1] + J.bis[1] * eps, J.P[2] + J.bis[2] * eps], mvpMatrix);
+            if (!tP || !tW || !tD) continue;
+            const sx = (tW[0] * FRAME_SIZE) / 2, sy = (-tW[1] * FRAME_SIZE) / 2;
+            let dx = ((tD[0] - tP[0]) * FRAME_SIZE) / 2, dy = (-(tD[1] - tP[1]) * FRAME_SIZE) / 2;
+            const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+            const inset = 12 / mainScale;
+            const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            c.setAttribute('cx', sx + dx * inset);
+            c.setAttribute('cy', sy + dy * inset);
+            c.setAttribute('r', 5 / mainScale);
+            c.setAttribute('class', 'corner-widget' + (Path._cornerDrag && Path._cornerDrag.key === obj.id + '_' + vi ? ' dragging' : ''));
+            c.dataset.cornerWidget = obj.id + '_' + vi;
+            const modeNow = ({ bspline: 'B-Spline (Cubic)', bspline2: 'B-Spline (Quad)' }[cornerModeOf(e && e.mode)] || 'Arc');
+            c.setAttribute('title', 'Round corner: drag toward the corner to round it (' + modeNow + ')');
+            vertexGizmoGroup.appendChild(c);
+            Path._cornerWidgets.set(obj.id + '_' + vi, { obj, vi, J, r });
+          }
+        }
       };
 
+      Path._cornerWidgets = new Map();   // rebuilt every gizmo draw (S3)
       drawForObject(targetObject);
 
       // Multi-object vertex selection: also draw gizmos for other objects with selected vertices
@@ -62210,7 +62779,65 @@
     // a splice so the bezier case (replace 2 control points with 5) and the
     // linear/b-spline case (insert 1) share it. Carries the same
     // legacy-inconsistency fallback as its twin.
+    // ROUND CORNERS - CORNER PINS (PLAN-round-corners S2, v20260914zzzb). The
+    // corner map is keyed by raw vertex INDEX, and every structural edit
+    // moves indices. Rather than one hand-written remap per site (the
+    // shear-in-duplicateObject class of trap), each site pins the corners to
+    // their vertex POSITIONS before the edit and re-attaches them by position
+    // after it: cornerPins() snapshots [{pos, r, mode}], applyCornerPins()
+    // finds each pin's vertex in the new buffer (exact match after the copy
+    // the edits make; the old index is preferred when several vertices
+    // coincide, then the first unclaimed one), and a pin whose vertex is gone
+    // (the removed vertex, a weld) simply drops. `map` transforms the pinned
+    // positions first (a cross-path join moves the absorbed vertices into the
+    // host's space with the same function the vertices went through, so the
+    // match stays exact). Sites: spliceSubPathVertices, removeVertexFromSubPaths,
+    // the vertex-index reorder (both kinds), invert winding, convertPathToBezier,
+    // the scissors (both branches, host and piece) and Join.
+    const cornerPins = (obj) => {
+      if (!obj || !obj.corners || !obj.localVertices) return null;
+      const out = [];
+      for (const k of Object.keys(obj.corners)) {
+        const vi = +k, e = obj.corners[k], v = obj.localVertices[vi];
+        if (!e || !(+e.r > 0) || !v) continue;
+        out.push({ vi, pos: [v[0], v[1], v[2] || 0], r: +e.r, mode: cornerModeOf(e.mode) });
+      }
+      return out.length ? out : null;
+    };
+    const applyCornerPins = (obj, pins, map) => {
+      if (!obj) return;
+      if (!pins || !pins.length) { if (obj.corners && Object.keys(obj.corners).length) { obj.corners = {}; obj._effGeoCache = null; } return; }
+      const V = obj.localVertices || [];
+      const claimed = new Set();
+      const eq = (a, b) => Math.abs(a[0] - b[0]) <= 1e-12 && Math.abs(a[1] - b[1]) <= 1e-12 && Math.abs((a[2] || 0) - (b[2] || 0)) <= 1e-12;
+      // On a bezier buffer only ANCHOR slots may carry a corner: a synthesized
+      // handle sits exactly on its anchor (the app's sharp convention) and would
+      // otherwise win the position match (measured: the reorder pinned slot 5
+      // for the anchor at 6).
+      const bez = obj.algorithm === 'bezier';
+      const spd = Array.isArray(obj.subPathData) ? obj.subPathData : null;
+      const slotOk = (i) => {
+        if (!bez) return true;
+        if (!spd) return i % 3 === 0;
+        for (const sp of spd) if (i >= sp.start && i < sp.start + sp.count) return (i - sp.start) % 3 === 0;
+        return false;
+      };
+      const next = {};
+      for (const p of pins) {
+        const pos = map ? map(p.pos) : p.pos;
+        let hit = -1;
+        if (V[p.vi] && slotOk(p.vi) && !claimed.has(p.vi) && eq(V[p.vi], pos)) hit = p.vi;
+        else for (let i = 0; i < V.length; i++) { if (slotOk(i) && !claimed.has(i) && eq(V[i], pos)) { hit = i; break; } }
+        if (hit < 0) continue;
+        claimed.add(hit);
+        next[hit] = { r: p.r, mode: p.mode };
+      }
+      obj.corners = next;
+      obj._effGeoCache = null;
+    };
+
     const spliceSubPathVertices = (object, sp, atIndex, deleteCount, insertVerts) => {
+      const _cpins = cornerPins(object);   // ROUND CORNERS S2
       const spd = object.subPathData;
       const n = object.localVertices.length;            // BEFORE the splice
       let consistent = Array.isArray(spd) && spd.length > 0 && spd.indexOf(sp) >= 0;
@@ -62222,11 +62849,13 @@
       object.localVertices.splice(atIndex, deleteCount, ...insertVerts);
       if (!consistent) {                                 // legacy fallback
         object.subPathData = [{ start: 0, count: object.localVertices.length, closed: object.loop }];
+        if (_cpins) applyCornerPins(object, _cpins);   // ROUND CORNERS S2
         return;
       }
       const delta = insertVerts.length - deleteCount;
       sp.count += delta;
       for (const other of spd) if (other !== sp && other.start >= atIndex) other.start += delta;
+      if (_cpins) applyCornerPins(object, _cpins);   // ROUND CORNERS S2
     };
 
     // Enumerate the path's INSERTABLE spans, each as a local-space cubic
@@ -62451,6 +63080,7 @@
         // style, algorithm and every modifier setting — and WITHOUT opts it
         // copies no animation tracks, which is right: a split piece is a new
         // object and tracks cannot be split with it.
+        const _cpinsCut = cornerPins(obj);   // ROUND CORNERS S2: pinned before the buffers are rebuilt
         const piece = duplicateObject(obj);
         if (!piece) return false;
         const build = (target, parts) => {
@@ -62465,6 +63095,8 @@
         };
         build(piece, newParts);
         build(obj, hostParts);
+        applyCornerPins(piece, _cpinsCut);   // ROUND CORNERS S2: each half keeps the corners it still holds;
+        applyCornerPins(obj, _cpinsCut);     // the cut vertex is an endpoint on both sides and rounds no more
         obj.loop = false; piece.loop = false;
         // Name both halves "<name> 1" / "<name> 2". Since v20260726o the host's
         // rename needs no track migration — it keeps its ID, so its animation
@@ -62503,7 +63135,9 @@
       } else {
         rotated = slice.slice(rel).concat(slice.slice(0, rel), [[...slice[rel]]]);
       }
+      const _cpinsRing = cornerPins(obj);   // ROUND CORNERS S2
       V.splice(s0, cnt, ...rotated);
+      applyCornerPins(obj, _cpinsRing);
       const grew = rotated.length - cnt;
       obj.subPathData.splice(spIdx, 1, { start: s0, count: rotated.length, closed: false });
       bump(spIdx + 1, grew);
@@ -63648,6 +64282,7 @@
     };
 
     const updatePropertiesPanel = () => {
+      updateCornerRows();               // ROUND CORNERS S4: the Corners rows follow the vertex selection
       updateRotatePivotRowVisibility(); // Multi Rotate Pivot depends on selection count
       syncGizmoModeUI();                // Gizmo (W) <select> ← gizmoMode (v20260811e)
 
@@ -67064,6 +67699,132 @@
         }
         return [u, v];
       };
+      // --- ROUND CORNERS - THE WIDGET DRAG (S3, v20260914zzzc) ---------------
+      // Capture-phase mousedown on a .corner-widget wins over the tools (the
+      // fold guide's pattern). The mouse ray meets the corner's OWN plane in
+      // world space (exact under perspective; a 2D-mode path takes the
+      // fabricated straight-down ray), the hit is brought to local space and
+      // projected onto the bisector; the widget sits at the ARC'S APEX, so the
+      // radius follows the cursor's bisector travel through
+      // r = w * sin(phi) / (1 - sin(phi)), with the grab offset recorded at
+      // mousedown so the apex follows the grab point instead of jumping.
+      // Every selected qualifying corner gets the SAME radius, each clamped to
+      // its own rMax (Illustrator's rule); dragging back to zero removes the
+      // entry. Undo: a bare push at mousedown, the labelled one at mouseup.
+      Path._cornerDrag = null;
+      const _cwEntries = () => {
+        const out = [];
+        const seen = new Set();
+        const add = (obj, vi) => { const k = obj.id + '_' + vi; if (seen.has(k)) return; seen.add(k); const J = obj._cornerJunction ? obj._cornerJunction(vi) : null; if (J) out.push({ obj, vi, J }); };
+        if (selectedVertexInfo && selectedVertexInfo.object) add(selectedVertexInfo.object, selectedVertexInfo.vertexIndex);
+        for (const sv of selectedVertices) if (sv.object) add(sv.object, sv.vertexIndex);
+        return out;
+      };
+      // Bisector parameter of the cursor for one corner: the world-space hit of
+      // the click ray on the corner's plane, in local space, dotted with bis.
+      const _cwBisectorParam = (ev, obj, J) => {
+        const WM = obj.getWorldMatrix(); const inv = matrixInverse(WM); if (!inv) return null;
+        const w = (p) => { const t = transformVertex(p, WM); return t ? [t[0], t[1], t[2]] : null; };
+        const Pw = w(J.P), Aw = w(J.A), Bw = w(J.B); if (!Pw || !Aw || !Bw) return null;
+        const nw = vectorNormalize(vectorCross(vectorSubtract(Aw, Pw), vectorSubtract(Bw, Pw)));
+        let ray;
+        if (isIn2DMode(obj)) ray = { origin: mouseToFrame2D(ev.clientX, ev.clientY, Pw[2] + 1), direction: [0, 0, -1] };
+        else { const vp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix()); ray = getRayFromClick(ev, vp); }
+        if (!ray) return null;
+        const denom = vectorDot ? vectorDot(ray.direction, nw) : (ray.direction[0] * nw[0] + ray.direction[1] * nw[1] + ray.direction[2] * nw[2]);
+        if (Math.abs(denom) < 1e-12) return null;
+        const num = (Pw[0] - ray.origin[0]) * nw[0] + (Pw[1] - ray.origin[1]) * nw[1] + (Pw[2] - ray.origin[2]) * nw[2];
+        const tr = num / denom;
+        const H = vectorAdd(ray.origin, vectorScale(ray.direction, tr));
+        const Hl = transformVertex(H, inv); if (!Hl) return null;
+        const d = [Hl[0] - J.P[0], Hl[1] - J.P[1], Hl[2] - J.P[2]];
+        return d[0] * J.bis[0] + d[1] * J.bis[1] + d[2] * J.bis[2];
+      };
+      const _cwApply = (r) => {
+        const drag = Path._cornerDrag; if (!drag) return;
+        for (const en of drag.entries) {
+          const rr = Math.max(0, Math.min(r, en.J.rMax));
+          if (!en.obj.corners) en.obj.corners = {};
+          if (rr <= 1e-9) delete en.obj.corners[en.vi];
+          else en.obj.corners[en.vi] = { r: rr, mode: en.obj.corners[en.vi] ? cornerModeOf(en.obj.corners[en.vi].mode) : cornerModeOf(drag.defaultMode) };
+          en.obj._effGeoCache = null;
+          notifyPathUpdated(en.obj);
+        }
+        requestRender();
+      };
+      svg.addEventListener('mousedown', (e) => {
+        const t = e.target;
+        if (!t || !t.dataset || !t.dataset.cornerWidget || e.button !== 0) return;
+        const w = Path._cornerWidgets && Path._cornerWidgets.get(t.dataset.cornerWidget);
+        if (!w) return;
+        const entries = _cwEntries();
+        if (!entries.length) return;
+        const s0 = _cwBisectorParam(e, w.obj, w.J);
+        if (s0 === null) return;
+        const r0 = w.r;
+        const wApex0 = r0 > 0 ? r0 * (1 - Math.sin(w.J.phi)) / Math.sin(w.J.phi) : 0;
+        // OPTION-CLICK toggles the corner's type (S4): Arc <-> B-Spline, no drag.
+        if (e.altKey) {
+          const en = w.obj.corners && w.obj.corners[w.vi];
+          if (en && +en.r > 0) {
+            pushUndoState();
+            en.mode = ({ arc: 'bspline', bspline: 'bspline2', bspline2: 'arc' })[cornerModeOf(en.mode)];   // the cycle Arc -> Cubic -> Quad -> Arc
+            w.obj._effGeoCache = null; notifyPathUpdated(w.obj); requestRender();
+            pushUndoState('Corner type');
+            updateCornerRows();
+          }
+          e.preventDefault(); e.stopImmediatePropagation();
+          return;
+        }
+        pushUndoState();
+        Path._cornerDrag = { key: t.dataset.cornerWidget, lead: w, entries, s0, wApex0, defaultMode: Path.cornerDefaultMode || 'arc', moved: false };
+        t.classList.add('dragging');
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }, true);
+      // DOUBLE-CLICK a widget: focus the Radius field (S4, Illustrator's dialog analogue).
+      svg.addEventListener('dblclick', (e) => {
+        const t = e.target;
+        if (!t || !t.dataset || !t.dataset.cornerWidget) return;
+        const inp = document.getElementById('dsCornerRadiusInput');
+        if (inp && inp.offsetParent !== null) { inp.focus(); inp.select(); }
+        e.preventDefault(); e.stopImmediatePropagation();
+      }, true);
+      // Exposed for the drawer (S4): the selection's qualifying corners, and the
+      // one applier the Radius field and the Type select share with the drag.
+      Path.cornerSelection = _cwEntries;
+      Path.cornerApply = (fn) => {
+        const entries = _cwEntries();
+        for (const en of entries) {
+          if (!en.obj.corners) en.obj.corners = {};
+          fn(en);
+          en.obj._effGeoCache = null;
+          notifyPathUpdated(en.obj);
+        }
+        requestRender();
+        return entries.length;
+      };
+      window.addEventListener('mousemove', (e) => {
+        const drag = Path._cornerDrag; if (!drag) return;
+        const s = _cwBisectorParam(e, drag.lead.obj, drag.lead.J);
+        if (s === null) return;
+        const wApex = Math.max(0, drag.wApex0 + (s - drag.s0));
+        const sn = Math.sin(drag.lead.J.phi);
+        const r = wApex * sn / (1 - sn);
+        drag.moved = true;
+        _cwApply(r);
+      });
+      window.addEventListener('mouseup', () => {
+        const drag = Path._cornerDrag; if (!drag) return;
+        Path._cornerDrag = null;
+        if (drag.moved) pushUndoState('Round corners');
+        if (typeof updatePropertiesPanel === 'function') updatePropertiesPanel();
+        requestRender();
+      });
+      // The mode a NEWLY rounded corner takes - the drawer's Type select writes it
+      // (S4). A static on Path so the drawer outside this closure can read it.
+      Path.cornerDefaultMode = 'arc';
+
       let _fhDrag = null;
       svg.addEventListener('mousedown', (e) => {
         const t = e.target;
@@ -67141,6 +67902,77 @@
         }
       });
       window.addEventListener('mouseup', () => { _fhDrag = null; });
+    })();
+
+    // ROUND CORNERS - THE DRAWER ROWS (S4, v20260914zzzd). A hoisted function
+    // (updatePropertiesPanel calls it before this line runs at boot). Shown
+    // under the A tool while Path.cornerSelection() holds at least one
+    // qualifying corner; Radius shows the common radius (blank when mixed,
+    // 0 when none is rounded), Type the common type (the placeholder when
+    // mixed / none). activeElement guards keep typing unfought.
+    function updateCornerRows() {
+      const sec = document.getElementById('dsCornersSection');
+      if (!sec) return;
+      const show = (typeof currentTool !== 'undefined' && currentTool === 'directSelect' && typeof Path !== 'undefined' && Path.cornerSelection);
+      const entries = show ? Path.cornerSelection() : [];
+      if (!entries.length) { sec.style.display = 'none'; return; }
+      sec.style.display = '';
+      const rInp = document.getElementById('dsCornerRadiusInput');
+      const tSel = document.getElementById('dsCornerTypeInput');
+      const rs = entries.map(en => { const e = en.obj.corners && en.obj.corners[en.vi]; return (e && +e.r > 0) ? +e.r : 0; });
+      const modes = entries.map(en => { const e = en.obj.corners && en.obj.corners[en.vi]; return (e && +e.r > 0) ? cornerModeOf(e.mode) : null; }).filter(Boolean);
+      if (rInp && document.activeElement !== rInp) {
+        const same = rs.every(r => Math.abs(r - rs[0]) < 1e-9);
+        rInp.value = same ? (typeof toDisplay === 'function' ? toDisplay(rs[0]) : rs[0]).toFixed(2) : '';
+        rInp.placeholder = same ? '' : 'mixed';
+      }
+      if (tSel && document.activeElement !== tSel) {
+        const same = modes.length && modes.every(m => m === modes[0]);
+        tSel.value = same ? modes[0] : (modes.length ? '' : (Path.cornerDefaultMode || 'arc'));
+      }
+    }
+    (() => {
+      const rInp = document.getElementById('dsCornerRadiusInput');
+      const tSel = document.getElementById('dsCornerTypeInput');
+      const bake = document.getElementById('dsBakeCornersBtn');
+      let editing = false;
+      if (rInp) {
+        rInp.addEventListener('input', (e) => {
+          const v = parseFloat(e.target.value);
+          if (!isFinite(v)) return;
+          const r = typeof fromDisplay === 'function' ? fromDisplay(v) : v;
+          if (!editing) { pushUndoState(); editing = true; }
+          Path.cornerApply((en) => {
+            const rr = Math.max(0, Math.min(r, en.J.rMax));
+            if (rr <= 1e-9) delete en.obj.corners[en.vi];
+            else en.obj.corners[en.vi] = { r: rr, mode: en.obj.corners[en.vi] ? cornerModeOf(en.obj.corners[en.vi].mode) : cornerModeOf(Path.cornerDefaultMode) };
+          });
+        });
+        rInp.addEventListener('change', () => { if (editing) { pushUndoState('Corner radius'); editing = false; } updateCornerRows(); });
+        rInp.addEventListener('blur', () => { if (editing) { pushUndoState('Corner radius'); editing = false; } });
+      }
+      if (tSel) {
+        tSel.addEventListener('change', (e) => {
+          const mode = cornerModeOf(e.target.value);
+          Path.cornerDefaultMode = mode;
+          pushUndoState();
+          const n = Path.cornerApply((en) => { const c = en.obj.corners[en.vi]; if (c && +c.r > 0) c.mode = mode; });
+          pushUndoState('Corner type');
+          updateCornerRows();
+        });
+      }
+      if (bake) {
+        bake.addEventListener('click', () => {
+          const objs = new Set(Path.cornerSelection().map(en => en.obj));
+          let baked = 0;
+          for (const o of objs) if (o.hasLiveCorners && o.hasLiveCorners() && bakeCorners(o)) baked++;
+          if (baked) {
+            // the buffer changed shape: the vertex selection's indices are stale
+            selectedVertices = []; selectedVertexInfo = null;
+            updateTreeView(); updatePropertiesPanel(); requestRender();
+          }
+        });
+      }
     })();
 
     // Reset Pivot Button
@@ -67428,6 +68260,7 @@
         newPath.rotationMatrix = obj.rotationMatrix.map(row => [...row]);
 
         // Deep copy all 3D settings
+        newPath.corners = JSON.parse(JSON.stringify(obj.corners || {}));   // ROUND CORNERS S2 (the Duplicate-drops-a-channel trap)
         newPath.extrudeSettings = JSON.parse(JSON.stringify(obj.extrudeSettings));
         newPath.revolveSettings = JSON.parse(JSON.stringify(obj.revolveSettings));
         newPath.sweepSettings = JSON.parse(JSON.stringify(obj.sweepSettings));
@@ -67852,6 +68685,29 @@
     // getBezierSegments() list, so a degenerate subpath (too few vertices to
     // emit any segment) can never shift the closed-flag mapping of the ones
     // after it.
+    // ROUND CORNERS - BAKE (PLAN-round-corners S1, v20260914zzza). Writes the
+    // expanded geometry INTO the path (algorithm 'bezier', corners cleared) -
+    // the command the user gets in S4 and the ORACLE of S1: a live-rounded path
+    // must render, export and region-clip exactly like its baked twin. Console
+    // only for now; undo entry labelled. Shape keys: the vertex count changes,
+    // so the same confirm-drop rule as Convert to Bezier applies.
+    const bakeCorners = (obj) => {
+      if (!obj || obj.isGroup || !obj.localVertices) return false;
+      const eff = obj.getEffectiveGeometry();
+      if (!eff.expanded) return false;
+      if (typeof _tlShapeConfirmDrop === 'function' && !_tlShapeConfirmDrop(obj, 'Baking the corners of this path')) return false;
+      pushUndoState();
+      obj.localVertices = eff.localVertices.map(v => [v[0], v[1], v[2] || 0]);
+      obj.subPathData = eff.subPathData.map(s => ({ start: s.start, count: s.count, closed: !!s.closed }));
+      obj.algorithm = 'bezier';
+      obj.corners = {};
+      obj._effGeoCache = null;
+      if (typeof notifyPathUpdated === 'function') notifyPathUpdated(obj);
+      requestRender();
+      pushUndoState('Bake corners');
+      return true;
+    };
+
     const convertPathToBezier = (obj) => {
       if (!obj || obj.isGroup || !(obj instanceof Path)) return false;
       if (obj.algorithm === 'bezier') return false;
@@ -67905,9 +68761,14 @@
         newSubs.push({ start, count: newVerts.length - start, closed: !!sp.closed });
       }
       if (!newVerts.length) return false;
+      // ROUND CORNERS S2: a linear source's corners follow their vertices onto
+      // the new anchors (positions preserved); a b-spline source's corners were
+      // inert (control points are not on the curve) and are dropped with it.
+      const _cpins = (obj.algorithm === 'bspline' || obj.algorithm === 'bspline2') ? null : cornerPins(obj);
       obj.localVertices = newVerts;
       obj.subPathData = newSubs;
       obj.algorithm = 'bezier';
+      applyCornerPins(obj, _cpins);   // after the algorithm flips: pins attach to anchor slots only
       return true;
     };
 
@@ -68080,8 +68941,12 @@
           p.verts.forEach(v => newVerts.push(v));
           newSubs.push({ start, count: p.verts.length, closed: p.closed });
         }
+        // ROUND CORNERS S2: the host's pins as they are, the absorbed path's
+        // through the SAME toHost the vertices went through (exact match).
+        const _cpinsJoin = (cornerPins(host) || []).concat(cross ? (cornerPins(other) || []).map(p => ({ ...p, vi: -1, pos: toHost(p.pos) })) : []);
         host.localVertices = newVerts;
         host.subPathData = newSubs;
+        applyCornerPins(host, _cpinsJoin);
         if (cross) removeEmptiedObject(other);         // absorbed — same cleanup as a delete
         notifyPathUpdated(host);
         _reselect = host;
@@ -68116,7 +68981,9 @@
         if (obj instanceof Path) {
           // 1. Reverse Vertices
           const totalCount = obj.localVertices.length;
+          const _cpins = cornerPins(obj);   // ROUND CORNERS S2
           obj.localVertices.reverse();
+          if (_cpins) applyCornerPins(obj, _cpins);
 
           // 2. Reverse Subpaths if present
           if (obj.subPathData && obj.subPathData.length > 0) {
@@ -68197,6 +69064,7 @@
     // disappearance guard). Does the splice itself so the index bookkeeping
     // stays coherent. Caller handles the empty-object case afterward.
     function removeVertexFromSubPaths(object, vertexIndex) {
+      const _cpins = cornerPins(object);   // ROUND CORNERS S2: re-pinned by position at every exit below
       const spd = object.subPathData;
       const n = object.localVertices.length;            // BEFORE the splice
       let consistent = Array.isArray(spd) && spd.length > 0;
@@ -68206,6 +69074,7 @@
         consistent = (sum === n);
       }
       object.localVertices.splice(vertexIndex, 1);
+      if (_cpins) applyCornerPins(object, _cpins);   // ROUND CORNERS S2 (the removed vertex's pin drops)
       if (object.localVertices.length === 0) return;    // caller deletes object
       if (!consistent) {                                 // legacy fallback
         object.subPathData = [{ start: 0, count: object.localVertices.length, closed: object.loop }];
@@ -68317,7 +69186,9 @@
         out.push(cur.cIn ? [...cur.cIn] : [...cur.pos]);
         out.push([...cur.pos]);
       }
+      const _cpins = cornerPins(object);   // ROUND CORNERS S2: anchors keep their corners across the permutation
       for (let k = 0; k < out.length; k++) V[sp.start + k] = out[k];
+      if (_cpins) applyCornerPins(object, _cpins);
       return sp.start + 3 * jTo;
     };
 
@@ -68386,8 +69257,10 @@
       // Reorder Logic (Move Vertex) — within one subpath the two splices
       // leave every start/count unchanged, so subPathData needs no edit.
       const vertexToMove = object.localVertices[vertexIndex];
+      const _cpins = cornerPins(object);   // ROUND CORNERS S2
       object.localVertices.splice(vertexIndex, 1);
       object.localVertices.splice(newIndex, 0, vertexToMove);
+      if (_cpins) applyCornerPins(object, _cpins);
 
       // Update selected index to track the moved vertex
       selectedVertexInfo.vertexIndex = newIndex;
@@ -73697,8 +74570,12 @@
         frameGuideRect.style.display = 'none';
       }
 
-      const indicatorX = width / 2 + CANVAS_OFFSET_X - FRAME_SIZE / 2 * scale + 80;
-      const indicatorY = height / 2 + CANVAS_OFFSET_Y + FRAME_SIZE / 2 * scale - 80;
+      // Axis indicator origin 48 px in from the paper's bottom-left corner
+      // (v20260914zzw; was 80 - the pre-arena value, see hudInset). Its arms
+      // are 40 px (AxisIndicator.scale), so the farthest tip sits ~8 px from
+      // the paper edge, the pills' own gap.
+      const indicatorX = width / 2 + CANVAS_OFFSET_X - FRAME_SIZE / 2 * scale + 48;
+      const indicatorY = height / 2 + CANVAS_OFFSET_Y + FRAME_SIZE / 2 * scale - 48;
       axisIndicatorGroup.setAttribute('transform', `translate(${indicatorX}, ${indicatorY})`);
       axisIndicator.update(viewMatrix);
       }   // end of the chrome gate (frame rect … axis indicator)
@@ -73853,7 +74730,14 @@
         ? 'Drag left/right to adjust Size'
         : 'Drag left/right to adjust Distance';
 
-      const hudInset = 40; // px inward from canvas edge
+      // 8 px inward from the PAPER edge (v20260914zzw; was 40). The 40 dates
+      // from before the canvas arena (v20260909g), when the paper ran under
+      // the top bar and the timeline row and 40 px from its edge landed the
+      // pills 7-8 px from the VISIBLE edges - the clamp below still uses that
+      // 8. With the paper fitted between the bars the same 40 sat 40 px inside
+      // it (owner report). The truck / reset cluster at the top right reads
+      // the same constant.
+      const hudInset = 8; // px inward from the paper edge
 
       // Account for timeline panel covering the bottom of the viewport
       const tlHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--timeline-height')) || 0;
@@ -75533,6 +76417,7 @@
               pushUndoState();
               if (!convertPathToBezier(objNB)) return;
               selectedVertexInfo = null; hoveredVertexInfo = null; selectedVertices = [];
+              updateCornerRows();   // ROUND CORNERS S4
               resetPenBezierState();          // the vertex layout changed
               notifyPathUpdated(objNB);
               updateSubPathUI(); updatePropertiesPanel(); updateStylePanel();
@@ -76386,6 +77271,7 @@
             }
             // Expand to include coincident vertices
             selectedVertices = expandCoincidentVertices(selectedVertices);
+            updateCornerRows();   // ROUND CORNERS S4: a click that changes the vertex selection
             // Init Drag
             dragMode = 'translate'; // Vertex free drag
             if (isZPressed) { dragMode = 'translate'; lockedAxis = 'z'; }
@@ -83336,6 +84222,13 @@
         data.algorithm = obj.algorithm;
         data.loop = obj.loop;
         data.subPathData = obj.subPathData;
+        // ROUND CORNERS S2 (v20260914zzzb): sparse [[vi, r, mode], ...], present
+        // only when a corner is rounded - a corner-free path serializes
+        // byte-identically to every file written before the field existed.
+        if (obj.corners) {
+          const ks = Object.keys(obj.corners).filter(k => obj.corners[k] && +obj.corners[k].r > 0);
+          if (ks.length) data.corners = ks.sort((a, b) => a - b).map(k => [+k, +obj.corners[k].r, cornerModeOf(obj.corners[k].mode)]);
+        }
         data.extrudeSettings = obj.extrudeSettings;
         data.revolveSettings = obj.revolveSettings;
         data.sweepSettings = obj.sweepSettings;
@@ -83526,6 +84419,18 @@
         );
         // Restore specific Path properties
         if (data.subPathData) obj.subPathData = data.subPathData;
+        // ROUND CORNERS S2: validated on the way in - integer index inside the
+        // buffer, r > 0, mode arc | bspline; anything else is dropped silently.
+        if (Array.isArray(data.corners)) {
+          const c = {}; const nV = (data.localVertices || []).length;
+          for (const e of data.corners) {
+            if (!Array.isArray(e)) continue;
+            const vi = Math.round(+e[0]), r = +e[1];
+            if (!(vi >= 0 && vi < nV) || !(r > 0)) continue;
+            c[vi] = { r, mode: cornerModeOf(e[2]) };
+          }
+          obj.corners = c;
+        }
         if (data.extrudeSettings) obj.extrudeSettings = { ...obj.extrudeSettings, ...data.extrudeSettings };
         if (data.revolveSettings) obj.revolveSettings = { ...obj.revolveSettings, ...data.revolveSettings };
         if (data.sweepSettings) obj.sweepSettings = { ...obj.sweepSettings, ...data.sweepSettings };

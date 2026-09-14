@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260914zzzf -->
+<!-- dim v20260915b -->
 
 <!--
   MIT License
@@ -3834,6 +3834,36 @@
       stroke: var(--accent-color);
     }
 
+    /* CONTINUOUS DRAG - the virtual cursor (v20260914zzzg, PLAN-continuous-drag
+       S1). While a drag holds the pointer lock the real cursor is hidden; this
+       glyph is the app's cursor, placed at the virtual position modulo the
+       window so it WRAPS at the edges. Two shapes: an arrow, and the
+       horizontal double arrow of a scrubbed number field. Tokens only. */
+    #dragRelayGlyph {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 22px;
+      height: 22px;
+      pointer-events: none;
+      z-index: 100000;
+      display: none;
+      transform: translate(-4px, -3px);
+    }
+
+    #dragRelayGlyph svg {
+      width: 22px;
+      height: 22px;
+      fill: var(--text-main);
+      stroke: var(--bg-panel);
+      stroke-width: 1.2;
+      stroke-linejoin: round;
+    }
+
+    #dragRelayGlyph.scrub {
+      transform: translate(-11px, -11px);
+    }
+
     #vertexGizmoGroup text.vertex-index-label {
       font-family: 'Avenir Next Condensed', var(--font-family-sans);
       font-weight: 500;
@@ -6364,6 +6394,14 @@
           <div class="xyz-inputs" style="max-width: 80px; margin-left: auto;">
             <input type="number" id="autosaveMinutesInput" value="2" min="1" max="120" step="1" />
           </div>
+        </div>
+
+        <!-- CONTINUOUS DRAG (v20260914zzzg, PLAN-continuous-drag): a drag takes the
+             pointer lock so it never runs out of screen; the app draws a wrapping
+             cursor. Off = every drag stops at the window edge as before. -->
+        <div class="prop-row prop-inline" id="continuousDragRow">
+          <label for="continuousDragCb" class="ui-checkbox-label" title="While dragging - a number field, an object, a vertex, a camera bar, the subwindow - the pointer is captured once it starts moving, so the drag never stops at the screen edge; a drawn cursor wraps around instead. The browser shows a one-time notice the first time. Press Esc to release a drag.">Continuous drag</label>
+          <input type="checkbox" id="continuousDragCb" class="ui-checkbox" checked />
         </div>
 
         <div class="prop-row prop-inline" id="webgpuRow">
@@ -67777,6 +67815,7 @@
           return;
         }
         pushUndoState();
+        DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S2
         Path._cornerDrag = { key: t.dataset.cornerWidget, lead: w, entries, s0, wApex0, defaultMode: Path.cornerDefaultMode || 'arc', moved: false };
         t.classList.add('dragging');
         e.preventDefault();
@@ -67829,6 +67868,7 @@
       svg.addEventListener('mousedown', (e) => {
         const t = e.target;
         if (!t || !t.dataset || !t.dataset.foldHandle) return;
+        DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S2
         const ctx = Path._foldGuideCtx;
         if (!ctx || !selectedObject || selectedObject !== ctx.obj) return;
         // AUTO EXTENT (v20260819a): computed spans are not draggable —
@@ -73392,6 +73432,7 @@
           e.stopPropagation();   // the canvas tools must never see this
           const cam = _cam();
           if (!_editable(cam)) { _syncLockUI(); return; }   // locked = no-op
+          DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S3: the subwindow's orbit through the same relay
           dragging = true;
           pid = e.pointerId;
           lastX = e.clientX;
@@ -73462,6 +73503,7 @@
           e.stopPropagation();
           const cam = _cam();
           if (!_editable(cam)) { _syncLockUI(); return; }
+          DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S3: the subwindow's drags through the same relay
           dragging = true;
           startX = e.clientX;
           const relative = vectorSubtract(cam.position, cam.target);
@@ -73504,6 +73546,7 @@
           e.stopPropagation();
           const cam = _cam();
           if (!_editable(cam)) { _syncLockUI(); return; }
+          DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S3: the subwindow's drags through the same relay
           dragging = true;
           startY = e.clientY;
           startEl = getCameraOrbitalState(cam).elevation;
@@ -73551,6 +73594,7 @@
           e.stopPropagation();
           const cam = _cam();
           if (!_editable(cam)) { _syncLockUI(); return; }
+          DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S3: the subwindow's drags through the same relay
           dragging = true;
           startX = e.clientX;
           startPersp = _projOf(cam) === 'perspective';
@@ -73610,6 +73654,7 @@
           e.stopPropagation();
           const cam = _cam();
           if (!_editable(cam) || _projOf(cam) !== 'perspective') { _syncLockUI(); return; }
+          DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S3: the subwindow's drags through the same relay
           dragging = true;
           startX = e.clientX;
           startFov = cam.fovDegrees;
@@ -73666,6 +73711,7 @@
           e.stopPropagation();
           const cam = _cam();
           if (!_editable(cam)) { _syncLockUI(); return; }
+          DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S3: the subwindow's drags through the same relay
           dragging = true;
           lastX = e.clientX;
           lastY = e.clientY;
@@ -73728,6 +73774,7 @@
           e.stopPropagation();
           const cam = _cam();
           if (!_editable(cam)) { _syncLockUI(); return; }
+          DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S3: the subwindow's drags through the same relay
           dragging = true;
           didMove = false;
           startX = lastX = e.clientX;
@@ -75128,6 +75175,7 @@
         _hudEndEdit();   // v20260906d — a press on any bar commits an open edit
         // LOCKED (v20260906c): refuse before anything is started.
         if ((selectedCamera || activeCamera || {}).lock) return;
+        DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S2 (lazy: a click never locks; S3: armed after the lock refusal, so a locked camera's press leaves no candidate)
         _hudNoteDown(e, _hudAzValue);
         if (e.altKey) { _hudOpenValueEditor(_hudAzBar, _hudAzValue, _hudSpecs.az); return; }
         _hudAzDragging = true;
@@ -75176,6 +75224,7 @@
         _hudEndEdit();   // v20260906d — a press on any bar commits an open edit
         // LOCKED (v20260906c): refuse before anything is started.
         if ((selectedCamera || activeCamera || {}).lock) return;
+        DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S2 (lazy: a click never locks; S3: armed after the lock refusal, so a locked camera's press leaves no candidate)
         _hudNoteDown(e, _hudElValue);
         if (e.altKey) { _hudOpenValueEditor(_hudElBar, _hudElValue, _hudSpecs.el); return; }
         _hudElDragging = true;
@@ -75230,6 +75279,7 @@
         _hudEndEdit();   // v20260906d — a press on any bar commits an open edit
         // LOCKED (v20260906c): refuse before anything is started.
         if ((selectedCamera || activeCamera || {}).lock) return;
+        DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S2 (lazy: a click never locks; S3: armed after the lock refusal, so a locked camera's press leaves no candidate)
         _hudNoteDown(e, _hudFovValue);
         if (e.altKey) { _hudOpenValueEditor(_hudFovBar, _hudFovValue, _hudSpecs.fov); return; }
         _hudFovDragging = true;
@@ -75306,6 +75356,7 @@
         _hudEndEdit();   // v20260906d — a press on any bar commits an open edit
         // LOCKED (v20260906c): refuse before anything is started.
         if ((selectedCamera || activeCamera || {}).lock) return;
+        DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S2 (lazy: a click never locks; S3: armed after the lock refusal, so a locked camera's press leaves no candidate)
         _hudNoteDown(e, _hudFovZoomValue);
         if (e.altKey) { _hudOpenValueEditor(_hudFovZoomBar, _hudFovZoomValue, _hudSpecs.fovZoom); return; }
         _hudFovZoomDragging = true;
@@ -75382,6 +75433,7 @@
         _hudEndEdit();   // v20260906d — a press on any bar commits an open edit
         // LOCKED (v20260906c): refuse before anything is started.
         if ((selectedCamera || activeCamera || {}).lock) return;
+        DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S2 (lazy: a click never locks; S3: armed after the lock refusal, so a locked camera's press leaves no candidate)
         _hudNoteDown(e, _hudDistValue);
         if (e.altKey) { _hudOpenValueEditor(_hudDistBar, _hudDistValue, _hudSpecs.dist); return; }
         _hudDistDragging = true;
@@ -75470,6 +75522,7 @@
         _hudEndEdit();   // v20260906d — a press on any bar commits an open edit
         // LOCKED (v20260906c): refuse before anything is started.
         if ((selectedCamera || activeCamera || {}).lock) return;
+        DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S2 (lazy: a click never locks; S3: armed after the lock refusal, so a locked camera's press leaves no candidate)
         _hudNoteDown(e, _hudTruckXValue);
         if (e.altKey) { _hudOpenValueEditor(_hudTruckXBar, _hudTruckXValue, _hudSpecs.truckX); return; }
         _hudTruckXDragging = true;
@@ -75523,6 +75576,7 @@
         _hudEndEdit();   // v20260906d — a press on any bar commits an open edit
         // LOCKED (v20260906c): refuse before anything is started.
         if ((selectedCamera || activeCamera || {}).lock) return;
+        DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S2 (lazy: a click never locks; S3: armed after the lock refusal, so a locked camera's press leaves no candidate)
         _hudNoteDown(e, _hudTruckYValue);
         if (e.altKey) { _hudOpenValueEditor(_hudTruckYBar, _hudTruckYValue, _hudSpecs.truckY); return; }
         _hudTruckYDragging = true;
@@ -76253,7 +76307,17 @@
       return null;
     };
 
+    // CONTINUOUS DRAG S2 (v20260915a): the canvas drags. The real handler runs
+    // first (it has early returns and sets dragMode before each), then the
+    // mode it chose decides: every transform / camera / vertex drag is armed
+    // (lazily - the lock comes on the first move); marquee and the drawing
+    // gestures keep the real cursor.
+    const _relayContinuousMode = (m) => !!m && m !== 'none' && m !== 'marquee-select' && m !== 'edit-polygon' && !m.startsWith('draw-');
     const onMouseDown = (event) => {
+      _onMouseDownInner(event);
+      if (event && event.isTrusted && _relayContinuousMode(dragMode)) DragRelay.arm(event, 'arrow');
+    };
+    const _onMouseDownInner = (event) => {
       if (isSpacePressed) {
         dragMode = 'truck';
         pushCameraUndoState(); // Camera truck start
@@ -82481,6 +82545,218 @@
     };
 
     // --- Initialization ---
+    // =====================================================================
+    // CONTINUOUS DRAG - THE POINTER-LOCK RELAY (PLAN-continuous-drag S1,
+    // v20260914zzzg). No web API can move the OS cursor, so the drag that
+    // runs out of screen is solved the way Figma's scrubbing is: a drag
+    // family calls DragRelay.arm(e, kind) from its TRUSTED mousedown, the
+    // relay takes the Pointer Lock on <body>, keeps a VIRTUAL cursor that
+    // starts at the real one and integrates movementX / movementY (allowed
+    // to leave the window), swallows every native mousemove / mouseup in the
+    // window capture phase and re-dispatches a synthetic one at the virtual
+    // position on the drag's start element - so every existing handler that
+    // reads clientX / clientY keeps working unchanged and keeps going past
+    // the edge. A glyph (#dragRelayGlyph) is the visible cursor and wraps at
+    // the window edges. Esc / a lost lock ends the drag by dispatching the
+    // mouseup itself, so no handler is stranded mid-drag. A lock that fails
+    // (unsupported, refused - the embedded Browser pane and headless Chrome
+    // both refuse with WrongDocumentError, measured 2026-09-14) leaves the
+    // drag exactly as today. Untrusted mousedowns never arm: the app's own
+    // synthetic-drag probes must not enter the lock, and CDP-synthesized
+    // moves under a lock give jumpy movementX (measured). Enabled by the
+    // Settings checkbox "Continuous drag" (persisted, default ON - the
+    // owner measured Chrome's notice at once per session). S1 wires the
+    // number-field scrubbers; S2 the canvas drags.
+    // =====================================================================
+    const DragRelay = {
+      enabled: true,
+      supported: !!(document.body && document.body.requestPointerLock),
+      active: false, pending: false, vx: 0, vy: 0, target: null, kind: 'arrow', stats: { locks: 0, fails: 0, lost: 0, spikes: 0 }, edgeMargin: 64,
+      candidate: null,      // S2: the drag that will lock on its FIRST move
+      _sawPointer: false,   // S2: pointermove integrates; the compat mousemove follows
+      setEnabled(on) { this.enabled = !!on; this.candidate = null; if (!this.enabled && (this.active || this.pending)) this._end(true); },
+      // S2 (v20260915a): LAZY arming. A family calls this from its trusted
+      // mousedown / pointerdown; the lock is requested on the drag's FIRST
+      // move (measured: 66 ms in a headed Chrome, within the gesture's
+      // activation), so a plain click never takes the pointer and never
+      // shows the browser's notice. The candidate dies on the next up.
+      arm(e, kind) {
+        this._swallowUp = null;
+        if (!this.enabled || !this.supported || !e || !e.isTrusted || e.button !== 0 || this.active) return false;
+        if (this.pending) this.pending = false;   // a request left over from a drag that ended before it was granted
+        // THE DISPATCH CHAIN (S3): the start element can be rebuilt away mid-drag
+        // (a vertex handle - vertexGizmoGroup is emptied every draw; a cloned
+        // scene path in the subwindow), and the tools listen on the svg, not on
+        // <body>. The synthetic events go to the first element of the
+        // mousedown's propagation path that is still connected, so a rebuilt
+        // handle falls back to its group / the svg and the svg's handlers keep
+        // receiving. Measured before this: a 1400 px vertex drag moved 0.2
+        // units and stalled at the first redraw.
+        let chain = [];
+        try { chain = (typeof e.composedPath === 'function' ? e.composedPath() : []).filter(n => n && n.nodeType === 1); } catch (err) { chain = []; }
+        if (!chain.length && e.target && e.target.nodeType === 1) chain = [e.target];
+        this.candidate = { target: e.target, chain, kind: kind || 'arrow', x: e.clientX, y: e.clientY };
+        return true;
+      },
+      _lockNow(e) {
+        const c = this.candidate; this.candidate = null;
+        if (!c) return false;
+        this.target = c.target; this.chain = c.chain || []; this.vx = e.clientX; this.vy = e.clientY; this.kind = c.kind; this.pending = true; this._sawPointer = false; this._moved = false;
+        if (document.pointerLockElement === document.body) { this._onLockChange(); return true; }   // already ours (a stale lock)
+        clearTimeout(this._pendTimer); this._pendTimer = setTimeout(() => { if (this.pending && !this.active) { this.pending = false; this.stats.fails++; } }, 1500);
+        let p = null;
+        try { p = document.body.requestPointerLock({ unadjustedMovement: true }); }
+        catch (err) { try { p = document.body.requestPointerLock(); } catch (e2) { this.pending = false; this.stats.fails++; return false; } }
+        if (p && p.catch) p.catch((err) => {
+          // unadjustedMovement unsupported -> the plain lock; anything else = no lock this drag
+          if (this.pending && !this.active && /unadjusted|NotSupported/i.test(String(err))) { try { const q = document.body.requestPointerLock(); if (q && q.catch) q.catch(() => { this.pending = false; this.stats.fails++; }); } catch (e3) { this.pending = false; this.stats.fails++; } }
+          else if (this.pending && !this.active) { this.pending = false; this.stats.fails++; }
+        });
+        return true;
+      },
+      _nearEdge(e) {
+        const m = this.edgeMargin;
+        if (!(m < 1e8)) return true;
+        const sx = e.screenX, sy = e.screenY;
+        if (typeof sx !== 'number' || typeof sy !== 'number') return true;
+        const s = window.screen || {};
+        const L = s.availLeft || 0, T = s.availTop || 0, W = s.availWidth || s.width || 0, H = s.availHeight || s.height || 0;
+        if (!W || !H) return true;
+        return (sx - L) <= m || (sy - T) <= m || (L + W - sx) <= m || (T + H - sy) <= m;
+      },
+      _onLockChange() {
+        const on = document.pointerLockElement === document.body;
+        if (on && this.pending) { this.pending = false; this.active = true; this.stats.locks++; this._glyph(true); }
+        else if (on && !this.active) { try { document.exitPointerLock(); } catch (e) { } }   // a lock that arrived after its drag ended
+        else if (!on && this.active) { this.stats.lost++; this._end(true); }
+        else if (!on) this.pending = false;
+      },
+      // Both event families pass through here (window capture phase). A
+      // physical move arrives as a pointermove AND its compat mousemove, each
+      // carrying movementX: the POINTER event integrates, the mouse event only
+      // follows (a browser without pointer events would integrate on mouse).
+      _onMove(e) {
+        if (!e.isTrusted) return;
+        const isPointer = e.type === 'pointermove';
+        if (!this.active) {
+          // The first move of EITHER family may lock: a handler that preventDefaults
+          // its pointerdown (the HUD bars) suppresses the compat mouse events, so
+          // waiting for a mousemove there would never lock (measured, S2).
+          // EDGE-TRIGGERED (S3): the lock is requested only when the cursor comes
+          // within edgeMargin px of the SCREEN edge - a browser keeps delivering a
+          // held-button drag outside its window, so the window edge is not where
+          // a drag runs out of room. Most drags never lock at all: no notice, no
+          // first-move spike, and Chrome's request rate limit (measured: a burst
+          // of ~5 locks, then refusals, one token back every ~2 s - a designer's
+          // quick nudges would have hit it on every sixth drag) is spent only on
+          // drags that actually reach an edge. Probes set edgeMargin = 1e9 for
+          // the first-move behaviour.
+          if (this.candidate && !this.pending && (e.buttons & 1) && this._nearEdge(e)) this._lockNow(e);
+          return;
+        }
+        e.stopImmediatePropagation();
+        if (isPointer) this._sawPointer = true;
+        if (isPointer || !this._sawPointer) {
+          let mx = e.movementX || 0, my = e.movementY || 0;
+          // SPIKE GUARD: the first movement after a lock can carry the distance
+          // from wherever the OS cursor last was (Chrome's known first-event
+          // jump; every synthesized-input driver shows it as a ~800 px leap that
+          // throws the virtual cursor across the window). One event, one
+          // threshold; a real 96 px flick inside one frame is not a drag anyone
+          // is steering.
+          if (!this._moved) { this._moved = true; if (Math.abs(mx) > 96 || Math.abs(my) > 96) { this.stats.spikes++; mx = 0; my = 0; } }
+          this.vx += mx; this.vy += my; this._place();
+        }
+        this._dispatch(e.type, e);
+      },
+      // ONE physical release ends the drag whichever family reports it first
+      // (a pointerdown that was preventDefaulted never gets its compat mouseup
+      // - the HUD bars; measured: the relay stayed armed and the next drag could
+      // not lock). Both families' synthetic ups go out, and the other family's
+      // trailing native up, if it comes, is swallowed once.
+      _onUp(e) {
+        if (!e.isTrusted) return;
+        if (!this.active) {
+          if (this._swallowUp === e.type) { this._swallowUp = null; e.stopImmediatePropagation(); return; }
+          if (e.type === 'mouseup' || e.type === 'pointerup') this.candidate = null;
+          return;
+        }
+        e.stopImmediatePropagation();
+        const other = e.type === 'pointerup' ? 'mouseup' : 'pointerup';
+        this._dispatch(e.type, e);
+        this._dispatch(other, e);
+        this._swallowUp = other;
+        clearTimeout(this._swallowTimer); this._swallowTimer = setTimeout(() => { this._swallowUp = null; }, 250);
+        this._end(false);
+      },
+      _dispatch(type, src) {
+        const up = type === 'mouseup' || type === 'pointerup';
+        const init = {
+          bubbles: true, cancelable: true, clientX: this.vx, clientY: this.vy,
+          screenX: src.screenX || 0, screenY: src.screenY || 0, button: src.button || 0,
+          buttons: up ? 0 : (src.buttons || 1),
+          shiftKey: !!src.shiftKey, altKey: !!src.altKey, ctrlKey: !!src.ctrlKey, metaKey: !!src.metaKey,
+          movementX: src.movementX || 0, movementY: src.movementY || 0
+        };
+        let ev;
+        if (type.startsWith('pointer') && typeof PointerEvent === 'function') {
+          ev = new PointerEvent(type, { ...init, pointerId: src.pointerId === undefined ? 1 : src.pointerId, pointerType: src.pointerType || 'mouse', isPrimary: src.isPrimary !== false, width: 1, height: 1, pressure: up ? 0 : 0.5 });
+        } else ev = new MouseEvent(type, init);
+        ev._dimRelay = true;
+        let t = null;
+        for (const n of (this.chain || [])) { if (n && n.isConnected) { t = n; break; } }
+        if (!t) t = (this.target && this.target.isConnected) ? this.target : document.body;
+        t.dispatchEvent(ev);
+      },
+      _end(lost) {
+        const wasActive = this.active;
+        this.active = false; this.pending = false;
+        this._glyph(false);
+        if (document.pointerLockElement === document.body) { try { document.exitPointerLock(); } catch (e) { } }
+        if (lost && wasActive) { this._dispatch('pointerup', { screenX: 0, screenY: 0, button: 0, buttons: 0, pointerId: 1 }); this._dispatch('mouseup', { screenX: 0, screenY: 0, button: 0, buttons: 0 }); }
+        if (lost && wasActive) this._lostAt = performance.now();
+        this.target = null; this.chain = []; this.candidate = null;
+      },
+      // ESCAPE under a lock is the browser's "release" key: it exits the lock
+      // (the pointerlockchange ends the drag above) AND still delivers the
+      // keydown to the page, where the tools' Escape deselects. Measured: a
+      // locked body drag + Escape left NOTHING selected. Swallowed while locked
+      // and for half a second after a lost lock (the two arrive in either order).
+      _onKey(e) {
+        if (!e.isTrusted || e.key !== 'Escape') return;
+        if (this.active || (this._lostAt && performance.now() - this._lostAt < 500)) { e.stopImmediatePropagation(); e.preventDefault(); }
+      },
+      _el() {
+        let g = document.getElementById('dragRelayGlyph');
+        if (!g) {
+          g = document.createElement('div'); g.id = 'dragRelayGlyph';
+          g.innerHTML = '<svg viewBox="0 0 22 22" class="arrow"><path d="M4 2 L4 17 L8 13 L11 20 L13.5 19 L10.5 12.5 L16 12.5 Z"/></svg><svg viewBox="0 0 22 22" class="scrub"><path d="M1 11 L6 6 L6 9 L16 9 L16 6 L21 11 L16 16 L16 13 L6 13 L6 16 Z"/></svg>';
+          document.body.appendChild(g);
+        }
+        return g;
+      },
+      _glyph(show) {
+        const g = this._el();
+        if (!show) { g.style.display = 'none'; return; }
+        g.className = this.kind === 'scrub' ? 'scrub' : '';
+        g.querySelector('svg.arrow').style.display = this.kind === 'scrub' ? 'none' : 'block';
+        g.querySelector('svg.scrub').style.display = this.kind === 'scrub' ? 'block' : 'none';
+        this._place(); g.style.display = 'block';
+      },
+      _place() {
+        const g = this._el(); const W = window.innerWidth || 1, H = window.innerHeight || 1;
+        const x = ((this.vx % W) + W) % W, y = ((this.vy % H) + H) % H;
+        g.style.left = x + 'px'; g.style.top = y + 'px';
+      }
+    };
+    document.addEventListener('pointerlockchange', () => DragRelay._onLockChange());
+    document.addEventListener('pointerlockerror', () => { if (DragRelay.pending) { DragRelay.pending = false; DragRelay.stats.fails++; } });   // the request promise rejects too - count the refusal once
+    window.addEventListener('pointermove', (e) => DragRelay._onMove(e), true);
+    window.addEventListener('mousemove', (e) => DragRelay._onMove(e), true);
+    window.addEventListener('pointerup', (e) => DragRelay._onUp(e), true);
+    window.addEventListener('mouseup', (e) => DragRelay._onUp(e), true);
+    window.addEventListener('keydown', (e) => DragRelay._onKey(e), true);
+
     const init = () => {
       resizeSVG();
       updateVisualGrid(activeWorkplane.gridSize);
@@ -83048,6 +83324,7 @@
 
             scrub.addEventListener('mousedown', (e) => {
               e.preventDefault();
+              DragRelay.arm(e, 'scrub');   // CONTINUOUS DRAG S1: the pointer lock, when it is granted
               scrubDragging = true;
               scrubAxis = null;
               scrubStartVal = parseFloat(input.value) || 0;
@@ -83067,6 +83344,7 @@
       };
       initCustomSpinners();
       _wrapNumberSpinners = initCustomSpinners; // dynamic rows (fold crease list) wrap on rebuild
+
 
       // --- App Settings (localStorage) ---
       const SETTINGS_KEY = 'dim-settings';
@@ -83248,6 +83526,18 @@
           console.warn('Failed to save settings:', e);
         }
       };
+
+      // CONTINUOUS DRAG (v20260914zzzg): the Settings checkbox, persisted; absent = ON.
+      {
+        let _cdOn = true;
+        try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); _cdOn = s.continuousDrag !== false; } catch (e) { }
+        DragRelay.setEnabled(_cdOn);
+        const cb = document.getElementById('continuousDragCb');
+        if (cb) {
+          cb.checked = _cdOn;
+          cb.addEventListener('change', () => { DragRelay.setEnabled(cb.checked); saveSettings({ continuousDrag: cb.checked }); });
+        }
+      }
 
       // AUTOSAVE (v20260914zo): the Settings checkbox + interval, persisted.
       const _autosaveSyncUI = () => {
@@ -89970,6 +90260,7 @@
       scrub.addEventListener('mousedown', (e) => {
         e.preventDefault();
         e.stopPropagation();
+        DragRelay.arm(e, 'scrub');   // CONTINUOUS DRAG S1
         scrubDragging = true;
         scrubAxis = null;
         scrubStartVal = parseFloat(inp.value) || 0;

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260915b -->
+<!-- dim v20260916e -->
 
 <!--
   MIT License
@@ -739,6 +739,51 @@
     .canvas-hud-bar.hud-hidden {
       opacity: 0;
       pointer-events: none;
+    }
+    /* DRAG READOUT HUD (v20260916b): the last drag's distance (row 1) and its
+       world x / y / z (row 2) as pills at the paper's top-left, siblings of
+       the camera HUD pills - same tokens, same value editor idiom (click the
+       value to type). Static children instead of the camera pills' absolute
+       centring, so a label and a value can sit side by side. Positioned by
+       updateHudBarPositions like every pill; hidden until a drag has moved
+       CLICK_PX, shown until the next operation. */
+    #dragReadoutHud {
+      position: absolute;
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      pointer-events: none;
+      transition: opacity var(--dur-slow) ease;
+    }
+    #dragReadoutHud.hud-hidden { opacity: 0; pointer-events: none; }
+    /* v20260916c: one pill per row; the label in a fixed 16 px column OUTSIDE
+       the pill (so a value's width never moves it); every pill 72 x 24. The
+       label takes the HUD icon ink, the token the camera pills' icons use. */
+    #dragReadoutHud .drag-hud-row { display: flex; align-items: center; gap: 6px; }
+    #dragReadoutHud .drag-hud-pill {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 72px;
+      height: 24px;
+      border-radius: 12px;
+      cursor: ew-resize;   /* v20260916e: drag to scrub; a click (no move) opens the value editor */
+      pointer-events: auto;
+    }
+    #dragReadoutHud .drag-hud-pill:hover, #dragReadoutHud .drag-hud-pill.dragging { background: var(--hud-bar-hover); }
+    #dragReadoutHud .drag-hud-pill.drag-hud-inert { cursor: default; }
+    #dragReadoutHud .drag-hud-pill .hud-value { position: static; transform: none; }
+    #dragReadoutHud .drag-hud-label {
+      width: 16px;
+      text-align: left;   /* v20260916d: to the RIGHT of the pill */
+      color: var(--hud-label-color);
+      font-size: 12px;
+      font-weight: 400;   /* v20260916d: light, like the camera pills' stroked icons */
+      line-height: 1;
+      pointer-events: none;
+      user-select: none;
     }
 
     .canvas-hud-bar:hover {
@@ -3898,6 +3943,32 @@
       text-anchor: middle;
       dominant-baseline: central;
     }
+    /* DRAG READOUT (v20260915d, PLAN-drag-readout.md S1; moved to the paper's
+       top-left corner and enlarged in v20260915j): the label of a translate
+       drag - distance, world x / y / z, the constraint tag. Same halo convention as the crease numbers and the
+       vertex-index labels; the font sizes and the stroke width are set per
+       element in frame units (11 / scale) because the group is scaled.
+       Colours: the distance in the overlay text ink, the components in the
+       secondary ink, the tag in the accent ink. Inert. */
+    #pathHighlightGroup text.drag-readout-label {
+      font-family: 'Avenir Next Condensed', var(--font-family-sans);
+      font-weight: 500;   /* v20260915k: the distance line matches the components (owner) */
+      fill: var(--overlay-text);
+      paint-order: stroke;
+      stroke: var(--overlay-halo);
+      stroke-linecap: butt;
+      stroke-linejoin: miter;
+      pointer-events: none;
+      user-select: none;
+      dominant-baseline: central;
+    }
+    /* The halo is WHITE in both themes and the overlay ink is dark in both (the
+       vertex-index convention), so every line uses --overlay-text: a panel ink
+       (--text-secondary is near-white in dark) vanished into the halo - measured
+       on the dark crop. */
+    #pathHighlightGroup text.drag-readout-label.drag-readout-xyz { font-weight: 500; }
+    #pathHighlightGroup text.drag-readout-label.drag-readout-tag { font-weight: 500; fill: var(--accent-ink); }
+    #pathHighlightGroup text.drag-readout-label.drag-readout-leg-letter { font-weight: 500; }
 
     .gizmo-label {
       transition: stroke-width var(--dur-fast);
@@ -5557,6 +5628,14 @@
     <span class="hud-value" id="hudTruckYValue">0.0</span>
   </div>
   <!-- Canvas HUD — Reset Truck/Pedestal button (top-right circle) -->
+  <!-- DRAG READOUT HUD (v20260916b): distance, then x / y / z of the last drag; click a value to type it -->
+  <div id="dragReadoutHud" class="hud-hidden">
+    <!-- v20260916c (owner): one pill per row, the label OUTSIDE the pill in a fixed column, every pill the same size; v20260916d: the label to the RIGHT of the pill, light weight like the pills' icons; v20260916e: the order x, y, z, delta, the pills SCRUB (drag) as well as type (click), and they show whenever a selection has a move session -->
+    <div class="drag-hud-row"><div id="drHudX" class="canvas-hud-bar drag-hud-pill" title="World x moved - drag to scrub, click to type"><span class="hud-value" id="drHudXValue">0.00</span></div><span class="drag-hud-label">x</span></div>
+    <div class="drag-hud-row"><div id="drHudY" class="canvas-hud-bar drag-hud-pill" title="World y moved - drag to scrub, click to type"><span class="hud-value" id="drHudYValue">0.00</span></div><span class="drag-hud-label">y</span></div>
+    <div class="drag-hud-row"><div id="drHudZ" class="canvas-hud-bar drag-hud-pill" title="World z moved - drag to scrub, click to type"><span class="hud-value" id="drHudZValue">0.00</span></div><span class="drag-hud-label">z</span></div>
+    <div class="drag-hud-row"><div id="drHudDist" class="canvas-hud-bar drag-hud-pill" title="Distance moved - drag to scrub along the same direction, click to type"><span class="hud-value" id="drHudDistValue">0.00</span></div><span class="drag-hud-label" id="drHudDistLabel" title="Distance moved, in the display unit">&Delta;</span></div>
+  </div>
   <div id="hudTruckResetBtn" class="canvas-hud-bar canvas-hud-bar-circle" title="Reset Truck / Pedestal">
     <svg viewBox="0 0 20 20" fill="#fff" xmlns="http://www.w3.org/2000/svg">
       <path
@@ -6402,6 +6481,15 @@
         <div class="prop-row prop-inline" id="continuousDragRow">
           <label for="continuousDragCb" class="ui-checkbox-label" title="While dragging - a number field, an object, a vertex, a camera bar, the subwindow - the pointer is captured once it starts moving, so the drag never stops at the screen edge; a drawn cursor wraps around instead. The browser shows a one-time notice the first time. Press Esc to release a drag.">Continuous drag</label>
           <input type="checkbox" id="continuousDragCb" class="ui-checkbox" checked />
+        </div>
+
+        <!-- DRAG READOUT (v20260915d, PLAN-drag-readout): during a translate drag
+             the canvas shows the start-to-now vector, its world x / y / z
+             staircase and a label with the distance, the components and the
+             plane or axis the drag moves on. Off = the drag alone. -->
+        <div class="prop-row prop-inline" id="dragReadoutRow">
+          <label for="dragReadoutCb" class="ui-checkbox-label" title="While you move an object or a vertex, draw the vector from where the drag started, its x / y / z legs, and a label with the distance, the world x / y / z and the plane or axis the drag is on.">Drag readout</label>
+          <input type="checkbox" id="dragReadoutCb" class="ui-checkbox" checked />
         </div>
 
         <div class="prop-row prop-inline" id="webgpuRow">
@@ -11962,16 +12050,10 @@
     };
 
     // Helper: project a movement vector onto the workplane (remove normal component)
-    const applyWorkplaneRestriction = (vec) => {
-      if (!restrictToWorkplane) return vec;
-      const { normal } = getWorkingPlane();
-      const dot = vec[0] * normal[0] + vec[1] * normal[1] + vec[2] * normal[2];
-      return [
-        vec[0] - dot * normal[0],
-        vec[1] - dot * normal[1],
-        vec[2] - dot * normal[2]
-      ];
-    };
+    // applyWorkplaneRestriction (the projection of a camera-plane delta onto
+    // the workplane) was RETIRED in v20260915h: "Restrict to Workplane" is one
+    // of FreeDragPlane's two sources now, and the free drags do a ray-plane
+    // hit on the workplane-parallel plane instead (PLAN-free-drag-plane.md).
 
     let isSpacePressed = false;
     let isZPressed = false;
@@ -12243,6 +12325,7 @@
     const setTool = (tool) => {
       // TEXT-TOOL experimental gate: refuse activation while disabled
       if (tool === 'text' && !textToolEnabled) return;
+      try { DragReadout.clearSticky(); } catch (e) { }   // DRAG READOUT (v20260915k): the corner numbers live until the next operation
       // Clear pen preview on any tool change
       _penPreviewLocalHit = null;
       if (penPreviewPath) penPreviewPath.style.display = 'none';
@@ -12935,6 +13018,7 @@
     });
 
     const updateMoveToolUI = () => {
+      try { queueMicrotask(() => DragReadout.syncHud()); } catch (e) { }   // DRAG READOUT HUD (v20260916b/e): the pills mirror this form and show while a session exists - after its writes below
       const fmt = (n) => (Math.abs(n) < 0.0001 ? 0 : toDisplay(n)).toFixed(2);
 
       // 1. Validate Session
@@ -14748,6 +14832,7 @@
 
     // --- Scene Undo / Redo ---
     const performUndo = () => {
+      try { DragReadout.clearSticky(); } catch (e) { }   // DRAG READOUT (v20260915k): the corner numbers live until the next operation
 
       // If a shape is currently pending, cancel it instead of undoing — a clean
       // "cancel" before the history moves. Since v20260904e this is the shared
@@ -14791,6 +14876,7 @@
     };
 
     const performRedo = () => {
+      try { DragReadout.clearSticky(); } catch (e) { }   // DRAG READOUT (v20260915k): the corner numbers live until the next operation
       if (sceneRedoHistory.length === 0) return;
       // A pending shape cannot survive the whole-scene restore below
       // (restoreSceneFromState destroys every object; `pendingPolygon` would
@@ -63917,6 +64003,7 @@
     };
 
     const setSelectedObject = (obj, multiSelect = false) => {
+      try { DragReadout.clearSticky(); } catch (e) { }   // DRAG READOUT (v20260915k): the corner numbers live until the next operation
       // Logic: If deselecting or switching unique selection, save the current object's style.
       // EXCEPTION: When a drawing tool is active, currentStyle is managed by the tool's own
       // panel sync (doodle stroke color, spiral settings, etc.). Overwriting it here with the
@@ -74256,6 +74343,10 @@
           }
         }
 
+        // DRAG READOUT (v20260915d): the vector, the staircase and the label of
+        // a translate drag in flight. Same group and lifetime as the snap circle.
+        DragReadout.draw(vpMatrix, scale);
+
         // FOLD / WRAP (v20260720m): crease guide — accent dashed line on the
         // hinge, projected through the SAME matrix chain as the base face
         // (vpMatrix × world), so the guide can never disagree with the fold.
@@ -74761,6 +74852,11 @@
       const hudVisible = showHudCb ? showHudCb.checked : true;
       const hudBars = [_hudAzBar, _hudElBar, _hudFovBar, _hudFovZoomBar, _hudDistBar, _hudTruckXBar, _hudTruckYBar, _hudTruckResetBtn];
       hudBars.forEach(bar => { if (bar) bar.classList.toggle('hud-hidden', !hudVisible); });
+      // DRAG READOUT HUD (v20260916b): the paper's top-left, 8 px in - placed
+      // whether or not the camera HUD is shown (it is a readout, not a camera
+      // control); its own visibility is DragReadout's.
+      const _drHud = document.getElementById('dragReadoutHud');
+      if (_drHud) { _drHud.style.left = (frameX + 8) + 'px'; _drHud.style.top = (frameY + 8) + 'px'; }
       if (!hudVisible) return;
 
       // Hide FOV bars in orthographic/oblique modes (FOV has no effect)
@@ -76316,6 +76412,9 @@
     const onMouseDown = (event) => {
       _onMouseDownInner(event);
       if (event && event.isTrusted && _relayContinuousMode(dragMode)) DragRelay.arm(event, 'arrow');
+      // FREE-DRAG PLANE S0 (v20260915g): the plane decision is frozen at the mousedown of a free drag (inert until S1)
+      if (FreeDragPlane.isFreeDrag(dragMode, lockedAxis)) FreeDragPlane.freeze(selectedVertexInfo ? selectedVertexInfo.object : selectedObject, event); else FreeDragPlane.clear();
+      DragReadout.begin();   // DRAG READOUT S0: captures the subject's world anchor when dragMode is a translate mode, else clears
     };
     const _onMouseDownInner = (event) => {
       if (isSpacePressed) {
@@ -77441,7 +77540,7 @@
       }
     };
 
-    const onMouseMove = (event) => {
+    const _onMouseMoveInner = (event) => {
       // SUBWINDOW REALTIME (owner request, 2026-08-12): a scene-mutating drag
       // marks dirty PER MOVE, so the sub view follows the interaction live —
       // the seam's self-paced cadence (SubView.PACE_K) decides how often a
@@ -78471,11 +78570,11 @@
           moveVec = vectorAdd(rightMove, upMove);
         }
 
-        // Apply workplane restriction (only for free drag, not gizmo-axis drags;
-        // 2D subjects are already exact in their plane)
-        if (lockedAxis === 'none' && !subj2D) {
-          moveVec = applyWorkplaneRestriction(moveVec);
-        }
+        // (The "Restrict to Workplane" projection that stood here was retired in
+        // v20260915h with its twin in the second 'translate' chain - the plane is
+        // FreeDragPlane's decision now. This chain's free-move arithmetic is
+        // overwritten by that second chain every move anyway; measured in
+        // PLAN-drag-readout S2.)
 
         // Snap to point (post-process on incremental translate; 2D skips —
         // frame space can't be compared through the camera projection)
@@ -79039,7 +79138,10 @@
         // 2D MODE (v20260727c): fabricated straight-down ray in frame space
         const subj2D = isIn2DMode(selectedObject);
         const camZAxis = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-        const planeNormal = subj2D ? [0, 0, 1] : camZAxis;
+        // FREE-DRAG PLANE S1 (v20260915h): the frozen decision may swap the plane
+        // for the one parallel to the workplane; the ray hit below is the same.
+        const _fdp = FreeDragPlane.enabled && FreeDragPlane.current && FreeDragPlane.current.kind === 'workplane' && FreeDragPlane.current.normal;
+        const planeNormal = subj2D ? [0, 0, 1] : (_fdp ? FreeDragPlane.current.normal : camZAxis);
 
         const viewMatrix = activeCamera.createViewMatrix();
         const projectionMatrix = activeCamera.createProjectionMatrix();
@@ -80144,10 +80246,29 @@
           totalWorldDelta = vectorAdd(moveX, moveY);
         }
 
-        // Apply workplane restriction (only for free drag, not gizmo-axis
-        // drags; 2D subjects are already exact in their plane)
-        if (lockedAxis === 'none' && !subj2D) {
-          totalWorldDelta = applyWorkplaneRestriction(totalWorldDelta);
+        // FREE-DRAG PLANE S1 (v20260915h, PLAN-free-drag-plane.md): a free drag
+        // whose frozen decision is the WORKPLANE moves on the plane parallel to
+        // the workplane through the drag's world reference, by a ray-plane hit
+        // at the current and the start mouse positions (the centre circle's
+        // arithmetic, so the point under the cursor stays under the cursor in
+        // perspective and orthographic alike). This replaces "Restrict to
+        // Workplane"'s projection of the camera-plane delta (the subject drifted
+        // from the cursor as the view tilted). The camera-plane arithmetic above
+        // is untouched for every other drag. A hit that fails (the ray behind the
+        // camera in perspective) keeps that move's camera-plane delta.
+        if (lockedAxis === 'none' && !subj2D && FreeDragPlane.enabled && FreeDragPlane.current && FreeDragPlane.current.kind === 'workplane' && FreeDragPlane.current.normal) {
+          const _fn = FreeDragPlane.current.normal, _fref = _dsRefW();
+          const _fvp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
+          const _fhit = (cx, cy) => {
+            const ray = getRayFromClick({ clientX: cx, clientY: cy }, _fvp); if (!ray) return null;
+            const den = vectorDot(ray.direction, _fn); if (Math.abs(den) < 1e-9) return null;
+            const t = vectorDot(vectorSubtract(_fref, ray.origin), _fn) / den;
+            if (t < 0 && projectionType === 'perspective') return null;
+            return vectorAdd(ray.origin, vectorScale(ray.direction, t));
+          };
+          if (!dragStartPlaneHit) dragStartPlaneHit = _fhit(dragStartMousePosition.x, dragStartMousePosition.y) || _fref;
+          const _fnow = _fhit(event.clientX, event.clientY);
+          if (_fnow) totalWorldDelta = vectorSubtract(_fnow, dragStartPlaneHit);
         }
 
         let newWorldPosition = vectorAdd(dragStartWorldPosition, totalWorldDelta);
@@ -80313,10 +80434,19 @@
 
       previousMousePosition = { x: event.clientX, y: event.clientY };
     };
+    // DRAG READOUT S0 (v20260915c): the readout reads the subject's position
+    // AFTER the inner handler moved it - whichever of the two translate
+    // chains did the moving. Same wrapper shape as onMouseDown.
+    const onMouseMove = (event) => {
+      _onMouseMoveInner(event);
+      DragReadout.update();
+    };
 
     const onMouseUp = (event) => {
       // Capture drag mode before it gets cleared for auto-keying
       const _prevDragMode = dragMode;
+      DragReadout.end();   // DRAG READOUT S0: the finished drag's delta into .last (S3 reads it)
+      FreeDragPlane.clear();   // FREE-DRAG PLANE S0
       // SUBWINDOW: the end of ANY canvas gesture is a scene change the epoch
       // cannot see — a drag's coalesced undo push (and its epoch bump) fires
       // at gesture START, so the subwindow would refresh once with the
@@ -82545,6 +82675,588 @@
     };
 
     // --- Initialization ---
+
+
+    // =====================================================================
+    // FREE-DRAG PLANE (PLAN-free-drag-plane.md, S0 v20260915g): which plane a
+    // FREE drag (the object body, the free vertex, the V gizmo's centre
+    // circle) moves on. Today all three use the camera plane; "Restrict to
+    // Workplane" only projects the camera-plane delta (drifts from the
+    // cursor) and the centre circle ignores it. The rule, resolved ONCE at
+    // the mousedown and frozen for the gesture (nothing rotates under the
+    // cursor mid-drag): the checkbox -> the plane parallel to the workplane
+    // through the start anchor; else Gizmo = Workplane -> the same; else the
+    // camera plane, verbatim. Edge-on guard: a plane the mousedown ray meets
+    // at under ~5 degrees (|ray . n| < EDGE_ON) would throw the subject toward
+    // the horizon, so that gesture falls back to the camera plane and says so.
+    // S0 ships the resolver, the frozen decision and the tests behind
+    // `enabled = false`; S1 makes the drags read it and flips the flag.
+    // =====================================================================
+    const FreeDragPlane = {
+      enabled: true,           // S1 (v20260915h): the drags follow the decision; false = every free drag on the camera plane, as before
+      EDGE_ON: 0.08,           // |cos| between the mousedown ray and the plane normal below which the plane is edge-on
+      current: null,           // the frozen decision of the drag in flight: { kind, normal, edgeOn, source }
+      // PURE. q = { restrict, gizmoMode, is2D, normal, rayDir }
+      // -> { kind: 'frame' | 'workplane' | 'camera', normal, edgeOn, source: 'checkbox' | 'gizmo' | null }
+      resolve(q) {
+        if (!q) return { kind: 'camera', normal: null, edgeOn: false, source: null };
+        if (q.is2D) return { kind: 'frame', normal: [0, 0, 1], edgeOn: false, source: null };
+        const source = q.restrict ? 'checkbox' : (q.gizmoMode === 'workplane' ? 'gizmo' : null);
+        if (!source) return { kind: 'camera', normal: null, edgeOn: false, source: null };
+        const n = q.normal, d = q.rayDir;
+        if (n && d) {
+          const nl = Math.hypot(n[0], n[1], n[2]) || 1, dl = Math.hypot(d[0], d[1], d[2]) || 1;
+          const cos = Math.abs((n[0] * d[0] + n[1] * d[1] + n[2] * d[2]) / (nl * dl));
+          if (cos < this.EDGE_ON) return { kind: 'camera', normal: null, edgeOn: true, source };
+        }
+        return { kind: 'workplane', normal: n ? [n[0], n[1], n[2]] : null, edgeOn: false, source };
+      },
+      // The runtime gather, called from the mousedown wrapper once the inner
+      // handler has chosen dragMode; frozen until onMouseUp clears it.
+      freeze(subject, event) {
+        let normal = null, rayDir = null, gm = 'world';
+        try { normal = getWorkingPlane().normal; } catch (e) { normal = null; }
+        try { gm = (typeof gizmoEffectiveMode === 'function' && gizmoEffectiveMode(subject)) || 'world'; } catch (e) { gm = 'world'; }
+        try {
+          if (event && typeof getRayFromClick === 'function') {
+            const vp = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
+            const ray = getRayFromClick(event, vp); rayDir = ray ? ray.direction : null;
+          }
+        } catch (e) { rayDir = null; }
+        this.current = this.resolve({ restrict: typeof restrictToWorkplane !== 'undefined' && !!restrictToWorkplane, gizmoMode: gm, is2D: typeof isIn2DMode === 'function' && isIn2DMode(subject), normal, rayDir });
+        return this.current;
+      },
+      clear() { this.current = null; },
+      // true when dragMode is one of the three free drags
+      isFreeDrag(mode, axis) { return (mode === 'translate' && (!axis || axis === 'none')) || mode === 'translate-free'; }
+    };
+    // =====================================================================
+    // DRAG READOUT (PLAN-drag-readout.md, S0 v20260915c): the vector, the
+    // numbers and the plane of a translate drag. S0 is the MODEL and the
+    // DESCRIBER only - no drawing yet (S1), no guides (S2), no prefill (S3).
+    // The model reads POSITIONS (the subject's world anchor at mousedown vs
+    // now), never a drag branch's arithmetic: two dispatch chains answer
+    // dragMode 'translate' (the documented trap), and snap / grid / the
+    // workplane restriction all end in the position anyway. begin() runs
+    // from the mousedown wrapper once the inner handler has chosen dragMode,
+    // update() from the mousemove wrapper after the inner handler moved the
+    // subject, end() at the top of onMouseUp. describe() is a pure table
+    // over {mode, axis, gizmoMode, workplane, is2D, snapped} - the tag the
+    // label will carry and the guide kind S2 will draw; x/y/z in the model
+    // are ALWAYS world components (owner decision) - a local constraint only
+    // changes the tag and the guide's direction.
+    // =====================================================================
+    const DragReadout = {
+      TRANSLATE_MODES: ['translate', 'translate-free', 'translate-local', 'translate-planar', 'translate-radial'],
+      CLICK_PX: 4,             // a press that moves less than this on screen is a click: no readout, nothing kept (v20260916a)
+      enabled: true,
+      active: false, subjectKind: null, subjectObj: null,
+      start: null, now: null, delta: [0, 0, 0], dist: 0, info: null,
+      last: null,                                   // the finished drag, for probes and S3
+      stats: { begins: 0, updates: 0, ends: 0 },
+      isTranslateMode(m) { return !!m && this.TRANSLATE_MODES.indexOf(m) >= 0; },
+      // The point that moves: the A tool's vertex (its world position, kept
+      // current by both chains), else the selected object's world anchor
+      // (pos + pivotShift through the parent chain - the point the move
+      // gizmo sits on, so pivotShift never enters a delta).
+      _subject() {
+        if (typeof currentTool !== 'undefined' && currentTool === 'directSelect' && typeof selectedVertexInfo !== 'undefined' && selectedVertexInfo) {
+          const w = selectedVertexInfo.worldPosition;
+          return w ? { kind: 'vertex', obj: selectedVertexInfo.object, world: [w[0], w[1], w[2]] } : null;
+        }
+        if (typeof selectedObject !== 'undefined' && selectedObject) {
+          const w = getPivotAnchorWorld(selectedObject);
+          return w ? { kind: 'object', obj: selectedObject, world: [w[0], w[1], w[2]] } : null;
+        }
+        return null;
+      },
+      begin() {
+        this.active = false;
+        this.sticky = null;   // any canvas press is the next operation
+        if (!this.isTranslateMode(dragMode)) return false;
+        const s = this._subject();
+        if (!s) return false;
+        this.active = true; this.subjectKind = s.kind; this.subjectObj = s.obj; this._tagEnd = null; this._tagPos = null; this._maxPx = 0;
+        this.start = s.world.slice(); this.now = s.world.slice(); this.delta = [0, 0, 0]; this.dist = 0;
+        this.info = this.describeNow();
+        this.stats.begins++;
+        this.rebaseMoveSession();   // S3: the Move Delta form will read THIS drag
+        return true;
+      },
+      // ---- S3 (v20260915f): the PREFILL. The Select drawer's Move Delta form
+      // tracks moveToolSession, which starts at SELECTION time and is updated
+      // live by the drag branches - so after a second drag it showed the SUM of
+      // every drag since the selection. Re-basing the session's start to the
+      // drag's start (on the mousedown, after the inner handler has created or
+      // kept the session) makes the form show the drag's own delta when it
+      // ends, lets a typed Delta refine it relative to the drag's start, and
+      // makes Cancel revert the drag. Undo is untouched: the session's commit
+      // diffs live state against _lastSceneState, not against startPos. The
+      // session's fields are the ones its own creator writes (resetMoveToolSession).
+      rebaseMoveSession() {
+        if (typeof moveToolSession === 'undefined' || !moveToolSession) return false;
+        const s = moveToolSession;
+        try {
+          if (s.mode === 'object' && s.targetObject) {
+            s.startPos = [...s.targetObject.position];
+          } else if (s.mode === 'vertex' && s.target && s.target.object) {
+            // The session's target refs are re-pointed at the LIVE selection: a
+            // vertex press replaces selectedVertices with fresh info objects
+            // (hoveredVertexInfo is rebuilt per hover), so a session created at
+            // an earlier press held stale ones - Cancel then restored the stale
+            // object's worldPosition while the live one kept the moved value
+            // (measured: the form read the old delta after Cancel).
+            if (typeof selectedVertexInfo !== 'undefined' && selectedVertexInfo && selectedVertexInfo.object) s.target = selectedVertexInfo;
+            s.startPos = [...(s.target.worldPosition || [0, 0, 0])];
+            s.startLocal = [...s.target.object.localVertices[s.target.vertexIndex]];
+          } else if (s.mode === 'multi-vertex' && s.items && s.items.length) {
+            const live = (typeof selectedVertices !== 'undefined' && selectedVertices && selectedVertices.length) ? selectedVertices : s.items.map(it => it.target);
+            s.items = live.filter(v => v && v.object).map(v => ({ target: v, startWorld: [...(v.worldPosition || [0, 0, 0])], startLocal: [...v.object.localVertices[v.vertexIndex]] }));
+            if (!s.items.length) return false;
+            s.startPos = [...s.items[0].startWorld];
+          } else return false;
+        } catch (e) { return false; }
+        s.rebasedByDrag = true;
+        this.stats.rebases = (this.stats.rebases || 0) + 1;
+        if (typeof updateMoveToolUI === 'function') updateMoveToolUI();
+        return true;
+      },
+      update() {
+        if (!this.active) return false;
+        const s = this._subject();
+        if (!s || s.obj !== this.subjectObj) return false;
+        this.now = s.world;
+        this.delta = [s.world[0] - this.start[0], s.world[1] - this.start[1], s.world[2] - this.start[2]];
+        this.dist = Math.hypot(this.delta[0], this.delta[1], this.delta[2]);
+        this.info = this.describeNow();
+        this.stats.updates++;
+        this.syncHud();   // the form was updated by the drag branch just before this
+        return true;
+      },
+      end() {
+        if (!this.active) return null;
+        this.update();
+        this.last = { kind: this.subjectKind, start: this.start.slice(), now: this.now.slice(), delta: this.delta.slice(), dist: this.dist, info: this.info };
+        this.sticky = ((this._maxPx || 0) >= this.CLICK_PX) ? { at: Date.now() } : null;   // a click (under CLICK_PX on screen) leaves nothing behind
+        this.syncHud();
+        this.active = false; this.subjectObj = null;
+        this.stats.ends++;
+        return this.last;
+      },
+      abort() { this.active = false; this.subjectObj = null; },
+      setEnabled(on) { this.enabled = !!on; if (typeof requestRender === 'function') requestRender(); },
+      // ---- S1 (v20260915d): the picture. Called from the render block right
+      // after the snap indicator, inside showGuides, into pathHighlightGroup
+      // (cleared every draw by drawPathHighlight; stripped from the export;
+      // hidden for the cache pass; NOT cloned by the subwindow, which copies
+      // #pathGroup only). Drag frames only - nothing is built when idle.
+      _fmt(n) { const v = toDisplay(n); const z = Math.abs(v) < 0.005 ? 0 : v; return z.toFixed(2); },
+      _fmtSigned(n) { const v = toDisplay(n); if (Math.abs(v) < 0.005) return '0.00'; return (v > 0 ? '+' : '') + v.toFixed(2); },
+      unitSuffix() { return displayUnit === 'mm' ? ' mm' : displayUnit === 'world' ? '' : ' pt'; },
+      labelLines() {
+        return [
+          this._fmt(this.dist) + this.unitSuffix(),
+          'x ' + this._fmtSigned(this.delta[0]) + '  y ' + this._fmtSigned(this.delta[1]) + '  z ' + this._fmtSigned(this.delta[2]),
+          this.info ? this.info.tag : ''
+        ];
+      },
+      // The corner label after a drag (owner, 2026-09-15): the distance and the
+      // x / y / z stay on the paper until the NEXT operation - a canvas press,
+      // a selection change, a tool change, an undo / redo - so the result of a
+      // move can be read after the mouse is up (the Move Delta form holds the
+      // same numbers; this is the on-canvas mirror). The tag and the picture
+      // belong to the drag in flight and go with the mouseup.
+      sticky: null,
+      clearSticky() { if (this.sticky) { this.sticky = null; if (typeof requestRender === 'function') requestRender(); } this.syncHud(); },
+      // ---- THE HUD (v20260916b): the numbers live in #dragReadoutHud - pills
+      // at the paper's top-left, siblings of the camera HUD pills (owner: the
+      // one-line SVG text shifted with its digits; wanted pills and typing).
+      // The pills MIRROR the Move Delta form's four inputs (the form is updated
+      // live by the drag branches and re-based to the drag's start), so the
+      // pills and the drawer never disagree, and a typed value goes back
+      // through the same form input + applier - no move math here.
+      _hudEls() {
+        if (this._hud === undefined) {
+          const q = (id) => document.getElementById(id);
+          this._hud = q('dragReadoutHud') ? { box: q('dragReadoutHud'), dist: q('drHudDistValue'), x: q('drHudXValue'), y: q('drHudYValue'), z: q('drHudZValue') } : null;
+        }
+        return this._hud;
+      },
+      _hudShow(on) { if (!on && this._editClose) this._editClose(true); const h = this._hudEls(); if (h) h.box.classList.toggle('hud-hidden', !on); this.hudShown = !!on; },
+      // The pills show whenever a selection has a move session under the V or
+      // A tool (v20260916e, owner: a click selecting an object shows them at
+      // zero and they wait for input); hidden when nothing is selected or the
+      // tool is another. The picture at the drag keeps its own 4 px gate.
+      hudWanted() {
+        try { return !!moveToolSession && (currentTool === 'select' || currentTool === 'directSelect'); } catch (e) { return false; }
+      },
+      syncHud() {
+        const h = this._hudEls(); if (!h) return;
+        this.initHud();
+        const want = this.hudWanted();
+        if (want !== this.hudShown) this._hudShow(want);
+        if (!want) return;
+        const q = (id) => document.getElementById(id);
+        const dist = q('moveDeltaDist'), dx = q('moveDeltaPosX'), dy = q('moveDeltaPosY'), dz = q('moveDeltaPosZ');
+        const f = (inp) => { const v = inp ? parseFloat(inp.value) : NaN; return Number.isFinite(v) ? (Math.abs(v) < 0.005 ? '0.00' : v.toFixed(2)) : '0.00'; };
+        // the number only (a 72 px pill); the unit lives on the label's tooltip and the pill's
+        h.dist.textContent = f(dist);
+        const unit = this.unitSuffix().trim() || 'world units';
+        const lbl = document.getElementById('drHudDistLabel'); if (lbl) lbl.title = 'Distance moved (' + unit + ')';
+        const pillD = document.getElementById('drHudDist'); if (pillD) pillD.title = 'Distance moved (' + unit + ') - click to type a distance along the same direction';
+        h.x.textContent = f(dx); h.y.textContent = f(dy); h.z.textContent = f(dz);
+        // the delta pill scrubs only when there is a vector to scrub along
+        const pill = document.getElementById('drHudDist'); const dv = dist ? parseFloat(dist.value) : 0;
+        if (pill) pill.classList.toggle('drag-hud-inert', !(Number.isFinite(dv) && Math.abs(dv) > 1e-6));
+      },
+      // The value editor: the camera pills' idiom (an input over the value)
+      // with the DRAWER's semantics: every keystroke is applied LIVE through
+      // the form input it mirrors (the drawer's fields apply on 'input' too);
+      // Escape puts the seed back; blur just closes. Enter never reaches this
+      // input - the app's capture-phase keydown submits the active tool
+      // session on Enter (moveSubmitBtn.click(), then blurs the field), which
+      // is the right ending for a typed value: applied live, then committed.
+      _openPillEditor(pill, valueEl, formInputId) {
+        if (this._editOpen) return;
+        const form = document.getElementById(formInputId); if (!form) return;
+        const input = document.createElement('input');
+        input.type = 'number'; input.step = '0.1'; input.className = 'hud-value-input';
+        const seed = parseFloat(form.value); const seedStr = Number.isFinite(seed) ? String(+seed.toFixed(4)) : '0';
+        input.value = seedStr;
+        // Escape restores the three DELTA fields exactly (the distance field
+        // re-applies along the 2-decimal direction fields and lands elsewhere).
+        const snap = ['moveDeltaPosX', 'moveDeltaPosY', 'moveDeltaPosZ'].map(id => { const f = document.getElementById(id); return f ? f.value : null; });
+        // The drawer's Distance field listens for 'change' (its own comment: "to avoid jitter"); the three Delta fields for 'input'.
+        const evType = formInputId === 'moveDeltaDist' ? 'change' : 'input';
+        const applyValue = (s) => { const v = parseFloat(s); if (Number.isFinite(v)) { form.value = String(v); form.dispatchEvent(new Event(evType, { bubbles: true })); this.syncHud(); } };
+        const restore = () => { const fs = ['moveDeltaPosX', 'moveDeltaPosY', 'moveDeltaPosZ'].map(id => document.getElementById(id)); if (fs.every(Boolean) && snap.every(v => v !== null)) { fs.forEach((f, i) => { f.value = snap[i]; }); fs[0].dispatchEvent(new Event('input', { bubbles: true })); this.syncHud(); } };
+        input.addEventListener('input', () => applyValue(input.value));
+        input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); close(false); } });
+        ['pointerdown', 'pointerup', 'pointermove', 'mousedown', 'mouseup', 'click', 'dblclick'].forEach(t => input.addEventListener(t, (e) => e.stopPropagation()));
+        input.addEventListener('blur', () => close(true));
+        let closed = false;
+        const close = (keep) => {
+          if (closed) return; closed = true; this._editOpen = null; this._editClose = null;
+          if (!keep) restore();   // Escape: the values before the edit
+          input.remove(); valueEl.style.visibility = '';
+          this.syncHud(); if (typeof requestRender === 'function') requestRender();
+        };
+        valueEl.style.visibility = 'hidden';
+        pill.appendChild(input); this._editOpen = input; this._editClose = close; input.focus(); input.select();
+      },
+      // SCRUB (v20260916e): a drag on a pill changes its value - SCRUB_PER_PX
+      // display units per pixel, Shift x10, Alt x0.1 (the number fields'
+      // modifiers) - applied live through the form input the pill mirrors; a
+      // press that moves under 3 px is a click and opens the editor. The
+      // delta pill scrubs the distance along the current direction and is
+      // inert while the vector is zero (nothing to scrub along). The pointer
+      // is captured on the pill; the relay is armed so a scrub can cross the
+      // screen edge like every other drag.
+      SCRUB_PER_PX: 0.5,
+      initHud() {
+        const h = this._hudEls(); if (!h || h.box._wired) return; h.box._wired = true;
+        const wire = (pillId, valueEl, formId) => {
+          const pill = document.getElementById(pillId); if (!pill) return;
+          let down = null;
+          pill.addEventListener('mousedown', (e) => e.stopPropagation());
+          pill.addEventListener('click', (e) => e.stopPropagation());
+          pill.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
+            e.stopPropagation(); e.preventDefault();
+            if (this._editOpen) return;
+            const form = document.getElementById(formId); const v0 = form ? parseFloat(form.value) : NaN;
+            down = { x: e.clientX, y: e.clientY, v0: Number.isFinite(v0) ? v0 : 0, scrubbing: false, inert: pill.classList.contains('drag-hud-inert') };
+            try { pill.setPointerCapture(e.pointerId); } catch (err) { }
+            try { DragRelay.arm(e, 'scrub'); } catch (err) { }
+          });
+          pill.addEventListener('pointermove', (e) => {
+            if (!down) return;
+            e.stopPropagation();
+            const dx = e.clientX - down.x;
+            if (!down.scrubbing && Math.abs(dx) < 3 && Math.abs(e.clientY - down.y) < 3) return;
+            down.moved = true;   // past the click slop: the release is a drag's end, never a click (the inert delta pill included)
+            if (down.inert) return;
+            if (!down.scrubbing) { down.scrubbing = true; pill.classList.add('dragging'); }
+            const mult = e.shiftKey ? 10 : (e.altKey ? 0.1 : 1);
+            const v = Math.round((down.v0 + dx * this.SCRUB_PER_PX * mult) * 100) / 100;
+            const form = document.getElementById(formId);
+            if (form) { form.value = String(v); form.dispatchEvent(new Event(formId === 'moveDeltaDist' ? 'change' : 'input', { bubbles: true })); this.syncHud(); }
+          });
+          const end = (e) => {
+            if (!down) return;
+            const d = down; down = null; pill.classList.remove('dragging');
+            try { pill.releasePointerCapture(e.pointerId); } catch (err) { }
+            e.stopPropagation();
+            if (!d.moved && e.type === 'pointerup') this._openPillEditor(pill, valueEl, formId);
+          };
+          pill.addEventListener('pointerup', end); pill.addEventListener('pointercancel', end);
+        };
+        wire('drHudX', h.x, 'moveDeltaPosX'); wire('drHudY', h.y, 'moveDeltaPosY'); wire('drHudZ', h.z, 'moveDeltaPosZ'); wire('drHudDist', h.dist, 'moveDeltaDist');
+        // Submit (Enter, or the drawer's button) and Cancel end the move the
+        // picture described; the pills stay with the session (re-based to zero).
+        for (const id of ['moveSubmitBtn', 'moveCancelBtn']) { const b = document.getElementById(id); if (b) b.addEventListener('click', () => this.clearSticky()); }
+      },
+      draw(vpMatrix, scale) {
+        if (!this.enabled) return false;
+        const g = pathHighlightGroup; if (!g) return false;
+        const NS = 'http://www.w3.org/2000/svg';
+        if (!this.active) return false;   // the sticky numbers live in the HUD pills now (v20260916b)
+        if (!this.start || !this.now) return false;
+        const is2D = typeof isIn2DMode === 'function' && isIn2DMode(this.subjectObj);
+        const P = (p) => { const t = transformVertex(p, is2D ? VP_2D : vpMatrix); return t ? [(t[0] * FRAME_SIZE) / 2, (-t[1] * FRAME_SIZE) / 2] : null; };
+        const a = P(this.start), b = P(this.now);
+        if (!a || !b) return false;
+        // CLICK THRESHOLD (v20260916a, owner: the numbers flashed on a plain
+        // click to select): nothing is drawn until the drag has moved
+        // CLICK_PX on screen, and end() keeps the corner numbers only past it.
+        this._maxPx = Math.max(this._maxPx || 0, Math.hypot(b[0] - a[0], b[1] - a[1]) * scale);
+        if (this._maxPx < this.CLICK_PX) return false;
+        this.syncHud();
+        const el = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); e.style.pointerEvents = 'none'; g.appendChild(e); return e; };
+        const sw = 1.5 / scale;
+        this._drawGuide(el, P, scale, is2D);   // S2: under the vector
+        el('circle', { id: 'dragReadoutStart', cx: a[0], cy: a[1], r: 4 / scale, fill: 'none', stroke: 'var(--accent-ink)', 'stroke-width': sw });
+        // THE STAIRCASE: the world x leg, then y, then z, from the start - a
+        // fixed order so the picture holds still while the vector turns; a
+        // leg under 2 px is not drawn (it would only be a dot).
+        const d = this.delta; let cur = this.start.slice();
+        for (const [ax, v] of [['x', [d[0], 0, 0]], ['y', [0, d[1], 0]], ['z', [0, 0, d[2]]]]) {
+          if (Math.abs(v[0] + v[1] + v[2]) < 1e-9) continue;
+          const nxt = [cur[0] + v[0], cur[1] + v[1], cur[2] + v[2]];
+          const p0 = P(cur), p1 = P(nxt);
+          if (p0 && p1 && Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) * scale >= 2) {
+            el('line', { class: 'drag-readout-leg', 'data-leg': ax, x1: p0[0], y1: p0[1], x2: p1[0], y2: p1[1], stroke: 'var(--gizmo-axis-' + ax + ')', 'stroke-width': 1 / scale, 'stroke-dasharray': (4 / scale) + ' ' + (3 / scale) });
+            // The gizmo's axis tokens are MONOCHROME in this design (#333 / #808080 -
+            // the handles carry letters instead), so the legs are lettered too, at
+            // their midpoints, once the leg is long enough to hold a letter.
+            if (Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) * scale >= 14) {
+              const lt = el('text', { class: 'drag-readout-label drag-readout-leg-letter', 'data-leg': ax, x: (p0[0] + p1[0]) / 2, y: (p0[1] + p1[1]) / 2, 'font-size': 8 / scale, 'stroke-width': 2 / scale, 'text-anchor': 'middle' });
+              lt.textContent = ax;
+            }
+          }
+          cur = nxt;
+        }
+        if (this.dist > 1e-9) el('line', { id: 'dragReadoutVector', x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: 'var(--accent-ink)', 'stroke-width': sw, 'stroke-linecap': 'round' });
+        // THE NUMBERS are the HUD pills at the paper's top-left (v20260916b;
+        // v20260915j-m drew them here as SVG text). The vector, the staircase,
+        // the ring and the guide stay at the drag; the tag is on the guide.
+        const lines = this.labelLines();
+        // THE TAG lives on the guide (v20260915l; the owner asked for it near
+        // the plane and NOT moving with the gizmo): above the plane patch's top
+        // edge, or at the far end of the axis line - _drawGuide records the
+        // anchor. Kept inside the paper. No guide (2D) - no tag.
+        if (lines[2] && this._tagPos) {
+          const half = FRAME_SIZE / 2, widthEst = lines[2].length * 6.5 / scale, m = 6 / scale;
+          const tx = Math.max(-half + widthEst / 2 + m, Math.min(half - widthEst / 2 - m, this._tagPos.x));
+          const ty = Math.max(-half + 12 / scale, Math.min(half - m, this._tagPos.y));
+          const t = el('text', { class: 'drag-readout-label drag-readout-tag', id: 'dragReadoutLine2', x: tx, y: ty, 'font-size': 11 / scale, 'stroke-width': 2.5 / scale, 'text-anchor': this._tagPos.anchor || 'middle' });
+          t.textContent = lines[2];
+        }
+        return true;
+      },
+      // ---- S2 (v20260915e): the guide - the plane the drag moves on, or the
+      // axis it moves along, drawn through the START anchor in world space and
+      // sized in screen pixels (the pixel factor at the start's depth). The
+      // basis is the one the WINNING drag branch uses (the second 'translate'
+      // chain sets the position last, objects and vertices alike - measured):
+      // the camera plane is spanned by the orthogonalised camera right / up;
+      // the centre circle's plane is normal to the camera Z through the reference; the
+      // handles go through gizmoAxisToWorld (the gizmo mode's basis, subject
+      // selectedObject, as the drag does); Restrict to Workplane = the grid's
+      // u / v; the D key = cameraDepthAxis at the start. 2D: nothing (the
+      // frame IS the plane) except an axis lock, which is a frame axis.
+      guideBasis() {
+        const info = this.info; if (!info) return null;
+        const AX = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
+        const PL = { xy: ['x', 'y'], yz: ['y', 'z'], xz: ['x', 'z'] };
+        const cam = activeCamera;
+        // the camera frame the winning translate chain uses: right = up x Z, up = Z x right (orthogonalised)
+        const camZ = vectorNormalize(vectorSubtract(cam.position, cam.target));
+        const camRight = vectorNormalize(vectorCross(cam.up, camZ));
+        const camUp = vectorNormalize(vectorCross(camZ, camRight));
+        const CAM = { x: camRight, y: camUp, z: camZ };
+        const toWorld = (unit) => (info.frame === 'world' || info.frame === 'frame') ? unit : gizmoAxisToWorld(unit, typeof selectedObject !== 'undefined' && selectedObject ? selectedObject : this.subjectObj);
+        if (info.kind === 'frame') return null;
+        if (info.kind === 'depth') return { kind: 'depth', u: cameraDepthAxis(this.start) };
+        if (info.kind === 'axis') {
+          if (info.frame === 'camera') return { kind: 'axis', u: CAM[info.axis] };
+          const u = toWorld(AX[info.axis]); return u ? { kind: 'axis', u: vectorNormalize(u) } : null;
+        }
+        if (info.kind === 'plane') {
+          if (info.plane === 'camera') return { kind: 'plane', u: camRight, v: camUp };
+          if (info.plane === 'workplane') { const b = getGridBasis(); return { kind: 'plane', u: vectorNormalize(b.u), v: vectorNormalize(b.v) }; }
+          const pr = PL[info.plane]; if (!pr) return null;
+          const u = toWorld(AX[pr[0]]), v = toWorld(AX[pr[1]]);
+          return (u && v) ? { kind: 'plane', u: vectorNormalize(u), v: vectorNormalize(v) } : null;
+        }
+        return null;
+      },
+      _drawGuide(el, P, scale, is2D) {
+        const g = this.guideBasis(); this.guide = g; this._tagPos = null;
+        if (!g) return;
+        const s = this.start;
+        let factor;
+        if (is2D) factor = 1 / (BASE_DISPLAY_SCALE * getViewScale());
+        else { const depth = vectorLength(vectorSubtract(s, activeCamera.position)); factor = getPixelToWorldFactor(Math.max(depth, 1e-6)); }
+        const add = (p, dir, k) => [p[0] + dir[0] * k, p[1] + dir[1] * k, p[2] + dir[2] * k];
+        // a segment through s along dir, +/- px pixels; shrunk while an end projects behind the camera
+        const seg = (dir, px) => { let L = px * factor; for (let i = 0; i < 7; i++) { const p0 = P(add(s, dir, -L)), p1 = P(add(s, dir, L)); if (p0 && p1) return [p0, p1]; L *= 0.5; } return null; };
+        if (g.kind === 'axis' || g.kind === 'depth') {
+          const e = seg(g.u, 400);
+          if (e) {
+            el('line', { id: g.kind === 'depth' ? 'dragReadoutGuideDepth' : 'dragReadoutGuideAxis', class: 'drag-readout-guide', x1: e[0][0], y1: e[0][1], x2: e[1][0], y2: e[1][1], stroke: 'var(--accent-ink)', 'stroke-opacity': 0.45, 'stroke-width': 1 / scale, 'stroke-dasharray': (8 / scale) + ' ' + (4 / scale) });
+            // THE TAG at the end of the line OPPOSITE the direction of travel
+            // (v20260915l): chosen once the drag has gone 4 px, then held for
+            // the gesture (a live choice would flip the label across the line
+            // when the drag reverses). 8 px off the line, on its upper side.
+            const a = P(this.start), b = P(this.now);
+            if (a && b) {
+              const d = [b[0] - a[0], b[1] - a[1]];
+              if (this._tagEnd === null && Math.hypot(d[0], d[1]) * scale >= 4) {
+                const s0 = (e[0][0] - a[0]) * d[0] + (e[0][1] - a[1]) * d[1];
+                this._tagEnd = s0 < 0 ? 0 : 1;
+              }
+              const far = e[this._tagEnd === null ? 0 : this._tagEnd];
+              // The guide runs 400 px each way and can leave the paper: the
+              // anchor is the far end clipped ALONG the line to the paper
+              // (a plain x / y clamp would pull it off the line).
+              const half = FRAME_SIZE / 2, m = 14 / scale;
+              let t = 1; const seg0 = a, segD = [far[0] - a[0], far[1] - a[1]];
+              for (const [p0, dd, lo, hi] of [[seg0[0], segD[0], -half + m, half - m], [seg0[1], segD[1], -half + m, half - m]]) {
+                if (Math.abs(dd) < 1e-9) continue;
+                const tl = (lo - p0) / dd, th = (hi - p0) / dd;
+                t = Math.min(t, Math.max(tl, th));
+              }
+              t = Math.max(0.1, t);
+              const end = [seg0[0] + segD[0] * t, seg0[1] + segD[1] * t];
+              const dir = [e[1][0] - e[0][0], e[1][1] - e[0][1]]; const dl = Math.hypot(dir[0], dir[1]) || 1;
+              let nx = -dir[1] / dl, ny = dir[0] / dl; if (ny > 0) { nx = -nx; ny = -ny; }   // the upper side
+              this._tagPos = { x: end[0] + nx * 8 / scale, y: end[1] + ny * 8 / scale, anchor: 'middle' };
+            }
+          }
+          return;
+        }
+        // the plane: a quad of 160 px half-size plus the cross of its two directions
+        let h = 160 * factor, corners = null;
+        for (let i = 0; i < 7 && !corners; i++) {
+          const c = [P(add(add(s, g.u, -h), g.v, -h)), P(add(add(s, g.u, h), g.v, -h)), P(add(add(s, g.u, h), g.v, h)), P(add(add(s, g.u, -h), g.v, h))];
+          if (c.every(Boolean)) corners = c; else h *= 0.5;
+        }
+        if (!corners) return;
+        el('polygon', { id: 'dragReadoutGuidePlane', class: 'drag-readout-guide', points: corners.map(c => c[0] + ',' + c[1]).join(' '), fill: 'var(--accent-color)', 'fill-opacity': 0.06, stroke: 'var(--accent-ink)', 'stroke-opacity': 0.5, 'stroke-width': 0.75 / scale, 'stroke-linejoin': 'round' });
+        // THE TAG 8 px above the patch's TOPMOST projected corner, centred on
+        // it (v20260915l): the patch is fixed at the start anchor, so the label
+        // names the plane like a map label and never moves with the gizmo.
+        // The corner, not the top edge's midpoint: an oblique patch's highest
+        // vertex sits above that midpoint and the label overlapped the patch
+        // (measured on the XZ handle: 13.6 frame units inside).
+        let top = null;
+        for (const c of corners) if (!top || c[1] < top[1]) top = c;
+        if (top) this._tagPos = { x: top[0], y: top[1] - 8 / scale, anchor: 'middle' };
+        const cu = seg(g.u, 160 * (h / (160 * factor))), cv = seg(g.v, 160 * (h / (160 * factor)));
+        for (const [id, e] of [['dragReadoutGuideCrossU', cu], ['dragReadoutGuideCrossV', cv]]) {
+          if (e) el('line', { id, class: 'drag-readout-guide', x1: e[0][0], y1: e[0][1], x2: e[1][0], y2: e[1][1], stroke: 'var(--accent-ink)', 'stroke-opacity': 0.3, 'stroke-width': 0.75 / scale, 'stroke-dasharray': (3 / scale) + ' ' + (3 / scale) });
+        }
+      },
+      describeNow() {
+        const obj = this.subjectObj;
+        let gm = 'world';
+        try { gm = (typeof gizmoEffectiveMode === 'function' && gizmoEffectiveMode(obj)) || 'world'; } catch (e) { gm = 'world'; }
+        return this.describe({
+          mode: dragMode, axis: lockedAxis, gizmoMode: gm,
+          workplane: typeof restrictToWorkplane !== 'undefined' && !!restrictToWorkplane,
+          freePlane: (FreeDragPlane.enabled && FreeDragPlane.current) ? FreeDragPlane.current : null,   // the frozen decision, once S1 makes the drags follow it
+          is2D: typeof isIn2DMode === 'function' && isIn2DMode(obj),
+          snapped: typeof _snapIndicatorTarget !== 'undefined' && !!_snapIndicatorTarget && typeof snapToPoint !== 'undefined' && !!snapToPoint
+        });
+      },
+      // PURE. {tag, kind: 'plane'|'axis'|'depth'|'frame', plane?, axis?, frame}
+      // frame names whose basis the guide follows: 'world' | 'camera' |
+      // 'workplane' | 'frame' (2D) | the gizmo mode for local handles.
+      describe(q) {
+        if (!q || !this.isTranslateMode(q.mode)) return null;
+        const AX = { x: 'X', y: 'Y', z: 'Z' }, PL = { xy: 'XY', yz: 'YZ', xz: 'XZ' };
+        const cap = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+        const m = q.mode, a = q.axis, gm = q.gizmoMode || 'world';
+        let r;
+        if (q.is2D) {
+          if (m === 'translate' && a === 'z') r = { tag: '2D frame (Z locked)', kind: 'frame', plane: 'xy', frame: 'frame' };   // the Z key moves nothing in 2D
+          else if (m === 'translate' && AX[a]) r = { tag: AX[a] + ' axis', kind: 'axis', axis: a, frame: 'frame' };
+          else if (m === 'translate-local' && AX[a]) r = { tag: AX[a] + ' axis', kind: 'axis', axis: a, frame: 'frame' };
+          else r = { tag: '2D frame', kind: 'frame', plane: 'xy', frame: 'frame' };
+        } else if (m === 'translate-radial') {
+          r = { tag: 'Depth', kind: 'depth', frame: 'camera' };
+        } else if (m === 'translate-free') {
+          if (q.freePlane && q.freePlane.kind === 'workplane') r = { tag: 'Workplane', kind: 'plane', plane: 'workplane', frame: 'workplane' };
+          else if (q.freePlane && q.freePlane.edgeOn) r = { tag: 'Camera plane (workplane edge-on)', kind: 'plane', plane: 'camera', frame: 'camera', edgeOn: true };
+          else r = { tag: 'Camera plane', kind: 'plane', plane: 'camera', frame: 'camera' };
+        } else if (m === 'translate-local') {
+          if (!AX[a]) return null;
+          r = gm === 'world' ? { tag: AX[a] + ' axis', kind: 'axis', axis: a, frame: 'world' }
+            : { tag: cap(gm) + ' ' + AX[a] + ' axis', kind: 'axis', axis: a, frame: gm };
+        } else if (m === 'translate-planar') {
+          if (!PL[a]) return null;
+          r = gm === 'world' ? { tag: PL[a] + ' plane', kind: 'plane', plane: a, frame: 'world' }
+            : { tag: cap(gm) + ' ' + PL[a] + ' plane', kind: 'plane', plane: a, frame: gm };
+        } else {   // 'translate': body / vertex
+          // MEASURED (S2, v20260915e), objects and vertices alike: the second
+          // 'translate' chain sets the position LAST and it moves along the
+          // CAMERA axes - the Shift lock x / y along camera right / camera up
+          // (orthogonalised), the Z key along the camera's Z. The first chain's
+          // world-axis arithmetic is overwritten every move. S0 had read that
+          // chain and said "world axis"; the residual probe said otherwise.
+          if (a === 'x') r = { tag: 'Screen X', kind: 'axis', axis: 'x', frame: 'camera' };
+          else if (a === 'y') r = { tag: 'Screen Y', kind: 'axis', axis: 'y', frame: 'camera' };
+          else if (a === 'z') r = { tag: 'Camera Z axis', kind: 'axis', axis: 'z', frame: 'camera' };
+          else if (q.freePlane && q.freePlane.kind === 'workplane') r = { tag: 'Workplane', kind: 'plane', plane: 'workplane', frame: 'workplane' };
+          else if (q.freePlane && q.freePlane.edgeOn) r = { tag: 'Camera plane (workplane edge-on)', kind: 'plane', plane: 'camera', frame: 'camera', edgeOn: true };
+          else if (q.freePlane) r = { tag: 'Camera plane', kind: 'plane', plane: 'camera', frame: 'camera' };
+          else if (q.workplane) r = { tag: 'Workplane', kind: 'plane', plane: 'workplane', frame: 'workplane' };   // today's projection (until S1 retires it)
+          else r = { tag: 'Camera plane', kind: 'plane', plane: 'camera', frame: 'camera' };
+        }
+        if (q.snapped) { r.tag += ' (snapped)'; r.snapped = true; }
+        r.mode = m;
+        return r;
+      },
+      selfTest() {
+        const results = [];
+        const ok = (name, cond) => { results.push({ name, pass: !!cond }); if (!cond) console.error('DragReadout.selfTest FAIL:', name); };
+        const D = (q) => this.describe(q);
+        const same = (r, tag, kind, extra) => !!r && r.tag === tag && r.kind === kind && Object.keys(extra || {}).every(k => r[k] === extra[k]);
+        ok('non-translate mode -> null', D({ mode: 'orbit', axis: 'none' }) === null && D({ mode: 'none' }) === null && D(null) === null);
+        ok('body drag, no lock -> Camera plane', same(D({ mode: 'translate', axis: 'none' }), 'Camera plane', 'plane', { plane: 'camera', frame: 'camera' }));
+        ok('body drag + Z key -> Camera Z axis (measured: the winning chain moves along camera Z)', same(D({ mode: 'translate', axis: 'z' }), 'Camera Z axis', 'axis', { axis: 'z', frame: 'camera' }));
+        ok('body drag + Shift lock x -> Screen X (camera right)', same(D({ mode: 'translate', axis: 'x' }), 'Screen X', 'axis', { axis: 'x', frame: 'camera' }));
+        ok('body drag + Shift lock y -> Screen Y (camera up)', same(D({ mode: 'translate', axis: 'y' }), 'Screen Y', 'axis', { axis: 'y', frame: 'camera' }));
+        ok('body drag + Restrict to Workplane -> Workplane', same(D({ mode: 'translate', axis: 'none', workplane: true }), 'Workplane', 'plane', { plane: 'workplane', frame: 'workplane' }));
+        ok('axis lock beats the workplane flag', same(D({ mode: 'translate', axis: 'y', workplane: true }), 'Screen Y', 'axis'));
+        ok('2D + Z key -> nothing moves, no guide', same(D({ mode: 'translate', axis: 'z', is2D: true }), '2D frame (Z locked)', 'frame'));
+        ok('centre circle -> Camera plane', same(D({ mode: 'translate-free', axis: 'none' }), 'Camera plane', 'plane', { plane: 'camera' }));
+        ok('axis handle, world gizmo -> X axis', same(D({ mode: 'translate-local', axis: 'x', gizmoMode: 'world' }), 'X axis', 'axis', { frame: 'world' }));
+        ok('axis handle, local gizmo -> Local Y axis', same(D({ mode: 'translate-local', axis: 'y', gizmoMode: 'local' }), 'Local Y axis', 'axis', { axis: 'y', frame: 'local' }));
+        ok('axis handle without an axis -> null', D({ mode: 'translate-local', axis: 'none' }) === null);
+        ok('plane handle, world -> XZ plane', same(D({ mode: 'translate-planar', axis: 'xz', gizmoMode: 'world' }), 'XZ plane', 'plane', { plane: 'xz', frame: 'world' }));
+        ok('plane handle, local -> Local YZ plane', same(D({ mode: 'translate-planar', axis: 'yz', gizmoMode: 'local' }), 'Local YZ plane', 'plane', { plane: 'yz', frame: 'local' }));
+        ok('D key -> Depth', same(D({ mode: 'translate-radial', axis: 'none' }), 'Depth', 'depth', { frame: 'camera' }));
+        ok('2D mode -> 2D frame', same(D({ mode: 'translate', axis: 'none', is2D: true }), '2D frame', 'frame', { frame: 'frame' }));
+        ok('2D mode + axis lock -> axis in the frame', same(D({ mode: 'translate', axis: 'x', is2D: true }), 'X axis', 'axis', { frame: 'frame' }));
+        ok('snapped appends', same(D({ mode: 'translate', axis: 'none', snapped: true }), 'Camera plane (snapped)', 'plane', { snapped: true }));
+        // FREE-DRAG PLANE S0 (v20260915g): the resolver's table
+        const R = (q) => FreeDragPlane.resolve(q);
+        const n = [0, 1, 0];
+        ok('free plane: checkbox wins -> workplane', (() => { const r = R({ restrict: true, gizmoMode: 'local', normal: n, rayDir: [0, -1, 0] }); return r.kind === 'workplane' && r.source === 'checkbox' && !r.edgeOn; })());
+        ok('free plane: gizmo workplane -> workplane', (() => { const r = R({ restrict: false, gizmoMode: 'workplane', normal: n, rayDir: [0.3, -0.9, 0.3] }); return r.kind === 'workplane' && r.source === 'gizmo'; })());
+        ok('free plane: camera / world / local -> camera', ['camera', 'world', 'local'].every(g => R({ restrict: false, gizmoMode: g, normal: n, rayDir: [0, -1, 0] }).kind === 'camera'));
+        ok('free plane: edge-on ray -> camera with the flag', (() => { const r = R({ restrict: true, gizmoMode: 'world', normal: n, rayDir: [1, 0.05, 0] }); return r.kind === 'camera' && r.edgeOn === true && r.source === 'checkbox'; })());
+        ok('free plane: 2D -> frame; no ray -> workplane', R({ restrict: true, is2D: true, normal: n, rayDir: [0, -1, 0] }).kind === 'frame' && R({ restrict: false, gizmoMode: 'workplane', normal: n, rayDir: null }).kind === 'workplane');
+        ok('free plane: the describer reads the decision (workplane / edge-on / camera)', same(D({ mode: 'translate', axis: 'none', freePlane: { kind: 'workplane' } }), 'Workplane', 'plane', { plane: 'workplane' }) && same(D({ mode: 'translate-free', axis: 'none', freePlane: { kind: 'camera', edgeOn: true } }), 'Camera plane (workplane edge-on)', 'plane', { plane: 'camera' }) && same(D({ mode: 'translate', axis: 'none', freePlane: { kind: 'camera' } }), 'Camera plane', 'plane'));
+        ok('isTranslateMode', this.isTranslateMode('translate-planar') && !this.isTranslateMode('marquee-select') && !this.isTranslateMode('') && !this.isTranslateMode(null));
+        ok('the model is idle between drags', !this.active && Array.isArray(this.delta) && this.delta.length === 3);
+        const pass = results.filter(r => r.pass).length;
+        console.log(`DragReadout.selfTest: ${pass}/${results.length} passed`);
+        return pass === results.length;
+      }
+    };
     // =====================================================================
     // CONTINUOUS DRAG - THE POINTER-LOCK RELAY (PLAN-continuous-drag S1,
     // v20260914zzzg). No web API can move the OS cursor, so the drag that
@@ -83536,6 +84248,17 @@
         if (cb) {
           cb.checked = _cdOn;
           cb.addEventListener('change', () => { DragRelay.setEnabled(cb.checked); saveSettings({ continuousDrag: cb.checked }); });
+        }
+      }
+      // DRAG READOUT (v20260915d): the Settings checkbox, persisted; absent = ON.
+      {
+        let _drOn = true;
+        try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); _drOn = s.dragReadout !== false; } catch (e) { }
+        DragReadout.setEnabled(_drOn);
+        const cb = document.getElementById('dragReadoutCb');
+        if (cb) {
+          cb.checked = _drOn;
+          cb.addEventListener('change', () => { DragReadout.setEnabled(cb.checked); saveSettings({ dragReadout: cb.checked }); });
         }
       }
 

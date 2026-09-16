@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260916e -->
+<!-- dim v20260916i -->
 
 <!--
   MIT License
@@ -5885,6 +5885,15 @@
         </div>
 
 
+        <!-- OMIT HIDDEN FACES (v20260916g, PLAN-omit-hidden-faces S1): the export cull
+             (ExportCull) drops every object that contributes no ink - back caps and
+             back sides of extrusions, faces entirely behind others. Applies to Export
+             SVG, Copy to Clipboard and the animation sequence export, which share one
+             producer. Persisted as omitHiddenFaces; DEFAULT OFF (owner). -->
+        <div class="prop-row prop-inline" id="omitHiddenFacesRow">
+          <label for="omitHiddenFacesCb" class="ui-checkbox-label" title="Drop the faces that are completely covered by others from the SVG export and the clipboard copy (back caps and back sides of extrusions, objects entirely behind others). The picture is unchanged; the file is smaller and Illustrator shows no invisible objects.">Omit hidden faces in export</label>
+          <input type="checkbox" id="omitHiddenFacesCb" class="ui-checkbox" />
+        </div>
         <div class="prop-row prop-row-plain">
           <button id="importSVGFileBtn" class="ui-btn ui-btn-small">Import SVG</button>
           <button id="exportSVGFileBtn" class="ui-btn ui-btn-small">Export SVG</button>
@@ -81176,6 +81185,206 @@
     // a cache capture's completion from auto-starting playback under the export.
     let _exportLossy = null;
     let _tlExportInProgress = false;
+    // =====================================================================
+    // EXPORT CULL (PLAN-omit-hidden-faces.md, S0 v20260916f): drop the exported
+    // objects that contribute no ink to the picture. MEASURED before this
+    // existed: 40-80% of an export's objects are fully hidden - not the
+    // clipped ones (every clipped face rasterises to something on its own)
+    // but PLAIN paths painted under later paint in painter order, which the
+    // vector z-buffer never needs to mask: back caps and back sides of every
+    // extrusion, faces of objects entirely behind others. Illustrator shows
+    // them as invisible objects.
+    // The test is COVERAGE in painter order, synchronous (canvas Path2D, no
+    // Image loads - the clipboard write must stay inside its user gesture):
+    // walk the objects from the LAST painted to the first; render each alone
+    // at RES texels over the +/-500 frame with its clip chain, its fill rule,
+    // its stroke; an object is HIDDEN when every texel it inks (alpha > 0) is
+    // already under SOLID paint from the objects above it, and its own
+    // opaque texels join the cover afterwards. Semi-transparent paint inks
+    // but never covers. The cover is ONE mask of the paint COMPOSITED above
+    // each texel (alpha-over, opaque objects only - a translucent object
+    // covers nothing, whatever sits under it stays), because edges coincide:
+    // a back face's anti-aliased fringe lies under the front face's fringe,
+    // not under its opaque interior ("every inked texel under opaque paint"
+    // kept every back cap - 0 of 6 on an extruded square). A texel is hidden
+    // when that cover is solid (>= COVER_ALPHA) or at least the texel's own
+    // alpha less SLACK.
+    // THE SEAL (v20260916i): the cover is painted DILATED by SEAL texels (the
+    // fill stroked with a SEAL-wide round-joined line, a stroke widened by
+    // SEAL) while the ink test reads the object UNDILATED. Two abutting front
+    // faces composite only ~75% along their shared seam (each fringe covers
+    // half), so every back face of an unstroked extrusion - whose solid
+    // texels lie exactly under those seams - stayed in the file (the R's 15
+    // "seam-blocked" facets that the owner reported, v20260916h); dilating
+    // each face by half a texel closes the seam in the cover, so the back
+    // faces go, while the exported faces are untouched and the picture keeps
+    // its anti-aliasing gap filled... by nothing: the crack the removed face
+    // was filling is the conflation seam every abutting-polygon rasteriser
+    // shows, and the gate below measures it (max channel delta, off-edge
+    // pixels). The earlier 'seam' MODE (accept ~69% cover) hid the same faces
+    // but also any face under a translucent seam; it is gone. What the seal
+    // costs: a genuinely visible sliver narrower than SEAL texels (a half unit
+    // at RES 2048) between two front faces is treated as covered.
+    // A hidden object leaves the clone; a clipPath nobody references any
+    // more leaves with it. The one picture change this can make is at
+    // ANTI-ALIASED EDGES: a fringe texel of a covering face used to blend
+    // over the hidden face's colour and now blends over what was beneath -
+    // sub-texel, measured in the changelog gate.
+    // An "object" is a path outside <defs>/<clipPath>, taken as its top-most
+    // clipped ancestor when it has one (a clip group is one object in AI).
+    // =====================================================================
+    const ExportCull = {
+      RES: 2048,            // texels per axis over the 1000-unit frame - a half-unit texel
+      COVER_ALPHA: 250,     // a texel is SOLID at this alpha or above
+      SLACK: 40,            // a texel whose cover falls short of its own alpha by no more than this still counts (silhouette corners: 104 vs 98, measured)
+      SEAL: 1,              // texels of dilation on the COVER paint (not on the ink test): closes the ~75% seam two abutting front faces leave (v20260916i)
+      enabled: false,       // set by the Data-panel checkbox "Omit hidden faces in export" (S1, v20260916g; persisted omitHiddenFaces, default off)
+      last: null,
+      _objects(root) {
+        const seen = new Set(); const objs = [];
+        for (const p of root.querySelectorAll('path')) {
+          if (p.closest('defs') || p.closest('clipPath') || p.closest('mask')) continue;
+          let el = p, up = p;
+          while (up && up !== root) { if (up.getAttribute && up.hasAttribute('clip-path')) el = up; up = up.parentNode; }
+          if (!seen.has(el)) { seen.add(el); objs.push(el); }
+        }
+        return objs;
+      },
+      _clipChain(el, root) {
+        const chain = []; let up = el;
+        while (up && up !== root) {
+          const cp = up.getAttribute && up.getAttribute('clip-path');
+          const m = cp && /url\(#([^)]+)\)/.exec(cp);
+          if (m) { const node = root.querySelector('#' + m[1].replace(/([^\w-])/g, '\\$1')); if (node) chain.push(node); }
+          up = up.parentNode;
+        }
+        return chain.reverse();   // outermost first
+      },
+      _bbox(d, acc) {
+        const nums = d.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi); if (!nums) return acc;
+        for (let i = 0; i + 1 < nums.length; i += 2) {
+          const x = +nums[i], y = +nums[i + 1];
+          if (x < acc[0]) acc[0] = x; if (x > acc[2]) acc[2] = x; if (y < acc[1]) acc[1] = y; if (y > acc[3]) acc[3] = y;
+        }
+        return acc;
+      },
+      _alpha(el) {
+        let a = 1;
+        for (let up = el; up && up.getAttribute; up = up.parentNode) { const o = parseFloat(up.getAttribute('opacity')); if (Number.isFinite(o)) a *= o; }
+        return a;
+      },
+      // An INHERITED presentation attribute: the exported paths of an extrusion
+      // carry no fill / stroke of their own - their <g> does (measured) - so
+      // the walk goes up to the root, reading `style="…"` on the way.
+      _style(el, name, dflt) {
+        for (let up = el; up && up.getAttribute; up = up.parentNode) {
+          const st = up.getAttribute('style');
+          if (st) { const m = new RegExp('(?:^|;)\\s*' + name + '\\s*:\\s*([^;]+)').exec(st); if (m) return m[1].trim(); }
+          const v = up.getAttribute(name); if (v !== null && v !== '' && v !== 'inherit') return v;
+        }
+        return dflt;
+      },
+      _paint(ctx, el, root, k, seal) {
+        // the clip chain (outermost first), then every path of the object in document order;
+        // `seal` (texels) dilates the paint: the fill is also stroked seal-wide (round joins),
+        // a stroke is widened by seal - the COVER pass, never the ink pass
+        const sealW = seal > 0 ? seal / k : 0;
+        for (const cpNode of this._clipChain(el, root)) {
+          const rule = cpNode.getAttribute('clip-rule') || (cpNode.querySelector('[clip-rule]') || {}).getAttribute && cpNode.querySelector('[clip-rule]').getAttribute('clip-rule') || 'nonzero';
+          const p2 = new Path2D(); let any = false;
+          for (const cpath of cpNode.querySelectorAll('path')) { const d = cpath.getAttribute('d'); if (d) { p2.addPath(new Path2D(d)); any = true; } }
+          if (any) ctx.clip(p2, rule === 'evenodd' ? 'evenodd' : 'nonzero');
+        }
+        const paths = el.tagName === 'path' ? [el] : [...el.querySelectorAll('path')].filter(p => !p.closest('clipPath'));
+        let maxSw = 0;
+        for (const p of paths) {
+          const d = p.getAttribute('d'); if (!d) continue;
+          const path2 = new Path2D(d);
+          const fill = this._style(p, 'fill', '#000'); const stroke = this._style(p, 'stroke', 'none');
+          const fo = parseFloat(this._style(p, 'fill-opacity', '1')); const so = parseFloat(this._style(p, 'stroke-opacity', '1'));
+          if (fill !== 'none') {
+            ctx.globalAlpha = Number.isFinite(fo) ? fo : 1; ctx.fillStyle = '#000'; ctx.fill(path2, (this._style(p, 'fill-rule', 'nonzero') === 'evenodd') ? 'evenodd' : 'nonzero');
+            if (sealW > 0) { ctx.strokeStyle = '#000'; ctx.lineWidth = sealW; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke(path2); }
+          }
+          if (stroke && stroke !== 'none') {
+            const sw = parseFloat(this._style(p, 'stroke-width', '1')); const w = Number.isFinite(sw) ? sw : 1; if (w > maxSw) maxSw = w;
+            ctx.globalAlpha = Number.isFinite(so) ? so : 1; ctx.strokeStyle = '#000'; ctx.lineWidth = w + sealW;
+            ctx.lineCap = this._style(p, 'stroke-linecap', 'butt'); ctx.lineJoin = this._style(p, 'stroke-linejoin', 'miter');
+            ctx.stroke(path2);
+          }
+        }
+        return maxSw;
+      },
+      cull(root, opts) {
+        const t0 = performance.now();
+        const RES = (opts && opts.res) || this.RES, k = RES / 1000;
+        const objs = this._objects(root);
+        const st = { objects: objs.length, hidden: 0, kept: 0, clipsRemoved: 0, ms: 0, res: RES, seal: this.SEAL };
+        if (!objs.length) { this.last = st; return st; }
+        const above = new Uint8Array(RES * RES);          // opaque paint COMPOSITED above this texel (alpha-over)
+        const detail = (opts && opts.debug) ? [] : null;
+        const cv = document.createElement('canvas'); cv.width = RES; cv.height = RES;
+        const ctx = cv.getContext('2d', { willReadFrequently: true });
+        const toRemove = [];
+        for (let i = objs.length - 1; i >= 0; i--) {
+          const el = objs[i];
+          // the object's bounds from every coordinate in its d strings (control points bound the curve), padded by its stroke
+          const acc = [Infinity, Infinity, -Infinity, -Infinity];
+          const paths = el.tagName === 'path' ? [el] : [...el.querySelectorAll('path')].filter(p => !p.closest('clipPath'));
+          for (const p of paths) this._bbox(p.getAttribute('d') || '', acc);
+          if (!(acc[2] >= acc[0])) { st.kept++; continue; }
+          ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, RES, RES);
+          ctx.setTransform(k, 0, 0, k, RES / 2, RES / 2);
+          ctx.save();
+          const maxSw = this._paint(ctx, el, root, k, 0);
+          ctx.restore();
+          const pad = maxSw + 2 + this.SEAL / k;
+          const x0 = Math.max(0, Math.floor((acc[0] - pad + 500) * k)), y0 = Math.max(0, Math.floor((acc[1] - pad + 500) * k));
+          const x1 = Math.min(RES - 1, Math.ceil((acc[2] + pad + 500) * k)), y1 = Math.min(RES - 1, Math.ceil((acc[3] + pad + 500) * k));
+          if (x1 < x0 || y1 < y0) { st.hidden++; toRemove.push(el); continue; }   // entirely off the paper
+          const w = x1 - x0 + 1, h = y1 - y0 + 1;
+          const data = ctx.getImageData(x0, y0, w, h).data;
+          const objAlpha = this._alpha(el);
+          const SA = this.COVER_ALPHA;
+          let hidden = true, fails = 0, ink = 0, worst = 0;
+          for (let yy = 0; yy < h && (hidden || detail); yy++) {
+            const row = (y0 + yy) * RES + x0;
+            for (let xx = 0; xx < w; xx++) {
+              const a = data[(yy * w + xx) * 4 + 3]; if (a === 0) continue; ink++;
+              const ab = above[row + xx];
+              if (ab < SA && ab + this.SLACK < a) { hidden = false; fails++; if (a - ab > worst) worst = a - ab; if (!detail) break; }
+            }
+          }
+          if (detail) detail.push({ i, tag: el.tagName, clipped: el.hasAttribute('clip-path'), ink, fails, worst, hidden, bbox: [Math.round(acc[0]), Math.round(acc[1]), Math.round(acc[2]), Math.round(acc[3])] });
+          if (hidden) { st.hidden++; toRemove.push(el); continue; }
+          st.kept++;
+          if (objAlpha >= 0.999) {
+            // the COVER pass: the same object painted SEAL texels wider, so abutting faces overlap in the cover
+            let cover = data;
+            if (this.SEAL > 0) {
+              ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(x0, y0, w, h);
+              ctx.setTransform(k, 0, 0, k, RES / 2, RES / 2);
+              ctx.save(); this._paint(ctx, el, root, k, this.SEAL); ctx.restore();
+              cover = ctx.getImageData(x0, y0, w, h).data;
+            }
+            for (let yy = 0; yy < h; yy++) {
+              const row = (y0 + yy) * RES + x0;
+              for (let xx = 0; xx < w; xx++) { const a = cover[(yy * w + xx) * 4 + 3]; if (a > 0) { const t = row + xx; above[t] = Math.min(255, above[t] + Math.round(a * (255 - above[t]) / 255)); } }
+            }
+          }
+        }
+        for (const el of toRemove) { if (el.parentNode) el.parentNode.removeChild(el); }
+        // clipPaths nothing references any more
+        const used = new Set();
+        root.querySelectorAll('[clip-path]').forEach(e => { const m = /url\(#([^)]+)\)/.exec(e.getAttribute('clip-path') || ''); if (m) used.add(m[1]); });
+        root.querySelectorAll('clipPath').forEach(cp => { if (cp.id && !used.has(cp.id)) { cp.remove(); st.clipsRemoved++; } });
+        st.ms = Math.round(performance.now() - t0);
+        if (detail) st.detail = detail;
+        this.last = st;
+        return st;
+      }
+    };
+
     const _exportLossyNotice = (what) => {
       const L = _exportLossy; if (!L) return;
       const parts = [];
@@ -81424,6 +81633,11 @@
       // them mean anything to Illustrator or After Effects. (data-name is NOT
       // in this list: the multi-layer exporter writes it on its frame layers
       // as Illustrator's own layer-name attribute.)
+      // OMIT FULLY HIDDEN FACES (v20260916f, S0: the flag; the Data-panel checkbox is S1)
+      if (ExportCull.enabled) {
+        try { const cs = ExportCull.cull(clonedGroup); if (!_tlExportInProgress) console.log('[export] cull: ' + cs.hidden + ' of ' + cs.objects + ' objects hidden, ' + cs.clipsRemoved + ' clipPaths freed, ' + cs.ms + ' ms'); }
+        catch (err) { console.error('[ExportCull] failed (nothing removed):', err); }
+      }
       clonedGroup.querySelectorAll('[data-mr-band],[data-mr-stroke],[data-mss],[data-mss-stroke],[data-axis]').forEach(el => {
         for (const a of ['data-mr-band', 'data-mr-stroke', 'data-mss', 'data-mss-stroke', 'data-axis']) el.removeAttribute(a);
       });
@@ -84248,6 +84462,17 @@
         if (cb) {
           cb.checked = _cdOn;
           cb.addEventListener('change', () => { DragRelay.setEnabled(cb.checked); saveSettings({ continuousDrag: cb.checked }); });
+        }
+      }
+      // OMIT HIDDEN FACES (v20260916g): the Data-panel checkbox, persisted; absent = OFF.
+      {
+        let _ohOn = false;
+        try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); _ohOn = s.omitHiddenFaces === true; } catch (e) { }
+        ExportCull.enabled = _ohOn;
+        const cb = document.getElementById('omitHiddenFacesCb');
+        if (cb) {
+          cb.checked = _ohOn;
+          cb.addEventListener('change', () => { ExportCull.enabled = cb.checked; saveSettings({ omitHiddenFaces: cb.checked }); });
         }
       }
       // DRAG READOUT (v20260915d): the Settings checkbox, persisted; absent = ON.

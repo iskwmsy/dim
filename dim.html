@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260916i -->
+<!-- dim v20260917a -->
 
 <!--
   MIT License
@@ -20255,6 +20255,38 @@
       a[2] * b[0] - a[0] * b[2],
       a[0] * b[1] - a[1] * b[0]
     ];
+
+    // ORBIT CAMERA POLES (v20260917a). The orbit camera's up vector in closed
+    // form: the unit tangent of the orbit sphere in the direction of INCREASING
+    // elevation, for spherical theta = 90deg - elevation (0 = straight up) and
+    // azimuth a:
+    //   up = (-cos th * sin a,  sin th,  -cos th * cos a)
+    // It equals the old construction ("world up, flipped past a pole, projected
+    // off the view direction") everywhere that projection exists (|el| != 90),
+    // and it has a value AT the poles, where the projection is zero-length. The
+    // old exact-pole fallback carried the wrong sign - measured: az 37deg, el
+    // 89.5 -> 90.0 turned up from (-.60, .01, -.80) into (-.60, 0, +.80), a
+    // mirror - and the azimuth read back as 0 there because atan2(0, 0) = 0, so
+    // the next drag step continued the orbit at azimuth 0: the "flips at exactly
+    // 90" the owner reported. Four copies of that block used to exist (the panel
+    // apply, the subwindow's _applyAzEl, the two animation appliers); all four
+    // call this now. The azimuth at a pole is recovered from this same up
+    // vector by camOrbitAzimuth below.
+    const camOrbitUp = (radAz, radEl) => [-Math.cos(radEl) * Math.sin(radAz), Math.sin(radEl), -Math.cos(radEl) * Math.cos(radAz)];
+    // The azimuth (degrees, -180..180) of an orbit pose, continuous past the
+    // poles: from the horizontal offset when there is one (the up vector's y
+    // sign says which side of a pole the camera is on), from the up vector at
+    // the pole itself (north: up = (-sin a, 0, -cos a); south: (sin a, 0, cos a)).
+    const camOrbitAzimuth = (relative, up) => {
+      const hR = Math.sqrt(relative[0] * relative[0] + relative[2] * relative[2]);
+      if (hR <= 1e-9 * (Math.abs(relative[1]) || 1)) {
+        const s = relative[1] >= 0 ? -1 : 1;
+        return (Math.atan2(s * up[0], s * up[2]) * 180) / Math.PI;
+      }
+      let az = (Math.atan2(relative[0], relative[2]) * 180) / Math.PI;
+      if (up[1] < 0) { az += 180; if (az > 180) az -= 360; }
+      return az;
+    };
 
     const vectorLerp = (v1, v2, t) => [
       v1[0] + (v2[0] - v1[0]) * t,
@@ -71021,20 +71053,9 @@
         const z = h * Math.cos(radAz);
 
         cam.position = vectorAdd(cam.target, [x, y, z]);
-
-        // Derive up vector from whether we've crossed a pole:
-        // sin(radEl) < 0 means past north (el>90) or south (el<-90) pole
-        const worldUp = Math.sin(radEl) >= 0 ? [0, 1, 0] : [0, -1, 0];
-        cam.up = [...worldUp];
-        const viewDir = vectorNormalize(vectorSubtract(cam.target, cam.position));
-        const right = vectorNormalize(vectorCross(worldUp, viewDir));
-        if (vectorLength(right) > 0.001) {
-          cam.up = vectorNormalize(vectorCross(viewDir, right));
-        } else {
-          // At exact pole: derive up from azimuth direction
-          const s = Math.sin(radEl) >= 0 ? 1 : -1;
-          cam.up = [-s * Math.sin(radAz), 0, s * Math.cos(radAz)];
-        }
+        // The up vector in closed form (v20260917a): continuous through the
+        // poles - see camOrbitUp for the flip this replaces.
+        cam.up = camOrbitUp(radAz, radEl);
       } else if (['camPanInput', 'camTiltInput'].includes(activeId)) {
         // Pan/Tilt: rotate view direction from fixed position
         const panDeg = parseFloat(camPanInput.value) || 0;
@@ -71288,12 +71309,9 @@
       let elDisplay = 90 - (theta * 180) / Math.PI;
       if (elDisplay > 180) elDisplay -= 360;
       if (elDisplay < -180) elDisplay += 360;
-      // Azimuth: compensate 180° flip when camera is past a pole
-      let azDisplay = (Math.atan2(relative[0], relative[2]) * 180) / Math.PI;
-      if (cam.up[1] < 0) {
-        azDisplay += 180;
-        if (azDisplay > 180) azDisplay -= 360;
-      }
+      // Azimuth: continuous past the poles, and defined AT a pole (v20260917a - it
+      // used to read atan2(0, 0) = 0 there, which the next drag step then applied)
+      const azDisplay = camOrbitAzimuth(relative, cam.up);
 
       if (document.activeElement !== camAzimuthInput) camAzimuthInput.value = azDisplay.toFixed(1);
       if (document.activeElement !== camElevationInput) camElevationInput.value = elDisplay.toFixed(1);
@@ -73334,7 +73352,7 @@
       // -- Absolute azimuth/elevation apply -----------------------------------
       // Copied verbatim from updateCameraFromInput's
       // ['camAzimuthInput','camElevationInput'] branch — same spherical
-      // construction, same pole-crossing `up` derivation. COPIED, not called,
+      // construction, same closed-form `up` (camOrbitUp). COPIED, not called,
       // because that function drives `selectedCamera || activeCamera` from the
       // sidebar inputs; the sub camera is neither. If that branch is ever fixed,
       // fix it here too (grep: "Spherical theta").
@@ -73348,17 +73366,7 @@
         const x = h * Math.sin(radAz);
         const z = h * Math.cos(radAz);
         cam.position = vectorAdd(cam.target, [x, y, z]);
-
-        const worldUp = Math.sin(radEl) >= 0 ? [0, 1, 0] : [0, -1, 0];
-        cam.up = [...worldUp];
-        const viewDir = vectorNormalize(vectorSubtract(cam.target, cam.position));
-        const right = vectorNormalize(vectorCross(worldUp, viewDir));
-        if (vectorLength(right) > 0.001) {
-          cam.up = vectorNormalize(vectorCross(viewDir, right));
-        } else {
-          const s = Math.sin(radEl) >= 0 ? 1 : -1;
-          cam.up = [-s * Math.sin(radAz), 0, s * Math.cos(radAz)];
-        }
+        cam.up = camOrbitUp(radAz, radEl);   // v20260917a: closed form, continuous through the poles
       };
 
       // -- UI sync ------------------------------------------------------------
@@ -73602,8 +73610,7 @@
           DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG S3: the subwindow's drags through the same relay
           dragging = true;
           startX = e.clientX;
-          const relative = vectorSubtract(cam.position, cam.target);
-          startAz = (Math.atan2(relative[0], relative[2]) * 180) / Math.PI;
+          startAz = getCameraOrbitalState(cam).azimuth;   // v20260917a: continuous past the poles
           bar.classList.add('dragging');
           bar.setPointerCapture(e.pointerId);
           _beginPoseGesture();
@@ -75286,8 +75293,7 @@
         _hudAzDragging = true;
         _hudAzStartX = e.clientX;
         const cam = selectedCamera || activeCamera;
-        const relative = vectorSubtract(cam.position, cam.target);
-        _hudAzStartAz = (Math.atan2(relative[0], relative[2]) * 180) / Math.PI;
+        _hudAzStartAz = getCameraOrbitalState(cam).azimuth;   // v20260917a: past a pole the raw atan2 is 180 off
         _hudAzBar.classList.add('dragging');
         _hudAzBar.setPointerCapture(e.pointerId);
         pushCameraUndoStateCoalesced();
@@ -75335,10 +75341,9 @@
         _hudElDragging = true;
         _hudElStartY = e.clientY;
         const cam = selectedCamera || activeCamera;
-        const relative = vectorSubtract(cam.position, cam.target);
-        const dist = vectorLength(relative);
-        const elevation = (Math.acos(relative[1] / dist) * 180) / Math.PI;
-        _hudElStartEl = 90 - elevation;
+        // v20260917a: the CONTINUOUS elevation (past a pole acos read 80 for 100,
+        // so the next drag started from the mirrored pose - a flip on the press)
+        _hudElStartEl = getCameraOrbitalState(cam).elevation;
         _hudElBar.classList.add('dragging');
         _hudElBar.setPointerCapture(e.pointerId);
         pushCameraUndoStateCoalesced();
@@ -87510,16 +87515,8 @@
           ));
         activeCamera.position = vectorAdd(activeCamera.target, orbitalOffset);
 
-        // Re-orthogonalize up vector using correct world-up reference
-        activeCamera.up = [...worldUpDrag];
-        const viewDir = vectorNormalize(vectorSubtract(activeCamera.target, activeCamera.position));
-        const right2 = vectorNormalize(vectorCross(worldUpDrag, viewDir));
-        if (vectorLength(right2) > 0.001) {
-          activeCamera.up = vectorNormalize(vectorCross(viewDir, right2));
-        } else {
-          const s2 = Math.sin(radEl) >= 0 ? 1 : -1;
-          activeCamera.up = [-s2 * Math.sin(radAz), 0, s2 * Math.cos(radAz)];
-        }
+        // The up vector in closed form (v20260917a): continuous through the poles
+        activeCamera.up = camOrbitUp(radAz, radEl);
 
         // Also restore fov/orthoZoom if they have stored originals
         const fovKey = '__camera__::fov';
@@ -87992,12 +87989,8 @@
       if (elevation > 180) elevation -= 360;
       if (elevation < -180) elevation += 360;
 
-      // Azimuth: compensate 180° flip when past a pole
-      let azimuth = (Math.atan2(relative[0], relative[2]) * 180) / Math.PI;
-      if (cam.up[1] < 0) {
-        azimuth += 180;
-        if (azimuth > 180) azimuth -= 360;
-      }
+      // Azimuth: continuous past the poles and defined at a pole (v20260917a)
+      const azimuth = camOrbitAzimuth(relative, cam.up);
 
       // Truck/Pedestal — displacement of target from initialTarget
       const displacement = vectorSubtract(cam.target, cam.initialTarget);
@@ -88537,17 +88530,8 @@
               ));
             activeCamera.position = vectorAdd(activeCamera.target, orbitalOffset);
 
-            // Re-orthogonalize up vector using correct world-up reference
-            activeCamera.up = [...worldUpAnim];
-            const viewDir = vectorNormalize(vectorSubtract(activeCamera.target, activeCamera.position));
-            const right2 = vectorNormalize(vectorCross(worldUpAnim, viewDir));
-            if (vectorLength(right2) > 0.001) {
-              activeCamera.up = vectorNormalize(vectorCross(viewDir, right2));
-            } else {
-              // Exact pole fallback
-              const s2 = Math.sin(radEl) >= 0 ? 1 : -1;
-              activeCamera.up = [-s2 * Math.sin(radAz), 0, s2 * Math.cos(radAz)];
-            }
+            // The up vector in closed form (v20260917a): continuous through the poles
+            activeCamera.up = camOrbitUp(radAz, radEl);
           } else {
             // Apply truck/pedestal independently if only they are keyframed
             if (trkKf !== null || pedKf !== null) {

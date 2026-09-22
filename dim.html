@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260921zk -->
+<!-- dim v20260922g -->
 
 <!--
   MIT License
@@ -4283,8 +4283,8 @@
     #dragPillLayer .drag-pill.editable .drag-hud-pill.drag-hud-inert { cursor: default; }
     /* v20260921r (owner): the title sits ABOVE the pill at the drag (DragReadout.DIM_LABEL_SIDE = 'above' puts .label-above on the
        layer; the placement block grows upward by the same 14 px). */
-    #dragPillLayer.label-above .drag-pill { gap: 0; }
-    #dragPillLayer.label-above .drag-hud-label { position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); margin-bottom: 2px; width: auto; text-align: center; }
+    #dragPillLayer .drag-pill.label-above { gap: 0; }   /* v20260922g: per PILL - the ruler's pill carries its title above, the corner column's to the right */
+    #dragPillLayer .drag-pill.label-above .drag-hud-label { position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); margin-bottom: 2px; width: auto; text-align: center; }
     /* v20260921r (owner: "the pill disappears" while typing): the editor IS the pill. The input is transparent and fills the
        pill - same fill, same rounded ends, the number in the same ink and place; the editing state is the pill at full
        opacity with an accent ring. The camera HUD bars keep the boxed editor above. */
@@ -4306,11 +4306,17 @@
        pointer. GizmoFocus.KEPT = 'hide' hides them instead (the owner's literal ask), 'off' = the whole gizmo as before. */
     #selectionGizmoGroup [data-drag-dim] { opacity: 0.16; transition: opacity var(--dur-fast); }
     #selectionGizmoGroup [data-drag-dim]:hover { opacity: 1; }
-    /* THE CONFIRM HINT (v20260921y): at the paper's top-left, where the move pills used to be, while a transform is pending */
-    #dragConfirmHint { position: absolute; z-index: 5; display: flex; align-items: center; gap: 6px; pointer-events: none; user-select: none; color: var(--hud-label-color); font-size: 12px; font-weight: 400; line-height: 1; white-space: nowrap; transition: opacity var(--dur-slow) ease; }
+    /* THE CONFIRM PILLS (v20260921y as a text hint; v20260922f two clickable pills, owner: "all the other pills are interactable in our app"): at the
+       paper's top-left, below the corner column of move pills, while a transform is pending. Same rows as the drag pills (pill 72 x 24, the
+       label to its right), 28 px per row like the column above. */
+    #dragConfirmHint { position: absolute; z-index: 5; display: flex; flex-direction: column; gap: 4px; pointer-events: none; user-select: none; transition: opacity var(--dur-slow) ease; }
     #dragConfirmHint.hud-hidden { opacity: 0; }
-    #dragConfirmHint .dr-key { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 10px; background: var(--hud-bar-bg); opacity: var(--hud-bar-opacity); color: var(--hud-bar-text); }
-    #dragConfirmHint .dr-gap { width: 6px; }
+    #dragConfirmHint .drag-hud-row { display: flex; align-items: center; gap: 6px; }
+    #dragConfirmHint .dr-act { position: relative; display: flex; align-items: center; justify-content: center; width: 72px; height: 24px; border-radius: 12px; cursor: pointer; pointer-events: auto; }
+    #dragConfirmHint.hud-hidden .dr-act { pointer-events: none; }
+    #dragConfirmHint .dr-act:hover { background: var(--hud-bar-hover); }
+    #dragConfirmHint .dr-act .hud-value { position: static; transform: none; }
+    #dragConfirmHint .drag-hud-label { color: var(--hud-label-color); font-size: 12px; font-weight: 400; line-height: 1; white-space: nowrap; }
 
     .gizmo-label {
       transition: stroke-width var(--dur-fast);
@@ -5971,7 +5977,11 @@
   </div>
   <!-- Canvas HUD — Reset Truck/Pedestal button (top-right circle) -->
   <!-- THE CONFIRM HINT (v20260921y): shown while a drag's picture is kept = a transform is pending -->
-  <div id="dragConfirmHint" class="hud-hidden"><span class="dr-key">Enter</span><span>confirm transform</span><span class="dr-gap"></span><span class="dr-key" id="dragConfirmUndoKey">⌘Z</span><span>revert</span></div>
+  <!-- v20260922f: two CLICKABLE pills in the corner column, after the move pills - the same markup family as a drag pill -->
+  <div id="dragConfirmHint" class="hud-hidden">
+    <div class="drag-hud-row"><div class="canvas-hud-bar drag-hud-pill dr-act" data-act="submit" title="Confirm the transform (Enter)"><span class="hud-value">Enter</span></div><span class="drag-hud-label">Submit</span></div>
+    <div class="drag-hud-row"><div class="canvas-hud-bar drag-hud-pill dr-act" data-act="cancel" title="Revert the transform (Cmd-Z)"><span class="hud-value" id="dragConfirmUndoKey">⌘Z</span></div><span class="drag-hud-label">Cancel</span></div>
+  </div>
   <!-- THE PILL LAYER (v20260921n): the pills at a drag - pooled by DragReadout._placePill, the HUD pill's own markup -->
   <div id="dragPillLayer"></div>
   <div id="hudTruckResetBtn" class="canvas-hud-bar canvas-hud-bar-circle" title="Reset Truck / Pedestal">
@@ -6215,7 +6225,7 @@
           <button id="saveSceneBtn" class="ui-btn" style="width: 100%;">Save Scene (⌘S)</button>
         </div>
         <div class="prop-row prop-row-plain">
-          <button id="revertSceneBtn" class="ui-btn" style="width: 100%;" title="Replace the open scene with the saved slot (the last Save / autosave). Asks first; not undoable.">Reload Saved</button>
+          <button id="revertSceneBtn" class="ui-btn" style="width: 100%;" title="Replace the open scene with the saved slot (the last Save / autosave). Asks first; one undo brings the open scene back.">Reload Saved</button>
         </div>
         <div class="prop-row prop-row-plain">
           <button id="createTestSceneBtn" class="ui-btn ui-btn-small">Test Scene</button>
@@ -75949,7 +75959,7 @@
       hudBars.forEach(bar => { if (bar) bar.classList.toggle('hud-hidden', !hudVisible); });
       // THE CONFIRM HINT (v20260921y): the paper's top-left, 8 px in - placed whether or not the camera HUD is shown (it is a
       // readout, not a camera control); its own visibility is DragReadout.syncHint's.
-      { const _hint = document.getElementById('dragConfirmHint'); if (_hint) { _hint.style.left = (frameX + 8) + 'px'; _hint.style.top = (frameY + 8) + 'px'; } }
+      { const _hint = document.getElementById('dragConfirmHint'); if (_hint) { const rows = (typeof DragReadout !== 'undefined' && DragReadout._cornerRows) || 0; _hint.style.left = (frameX + 8) + 'px'; _hint.style.top = (frameY + 8 + rows * 28) + 'px'; } }   // v20260922f: after the corner column's rows
       if (!hudVisible) return;
 
       // Hide FOV bars in orthographic/oblique modes (FOV has no effect)
@@ -84230,6 +84240,7 @@
       update(ev) {
         if (this.rot.active) { try { this.rot.read(); } catch (e) { } }
         if (!this.active) return false;
+        if (ev && Number.isFinite(ev.clientX)) this._cursor = [ev.clientX, ev.clientY];   // v20260922d: the cursor tag rides the true pointer
         if (ev && typeof dragStartMousePosition !== 'undefined' && dragStartMousePosition) this._mousePx = Math.max(this._mousePx || 0, Math.hypot(ev.clientX - dragStartMousePosition.x, ev.clientY - dragStartMousePosition.y));
         const s = this._subject();
         if (!s || s.obj !== this.subjectObj) return false;
@@ -84461,6 +84472,8 @@
       scrubAxis(dx, dy) { return Math.abs(dy) > Math.abs(dx) ? 'y' : 'x'; },   // pure
       _wireEnds() {
         if (this._endsWired) return; this._endsWired = true;
+        // v20260922f: the two confirm pills DO what they say - Submit / Cancel of the session that is pending (rotate's under the rotate tool)
+        for (const b of document.querySelectorAll('#dragConfirmHint .dr-act')) { const act = (e) => { e.preventDefault(); e.stopPropagation(); const rot = currentTool === 'rotate', id = b.getAttribute('data-act') === 'submit' ? (rot ? 'rotateSubmitBtn' : 'moveSubmitBtn') : (rot ? 'rotateCancelBtn' : 'moveCancelBtn'); const btn = document.getElementById(id); if (btn) btn.click(); }; b.addEventListener('click', act); for (const t of ['pointerdown', 'mousedown']) b.addEventListener(t, (e) => e.stopPropagation()); }
         // Submit (Enter, or the drawer's button) and Cancel end the move the
         // picture described (v20260921zc: this wiring lived in the top-left pills' init; it is the part of it that was not about them).
         for (const id of ['moveSubmitBtn', 'moveCancelBtn', 'rotateSubmitBtn', 'rotateCancelBtn'])   /* v20260921y: Enter on a kept rotation must end its picture too (the arc stayed after Submit) */ { const b = document.getElementById(id); if (b) b.addEventListener('click', () => this.clearSticky()); }
@@ -84544,6 +84557,10 @@
       //   into still stays put (the owner's decision 2); it takes its place when the editor closes.
       // Mid-drag only the legs that moved are shown; the kept picture adds the zero ones (at home, for typing). DIM_LINEAR = false
       // restores the v20260921s candidate search + ease + glide (_drawDims), which is kept below for that.
+      DIM_CORNER: true, CORNER_ORDER: ['x', 'y', 'z', 'd'], CORNER_PRIMARY_ON_RULER: true,   // v20260922g: the primary pill (delta / the single axis) rides its ruler on the canvas; false = it joins the column   // v20260922f (owner): the move pills in a column at the paper's top-left, live and kept; false = the v20260922c rulers
+      DIM_CURSOR_TAG: false, TAG_DX: 22, TAG_DY: 18, TAG_STEP: 40,   // v20260922d MOCK, OFF since v20260922e (owner: "2 strategies in one app seems confusing" - the rulers are the one model; the mock stays behind the flag for comparison)
+      DIM_LEG_GAP: 44,   // v20260922c (owner): a leg's ruler clears its leg by this many px (the distance's clears the vector by 12) - further out, so the three legs' pills clear the gizmo and each other sooner
+      DIM_PIN: true,   // v20260922a: the delta / one-axis pill stays ON its dimension line (no home); v20260922b: the legs are rulers too; false = the v20260921t blend
       DIM_LINEAR: true, CLICK_SHOWS: true, DIM_HOME_PX: 128, DIM_HOME_D_PX: 184, DIM_NEAR_PX: 50, DIM_FAR_PX: 210, DIM_NEAR_D_PX: 60, DIM_FAR_D_PX: 230, DIM_HOME_DELTA_PX: 120,
       // pure: the four home directions (unit, screen px, y DOWN) from the screen directions of the world x / y / z axes (null = an axis pointing at the eye)
       // ---- STABILITY (v20260921v; PLAN-pill-placement-stability.md). The owner, on v20260921t: dragging the Y axis "the pill moved all
@@ -84595,6 +84612,9 @@
         spare.forEach((k, j) => { const t = t0 + bg * (j + 1) / (spare.length + 1); out[k] = [Math.cos(t), Math.sin(t)]; });
         return out;
       },
+      // pure (v20260922b): a leg's ruler side - the leg's screen normal, signed toward its home direction h (the spread upper normal, so three
+      // legs meeting at a corner fan their rulers apart); a zero leg falls back to h itself
+      legSide(lg, h) { const dx = lg.p1[0] - lg.p0[0], dy = lg.p1[1] - lg.p0[1], L = Math.hypot(dx, dy); h = h || [0, -1]; if (L < 1e-9) return h; const n = [dy / L, -dx / L]; return (n[0] * h[0] + n[1] * h[1]) >= 0 ? n : [-n[0], -n[1]]; },
       // pure: the pieces of the segment p -> q that lie OUTSIDE the axis-aligned rectangle centred c with half sizes hw, hh (Liang-Barsky)
       segOutsideRect(p, q, c, hw, hh) {
         const r = this.segInsideT(p, q, c, hw, hh); if (!r) return [[p, q]];
@@ -84650,7 +84670,7 @@
       // pure: a pill's number (the distance unsigned) and its title OUTSIDE the pill (v20260921b; the HUD's letters and its delta)
       dimText(key, v) { return this.fmtNum(v, key !== 'd'); },
       dimLabel(key) { return key === 'd' ? '\u0394' : key; },
-      DIM_LABEL_SIDE: 'above',   // v20260921r (owner): above the pill; 'right' was v20260921c's choice
+      DIM_LABEL_SIDE: 'above',   // the default for a pill ON THE CANVAS (v20260921r; the depth and rotation pills too); the corner column passes 'right' per pill (v20260922g)
       _DIM_LABEL_SIDE_WAS: 'right',    // 'right' (the HUD's own side, v20260916d) | 'left' | 'above' - one constant, the placement footprint follows it
       // pure: how far a level W x h pill must sit from a line with unit normal n to clear it by gap
       dimOffset(n, W, h, gap) { return (Math.abs(n[0]) * W + Math.abs(n[1]) * h) / 2 + gap; },
@@ -84735,7 +84755,7 @@
       // overlay group (translate(width / 2 + CANVAS_OFFSET_X, height / 2 + CANVAS_OFFSET_Y) scale(scale)), rounded to
       // whole pixels as the HUD's left / top are. draw() wraps the real draw: what was not placed this frame is hidden.
       _pillPool: {}, _pillUsed: {},
-      _placePill(key, pc, text, title, scale) {
+      _placePill(key, pc, text, title, scale, side) {   // side (v20260922g): 'above' | 'right' per pill; default = DIM_LABEL_SIDE
         let p = this._pillPool[key];
         if (!p) {
           const layer = document.getElementById('dragPillLayer'); if (!layer) return null;
@@ -84753,7 +84773,7 @@
         const b = this._canvasBinding(key), ed = !!b, inert = ed && b.inert();
         if (p.editable !== ed) { p.editable = ed; p.el.classList.toggle('editable', ed); p.pill.title = ed ? ((this.CANVAS_TIP[key] || 'Value') + ' - drag sideways or up / down to scrub, click to type') : ''; }
         if (p.inert !== inert) { p.inert = inert; p.pill.classList.toggle('drag-hud-inert', inert); }
-        if (this._layerSide !== this.DIM_LABEL_SIDE) { this._layerSide = this.DIM_LABEL_SIDE; p.el.parentNode.classList.toggle('label-above', this.DIM_LABEL_SIDE === 'above'); }
+        { const sd = side || this.DIM_LABEL_SIDE; if (p.side !== sd) { p.side = sd; p.el.classList.toggle('label-above', sd === 'above'); } }
         if (p.text !== text) { p.text = text; p.val.textContent = text; }
         if (p.title !== title) { p.title = title; p.lab.textContent = title; }
         if (p.el.hidden) p.el.hidden = false;
@@ -85019,7 +85039,7 @@
       },
       _drawLinear(el, P, o) {
         const { start, delta, dist, a, b, live, is2D, scale, dDisp, plan } = o, px = (n) => n / scale, kept = !live;
-        const LH = 14, above = this.DIM_LABEL_SIDE === 'above', BW = above ? 72 : 86, BH = above ? 24 + LH : 24;
+        const LH = 14, above = true /* v20260922g: the ruler's pill always carries its title above */, BW = above ? 72 : 86, BH = above ? 24 + LH : 24;
         // v20260921x (owner: "the pill is not perfectly center when it is placed on the vector"): the law places the PILL's centre - it placed the
         // centre of the block (pill + title), which left the pill 7 px below its line. The title simply rides above. And no line runs BEHIND a
         // pill (the pill is translucent, a dashed line showed through it): the dimension line, a leader and a leg are drawn as the pieces
@@ -85058,10 +85078,31 @@
         if (!single && keys.length && toDisplay(dist) >= 0.005) items.unshift({ key: 'd', p0: a, p1: b, lenPx: Math.hypot(b[0] - a[0], b[1] - a[1]) * scale, text: this.dimText('d', toDisplay(dist)), label: this.dimLabel('d'), primary: true });
         const ink = (pr) => ({ stroke: 'var(--accent-ink)', 'stroke-width': px(1), 'stroke-opacity': pr ? 0.9 : 0.6, fill: 'none' });
         const dash = { 'stroke-dasharray': px(5) + ' ' + px(4) };
+        // v20260922d CURSOR TAG (mock): live, the pills stack beside the pointer - TAG_DX / TAG_DY px from it to the FIRST pill's top-left corner,
+        // TAG_STEP px per row (pill 24 + title 14 + 2) - the distance first, then the moved axes. Their motion is the hand's exactly. The
+        // rulers' witness / dimension lines and leaders are held back while the tag is up; the legs and the vector stay. At mouseup (kept)
+        // the picture is v20260922c's: every pill on its ruler, editable.
+        let tagAt = null;
+        if (live && this.DIM_CURSOR_TAG && this._cursor) { const sr = document.getElementById('svgContainer').getBoundingClientRect(); tagAt = [(this._cursor[0] - sr.left - width / 2 - CANVAS_OFFSET_X) / scale, (this._cursor[1] - sr.top - height / 2 - CANVAS_OFFSET_Y) / scale]; }
+        // v20260922f THE CORNER COLUMN (owner, after the d / e mocks: "place the pills at the left top corner of the paper as it used to be"): every
+        // move pill lives in a column 8 px inside the paper's top-left - x, y, z, delta, 28 px per row - live AND kept, so nothing on the canvas
+        // carries a number and nothing moves that the hand did not move; the confirm pills (#dragConfirmHint) follow below. The canvas keeps
+        // d's picture: the coloured legs, the vector, the ring, the now-dot; the rulers' lines and leaders are held back like the tag's.
+        // v20260922g (owner: "make the delta (and the single axis) pill work in the ruler as we did at v20260922c ... mirrors the rotation ui"): the
+        // PRIMARY pill - the distance, or the one axis of a single-axis move - rides its ruler on the canvas (v20260922c's law, title above);
+        // only the legs' pills stand in the column. corner is decided per item below (cornerOf).
+        const corner = this.DIM_CORNER && !tagAt, cornerOf = (it) => corner && !(this.CORNER_PRIMARY_ON_RULER && it.primary); let cornerRow = 0;
+        if (corner) items.sort((p, q) => this.CORNER_ORDER.indexOf(p.key) - this.CORNER_ORDER.indexOf(q.key));
+        let tagRow = 0;
         for (const it of items) {
           const mid = [(it.p0[0] + it.p1[0]) / 2, (it.p0[1] + it.p1[1]) / 2];
           let place = mid, anchor = mid;
-          if (it.primary) {
+          // v20260922b LEGS AS RULERS: under DIM_PIN a leg is a dimension line like the distance - offset beside its (coloured, dashed) leg,
+          // witness lines, the pill centred on it, w = 1. v20260922c (owner: the zero leg "having a offset leg at first and jumps in is annoying"):
+          // a ZERO leg too - its pill sits where its ruler's middle would be (the start, offset along its side), so the first pixel of a drag
+          // moves nothing but the middle. The witness / dimension lines still need 2 px of leg to be drawn.
+          const ruler = it.primary || this.DIM_PIN, inCorner = cornerOf(it);
+          if (ruler) {
             const dx = it.p1[0] - it.p0[0], dy = it.p1[1] - it.p0[1], L = Math.hypot(dx, dy);
             const dir = L > 1e-9 ? [dx / L, dy / L] : [1, 0], n = [dir[1], -dir[0]];        // n: to the LEFT of the travel
             // THE PERPENDICULAR (v20260921w; owner: the delta pill's offset "seems very off ... not orthogonal to the axis of the distance").
@@ -85078,11 +85119,12 @@
             //       pill sat hidden under it. Decided while the line is still short (re-decided until DIM_SIDE_PX), then only tracked:
             //       a choice made once, not an avoidance that moves pills. The one-axis dimension has no legs: upperNormal.
             const decide = () => {
-              if (it.key === 'd') { let sc = 0; for (const lg of items) { if (lg.primary) continue; const lm = [(lg.p0[0] + lg.p1[0]) / 2, (lg.p0[1] + lg.p1[1]) / 2], lh = H[lg.key] || [0, -1]; sc += ((lm[0] + lh[0] * px(R) - mid[0]) * n[0] + (lm[1] + lh[1] * px(R) - mid[1]) * n[1]) * scale; } if (Math.abs(sc) > 20) return sc > 0 ? [-n[0], -n[1]] : [n[0], n[1]]; }
+              if (it.key === 'd') { let sc = 0; for (const lg of items) { if (lg.primary) continue; const lm = [(lg.p0[0] + lg.p1[0]) / 2, (lg.p0[1] + lg.p1[1]) / 2], lh = (this.DIM_PIN && lg.lenPx >= 2) ? this.legSide(lg, H[lg.key]) : (H[lg.key] || [0, -1]), lr = (this.DIM_PIN && lg.lenPx >= 2) ? this.dimOffset([lh[1], -lh[0]], 72, above ? 24 + 2 * LH : 24, this.DIM_LEG_GAP) : R; sc += ((lm[0] + lh[0] * px(lr) - mid[0]) * n[0] + (lm[1] + lh[1] * px(lr) - mid[1]) * n[1]) * scale; }   /* v20260922b: the legs' pills sit on their rulers now */ if (Math.abs(sc) > 20) return sc > 0 ? [-n[0], -n[1]] : [n[0], n[1]]; }
               return this.upperNormal(dir);
             };
             let S = sideVec[it.key];
-            if (L > 1e-9) {
+            if (!it.primary) S = this.legSide(it, H[it.key]);   // v20260922b: a leg's ruler side is a pure function of the camera - no tracking needed
+            else if (L > 1e-9) {
               let target;
               if (!S || (it.key === 'd' && it.lenPx < this.DIM_SIDE_PX)) target = decide();
               else { const sg = (n[0] * S[0] + n[1] * S[1]) >= 0 ? 1 : -1; target = [n[0] * sg, n[1] * sg]; }
@@ -85091,30 +85133,40 @@
             } else if (!S) S = (it.key !== 'd' && H[it.key]) || [0, -1];
             sideVec[it.key] = S; it.S = S;
             const sd = (n[0] * S[0] + n[1] * S[1]) >= 0 ? 1 : -1;
-            const off = px(this.dimOffset(n, 72, above ? 24 + 2 * LH : 24, 12)) * sd;   // the pill is centred on the line; the title's 14 px counted on both sides
-            place = anchor = [mid[0] + n[0] * off, mid[1] + n[1] * off];
-            if (it.lenPx >= 2) {
-              const q0 = [it.p0[0] + n[0] * off, it.p0[1] + n[1] * off], q1 = [it.p1[0] + n[0] * off, it.p1[1] + n[1] * off], g3 = px(3) * (sd < 0 ? -1 : 1);
-              for (const [p, q] of [[it.p0, q0], [it.p1, q1]]) { lineOut(Object.assign({ class: 'drag-dim-witness' }, ink(true), dash), [p[0] + n[0] * g3, p[1] + n[1] * g3], q); dotOut({ class: 'drag-dim-dot', cx: q[0], cy: q[1], r: px(2.5), fill: 'var(--accent-ink)' }); }
+            // v20260922a DIM_PIN: the offset runs along the TRACKED side vector S, not the raw normal n*sd - the two are equal from DIM_SIDE_PX on
+            // (k = 1 there), and under it S is damped, so a 5 px vector's noisy direction does not swing a pill that now sits ON the line.
+            const pinned = this.DIM_PIN, u = pinned ? S : [n[0] * sd, n[1] * sd];
+            const off = px(this.dimOffset(n, 72, above ? 24 + 2 * LH : 24, it.primary ? 12 : this.DIM_LEG_GAP));   // the pill is centred on the line; the title's 14 px counted on both sides; a leg's ruler sits FURTHER out (v20260922c, owner)
+            place = anchor = [mid[0] + u[0] * off, mid[1] + u[1] * off];
+            if (it.lenPx >= 2 && !tagAt && !inCorner) {
+              const q0 = [it.p0[0] + u[0] * off, it.p0[1] + u[1] * off], q1 = [it.p1[0] + u[0] * off, it.p1[1] + u[1] * off], g3 = px(3);
+              for (const [p, q] of [[it.p0, q0], [it.p1, q1]]) { lineOut(Object.assign({ class: 'drag-dim-witness' }, ink(true), dash), [p[0] + u[0] * g3, p[1] + u[1] * g3], q); dotOut({ class: 'drag-dim-dot', cx: q[0], cy: q[1], r: px(2.5), fill: 'var(--accent-ink)' }); }
               it.dl = [q0, q1];   // drawn below, once the pill's place is known
             }
           }
-          const h = it.primary ? it.S : (H[it.key] || [0, -1]);   // a leg: FROZEN for the gesture (v20260921v); a dimension line: its own perpendicular (v20260921w)
+          const h = ruler ? it.S : (H[it.key] || [0, -1]);   // a leg: FROZEN for the gesture (v20260921v); a dimension line: its own perpendicular (v20260921w)
           const Rk = !it.primary ? R : (it.key === 'd' ? this.DIM_HOME_DELTA_PX : this.DIM_HOME_D_PX);   // the one-axis pill starts far enough to clear the gizmo at a click; the distance never shows at a click, so it starts nearer (a shorter lever)
           const home = [mid[0] + h[0] * px(Rk), mid[1] + h[1] * px(Rk)];   // the home rides the MIDDLE OF ITS OWN LINE (at a click every middle is the start, so the four fan out around the gizmo)
-          const w = it.primary ? this.dimBlend(it.lenPx, this.DIM_NEAR_D_PX, this.DIM_FAR_D_PX) : this.dimBlend(it.lenPx, this.DIM_NEAR_PX, this.DIM_FAR_PX);
+          // v20260922a DIM_PIN (owner's experiment: "being inside the offset rule and don't offset further"): a DIMENSION-LINE pill (delta, one axis) has no
+          // home - w = 1, it sits on its line from the first pixel. The slide from home to the line (60..230 px of drag) was the motion the owner
+          // read as a jump. The legs' pills keep the home law until the legs become rulers themselves.
+          const w = ruler && this.DIM_PIN ? 1 : it.primary ? this.dimBlend(it.lenPx, this.DIM_NEAR_D_PX, this.DIM_FAR_D_PX) : this.dimBlend(it.lenPx, this.DIM_NEAR_PX, this.DIM_FAR_PX);   // v20260922b: every ruler is pinned
           const c = [home[0] + (place[0] - home[0]) * w, home[1] + (place[1] - home[1]) * w];   // THE LAW: home + w * (place - home)
-          const pc = c, hc = this._heldPillCentre(it.key, scale), pe = hc || pc; pillAt[it.key] = pe;
+          const pc = inCorner ? [-FRAME_SIZE / 2 + px(8 + 36), -FRAME_SIZE / 2 + px(8 + 12 + cornerRow++ * 28)] : tagAt ? [tagAt[0] + px(this.TAG_DX + 36), tagAt[1] + px(this.TAG_DY + 12 + LH + tagRow++ * this.TAG_STEP)] : c, hc = this._heldPillCentre(it.key, scale), pe = hc || pc; pillAt[it.key] = pe;   // v20260922d: at the cursor while the tag is up
           if (it.dl) lineOut(Object.assign({ class: 'drag-dim-line', 'data-dim': it.key }, ink(true), dash), it.dl[0], it.dl[1], pe);
-          if (Math.hypot(pe[0] - anchor[0], pe[1] - anchor[1]) * scale > 3) {
+          if (!tagAt && !inCorner && Math.hypot(pe[0] - anchor[0], pe[1] - anchor[1]) * scale > 3) {
             lineOut(Object.assign({ class: 'drag-dim-leader', 'data-dim': it.key }, ink(it.primary)), anchor, pe, pe);
             dotOut({ class: 'drag-dim-dot drag-dim-leader-dot', cx: anchor[0], cy: anchor[1], r: px(2), fill: 'var(--accent-ink)', 'fill-opacity': 0.75 });
           }
           if (dbg) dbg[it.key] = { w: +w.toFixed(4), lenPx: +it.lenPx.toFixed(2), home: home.map(v => +(v * scale).toFixed(2)), place: place.map(v => +(v * scale).toFixed(2)), c: c.map(v => +(v * scale).toFixed(2)) };
-          this._placePill(it.key, pc, it.text, it.label, scale);
+          this._placePill(it.key, pc, it.text, it.label, scale, inCorner ? 'right' : 'above');   // v20260922g: the ruler's pill titles above, the column's to the right
         }
         for (const lg of legSegs) lineOut({ class: 'drag-readout-leg', 'data-leg': lg.ax, stroke: 'var(--gizmo-axis-' + lg.ax + ')', 'stroke-width': 1 / scale, 'stroke-dasharray': (4 / scale) + ' ' + (3 / scale) }, lg.p0, lg.p1, pillAt[lg.ax]);
         flush();
+        this._cornerRows = corner ? cornerRow : 0;   // v20260922f: the confirm pills sit after these rows
+        // v20260922g: placed HERE, every draw - updateHudBarPositions runs only when the chrome changes (_chromeDirty), so a row count that changed
+        // between two drags (3 rows for a body drag, 0 for a single axis) left the confirm pills one state behind
+        { const hint = this._hintEl || (this._hintEl = document.getElementById('dragConfirmHint')); if (hint) { hint.style.left = (width / 2 + CANVAS_OFFSET_X - FRAME_SIZE / 2 * scale + 8) + 'px'; hint.style.top = (height / 2 + CANVAS_OFFSET_Y - FRAME_SIZE / 2 * scale + 8 + this._cornerRows * 28) + 'px'; } }
         this._pillsNow = { at: Object.keys(pillAt).map(k => pillAt[k]), hw: PHW, hh: PHH };   // v20260921zd: for the vector, drawn by the caller
       },
       // The dimensions of one frame: dims = [{key, p0, p1 (frame units), lenPx, text, primary, inline}], the distance first.
@@ -87123,16 +87175,20 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       revertSceneBtn.addEventListener('click', async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        // ASKS FIRST (v20260914zo): the load imports with skipUndo, so this is
-        // the one button that discards the open scene without an undo entry.
+        // ASKS FIRST (v20260914zo): the load imported with skipUndo, so this was
+        // the one button that discarded the open scene without an undo entry.
+        // v20260921zn: it is ONE UNDO STEP now; the confirm stays (a reload still replaces the whole scene) but no longer says it cannot be undone.
         // Clear Scene has had its confirm since v20260807v; this one did not.
         const ok = await showAppConfirm('Reload Saved Scene',
-          'Replace the open scene with the last saved one (Save / autosave)? This cannot be undone.',
+          'Replace the open scene with the last saved one (Save / autosave)? Undo brings the open scene back.',
           { okLabel: 'Reload' });
         if (!ok) return;
-        if (!loadSceneFromStorage()) {
+        if (loadSceneFromStorage({ label: 'Reload Saved' })) {
+          // the scene now EQUALS the saved one: the step's pushes counted as edits, so tell the close guard / autosave it is saved (it was a quiet import before)
+          _sceneSavedEpoch = _sceneChangeEpoch;
+        } else {
           // No saved scene — fall back to test scene
-          loadTestSceneWithFallback(true);
+          loadTestSceneWithFallback(false, { label: 'Test Scene' });
         }
       });
     }
@@ -87223,10 +87279,8 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           // that already lost the presets. Chained off the returned promise so
           // this always lands AFTER the import, whatever format the file grows
           // into later. Non-destructive: Camera 1 and any user cameras survive.
-          loadTestSceneWithFallback().then(() => {
-            restoreDefaultCameraPresets();
-            pushCameraUndoState();
-          });
+          // v20260921zn: ONE undo step - the preset restore is the step's afterLoad, so it lands in the same camera entry (it used to push its own).
+          loadTestSceneWithFallback(false, { label: 'Test Scene', afterLoad: () => restoreDefaultCameraPresets() });
         });
       }
 
@@ -87236,21 +87290,27 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           const ok = await showAppConfirm('Clear Scene',
             'Remove all objects, and restore the default cameras and workplane?');
           if (!ok) return;
-          pushUndoState();
+          // v20260921zl (owner: "when clear scene button is pressed, it does not reset the background color"): this payload had no backgroundColor, and
+          // importScene leaves a setting alone when its field is absent - the right rule for an old FILE, the wrong one for a RESET. The default is
+          // read off the colour input's own markup (value="#ffffff"), so there is one place that says what the default paper is.
+          // v20260921zm: A CLEAR IS ONE UNDO STEP. It never was - importScene re-baselined the history when it ended, so the pushUndoState() that stood
+          // here only flushed pending edits, Cmd+Z after a clear brought nothing back, and the older entries replayed onto the empty scene. The
+          // import now runs as an undoStep (see importScene) with the camera reset inside it.
+          const _defaultBg = (document.getElementById('bgColorInput') || {}).defaultValue || '#ffffff';
           importScene({
             version: '1.0',
+            backgroundColor: _defaultBg,
             objects: [],
             camera: { position: [10, 10, 10], target: [0, 0, 0], up: [0, 1, 0], fovDegrees: 32.2, name: 'Camera 1' },
             workplane: { active: 0, list: [{ name: 'Workplane 1', mode: 'vertical', offset: 0, gridSize: 1, snapToGrid: false, lock: false, origin: [0, 0, 0], right: [1, 0, 0], normal: [0, 0, 1] }] }
-          });
+          }, false, { label: 'Clear Scene', afterLoad: () => resetCamerasToDefault() });
           // v20260807v, owner-reported: "clear scene should reset the object tree
           // AND bring back the default cameras". It did not, and the reason is
           // that the payload above uses the LEGACY single-`camera` shape, whose
           // importScene branch only moves the active camera's pose and leaves the
           // list alone — so a session that had lost the presets (any scene or
           // autosave carrying a shorter `cameras.list` wipes them, permanently)
-          // stayed lost. Reset AFTER importScene so this wins over that branch.
-          resetCamerasToDefault();
+          // stayed lost. Reset AFTER importScene's load so this wins over that branch - since v20260921zm as the step's afterLoad, above.
           requestRender();
         });
       }
@@ -87262,7 +87322,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         reader.onload = (ev) => {
           try {
             const json = JSON.parse(ev.target.result);
-            if (importScene(json) === false) return;   // v20260914zq: refused, open scene kept
+            if (importScene(json, false, { label: 'Import Scene' }) === false) return;   // v20260914zq: refused, open scene kept. v20260921zn: ONE undo step (the File Name field below is not scene state and stays with the imported file on an undo)
             // FILE NAME FOLLOWS THE FILE (v20260827a): the imported file's own
             // name (minus .json) becomes the File Name field, so a re-export
             // round-trips under the name the file arrived with. The disk name
@@ -87312,16 +87372,16 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
     // that wanted to do anything after the scene lands (the Test Scene button
     // restoring the preset cameras) would have raced the import. The three
     // pre-existing callers ignore the return value, so this is inert for them.
-    const loadTestSceneWithFallback = (skipUndo = false) => {
+    const loadTestSceneWithFallback = (skipUndo = false, undoStep = null) => {   // undoStep (v20260921zn): handed to importScene
       return fetch('scenes/dim_scene_testscene.json')
         .then(response => {
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           return response.json();
         })
-        .then(data => importScene(data, skipUndo))
+        .then(data => importScene(data, skipUndo, undoStep))
         .catch(err => {
           console.warn('Test scene file unavailable, loading fallback:', err.message || err);
-          importScene(FALLBACK_SCENE, skipUndo);
+          importScene(FALLBACK_SCENE, skipUndo, undoStep);
         });
     };
 
@@ -87412,12 +87472,12 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       }
     };
 
-    const loadSceneFromStorage = () => {
+    const loadSceneFromStorage = (undoStep = null) => {   // boot passes nothing (skipUndo); the Reload Saved button passes an undoStep (v20260921zn)
       try {
         const saved = localStorage.getItem(SCENE_KEY);
         if (!saved) return false;
         const data = JSON.parse(saved);
-        if (importScene(data, true) === false) return false;   // skipUndo on load; refused = no saved scene
+        if (importScene(data, !undoStep, undoStep) === false) return false;   // skipUndo on the boot load; refused = no saved scene
         if (data.fileName && fileNameInput) fileNameInput.value = data.fileName;
         return true;
       } catch (e) {
@@ -87860,7 +87920,8 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
     // failure path) and returns false with the open scene untouched. Returns
     // true on success so the callers can react (the file handler renames the
     // File Name field only then; Reload Saved falls back to the test scene).
-    const importScene = (data, skipUndo = false) => {
+    // undoStep (v20260921zm, OPT-IN): { label, afterLoad } makes this import ONE UNDO STEP on each stack - see the record at the end of this function.
+    const importScene = (data, skipUndo = false, undoStep = null) => {
       if (!data || !Array.isArray(data.objects)) {
         if (typeof showAppNotice === 'function') showAppNotice('Not a dim scene file (no objects array).', { kind: 'error', ms: 6000 });
         return false;
@@ -87879,6 +87940,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       if (!skipUndo) {
         if (typeof pushUndoState === 'function') pushUndoState();
         if (typeof pushCameraUndoState === 'function' && (data.cameras || data.camera)) pushCameraUndoState();
+        if (undoStep && typeof pushAnimUndoState === 'function') pushAnimUndoState();   // v20260921zm: the step's animation entry must hold the import only, not earlier drift
       }
 
       // Quick Clear - the OLD objects and everything else in #pathGroup (mask
@@ -88008,9 +88070,15 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       // Restore Reference Image (v20260724g; shared helper since v20260724h).
       applyReferenceImage(data.referenceImage);
 
-      // Update diff tracking state after import
-      if (typeof captureSceneState === 'function') _lastSceneState = deepClone(captureSceneState());
-      if (typeof captureCameraState === 'function') _lastCameraState = deepClone(captureCameraState());
+      // Update diff tracking state after import. THIS RE-BASELINE IS WHY AN IMPORT IS NOT AN UNDO STEP: the pushes at the top only flush drift, the
+      // change itself is never diffed, and the entries recorded against the PREVIOUS scene stay in the history - an undo after an import applies
+      // one of them to the NEW scene (measured v20260921zm: it moved the imported scene's first object). An undoStep import skips it, and since
+      // v20260921zn (the owner chose option 1 of the zm entry) EVERY user-facing importer is one: Clear Scene, File > Import Scene, Test Scene, Reload Saved.
+      // What still re-baselines is what imports with skipUndo - boot, the corpus, the probes - where there is no history to break.
+      if (!(undoStep && !skipUndo)) {
+        if (typeof captureSceneState === 'function') _lastSceneState = deepClone(captureSceneState());
+        if (typeof captureCameraState === 'function') _lastCameraState = deepClone(captureCameraState());
+      }
 
       // Restore Animation Timeline
       if (data.animation && typeof tlDeserialize === 'function') {
@@ -88033,6 +88101,17 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       // by a scene file. Text OBJECTS in a loaded scene were never gated: they
       // carry their own glyph cache and render as plain paths either way.
 
+      // ONE UNDO STEP (v20260921zm for Clear Scene; v20260921zn for the other three importers). The baselines still describe the scene BEFORE the import (flushed at the top, not
+      // re-set above), so a push now records the whole change: objects, background, frame guide, workplanes, reference image on the scene stack;
+      // the camera list on the camera stack; the timeline on the animation stack - one labelled entry each, because the three stacks are
+      // independent by design (Cmd+Z / Opt+Z / Opt+X). afterLoad runs first so what the caller does next (Clear Scene resets the cameras) lands
+      // in the SAME entries. Because the chain is unbroken, the entries below it still apply to the scene they were recorded against.
+      if (undoStep && !skipUndo) {
+        if (typeof undoStep.afterLoad === 'function') undoStep.afterLoad();
+        if (typeof pushUndoState === 'function') pushUndoState(undoStep.label);
+        if (typeof pushCameraUndoState === 'function') pushCameraUndoState();
+        if (typeof pushAnimUndoState === 'function') pushAnimUndoState(undoStep.label);
+      }
       updateTreeView();
       _scheduleHistoryUpdate(skipUndo ? { quiet: true } : undefined);   // v20260914zo
       // Present the settled picture WITH the import's first paint rather

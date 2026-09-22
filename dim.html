@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20260922g -->
+<!-- dim v20260922i -->
 
 <!--
   MIT License
@@ -7139,6 +7139,16 @@
 
           <!-- SCALE SETTINGS (Tool Panel) -->
           <div class="hidden" id="scaleSettingsContainer">
+            <!-- SCALE STROKES (v20260922i, PLAN-scale-style.md). Illustrator's
+                 "Scale Strokes & Effects". Default OFF, persisted in settings.
+                 Corner radius is NOT listed because it already scales: live
+                 corners expand in localVertices space, before the matrix that
+                 carries `scale` (measured, 0 px residual). -->
+            <div class="prop-row prop-inline">
+              <label for="scaleStrokesCb" class="ui-checkbox-label"
+                title="Scale stroke width and dash pattern with the object, as Illustrator's Scale Strokes &amp; Effects does. A non-uniform scale uses the geometric mean of the factors over the axes the object extends along. Corner radius always scales. Applies to the Scale tool only, and bakes the new width &mdash; an animated scale does not animate stroke width.">Scale Strokes</label>
+              <input type="checkbox" id="scaleStrokesCb" class="ui-checkbox" />
+            </div>
             <div class="ui-header-small">Scale (Absolute)</div>
 
             <div class="xyz-row">
@@ -14412,6 +14422,31 @@
     const scaleCancelBtn = document.getElementById('scaleCancelBtn');
     const scaleSubmitBtn = document.getElementById('scaleSubmitBtn');
 
+    // SCALE STROKES (v20260922i): a Scale-TOOL preference, not object state -
+    // nothing extra is serialized per scene, and with it off the app is
+    // byte-identical to v20260922h by construction. Persisted via saveSettings
+    // (`scaleStrokes`, absent key = off - the penAutoSwitch precedent).
+    let scaleStrokesWithObject = false;
+    const scaleStrokesCb = document.getElementById('scaleStrokesCb');
+    if (scaleStrokesCb) {
+      scaleStrokesCb.addEventListener('change', (e) => {
+        scaleStrokesWithObject = !!e.target.checked;
+        if (typeof saveSettings === 'function') saveSettings({ scaleStrokes: scaleStrokesWithObject });
+        // Turning it ON mid-session means "from here on": re-arm from the
+        // CURRENT widths and scale, so the strokes do not jump by the delta
+        // the user already dragged. Turning it OFF puts the widths back.
+        if (scaleStrokesWithObject) {
+          ScaleStyle.arm((selectedObjects && selectedObjects.length) ? selectedObjects
+            : (selectedObject ? [selectedObject] : []));
+        } else {
+          ScaleStyle.restore();
+          ScaleStyle.disarm();
+        }
+        syncStrokeWidthInputs();
+        requestRender();
+      });
+    }
+
     let scaleToolSession = null; // { mode: 'object', startScale: [x,y,z] }
 
     [scaleToolInputX, scaleToolInputY, scaleToolInputZ, scaleDeltaX, scaleDeltaY, scaleDeltaZ].forEach(input => {
@@ -14470,6 +14505,11 @@
         };
         // Mark session start; undo push only reads truthiness (v20260725c).
         scaleToolSession.undoSnapshot = true;
+        // SCALE STROKES (v20260922i): the stroke baselines are the SESSION's,
+        // not the drag's - so a second drag in one session compounds from the
+        // session start exactly as `scale` itself does, and Cancel (which
+        // restores the session's scale) lands on the session's widths.
+        ScaleStyle.arm(scaleToolSession.startAll.map(s => s.obj).filter(Boolean));
       }
       updateScaleToolUI();
     };
@@ -14517,6 +14557,7 @@
         if (scaleDeltaZ) scaleDeltaZ.value = fmt(sz - ss[2]);
       }
 
+      applyScaleStrokes();          // SCALE STROKES (v20260922i)
       _autoKeyScaleEdit();
       updatePropertiesPanel();
       requestRender();
@@ -14545,6 +14586,7 @@
       if (scaleToolInputY) scaleToolInputY.value = fmt(newScale[1]);
       if (scaleToolInputZ) scaleToolInputZ.value = fmt(newScale[2]);
 
+      applyScaleStrokes();          // SCALE STROKES (v20260922i)
       _autoKeyScaleEdit();
       updatePropertiesPanel();
       requestRender();
@@ -14574,6 +14616,11 @@
         } else {
           selectedObject.scale = [...scaleToolSession.startScale];
         }
+        // SCALE STROKES (v20260922i): Cancel restored scale and position only,
+        // so with the option on it would have reverted the geometry and left
+        // the strokes scaled.
+        ScaleStyle.restore();
+        syncStrokeWidthInputs();
 
         updatePropertiesPanel();
         updateScaleToolUI();
@@ -20334,6 +20381,328 @@
     const getEffectiveStrokeWidth = (baseWidth) => {
       if (!scaleStrokeWithZoom) return baseWidth;
       return (parseFloat(baseWidth) * getZoomFactor()).toString();
+    };
+
+    // --- SCALE STROKES (v20260922i, PLAN-scale-style.md) --------------------
+    // Illustrator's "Scale Strokes & Effects", for the Scale tool.
+    //
+    // THE MODEL IS A BAKE, not a draw-time multiplier: the new number is
+    // written into style['stroke-width']. A multiplier would make the Style
+    // panel show 1.0 while painting 2.0, would have to be undone again by
+    // toDisplayStroke/fromDisplayStroke, and would still have to be baked for
+    // the export - three places doing the same arithmetic. So there is one.
+    //
+    // CORNER RADIUS IS NOT HERE, and that is not an omission. Live corners
+    // expand in localVertices space (Path._expandCorners), and `scale` lives in
+    // the localMatrix applied AFTER that - so a corner radius is already an
+    // object-space length that scales with everything else. Measured at
+    // v20260922h: scaling 2x reproduces the geometry as an exact 2x similarity,
+    // 0 px residual over 19 emitted points. dim behaves as though Illustrator's
+    // "Scale Corners" were permanently on. (Measure that under an ORTHOGRAPHIC
+    // axis-on camera: a scaled object's PERSPECTIVE projection is not a scaled
+    // projection, and the same test reads a 13.4% residual that is the camera.)
+    //
+    // EVERY WIDTH IS COMPUTED FROM THE SESSION BASELINE, never from the current
+    // value. A gizmo drag fires hundreds of mousemoves; `w *= f` per event
+    // compounds and lands somewhere that depends on the frame rate. This is the
+    // same discipline `dragStartScale` already uses for scale itself, and it
+    // makes apply() IDEMPOTENT - calling it twice, or from two sites in one
+    // gesture, is harmless.
+    const ScaleStyle = {
+      EXTENT_EPS: 1e-9,   // an axis with less extent than this does not vote
+      MIN_W: 1e-6,        // a width never reaches 0 (and never goes negative)
+      _base: null,        // Map(styleOwner -> {w, dash, driver, startScale, extent})
+
+      // THE RULE (owner's choice (a), 2026-09-22). Uniform is exact. Non-uniform
+      // is the GEOMETRIC MEAN of the per-axis factors over the axes the object
+      // actually extends along, so flat XY art scaled [2,2,1] gives exactly 2 -
+      // the case a designer scaling a drawing means - while a solid scaled
+      // [2,1,1] gives 2^(1/3). Continuous in the factors, exact for uniform,
+      // and |f| throughout so a mirror scales rather than inverts the width.
+      factor(a, b, extent) {
+        if (!a || !b) return 1;
+        const voting = [];
+        for (let i = 0; i < 3; i++) {
+          if (extent && !(Math.abs(extent[i]) > this.EXTENT_EPS)) continue;
+          voting.push(i);
+        }
+        const axes = voting.length ? voting : [0, 1, 2];   // a point: all three
+        let prod = 1, n = 0;
+        for (const i of axes) {
+          const av = Math.abs(a[i]), bv = Math.abs(b[i]);
+          if (!isFinite(av) || !isFinite(bv) || !(av > 1e-12)) continue;
+          prod *= bv / av; n++;
+        }
+        if (!n || !(prod > 0) || !isFinite(prod)) return 1;
+        return Math.pow(prod, 1 / n);
+      },
+
+      // Dash arrays scale with the stroke (owner: dash IN). Non-numeric tokens
+      // are passed through untouched rather than dropped.
+      scaleDash(dash, f) {
+        return String(dash).trim().split(/[\s,]+/).filter(s => s !== '')
+          .map(s => { const v = parseFloat(s); return isFinite(v) ? String(+(v * f).toFixed(6)) : s; })
+          .join(' ');
+      },
+
+      // The object's extent in its OWN space - its own localMatrix excluded,
+      // because `scale` is the thing being varied. For a Group this is the
+      // subtree through the children's local-matrix chain, the same walk
+      // _subtreeCentreZ uses, so a group's extent is measured where its scale
+      // acts. Null when there is no geometry at all.
+      //
+      // EXTENT IS THE AUTHORED PATH GEOMETRY, AND MODIFIER OUTPUT DOES NOT
+      // COUNT (decided v20260922i, when the probe disagreed with the first
+      // guess). An extruded solid's depth lives in extrudeSettings, not in
+      // localVertices, so a flat profile reads flat in Z whether or not it is
+      // extruded - and that is the behaviour we want, for two reasons.
+      // (1) Enabling an extrusion must not silently change how scaling affects
+      //     stroke width: the same [2,2,1] gesture gives x2 on a drawing and on
+      //     the extruded version of that drawing. The alternative makes a
+      //     modifier toggle a hidden stroke-scaling preference.
+      // (2) What the user scaled is the DRAWING. Doubling flat art in its own
+      //     plane should double the strokes on it - Illustrator's behaviour,
+      //     and the round-trip is the product.
+      // So the rule reads: the axes the AUTHORED ART extends along.
+      extentOf(obj) {
+        const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+        const eat = (p, M) => {
+          const t = M ? pointApplyMatrix(p, M) : p;
+          for (let i = 0; i < 3; i++) {
+            const v = t[i] || 0;
+            if (v < mn[i]) mn[i] = v;
+            if (v > mx[i]) mx[i] = v;
+          }
+        };
+        const walk = (o, M) => {
+          if (!o) return;
+          if (o.isGroup) {
+            for (const c of (o.children || [])) {
+              const m2 = M ? matrixMultiply(M, c.getLocalMatrix()) : c.getLocalMatrix();
+              walk(c, m2);
+            }
+            return;
+          }
+          const g = (o.getEffectiveGeometry ? o.getEffectiveGeometry() : null);
+          const verts = (g && g.localVertices) || o.localVertices || [];
+          for (const p of verts) if (p) eat(p, M);
+        };
+        walk(obj, null);
+        if (!isFinite(mn[0])) return null;
+        return [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]];
+      },
+
+      // Every node in obj's subtree that OWNS a stroke width. A Group carries
+      // `style: {}` and the real widths live on its descendant Paths, which is
+      // why a group scale has to walk (measured: a group scale never touched a
+      // child's stroke before this release).
+      targets(obj, out) {
+        out = out || [];
+        if (!obj) return out;
+        if (obj.style && obj.style['stroke-width'] !== undefined) out.push(obj);
+        if (obj.isGroup) for (const c of (obj.children || [])) this.targets(c, out);
+        return out;
+      },
+
+      armed() { return !!(this._base && this._base.size); },
+      disarm() { this._base = null; },
+
+      // Session start. Costs nothing while the option is off - the walk is not
+      // even run, which is what keeps the default path free.
+      arm(objs) {
+        this._base = null;
+        if (!scaleStrokesWithObject || !objs || !objs.length) return;
+        const base = new Map();
+        for (const driver of objs) {
+          if (!driver) continue;
+          const startScale = [...(driver.scale || [1, 1, 1])];
+          const extent = this.extentOf(driver);
+          for (const t of this.targets(driver)) {
+            if (base.has(t)) continue;               // nested selection: outermost driver wins
+            const w = parseFloat(t.style['stroke-width']);
+            base.set(t, {
+              w: isFinite(w) ? w : null,
+              dash: t.style['stroke-dasharray'] || null,
+              driver, startScale, extent,
+            });
+          }
+        }
+        this._base = base.size ? base : null;
+      },
+
+      // WRITING style IS NOT ENOUGH - THE PICTURE HAS ITS OWN COPY. The draw
+      // only re-reads a path's stroke attributes every frame when the separate
+      // `scaleStrokeWithZoom` option is on; otherwise the element's
+      // stroke-width was written once by applySvgStyles and simply stays there.
+      // Measured at v20260922i: style['stroke-width'] read 24 while the element
+      // - and therefore the canvas AND the export - still said 12. So every
+      // writer here ends with the app's own style refresh.
+      _refresh(t) {
+        if (typeof updateVisualsRecursive === 'function') updateVisualsRecursive(t);
+      },
+
+      // Idempotent. Returns true when it wrote anything.
+      apply() {
+        if (!scaleStrokesWithObject || !this._base) return false;
+        let wrote = false;
+        for (const [t, b] of this._base) {
+          const f = this.factor(b.startScale, b.driver.scale || [1, 1, 1], b.extent);
+          if (b.w !== null) { t.style['stroke-width'] = Math.max(this.MIN_W, b.w * f); wrote = true; }
+          if (b.dash) { t.style['stroke-dasharray'] = this.scaleDash(b.dash, f); wrote = true; }
+          this._refresh(t);
+        }
+        return wrote;
+      },
+
+      // Put the baselines back. The Scale tool's Cancel restores scale and
+      // position from its own startAll and would otherwise leave the widths
+      // scaled - it was style-blind before this release.
+      restore() {
+        if (!this._base) return false;
+        let wrote = false;
+        for (const [t, b] of this._base) {
+          if (b.w !== null) { t.style['stroke-width'] = b.w; wrote = true; }
+          if (b.dash) { t.style['stroke-dasharray'] = b.dash; wrote = true; }
+          this._refresh(t);
+        }
+        return wrote;
+      },
+
+      selfTest() {
+        const r = [];
+        const t = (name, ok, info = '') => r.push({ name, ok: ok ? 'PASS' : 'FAIL', info });
+        const eq = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
+        const S = this;
+        const FLAT = [4, 4, 0], SOLID = [4, 4, 4];
+
+        // --- the rule
+        t('uniform 1->2 is exact', eq(S.factor([1, 1, 1], [2, 2, 2], SOLID), 2));
+        t('uniform 2->1 is exact', eq(S.factor([2, 2, 2], [1, 1, 1], SOLID), 0.5));
+        t('uniform 1->7.5 is exact', eq(S.factor([1, 1, 1], [7.5, 7.5, 7.5], SOLID), 7.5));
+        t('flat XY [2,2,1]: Z has no extent, so it does not vote => 2',
+          eq(S.factor([1, 1, 1], [2, 2, 1], FLAT), 2));
+        t('CONTROL - the same factors with NO extent mask => 2^(2/3), not 2',
+          eq(S.factor([1, 1, 1], [2, 2, 1], null), Math.pow(4, 1 / 3)));
+        t('solid [2,1,1] => 2^(1/3)', eq(S.factor([1, 1, 1], [2, 1, 1], SOLID), Math.pow(2, 1 / 3)));
+        t('mirror [-2,-2,1] on flat art scales, never inverts',
+          eq(S.factor([1, 1, 1], [-2, -2, 1], FLAT), 2));
+        t('a point (all extents 0) falls back to all three axes',
+          eq(S.factor([1, 1, 1], [2, 2, 2], [0, 0, 0]), 2));
+        t('zero start scale cannot produce NaN', eq(S.factor([0, 0, 0], [2, 2, 2], SOLID), 1));
+        t('non-finite input returns 1', eq(S.factor([1, 1, 1], [Infinity, 1, 1], SOLID), 1)
+          && eq(S.factor([1, 1, 1], [NaN, NaN, NaN], SOLID), 1));
+        t('identity scale is exactly 1 (Cancel must land on the baseline)',
+          S.factor([1.7, 0.3, 2.9], [1.7, 0.3, 2.9], SOLID) === 1);
+
+        // --- dash
+        t('dash "4 2" at f=2 => "8 4"', S.scaleDash('4 2', 2) === '8 4');
+        t('dash commas and extra space normalise', S.scaleDash(' 4,2 , 1 ', 0.5) === '2 1 0.5');
+        t('dash keeps a non-numeric token', S.scaleDash('4 auto', 2) === '8 auto');
+
+        // --- extent / targets, on real objects
+        const made = [];
+        try {
+          const mkPath = (name, verts, style) => {
+            const p = new Path(name, [0, 0, 0], [0, 0, 0], verts, 'linear', true,
+              style || { 'stroke-width': 2 }, [1, 1, 1],
+              [{ start: 0, count: verts.length, closed: true }]);
+            made.push(p);
+            return p;
+          };
+          const flat = mkPath('ss_flat', [[-2, -1, 0], [2, -1, 0], [2, 1, 0], [-2, 1, 0]]);
+          const e = S.extentOf(flat);
+          t('extentOf(Path) = its localVertices bbox, Z flat',
+            e && eq(e[0], 4) && eq(e[1], 2) && eq(e[2], 0), JSON.stringify(e));
+
+          const child = mkPath('ss_child', [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]]);
+          child.position = [10, 0, 0];
+          const g = new Group('ss_group');
+          made.push(g);
+          g.children.push(child); child.parent = g;
+          // the child sits at x=10 and spans x 9..11 in GROUP space, so the
+          // group's extent is the child's own 2x2 composed through the child's
+          // local matrix - not 12, which is what a naive origin-inclusive walk
+          // would report.
+          const ge = S.extentOf(g);
+          t('extentOf(Group) composes the child local matrix (x 9..11 => 2, not 12)',
+            ge && eq(ge[0], 2) && eq(ge[1], 2) && eq(ge[2], 0), JSON.stringify(ge));
+
+          const tg = S.targets(g);
+          t('targets(Group) returns the styled CHILD, not the styleless group',
+            tg.length === 1 && tg[0] === child);
+
+          // --- arm / apply / restore / idempotence, with the flag forced on
+          const saved = scaleStrokesWithObject;
+          try {
+            scaleStrokesWithObject = true;
+            child.style['stroke-width'] = 3;
+            child.style['stroke-dasharray'] = '6 3';
+            S.arm([g]);
+            t('arm records the subtree baseline', S.armed());
+            g.scale = [2, 2, 1];
+            S.apply();
+            const w1 = parseFloat(child.style['stroke-width']);
+            t('group scale [2,2,1] on flat art doubles the child stroke', eq(w1, 6, 1e-9), String(w1));
+            t('and the dash follows', child.style['stroke-dasharray'] === '12 6',
+              child.style['stroke-dasharray']);
+            S.apply(); S.apply();
+            t('apply is IDEMPOTENT (baselines, not multiplication)',
+              eq(parseFloat(child.style['stroke-width']), 6, 1e-9));
+            g.scale = [4, 4, 1];
+            S.apply();
+            t('a second step reads the SESSION baseline, not the last width',
+              eq(parseFloat(child.style['stroke-width']), 12, 1e-9));
+            g.scale = [1, 1, 1];
+            S.apply();
+            t('returning to the start scale returns the exact baseline',
+              parseFloat(child.style['stroke-width']) === 3);
+            g.scale = [3, 3, 1];
+            S.apply();
+            S.restore();
+            t('restore() puts width and dash back (the Cancel path)',
+              parseFloat(child.style['stroke-width']) === 3 && child.style['stroke-dasharray'] === '6 3');
+            scaleStrokesWithObject = false;
+            child.style['stroke-width'] = 3;
+            g.scale = [5, 5, 1];
+            S.apply();
+            t('CONTROL - with the option OFF, apply() writes nothing',
+              parseFloat(child.style['stroke-width']) === 3);
+          } finally {
+            scaleStrokesWithObject = saved;
+            S.disarm();
+          }
+        } finally {
+          made.forEach(o => { if (o && o.svgElement && o.svgElement.remove) o.svgElement.remove(); });
+        }
+
+        const failed = r.filter(x => x.ok === 'FAIL');
+        console.table(r);
+        console.log('%cScaleStyle.selfTest: ' + (r.length - failed.length) + '/' + r.length +
+          (failed.length ? ' FAILED: ' + failed.map(f => f.name).join(', ') : ' ALL PASS'),
+          'font-weight:bold;color:' + (failed.length ? '#b45309' : '#2f8f4e'));
+        return failed.length === 0;
+      },
+    };
+
+    // The one call the Scale tool's writers make. Model only; the two stroke
+    // inputs are re-synced separately so a drag does not rebuild a whole panel.
+    const applyScaleStrokes = () => {
+      if (!scaleStrokesWithObject) return;
+      if (ScaleStyle.apply()) syncStrokeWidthInputs();
+    };
+
+    // Targeted refresh of the two inputs that show a stroke width (the Style
+    // panel's and the quick-style bar's). updatePropertiesPanel does not sync
+    // the style panel, and calling updateStylePanel() per mousemove would
+    // rebuild ~50 inputs for two numbers.
+    const syncStrokeWidthInputs = () => {
+      const src = selectedObject && selectedObject.style ? selectedObject.style : null;
+      if (!src || src['stroke-width'] === undefined) return;
+      const shown = toDisplayStroke(parseFloat(src['stroke-width']) || 0).toFixed(1);
+      const a = document.getElementById('strokeWidthInput');
+      if (a && document.activeElement !== a) a.value = shown;
+      const b = document.getElementById('qsStrokeWidth');
+      if (b && document.activeElement !== b) b.value = shown;
     };
 
     // --- SIDE COLOR PALETTE (v20260726r, PLAN-side-color-palette.md) ---------
@@ -43145,7 +43514,13 @@
         // which nothing ever migrates back). Without this rebuild, unchecking
         // Z-Sort Children left the stale faces as a frozen ghost while the
         // child objects rendered into detached <g> nodes (invisible).
-        if (!zSortOn && this._zsDomCommitted) {
+        // v20260922h: `!externalFaceList` too. Since the deep branch below
+        // also sets the flag, a PASS-THROUGH group carries it while it is
+        // still being flattened - and restoring there would re-home children
+        // the root is about to re-steal, every frame. A group that owns the
+        // flag the old way (it committed itself) has zSortOn true while it is
+        // active, so the clause never fires for it: behaviour unchanged.
+        if (!zSortOn && !externalFaceList && this._zsDomCommitted) {
           this.svgElement.replaceChildren(
             ...this.children.map(c => c.svgElement).filter(Boolean)
           );
@@ -43537,6 +43912,22 @@
           if (deepZSort) {
             // --- "All Descendants" mode: flatten through this group ---
             // Pass the shared face list through to children recursively
+            // v20260922h (owner's "2D Mode makes my imported SVG disappear"):
+            // MARK THIS GROUP EVICTED. The flatten hoists our descendants'
+            // face elements into the ROOT's element - svgElements are
+            // single-homed, so that EMPTIES our own <g> and every <g> below
+            // it. The restore at the top of draw() was gated on
+            // _zsDomCommitted, which only the group that ran the commit ever
+            // set (the root) - so a pass-through group's subtree was never
+            // rebuilt. The moment such a group stopped contributing faces
+            // (mode2D flips on and draws its subtree under VP_2D; or Scene
+            // Z-Sort is switched off) its leaf elements were dropped by the
+            // root's replaceChildren and orphaned: invisible, recoverable
+            // only by re-importing. Measured on
+            // _tests/_repro_2dmode_scene_zsort.json - needs Depth = All
+            // Descendants, independent of Masks; Depth = Children never had
+            // it (that branch keeps its children in its own <g>).
+            this._zsDomCommitted = true;
             for (const child of this.children) {
               const _pk0 = externalFaceList.length;
               _childDraws.push(child.draw(currentMVP, { ...childOpts, externalFaceList, deepZSort: true }));
@@ -78428,6 +78819,13 @@
               // the shared block below.
               (selectedObjects.length ? selectedObjects : [selectedObject])
                 .forEach(obj => obj.dragStartScale = [...obj.scale]);
+              // SCALE STROKES (v20260922i): normally the scale-tool SESSION
+              // armed the baselines already (and keeping that one is what makes
+              // a second drag compound correctly). This only covers a scale
+              // drag that starts without a session.
+              if (!ScaleStyle.armed()) {
+                ScaleStyle.arm(selectedObjects.length ? selectedObjects : [selectedObject]);
+              }
             } else handledByGizmo = false;
           } else if (clickedGizmoAxis === 'pivot-free') {
             // Pivot free-move center circle
@@ -79851,6 +80249,7 @@
           if (!isGroup) {
             selectedObject.scale = [newScale[0], newScale[1], newScale[2]];
             notifyPathUpdated(selectedObject);
+            applyScaleStrokes();      // SCALE STROKES (v20260922i)
             return;
           }
           const ps = selectedObject.dragStartScale || selectedObject.scale || [1, 1, 1];
@@ -79881,6 +80280,7 @@
             }
             notifyPathUpdated(obj);
           });
+          applyScaleStrokes();        // SCALE STROKES (v20260922i)
         };
 
         const startScale = selectedObject.dragStartScale;
@@ -86495,6 +86895,9 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
             // AUTO ADD / REMOVE (v20260914e): a pen preference, absent key = off.
             penAutoSwitch = settings.penAutoSwitch === true;
             const pas = document.getElementById('penAutoSwitchCb'); if (pas) pas.checked = penAutoSwitch;
+            // SCALE STROKES (v20260922i): a Scale-tool preference, absent key = off.
+            scaleStrokesWithObject = settings.scaleStrokes === true;
+            const ssc = document.getElementById('scaleStrokesCb'); if (ssc) ssc.checked = scaleStrokesWithObject;
             // AUTOSAVE (v20260914zo): absent key = the default (OFF since
             // v20260914zs), every 2 minutes.
             _autosaveEnabled = (settings.autosave === true || settings.autosave === false) ? settings.autosave : AUTOSAVE_DEFAULT_ON;

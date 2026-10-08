@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261007b -->
+<!-- dim v20261008f -->
 
 <!--
   MIT License
@@ -1140,18 +1140,19 @@
     }
 
     /* The content svg is the orbit surface. Its content group stays
-       pointer-events:none (Phase 2) — this rule is about the svg itself. */
-    #subViewSvg {
+       pointer-events:none (Phase 2) — this rule is about the svg itself.
+       Every pane is one (v20261008c, plan D7). */
+    .subwin-pane {
       pointer-events: auto;
       touch-action: none;
       cursor: grab;
     }
 
-    #subViewSvg.subwin-orbiting {
+    .subwin-pane.subwin-orbiting {
       cursor: grabbing;
     }
 
-    #subWindow.subwin-locked #subViewSvg {
+    #subWindow.subwin-locked .subwin-pane {
       cursor: not-allowed;
     }
 
@@ -4797,6 +4798,45 @@
       margin-left: auto;
     }
 
+    /* Third bar (v20261008c): STEREO. Always visible - a bar that appears and
+       disappears changes the window's height on every toggle, and bar2 already
+       carries this line's one margin-left:auto item. Sep and the arrangement
+       select are disabled while Stereo is off. The select carries bar3's single
+       auto margin. */
+    #subWindowBar3 {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-bottom: 1px solid var(--border-light);
+      user-select: none;
+    }
+
+    #subWindowBar3 .subwin-sep-label {
+      font-size: var(--font-size-field);
+      color: var(--text-muted);
+      margin-left: 8px;
+      white-space: nowrap;
+    }
+
+    #subWindowBar3 .ui-input {
+      width: 60px;
+      flex: 0 0 auto;
+    }
+
+    #subWindowBar3 .ui-select {
+      width: 84px;
+      min-width: 0;
+      flex: 0 0 auto;
+      margin-left: auto;
+    }
+
+    #subWindowBar3 .ui-input:disabled,
+    #subWindowBar3 .ui-select:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+
     .subwin-icon-btn {
       background: none;
       border: none;
@@ -4829,11 +4869,39 @@
        aspect = 1, so every camera's view is natively square (plan §1.9) —
        deriving the height from the width is what keeps the 1000-unit frame
        unletterboxed, and it means resize only ever drives one dimension. */
-    #subViewSvg {
+    /* .subwin-pane (v20261008c): the three pane svgs. One shows; Stereo shows
+       two at half the width, Both three at a third - the WINDOW's width is the
+       user's and never moves on a toggle (plan D5). Panes B and C carry a
+       hairline left border so the frames read as separate. */
+    .subwin-pane {
       display: block;
       width: 100%;
       height: auto;
       aspect-ratio: 1 / 1;
+      flex: 0 0 auto;
+      box-sizing: border-box;
+    }
+
+    #subViewSvgB,
+    #subViewSvgC {
+      display: none;
+      border-left: 1px solid var(--border-light);
+    }
+
+    #subWindow.subwin-stereo .subwin-pane {
+      width: 50%;
+    }
+
+    #subWindow.subwin-stereo #subViewSvgB {
+      display: block;
+    }
+
+    #subWindow.subwin-stereo-3 .subwin-pane {
+      width: 33.3333%;
+    }
+
+    #subWindow.subwin-stereo-3 #subViewSvgC {
+      display: block;
     }
 
     /* VIEW-ONLY, non-negotiable. Picking recomputes its own VP from
@@ -4841,7 +4909,9 @@
        clone under a second camera would answer that test for geometry the
        main view never drew. This is the v20260809r render-cache
        selection-death lesson, applied before it can happen. */
-    #subViewGroup {
+    #subViewGroup,
+    #subViewGroupB,
+    #subViewGroupC {
       pointer-events: none;
     }
 
@@ -4851,6 +4921,8 @@
     #subViewWrap {
       position: relative;
       line-height: 0;
+      display: flex;            /* the panes in a row (v20261008c); the HUD bars are absolute, out of flow */
+      align-items: flex-start;
     }
 
     #subWinResize {
@@ -10363,6 +10435,24 @@
            currentColor. Geometry verbatim; the reload glyph is the sheet's
            right cell translated x−27.84. The arrowhead keeps its authored
            stroke-miterlimit. -->
+      <!-- Copy / Export (v20261008e): this window's view as SVG through the real
+           exporter - the single camera, or in Stereo the eyes: Copy puts ONE svg
+           on the clipboard with the panes side by side in the arrangement's
+           order (ids namespaced per pane); Export saves one file per EYE
+           (_L / _R). Same glyph style as the two buttons after them. -->
+      <button id="subWinCopySvg" type="button" class="subwin-icon-btn"
+        title="Copy this view as SVG to the clipboard (Stereo: the panes side by side)"><svg width="12" height="12"
+          viewBox="0 0 12.25 12.25" fill="none" stroke="currentColor" stroke-width="1">
+          <rect x="2" y="2" width="6" height="6" />
+          <rect x="4.25" y="4.25" width="6" height="6" />
+        </svg></button>
+      <button id="subWinExportSvg" type="button" class="subwin-icon-btn"
+        title="Export this view as an SVG file (Stereo: two files, _L and _R)"><svg width="12" height="12"
+          viewBox="0 0 12.25 12.25" fill="none" stroke="currentColor" stroke-width="1">
+          <line x1="6.12" y1="1.8" x2="6.12" y2="8.2" />
+          <polyline points="3.6,5.8 6.12,8.3 8.65,5.8" />
+          <line x1="2.2" y1="10.4" x2="10.05" y2="10.4" />
+        </svg></button>
       <button id="subWinRefresh" type="button" class="subwin-icon-btn" title="Refresh view now"><svg width="12"
           height="12" viewBox="0 0 12.25 12.25" fill="none" stroke="currentColor" stroke-width="1">
           <path d="M6,9.12c-1.66,0-3-1.34-3-3s1.34-3,3-3,3,1.34,3,3" />
@@ -10400,6 +10490,25 @@
         <option value="4:5">4:5</option>
       </select>
     </div>
+    <!-- Third bar (v20261008c, PLAN-subwindow-stereo): a left / right eye pair.
+         Stereo on = two panes (Both = three), each refresh draws the scene once
+         per eye. Sep = the eyes' separation in world units; the select = how the
+         pair is to be viewed: Cross (left eye's picture on the right; cross the
+         eyes), Parallel (left on the left; relax the eyes - fuses up to about a
+         400 px window), Both (L R L: the first pair for parallel viewing, the
+         second for cross). Session-only, like the rest of this window. -->
+    <div id="subWindowBar3">
+      <input type="checkbox" id="subWinStereoCb" class="ui-checkbox" />
+      <label class="ui-checkbox-label" for="subWinStereoCb">Stereo</label>
+      <span class="subwin-sep-label">Separation</span>
+      <input type="number" id="subWinStereoSep" class="ui-input" step="0.05" min="0" value="0.6" disabled
+        title="Eye separation (world units)" />
+      <select id="subWinStereoArr" class="ui-select" disabled title="How to view the pair">
+        <option value="cross">Cross</option>
+        <option value="parallel">Parallel</option>
+        <option value="both">Both</option>
+      </select>
+    </div>
     <!-- viewBox matches the app's frame: FRAME_SIZE 1000, origin centred.
          #subViewBg is the frame white — kept in sync with #frameRect's fill on
          every refresh, so a custom background colour shows here too. -->
@@ -10409,7 +10518,7 @@
          the way window-anchored bars did. SubViewControls appends the bars
          here. -->
     <div id="subViewWrap">
-      <svg id="subViewSvg" xmlns="http://www.w3.org/2000/svg" viewBox="-500 -500 1000 1000">
+      <svg id="subViewSvg" class="subwin-pane" data-pane="0" xmlns="http://www.w3.org/2000/svg" viewBox="-500 -500 1000 1000">
         <rect id="subViewBg" x="-500" y="-500" width="1000" height="1000" fill="#ffffff" />
         <g id="subViewGroup"></g>
         <!-- Per-window frame guide, in FRAME units (the viewBox is the frame),
@@ -10425,6 +10534,25 @@
              pixel width so the tripod is a FIXED SCREEN SIZE matching the main
              window's (v20260812zh). -->
         <g id="subAxisGroup" transform="translate(-390, 390) scale(2)"></g>
+      </svg>
+      <!-- Panes B and C (v20261008c): the second and third eye pictures of
+           Stereo / Both. Same skeleton as the first pane, ids suffixed B / C;
+           hidden unless #subWindow carries subwin-stereo / subwin-stereo-3.
+           SubView._syncFrameGuide / _syncAxis / refresh walk the three by
+           suffix (SubView.PANE_IDS). -->
+      <svg id="subViewSvgB" class="subwin-pane" data-pane="1" xmlns="http://www.w3.org/2000/svg" viewBox="-500 -500 1000 1000">
+        <rect id="subViewBgB" x="-500" y="-500" width="1000" height="1000" fill="#ffffff" />
+        <g id="subViewGroupB"></g>
+        <rect id="subFrameGuideRectB" fill="none" stroke="var(--accent-ink)" stroke-width="1.5"
+          vector-effect="non-scaling-stroke" style="display: none; pointer-events: none;" />
+        <g id="subAxisGroupB" transform="translate(-390, 390) scale(2)"></g>
+      </svg>
+      <svg id="subViewSvgC" class="subwin-pane" data-pane="2" xmlns="http://www.w3.org/2000/svg" viewBox="-500 -500 1000 1000">
+        <rect id="subViewBgC" x="-500" y="-500" width="1000" height="1000" fill="#ffffff" />
+        <g id="subViewGroupC"></g>
+        <rect id="subFrameGuideRectC" fill="none" stroke="var(--accent-ink)" stroke-width="1.5"
+          vector-effect="non-scaling-stroke" style="display: none; pointer-events: none;" />
+        <g id="subAxisGroupC" transform="translate(-390, 390) scale(2)"></g>
       </svg>
     </div>
     <div id="subWinResizeL" title="Drag to resize"></div>
@@ -39046,6 +39174,12 @@
       // (v20261007a, _plans/PLAN-stroke-over-mask.md A) an occluder's ink of its own (a Boolean piece's outline) covers what is behind it
       // in every mask, and the file redraws it as an M3 band - the outline at its full width where the piece behind is painted later
       OCCLUDER_INK: true,
+      // (v20261008a) THE REACH OF AN OUTLINE (owner's drill, scene A at its own camera: the hole's grey inner wall drew a short stretch of
+      // its outline over the cylinder's end cap, which is in front there). Two pieces of one group whose FILLS barely meet (2 texels: the
+      // `silent` band) or do not meet (`undecidedZero`) get no verdict from the buffer, which holds fills - yet N's outline, half a stroke
+      // outside its fill, can lie over D's fill. Where it does, the order is asked of the rays at up to 8 points of N's outline that lie
+      // inside D's fill (nudged a pixel into N): D first at every one -> D masks N (fill and ink); otherwise nothing, as before.
+      INK_REACH: true,
       SURFACE_RANK: true,     // v20260904w (PLAN-ink-occlusion-v2, the crease-repro slice):
       //   a cross-owner pair with shared coverage but NO shared front texel
       //   (c.a + c.b === 0, the "undecidedZero" exit) cannot be ranked by
@@ -39965,6 +40099,9 @@
                   if (logPair) logPair('surfaceConst', c);
                   continue;
                 }
+                // (v20261008a) THE REACH OF AN OUTLINE: no shared fill texel, but N's outline may lie over D's fill (see INK_REACH)
+                if (this.INK_REACH && D.ent && N.ent && D.ent.engineCtx && D.ent.engineCtx === N.ent.engineCtx && this._inkReach(D, N) === 'const') {
+                  (N.maskEntries || (N.maskEntries = [])).push({ el: D.el, dg: D.gEl, half: null }); stats.inkReach = (stats.inkReach || 0) + 1; if (logPair) logPair('inkReach', c); continue; }
                 stats.curvedUndecided++; if (logPair) logPair('undecidedZero', c); continue;
               }
               const minority = Math.min(c.a, c.b);
@@ -40224,6 +40361,10 @@
                   (N.maskEntries || (N.maskEntries = [])).push({ el: D.el, dg: D.gEl, half: null });
                   stats.surfaceConst++;
                   if (logPair) logPair('surfaceConst', c);
+                } else if (!mixed && this.INK_REACH && D.ent && N.ent && D.ent.engineCtx && D.ent.engineCtx === N.ent.engineCtx && this._inkReach(D, N) === 'const') {
+                  // (v20261008a) THE REACH OF AN OUTLINE: D wins a sliver of fill, and N's outline lies over D's fill (see INK_REACH)
+                  (N.maskEntries || (N.maskEntries = [])).push({ el: D.el, dg: D.gEl, half: null });
+                  stats.inkReach = (stats.inkReach || 0) + 1; if (logPair) logPair('inkReach', c);
                 } else {
                   stats.curvedGrazeSkipped++;
                   if (logPair) logPair(mixed ? 'mixedToSilent' : 'silent', c);
@@ -40831,6 +40972,34 @@
         // which carried it outside its outer ring: the file read 10 px apart even-odd / nonzero (clip_nonzero_gate N2, scene A).
         const inR = (pt, r) => { let c = false; for (let k = 0, j = r.length - 1; k < r.length; j = k++) { const a = r[k], b = r[j]; if ((a[1] > pt[1]) !== (b[1] > pt[1]) && pt[0] < (b[0] - a[0]) * (pt[1] - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
         return out.filter((q, k) => out.reduce((n, o, j) => n + (j !== k && inR(q[0], o) ? 1 : 0), 0) % 2 === 0).map(q => sgn(q) >= 0 ? q : q.slice().reverse());
+      },
+      _inkReachCache: new WeakMap(),
+      _inkReach(D, N) {
+        const X = D.ent && D.ent.engineCtx, fa = D.ent && D.ent.engineFace, fb = N.ent && N.ent.engineFace, hw = ((N.ent && +N.ent.engineInk) || 0) / 2;
+        if (!X || X !== N.ent.engineCtx || !fa || !fb || fa === fb || !(hw > 0) || typeof BooleanPieces === 'undefined') return null;
+        const dd = D.el.getAttribute('d'), nd = N.el.getAttribute('d'); let byN = this._inkReachCache.get(D.el); if (!byN) { byN = new WeakMap(); this._inkReachCache.set(D.el, byN); }
+        const hit = byN.get(N.el); if (hit && hit.dd === dd && hit.nd === nd && hit.X === X) return hit.res;
+        let res = null;
+        try {
+          const dR = this._flatD(dd, 0.1), nR = this._flatD(nd, 0.1);
+          if (dR && nR) {
+            const inEO = (pt, rs) => { let c = false; for (const r of rs) for (let k = 0, j = r.length - 1; k < r.length; j = k++) { const a = r[k], b = r[j]; if ((a[1] > pt[1]) !== (b[1] > pt[1]) && pt[0] < (b[0] - a[0]) * (pt[1] - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
+            // points of N's outline (every half stroke) inside D's fill; at each the ray is asked on the outline itself, then half a pixel
+            // to either side - the first that meets BOTH faces decides (N may be a SLIVER, narrower than a pixel and kept for its ink only:
+            // the owner's case, a 5-point ring - a point nudged into it is already out of it)
+            const samples = [];
+            for (const r of nR) for (let k = 0; k < r.length; k++) { const a = r[k], b = r[(k + 1) % r.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (!(L > 1e-9)) continue;
+              const nx = -(b[1] - a[1]) / L * 0.5, ny = (b[0] - a[0]) / L * 0.5;
+              for (let t = hw / 2; t < L; t += hw) { const p = [a[0] + (b[0] - a[0]) * t / L, a[1] + (b[1] - a[1]) * t / L]; if (!inEO(p, dR)) continue; samples.push([p, [p[0] + nx, p[1] + ny], [p[0] - nx, p[1] - ny]]); } }
+            if (samples.length) {
+              const step = Math.max(1, samples.length / 8); let d = 0, n = 0;
+              for (let s = 0; s < samples.length; s += step) {
+                for (const q of samples[Math.floor(s)]) { const en = BooleanPieces.rayEntries(X.expr, X.cam, q[0], q[1]); const ia = en.findIndex(e => e.ids.includes(fa)), ib = en.findIndex(e => e.ids.includes(fb)); if (ia < 0 || ib < 0 || ia === ib) continue; if (ia < ib) d++; else n++; break; } }
+              res = (d > 0 && n === 0) ? 'const' : (n > 0 && d === 0) ? 'none' : null;
+            }
+          }
+        } catch (err) { res = null; }
+        byN.set(N.el, { dd, nd, X, res }); return res;
       },
       _exactCache: new WeakMap(),
       _exactGroupRank(D, N) {
@@ -85106,12 +85275,28 @@
       showGrid: true,
       showHud: true,         // bar2 HUD checkbox — pure CSS class toggle, no refresh
       showAxis: true,        // bar2 Axis checkbox — display toggle on #subAxisGroup
-      _axisInd: null,        // lazy AxisIndicator instance on #subAxisGroup
       frameGuide: 'none',    // per-window; seeded from the scene's value on open()
       _manualPending: false, // the reload button's one-shot override of auto=off
       _exportHold: false,    // both async SVG exporters raise this: a sub pass
                              // interleaving between an export's draw and its
                              // serialize could hand the file camera-B geometry
+      // STEREO (v20261008c, _plans/PLAN-subwindow-stereo.md). Session-only, like
+      // the rest of this window's chrome. On, a refresh draws the scene once per
+      // EYE - a throwaway clone of the window's camera displaced half `stereoSep`
+      // (world units) along its screen-right - and fills two panes (three for
+      // 'both'). Under perspective the eye is PARALLEL (position and target
+      // displaced) and its picture is translated so the target fuses at the
+      // screen plane - the off-axis frustum, which is exactly a translate of the
+      // projected picture; under orthographic / oblique the eye CONVERGES on the
+      // target (a parallel shift gives no parallax there). The arrangement says
+      // which eye each pane shows: cross = R L, parallel = L R, both = L R L.
+      // All three join the pose hash, so a change refreshes even with Auto off.
+      stereo: false,
+      stereoSep: 0.6,        // the 1:30 rule at the default cameras' 17.32 from the target
+      stereoArr: 'cross',    // 'cross' | 'parallel' | 'both'
+      PANE_IDS: ['', 'B', 'C'],   // id suffixes of the three panes, DOM order
+      _axisInds: {},         // lazy AxisIndicator per pane suffix
+      _exportJob: null,      // {resolve, reject}: an export of this window's view, run by the seam (v20261008e)
 
       _win() { return document.getElementById('subWindow'); },
       _hdr() { return document.getElementById('subWindowHeader'); },
@@ -85149,7 +85334,82 @@
         if (!cam) return '';
         return [cam.position.join(','), cam.target.join(','), cam.up.join(','),
           cam.fovDegrees, cam.orthoZoom, cam.projectionType,
-          cam.obliqueAngle, cam.obliqueScale].join('|');
+          cam.obliqueAngle, cam.obliqueScale,
+          this.stereo ? 1 : 0, this.stereoSep, this.stereoArr].join('|');   // v20261008c: the stereo state is pose
+      },
+
+      // --- stereo (v20261008c) ----------------------------------------------
+      // The eye order across the visible panes. One entry = one pane.
+      _arrangement() {
+        if (!this.stereo) return ['C'];
+        return this.stereoArr === 'parallel' ? ['L', 'R']
+          : this.stereoArr === 'both' ? ['L', 'R', 'L']
+          : ['R', 'L'];
+      },
+      _paneGroups() {
+        return this.PANE_IDS.slice(0, this._arrangement().length)
+          .map(s => document.getElementById('subViewGroup' + s));
+      },
+      // The camera's right vector AS SEEN ON SCREEN. Camera.getRightVector is
+      // up x viewDir, whose screen sense is a convention this module does not
+      // assume: project the target and the target plus that vector through the
+      // camera and let the frame x decide. Sign-proof by construction.
+      _screenRight(cam) {
+        const r = cam.getRightVector();
+        const vp = matrixMultiply(cam.createProjectionMatrix(), cam.createViewMatrix());
+        const a = transformVertex(cam.target, vp), b = transformVertex(vectorAdd(cam.target, r), vp);
+        return (a && b && b[0] < a[0]) ? vectorScale(r, -1) : r;
+      },
+      // One eye: side -1 = left, +1 = right. Returns the throwaway camera and
+      // the horizontal shift (frame units) its picture takes in the pane.
+      // Perspective: PARALLEL eye (position AND target displaced, the view
+      // direction unchanged) and the shift that puts the target at the pane's
+      // centre - computed by projecting the target through the eye itself, so
+      // it is exact and carries no sign constant. Orthographic / oblique:
+      // CONVERGED eye (position displaced, target kept), shift 0 - the target
+      // already projects to the centre.
+      _eye(cam, side) {
+        const eye = cam.clone();
+        eye.name = cam.name;
+        const sep = Math.max(0, Number(this.stereoSep) || 0);
+        const off = vectorScale(this._screenRight(cam), side * sep / 2);
+        eye.position = vectorAdd(cam.position, off);
+        let shift = 0;
+        if ((cam.projectionType || 'perspective') === 'perspective') {
+          eye.target = vectorAdd(cam.target, off);
+          const vp = matrixMultiply(eye.createProjectionMatrix(), eye.createViewMatrix());
+          const t = transformVertex(cam.target, vp);
+          if (t) shift = -t[0] * (FRAME_SIZE / 2);
+        }
+        return { cam: eye, shift };
+      },
+      // The window classes that show the panes, and the overlays of each. The
+      // groups of panes now hidden are emptied - a hidden clone is pure memory.
+      _applyStereoClasses() {
+        const w = this._win();
+        if (!w) return;
+        const n = this._arrangement().length;
+        w.classList.toggle('subwin-stereo', n >= 2);
+        w.classList.toggle('subwin-stereo-3', n >= 3);
+        for (let i = n; i < this.PANE_IDS.length; i++) {
+          const g = document.getElementById('subViewGroup' + this.PANE_IDS[i]);
+          if (g) g.replaceChildren();
+        }
+        // Fewer panes = a taller window for the same width: re-clamp to the
+        // viewport (v20261008d). Only while shown - a hidden popover's rect
+        // is 0 x 0 and _clampSize would read that as the minimum width.
+        if (this.isOpen()) { this._clampSize(); this._clampPosition(); }
+        this._syncFrameGuide();
+        this._syncAxis();
+      },
+      _syncStereoControls() {
+        const cb = document.getElementById('subWinStereoCb');
+        const sep = document.getElementById('subWinStereoSep');
+        const arr = document.getElementById('subWinStereoArr');
+        if (cb) cb.checked = !!this.stereo;
+        if (sep) { sep.value = String(this.stereoSep); sep.disabled = !this.stereo; }
+        if (arr) { arr.value = this.stereoArr; arr.disabled = !this.stereo; }
+        this._applyStereoClasses();
       },
 
       markDirty() { this._dirty = true; },
@@ -85158,17 +85418,22 @@
       // 1000-unit frame, so no screen-space math: centre the ratio box.
       // The rect lives OUTSIDE #subViewGroup and survives every refresh, so
       // this runs on dropdown change and open() only, never per pass.
+      // Every visible pane carries the same rect (v20261008c, plan D6): an
+      // overlay present in one pane only shows as a ghost once the pair fuses.
       _syncFrameGuide() {
-        const r = document.getElementById('subFrameGuideRect');
-        if (!r) return;
         const ratio = FRAME_GUIDE_RATIOS[this.frameGuide];
-        if (!ratio) { r.style.display = 'none'; return; }
-        const [w, h] = ratio;
-        r.setAttribute('x', -w / 2);
-        r.setAttribute('y', -h / 2);
-        r.setAttribute('width', w);
-        r.setAttribute('height', h);
-        r.style.display = 'block';
+        const n = this._arrangement().length;
+        this.PANE_IDS.forEach((s, i) => {
+          const r = document.getElementById('subFrameGuideRect' + s);
+          if (!r) return;
+          if (!ratio || i >= n) { r.style.display = 'none'; return; }
+          const [w, h] = ratio;
+          r.setAttribute('x', -w / 2);
+          r.setAttribute('y', -h / 2);
+          r.setAttribute('width', w);
+          r.setAttribute('height', h);
+          r.style.display = 'block';
+        });
       },
 
       // THE AXIS INDICATOR IS A FIXED SCREEN SIZE, matching the main window's
@@ -85183,18 +85448,25 @@
       // The inset is applied in px for the same reason. Main uses 80 from the
       // frame's bottom-left corner; 60 here, because this canvas is a fraction
       // of the main frame's size and the labels already reach 48 px.
+      // One tripod per visible pane (v20261008c, plan D6), each scaled from ITS
+      // pane's pixel width (half or a third of the window in stereo), all from
+      // the CENTRE camera's view matrix - so the pair fuses at the screen plane.
       _syncAxis(cam) {
-        const axg = document.getElementById('subAxisGroup');
-        const svgEl = document.getElementById('subViewSvg');
-        if (!axg || !svgEl) return;
-        if (!this._axisInd) this._axisInd = new AxisIndicator(axg);
-        const wpx = svgEl.getBoundingClientRect().width || FRAME_SIZE;
-        const s = FRAME_SIZE / wpx;
-        const inset = 60 * s;
-        axg.setAttribute('transform',
-          `translate(${-FRAME_SIZE / 2 + inset}, ${FRAME_SIZE / 2 - inset}) scale(${s})`);
-        if (cam) this._axisInd.update(cam.createViewMatrix());
-        axg.style.display = this.showAxis ? '' : 'none';
+        const n = this._arrangement().length;
+        this.PANE_IDS.forEach((sfx, i) => {
+          const axg = document.getElementById('subAxisGroup' + sfx);
+          const svgEl = document.getElementById('subViewSvg' + sfx);
+          if (!axg || !svgEl) return;
+          if (i >= n) { axg.style.display = 'none'; return; }
+          if (!this._axisInds[sfx]) this._axisInds[sfx] = new AxisIndicator(axg);
+          const wpx = svgEl.getBoundingClientRect().width || FRAME_SIZE;
+          const s = FRAME_SIZE / wpx;
+          const inset = 60 * s;
+          axg.setAttribute('transform',
+            `translate(${-FRAME_SIZE / 2 + inset}, ${FRAME_SIZE / 2 - inset}) scale(${s})`);
+          if (cam) this._axisInds[sfx].update(cam.createViewMatrix());
+          axg.style.display = this.showAxis ? '' : 'none';
+        });
       },
 
       // Rebuild the dropdown, preserving the pick by identity. Called from the
@@ -85226,16 +85498,22 @@
       // draw. Returns true iff a sub pass actually ran.
       async refreshIfNeeded() {
         if (this._busy) return false;
-        if (!this.isOpen()) return false;
+        if (!this.isOpen()) return this._failExportJob('the window is closed');
         // RENDER-CACHE INTERLOCKS (plan §1.7 / D4). capture() drives
         // tlApplyFrame and owns the live tree; while a cached frame is
         // PRESENTED, #pathGroup is display:none and render()'s scene draw is
         // skipped — so a sub pass would leave the live tree drawn from camera
         // B with nothing to put it back. Hold the last picture instead.
-        if (RenderCache._capturing || RenderCache._presenting || RenderCache.active()) return false;
-        if (this._exportHold) return false;
+        if (RenderCache._capturing || RenderCache._presenting || RenderCache.active()) return this._failExportJob('the animation cache is active');
+        if (this._exportHold) return this._failExportJob('an export is already running');
         const cam = this.camera();
-        if (!cam) return false;
+        if (!cam) return this._failExportJob('no camera');
+        // EXPORT (v20261008e): a pending Copy / Export of this window's view
+        // runs HERE, inside the seam, for the same reason the refresh does -
+        // each eye is drawn into the live tree and the main draw that follows
+        // in this callback puts camera A back before any paint. Returns true:
+        // the live tree was drawn from an eye and the main draw MUST follow.
+        if (this._exportJob) { await this._runExportJob(cam); return true; }
         // COMPARE the epoch, never hook its ~9 bump sites. (The epoch alone is
         // NOT sufficient for gestures — a drag's coalesced push bumps it once
         // at gesture START, so the picture would hold the pre-drag scene; the
@@ -85270,6 +85548,102 @@
         return true;
       },
 
+      // --- export (v20261008e) -----------------------------------------------
+      // This window's view through the REAL exporter (generateSVGString - the
+      // clip-first file, the frame guide, the lossy notice), never a
+      // serialization of the pane's clone. Resolves {arr, eyes, shifts}: the
+      // arrangement, one svg string per eye drawn ('C' alone when Stereo is
+      // off), and each eye's off-axis shift. The work happens in the seam
+      // (_runExportJob), so this only queues it and asks for a frame.
+      exportViews() {
+        return new Promise((resolve, reject) => {
+          if (this._exportJob) { reject(new Error('an export of this window is already pending')); return; }
+          if (!this.isOpen()) { reject(new Error('the window is closed')); return; }
+          this._exportJob = { resolve, reject };
+          requestRender();
+        });
+      },
+      _failExportJob(why) {
+        const job = this._exportJob;
+        if (job) { this._exportJob = null; job.reject(new Error(why)); }
+        return false;
+      },
+      async _runExportJob(cam) {
+        const job = this._exportJob;
+        this._exportJob = null;
+        const savedCam = activeCamera, savedProj = projectionType;
+        this._busy = true;
+        try {
+          const out = { arr: this._arrangement(), eyes: {}, shifts: {}, camera: cam.name };
+          for (const side of Array.from(new Set(out.arr))) {
+            const eye = side === 'C' ? { cam, shift: 0 } : this._eye(cam, side === 'L' ? -1 : 1);
+            activeCamera = eye.cam;
+            projectionType = eye.cam.projectionType || 'perspective';
+            const vp = matrixMultiply(eye.cam.createProjectionMatrix(), eye.cam.createViewMatrix());
+            await drawScene(vp, eye.cam);
+            out.eyes[side] = generateSVGString(eye.shift ? { shiftX: eye.shift } : undefined);
+            out.shifts[side] = eye.shift;
+          }
+          job.resolve(out);
+        } catch (e) {
+          job.reject(e);
+        } finally {
+          activeCamera = savedCam;
+          projectionType = savedProj;
+          this._busy = false;
+          this._dirty = true;   // the panes refresh from the next frame; the live tree is redrawn by the main draw now
+        }
+      },
+      // ONE svg holding the panes side by side, in the arrangement's order:
+      // width n x FRAME_SIZE, each eye's exported content under a translate
+      // of i x FRAME_SIZE, ids namespaced per pane (two pictures of the same
+      // tree carry the same mask / clip ids, and url(#id) finds the first).
+      _combineSideBySide(out) {
+        const n = out.arr.length;
+        const root = document.createElementNS(svgNS, 'svg');
+        root.setAttribute('xmlns', svgNS);
+        root.setAttribute('width', n * FRAME_SIZE);
+        root.setAttribute('height', FRAME_SIZE);
+        root.setAttribute('viewBox', `${-FRAME_SIZE / 2} ${-FRAME_SIZE / 2} ${n * FRAME_SIZE} ${FRAME_SIZE}`);
+        const parser = new DOMParser();
+        out.arr.forEach((side, i) => {
+          const doc = parser.parseFromString(out.eyes[side], 'image/svg+xml');
+          const g = document.createElementNS(svgNS, 'g');
+          g.setAttribute('transform', `translate(${i * FRAME_SIZE} 0)`);
+          // The pane's <g> is one nesting level; the eye file's own stereo
+          // wrapper (generateSVGString, v20261008f) is the one level the depth
+          // cap budgets. So the #mainGroup clone - a plain container here, its
+          // transform removed by the exporter - is HOISTED: its children go
+          // straight under the pane's <g>, and the pair sits at the same depth
+          // as the eye file (+1 over a mono export, inside the cap's margin).
+          for (const c of Array.from(doc.documentElement.childNodes)) {
+            if (c.nodeType === 1 && c.getAttribute('id') === 'mainGroup') {
+              for (const cc of Array.from(c.childNodes)) g.appendChild(document.importNode(cc, true));
+            } else {
+              g.appendChild(document.importNode(c, true));
+            }
+          }
+          svgNamespaceIds(g, side + (i + 1) + '_');
+          root.appendChild(g);
+        });
+        return new XMLSerializer().serializeToString(root);
+      },
+      _downloadSvg(name, svgString) {
+        const blob = new Blob([svgString], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name + '.svg';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      },
+      _exportBaseName() {
+        const inp = document.getElementById('fileNameInput');
+        return (inp && inp.value.trim()) || 'Untitled 3D work';
+      },
+
       // THE PASS ITSELF. Do NOT call this outside render()'s callback: it
       // leaves the live tree drawn from `cam`, and only render()'s own scene
       // draw (later in the same callback) puts camera A back before a paint.
@@ -85286,41 +85660,40 @@
         const savedCam = activeCamera, savedProj = projectionType;
         this._busy = true;
         try {
-          activeCamera = cam;
-          projectionType = cam.projectionType || 'perspective';
-          const vp = matrixMultiply(cam.createProjectionMatrix(), cam.createViewMatrix());
-          // `camera: cam` rides the drawOptions rail beside cameraVP: inert
-          // before Phase 1 lands, load-bearing after — and it can never
-          // disagree with the swapped globals, because it IS them.
-          await drawScene(vp, cam);   // v20260914zzs: the one scene draw (camera B forwarded on childOpts)
-          const g = document.createElementNS(svgNS, 'g');
-          for (const c of pathGroup.children) g.appendChild(c.cloneNode(true));
-          // 'sub<gen>_' is DISJOINT from the live tree's bare ids and from
-          // RenderCache's 'rc<gen>_' — see the sweep note below.
-          svgNamespaceIds(g, 'sub' + (++this._gen) + '_');
-          // WORKPLANE GRID (2026-08-12 polish, optional). Same trick as the
-          // scene: drive the LIVE grid lines through the sub MVP, clone them,
-          // and let render()'s own grid pass (later in this same callback)
-          // rewrite the live coordinates for camera A before any paint. The
-          // line elements carry no ids and no url(#) refs, so the clone needs
-          // no namespacing. workplaneModelMatrix() is evaluated while the
-          // globals are SWAPPED, so a 'camera-target' workplane follows the
-          // SUB camera here — the grid shows what that camera sees.
-          if (this.showGrid) {
-            const _wp = workplaneModelMatrix();
-            if (_wp) {
-              const gridMvp = matrixMultiply(vp, _wp.modelMat);
-              const src = (_wp.grid === 'yz') ? gridGroupYZ : gridGroupXY;
-              ((_wp.grid === 'yz') ? drawYZGrid : drawXYGrid)(gridMvp);
-              const gridClone = src.cloneNode(true);
-              gridClone.removeAttribute('id');
-              gridClone.style.display = 'block';
-              g.insertBefore(gridClone, g.firstChild);   // under the scene
+          if (!this.stereo) {
+            // ONE EYE: the pass as it has been since v20260812v, prefix 'sub<gen>_'.
+            const g = await this._drawEye(cam);
+            // 'sub<gen>_' is DISJOINT from the live tree's bare ids and from
+            // RenderCache's 'rc<gen>_' — see the sweep note below.
+            svgNamespaceIds(g, 'sub' + (++this._gen) + '_');
+            host.replaceChildren(g);
+          } else {
+            // STEREO (v20261008c): one raw clone tree per EYE drawn (two draws at
+            // most, in every arrangement), then one namespaced copy per pane in
+            // the arrangement's order; the perspective shift rides the copy's
+            // transform. The prefix 'sub<L|R><n>_<gen>_' is disjoint from the
+            // single-eye 'sub<gen>_', from the live tree's bare ids and from
+            // RenderCache's 'rc<gen>_'.
+            const gen = ++this._gen;
+            const eyes = { L: this._eye(cam, -1), R: this._eye(cam, +1) };
+            const raw = {}, seen = {};
+            const groups = this._paneGroups();
+            const arr = this._arrangement();
+            for (let i = 0; i < arr.length; i++) {
+              const side = arr[i], h = groups[i];
+              if (!h) continue;
+              if (!raw[side]) raw[side] = await this._drawEye(eyes[side].cam);
+              seen[side] = (seen[side] || 0) + 1;
+              const g = raw[side].cloneNode(true);
+              svgNamespaceIds(g, 'sub' + side + seen[side] + '_' + gen + '_');
+              if (eyes[side].shift) g.setAttribute('transform', 'translate(' + eyes[side].shift + ' 0)');
+              h.replaceChildren(g);
             }
           }
-          host.replaceChildren(g);
-          const bg = document.getElementById('subViewBg');
-          if (bg && frameRect) bg.setAttribute('fill', frameRect.getAttribute('fill') || '#ffffff');
+          for (const sfx of this.PANE_IDS) {
+            const bg = document.getElementById('subViewBg' + sfx);
+            if (bg && frameRect) bg.setAttribute('fill', frameRect.getAttribute('fill') || '#ffffff');
+          }
           // Axis indicator (v20260812zc): the main window's own class, second
           // instance, driven by the SUB camera's view matrix. Lives outside
           // #subViewGroup, so it survives the replaceChildren above; updated
@@ -85331,6 +85704,41 @@
           projectionType = savedProj;
           this._busy = false;
         }
+      },
+      // ONE DRAW of the live tree from `eye`, returned as a RAW (un-namespaced)
+      // clone <g>. Only refresh() calls this, inside its try/finally: it leaves
+      // the globals swapped to `eye` and the live tree drawn from it.
+      async _drawEye(eye) {
+        activeCamera = eye;
+        projectionType = eye.projectionType || 'perspective';
+        const vp = matrixMultiply(eye.createProjectionMatrix(), eye.createViewMatrix());
+        // `camera: eye` rides the drawOptions rail beside cameraVP: inert
+        // before Phase 1 landed, load-bearing after — and it can never
+        // disagree with the swapped globals, because it IS them.
+        await drawScene(vp, eye);   // v20260914zzs: the one scene draw (the eye forwarded on childOpts)
+        const g = document.createElementNS(svgNS, 'g');
+        for (const c of pathGroup.children) g.appendChild(c.cloneNode(true));
+        // WORKPLANE GRID (2026-08-12 polish, optional). Same trick as the
+        // scene: drive the LIVE grid lines through the sub MVP, clone them,
+        // and let render()'s own grid pass (later in this same callback)
+        // rewrite the live coordinates for camera A before any paint. The
+        // line elements carry no ids and no url(#) refs, so the clone needs
+        // no namespacing. workplaneModelMatrix() is evaluated while the
+        // globals are SWAPPED, so a 'camera-target' workplane follows the
+        // SUB camera here — the grid shows what that camera sees.
+        if (this.showGrid) {
+          const _wp = workplaneModelMatrix();
+          if (_wp) {
+            const gridMvp = matrixMultiply(vp, _wp.modelMat);
+            const src = (_wp.grid === 'yz') ? gridGroupYZ : gridGroupXY;
+            ((_wp.grid === 'yz') ? drawYZGrid : drawXYGrid)(gridMvp);
+            const gridClone = src.cloneNode(true);
+            gridClone.removeAttribute('id');
+            gridClone.style.display = 'block';
+            g.insertBefore(gridClone, g.firstChild);   // under the scene
+          }
+        }
+        return g;
       },
       // THE END-OF-RENDER DANGLING-MASK SWEEP IS SAFE, and here is why it is
       // not an accident. The sweep enumerates `pathGroup.querySelectorAll(
@@ -85358,6 +85766,7 @@
         this.frameGuide = (typeof _currentFrameGuide !== 'undefined' && _currentFrameGuide) || 'none';
         const fgSel = document.getElementById('subWinFrameGuide');
         if (fgSel) fgSel.value = FRAME_GUIDE_RATIOS[this.frameGuide] ? this.frameGuide : 'none';
+        this._syncStereoControls();   // v20261008c: the three stereo controls + the pane classes, from state
         this._syncFrameGuide();
         this._dirty = true;
         this._epoch = -1;
@@ -85385,13 +85794,19 @@
 
       // --- geometry ----------------------------------------------------------
       // Session-only, never persisted (plan D3).
+      // THE VIEWPORT IS THE ONLY CAP (v20261008d; was 60 % of each axis, which
+      // left a stereo pair too small to fuse - owner). Width drives; the
+      // content adds width / paneCount px of height under the bars, so the
+      // vertical cap is the room left under the chrome times the pane count.
+      // A window larger than the viewport would strand itself offscreen,
+      // which is what _clampPosition exists to prevent - so that limit stays.
       _maxSize() {
-        const hdr = this._hdr();
-        const hh = hdr ? hdr.offsetHeight : 30;
-        // Width drives; the square content adds `width` px of height under the
-        // header, so the vertical cap has to account for the header.
+        const w = this._win(), wrap = document.getElementById('subViewWrap');
+        const chrome = (w && wrap && w.offsetHeight) ? Math.max(0, w.offsetHeight - wrap.offsetHeight) : 90;
+        const n = this._arrangement().length;
+        const margin = 16;
         return Math.max(this.MIN_SIZE,
-          Math.min(window.innerWidth * 0.6, window.innerHeight * 0.6 - hh));
+          Math.min(window.innerWidth - margin, (window.innerHeight - chrome - margin) * n));
       },
       _clampSize() {
         const w = this._win();
@@ -85430,6 +85845,42 @@
         const toggleBtn = document.getElementById('subWindowToggleBtn');
         if (toggleBtn) toggleBtn.addEventListener('click', () => SubView.toggle());
         document.getElementById('subWinClose').addEventListener('click', () => SubView.close());
+        // COPY / EXPORT (v20261008e). Both await the seam's pass (one frame +
+        // the eye draws), then act: the clipboard write stays inside the
+        // click's activation window the way copySVGToClipboard's does after
+        // its own await; the file export saves one file per eye - the browser
+        // may ask once to allow multiple downloads from this page.
+        const copyBtn = document.getElementById('subWinCopySvg');
+        if (copyBtn) copyBtn.addEventListener('click', async () => {
+          try {
+            const out = await SubView.exportViews();
+            const svg = out.arr.length === 1 ? out.eyes[out.arr[0]] : SubView._combineSideBySide(out);
+            await navigator.clipboard.writeText(svg);
+            const originalBg = document.body.style.backgroundColor;
+            document.body.style.backgroundColor = 'var(--flash-ok)';
+            setTimeout(() => { document.body.style.backgroundColor = originalBg; }, 200);
+            _exportLossyNotice('was copied to the clipboard');
+          } catch (err) {
+            console.error('Subwindow copy failed:', err);
+            try { showAppConfirm('Copy failed', String(err && err.message || err), { okOnly: true }); } catch (e) { }
+          }
+        });
+        const exportBtn = document.getElementById('subWinExportSvg');
+        if (exportBtn) exportBtn.addEventListener('click', async () => {
+          try {
+            const out = await SubView.exportViews();
+            const base = SubView._exportBaseName();
+            if (out.arr.length === 1) {
+              SubView._downloadSvg(base + ' - ' + out.camera, out.eyes[out.arr[0]]);
+            } else {
+              for (const side of ['L', 'R']) if (out.eyes[side]) SubView._downloadSvg(base + ' - ' + out.camera + '_' + side, out.eyes[side]);
+            }
+            _exportLossyNotice('file was saved');
+          } catch (err) {
+            console.error('Subwindow export failed:', err);
+            try { showAppConfirm('Export failed', String(err && err.message || err), { okOnly: true }); } catch (e) { }
+          }
+        });
         // Manual refresh MARKS DIRTY and lets the render seam do the pass —
         // drawing here would leave camera B on the live tree until the next
         // frame, which is the one thing the ordering rule exists to prevent.
@@ -85480,14 +85931,45 @@
           SubView.frameGuide = fgSel.value;
           SubView._syncFrameGuide();
         });
+        // STEREO (v20261008c): the three controls of bar3. Each change is pose
+        // (it is in the hash), so it refreshes with Auto Reload off as well;
+        // marked manual too, the way Grid is. Sep listens for `input`, not
+        // `change` (the camera inputs' lesson), and refuses NaN and negatives.
+        const stCb = document.getElementById('subWinStereoCb');
+        const stSep = document.getElementById('subWinStereoSep');
+        const stArr = document.getElementById('subWinStereoArr');
+        const stereoChanged = () => {
+          SubView._applyStereoClasses();
+          SubView._manualPending = true;
+          SubView.markDirty();
+          requestRender();
+        };
+        if (stCb) stCb.addEventListener('change', () => {
+          SubView.stereo = stCb.checked;
+          if (stSep) stSep.disabled = !stCb.checked;
+          if (stArr) stArr.disabled = !stCb.checked;
+          stereoChanged();
+        });
+        if (stSep) stSep.addEventListener('input', () => {
+          const v = parseFloat(stSep.value);
+          if (!isFinite(v)) return;
+          SubView.stereoSep = Math.max(0, v);
+          stereoChanged();
+        });
+        if (stArr) stArr.addEventListener('change', () => {
+          SubView.stereoArr = stArr.value;
+          stereoChanged();
+        });
 
         // TEARDOWN on close (the tlCurveEditor toggle pattern). Also fires for
         // a hidePopover() the app did not initiate, which is exactly why the
         // teardown lives here and not in close().
         w.addEventListener('toggle', (e) => {
           if (e.newState !== 'closed') return;
-          const g = SubView._group();
-          if (g) g.replaceChildren();     // drop the clone; it is pure memory when hidden
+          for (const sfx of SubView.PANE_IDS) {   // drop every pane's clone; pure memory when hidden
+            const g = document.getElementById('subViewGroup' + sfx);
+            if (g) g.replaceChildren();
+          }
           SubView._dirty = true;
           SubView._epoch = -1;
           SubView._pose = '';
@@ -85642,6 +86124,11 @@
     //     is never read or written here. If the subwindow ever gets an FOV bar it
     //     needs its OWN keep-size state (the "two things, two controls, two
     //     names" rule, ~16639).
+    //  6. STEREO (v20261008c): the eye cameras SubView._eye builds are throwaway
+    //     clones, derived from the window's camera on every pass. They are never
+    //     in cameras[], never selectedCamera, never written by a bar, never
+    //     undo-captured, never keyed. Every pane is an orbit / wheel surface for
+    //     the ONE shared camera; nothing here knows which eye a pane shows.
     const SubViewControls = (() => {
 
       // -- Feel constants -----------------------------------------------------
@@ -85754,11 +86241,11 @@
          _els.fovBar, _els.fovZoomBar, _els.truckXBar, _els.truckYBar, _els.handBtn].forEach(b => {
           if (b) b.classList.toggle('subwin-hud-disabled', locked);
         });
-        if (_els.svg) {
-          _els.svg.title = locked
+        (_els.panes || [_els.svg]).forEach(p => {
+          if (p) p.title = locked
             ? 'Camera is locked — unlock it in the Camera list to orbit'
             : 'Drag to orbit · Wheel to zoom';
-        }
+        });
       };
 
       const _syncReadouts = () => {
@@ -86314,6 +86801,7 @@
         _els = {
           win,
           svg,
+          panes: Array.from(win.querySelectorAll('.subwin-pane')),   // v20261008c: the three pane svgs
           header: _q('subWindowHeader'),
           azBar: _q('subHudAzBar'), azValue: _q('subHudAzValue'),
           elBar: _q('subHudElBar'), elValue: _q('subHudElValue'),
@@ -86326,7 +86814,7 @@
           handBtn: _q('subHudTruckResetBtn'),
         };
 
-        _wireOrbit(svg);
+        _els.panes.forEach(p => _wireOrbit(p));   // v20261008c: every pane orbits the one camera (plan D7)
         _wireAzBar(_els.azBar);
         _wireElBar(_els.elBar);
         _wireDistBar(_els.distBar);
@@ -93882,7 +94370,14 @@
           { okOnly: true });
       } catch (e) { }
     };
-    const generateSVGString = () => {
+    // opts.shiftX (v20261008e): a horizontal translate of the scene picture in
+    // frame units - the stereo eye's off-axis shift (SubView._eye). Every
+    // caller but SubView's export passes nothing. Since v20261008f the shift
+    // rides ONE wrapper around the #pathGroup clone that also CLIPS it to the
+    // frame (see the end of this function), so the shifted picture never
+    // spills past the paper - and in the side-by-side pair never into the
+    // neighbouring picture. The paper rect and the frame guide stay put.
+    const generateSVGString = (opts) => {
       _exportLossy = null;
       const exportSVG = document.createElementNS(svgNS, 'svg');
       exportSVG.setAttribute('xmlns', svgNS);
@@ -94148,6 +94643,41 @@
             const m = /^url\(#(mrs\d+)\)$/.exec((el.getAttribute('clip-path') || '').trim());
             if (m && seamMap.has(m[1])) el.setAttribute('clip-path', 'url(#' + seamMap.get(m[1]) + ')');
           });
+        }
+      }
+
+      // THE STEREO WINDOW (v20261008f). The eye's picture is shifted by
+      // opts.shiftX and clipped to the frame in ONE wrapper <g> that holds the
+      // #pathGroup clone as its single child: one level, which is exactly the
+      // margin CLIP_DEPTH_CAP keeps under Illustrator's 14 (ExportCull's note:
+      // "a wrapper added anywhere downstream"), and a single child, which is
+      // the importer contract for a clip group. clip-path is applied in the
+      // wrapper's own user space, AFTER its translate, so the rect that cuts at
+      // the frame's edges sits at -500 - shift. A surviving grid group (Keep
+      // grid) gets the same shift and clip. The clipPath lives in the root's
+      // <defs>, bare id - _combineSideBySide namespaces it per pane.
+      if (opts && opts.shiftX) {
+        const k = opts.shiftX;
+        const cpId = 'dimStereoWindow';
+        const defs = document.createElementNS(svgNS, 'defs');
+        const cp = document.createElementNS(svgNS, 'clipPath');
+        cp.setAttribute('id', cpId);
+        const cr = document.createElementNS(svgNS, 'rect');
+        cr.setAttribute('x', -FRAME_SIZE / 2 - k);
+        cr.setAttribute('y', -FRAME_SIZE / 2);
+        cr.setAttribute('width', FRAME_SIZE);
+        cr.setAttribute('height', FRAME_SIZE);
+        cp.appendChild(cr);
+        defs.appendChild(cp);
+        exportSVG.insertBefore(defs, exportSVG.firstChild);
+        for (const id of ['pathGroup', 'gridGroup', 'gridGroupXY', 'gridGroupYZ']) {
+          const el = clonedGroup.querySelector('#' + id);
+          if (!el) continue;
+          const wrap = document.createElementNS(svgNS, 'g');
+          wrap.setAttribute('transform', 'translate(' + k + ' 0)');
+          wrap.setAttribute('clip-path', 'url(#' + cpId + ')');
+          el.parentNode.insertBefore(wrap, el);
+          wrap.appendChild(el);
         }
       }
 

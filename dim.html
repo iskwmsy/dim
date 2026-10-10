@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261008f -->
+<!-- dim v20261010b -->
 
 <!--
   MIT License
@@ -320,7 +320,7 @@
       --dur-fast: 0.1s;
       /* direct-manipulation feedback — slider fill, gizmo label, keyframe drag */
       --dur-reveal: 0.12s;
-      /* affordance reveal — spinner handles, scrub grip, drop stat */
+      /* affordance reveal — spinner chevrons, drop stat */
       --dur: 0.15s;
       /* the house duration — hover, colour, collapse, fade */
       --dur-slow: 0.2s;
@@ -381,7 +381,7 @@
       --name-field-tint: rgba(255, 255, 255, 0.6);
       --name-field-tint-hover: rgba(255, 255, 255, 0.8);
       --name-field-tint-focus: rgba(255, 255, 255, 0.9);
-      /* the number spinner + scrub grip: an opaque grey ramp with white ink */
+      /* the number spinner chevrons: an opaque grey ramp with white ink */
       --bg-spin: #dcdcdc;
       --bg-spin-hover: #c8c8c8;
       --bg-spin-active: #b0b0b0;
@@ -2191,8 +2191,9 @@
       font-variant-numeric: tabular-nums;
       padding-top: var(--row-padding-v);
       padding-bottom: var(--row-padding-v);
-      padding-left: 12px;
-      /* space for 8px scrub handle + 1.5px border inset + gap */
+      padding-left: 3px;
+      /* v20261010a: the drag-scrub grip that sat here is gone - the FIELD is the drag surface (attachFieldScrub);
+         the 9 px go to the digits. 12 px stays on the right for the chevron column. */
       text-align: right;
       min-width: 0;
       line-height: 1;
@@ -2260,13 +2261,11 @@
       border-bottom: 0.5px solid var(--ink-on-spin);
     }
 
-    /* The stepper glyph and the scrub glyph are the SAME artwork treatment —
-       a 0.5px white hairline filling its 8px gutter. These two rules were
-       byte-identical, 7 declarations each (v20260905h). Deliberately NOT
-       normalised to the 1.0px icon stroke: this is gutter chrome, not an
-       icon (§8.18). */
-    .num-spin-btns>button>svg,
-    .num-spin-scrub>svg {
+    /* The stepper glyph: a 0.5px white hairline filling its 8px gutter
+       (v20260905h; the scrub glyph shared this rule until v20261010a removed
+       the grip). Deliberately NOT normalised to the 1.0px icon stroke: this
+       is gutter chrome, not an icon (§8.18). */
+    .num-spin-btns>button>svg {
       width: 100%;
       height: 100%;
       fill: none;
@@ -2316,48 +2315,21 @@
       min-width: 0;
     }
 
-    /* ─── Drag Scrub Handle (v20260522) ─── */
-    /* Left-side drag-to-adjust button */
-    .num-spin-scrub {
-      position: absolute;
-      left: 1.5px;
-      top: 1.5px;
-      bottom: 1.5px;
-      width: 8px;
-      z-index: 3;
-      pointer-events: auto;
-      opacity: 0;
-      transition: opacity var(--dur-reveal) ease;
-      cursor: ew-resize;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: var(--bg-spin);
-      border: none;
-      padding: 0;
-      margin: 0;
-      outline: none;
-      -webkit-appearance: none;
-      appearance: none;
+    /* ─── Field scrub (v20261010a; was the left-side Drag Scrub Handle, v20260522) ───
+       The number FIELD is the drag surface (attachFieldScrub): on an unfocused field
+       a press that moves scrubs the value, a press that releases in place focuses it
+       and selects the number; a focused field is a text field (caret, selection,
+       double-click are native). At rest the field shows nothing extra - the I-beam
+       says "type", the title on the panels' rows says the rest. While a scrub runs
+       the wrap carries .scrubbing: the field keeps its hover tint and the chevrons
+       stay revealed (under the pointer lock the cursor does not move, so :hover
+       would hold anyway; this makes it so without the lock too). */
+    .num-spin-wrap.scrubbing>input[type="number"] {
+      background-color: var(--bg-input-hover);
     }
 
-    .num-spin-wrap:hover>.num-spin-scrub,
-    .num-spin-wrap:focus-within>.num-spin-scrub {
+    .num-spin-wrap.scrubbing>.num-spin-btns {
       opacity: 1;
-    }
-
-    .num-spin-scrub:hover {
-      background: var(--bg-spin-hover);
-    }
-
-    .num-spin-scrub:active,
-    .num-spin-scrub.scrubbing {
-      background: var(--bg-spin-active);
-    }
-
-    /* Hide scrub handle in compact quickStyleBar */
-    #quickStyleBar .num-spin-scrub {
-      display: none;
     }
 
     .ui-select {
@@ -2689,7 +2661,7 @@
        through the app ... nail the spacing of rows and text sizes"). The two
        field rows ARE .style-row - its 32 px min-height, 4 / 8 px padding, 4 px
        row gap, 1 px field gap, the muted 500 label, the 50 px .num-spin-wrap
-       with the app's chevrons AND drag-scrub handle (installed by the app's
+       with the app's chevrons AND field scrub (installed by the app's
        own _wrapNumberSpinners), the right-aligned .color-hex-input - so a
        change to the panels' look reaches the popover with no edit here. The
        header is a row of the same metrics; the square and the hue bar are
@@ -5461,7 +5433,7 @@
        "Percentage" and "H Offset" ellipsized to "Stroke Op…" / "Perce…" /
        "H Off…" next to a ~130px box showing "0.88". Inverted: the NAME takes
        the slack and the field is fixed at a width that still fits its values
-       plus the scrub grip and spinner arrows.
+       plus the spinner arrows.
        :not(.tl-vector-row) is load-bearing — the shape drill-down's vertex rows
        pack THREE fields into this same 220px column and must keep flex:1 each.
        Both .tl-sub-track rules sit LATER in this sheet than the .tl-vector-row
@@ -5476,8 +5448,9 @@
     /* 78px, not "half of 133": measured. The widest label the timeline can show
        ("Stroke Opacity") needs 72px, and this leaves the name 91px — while
        being the narrowest field that still shows an 8-character value like
-       "-1234.56" without clipping (12px of padding each side carries the scrub
-       grip and the spinner arrows, so only 54px of it is text). */
+       "-1234.56" without clipping (12px of padding on the right carries the
+       spinner arrows and 3px on the left is the text inset - 63px of text since
+       v20261010a removed the scrub grip's 12px; it was 54px). */
     .tl-sub-track:not(.tl-vector-row) .num-spin-wrap {
       flex: 0 0 78px;
     }
@@ -28470,7 +28443,7 @@
           '<div class="style-row cp-row cp-row-harmony"><label title="Complement, the two neighbouring hues, and the triad of the colour you picked">Harmony</label><div class="cp-swatches cp-harmony"></div></div>' +
           '<div class="style-row cp-row cp-row-scene"><label title="The colours this scene paints - fills, strokes, side colours in use, drawn points, the paper - most used first">Scene</label><div class="cp-swatches cp-scene"></div></div>' +
           '<div class="style-row cp-row cp-row-recent"><label>Recent</label><div class="cp-swatches cp-recent"></div></div>';
-        // the app's own spinner chrome - chevrons + the drag-scrub handle - on the three number fields (a late-bound
+        // the app's own spinner chrome - chevrons + the field scrub - on the three number fields (a late-bound
         // top-level ref assigned in init(); the popover is built lazily, long after it)
         if (typeof _wrapNumberSpinners === 'function') _wrapNumberSpinners(d);
         document.body.appendChild(d);
@@ -28561,7 +28534,7 @@
           // key to itself; if one does reach the page it must neither close the popover nor deselect under it - the
           // probe's synthetic Escape deselected, and the picked colour was then rightly refused by _flush)
           if (this._picking) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); if (this._pickCancel) this._pickCancel(); return; }
-          if (d.querySelector('.num-spin-scrub.scrubbing')) return;   // a scrub in flight owns Escape (the app's handler puts the start value back)
+          if (d.querySelector('.num-spin-wrap.scrubbing')) return;   // a scrub in flight owns Escape (attachFieldScrub puts the start value back)
           e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
           this.close();
         }, true);
@@ -98325,117 +98298,12 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           bindBtn(upBtn, 1);
           bindBtn(downBtn, -1);
 
-          // --- Drag Scrub Handle (v20260522) ---
-          // Skip compact quickStyleBar inputs
-          if (!input.closest('#quickStyleBar')) {
-            const scrub = document.createElement('button');
-            scrub.className = 'num-spin-scrub';
-            scrub.tabIndex = -1;
-            scrub.type = 'button';
-            scrub.setAttribute('aria-label', 'Drag to adjust value');
-            scrub.innerHTML = '<svg viewBox="0 0 8 16"><polyline points="5.2 9.2 6.8 8 5.2 6.8"/><polyline points="2.8 6.8 1.2 8 2.8 9.2"/><line x1="6.8" y1="8" x2="1.2" y2="8"/></svg>';
-            wrap.appendChild(scrub);
-
-            // Horizontal/vertical drag with auto-axis detection
-            let scrubDragging = false;
-            let scrubStartVal = 0;
-            let scrubAccum = 0;
-            let scrubLastX = 0;
-            let scrubLastY = 0;
-            let scrubAxis = null;      // null = undecided, 'h' = horizontal, 'v' = vertical
-            let scrubOriginX = 0;      // mousedown position for axis detection
-            let scrubOriginY = 0;
-            const SCRUB_AXIS_THRESHOLD = 3; // px before locking axis
-
-            const onScrubMove = (e) => {
-              if (!scrubDragging) return;
-
-              // Axis detection phase: accumulate movement until threshold
-              if (!scrubAxis) {
-                const totalDx = Math.abs(e.clientX - scrubOriginX);
-                const totalDy = Math.abs(e.clientY - scrubOriginY);
-                if (totalDx < SCRUB_AXIS_THRESHOLD && totalDy < SCRUB_AXIS_THRESHOLD) return;
-                scrubAxis = totalDx >= totalDy ? 'h' : 'v';
-                document.documentElement.style.cursor = scrubAxis === 'h' ? 'ew-resize' : 'ns-resize';
-                // Reset last position to current so first delta after lock is zero
-                scrubLastX = e.clientX;
-                scrubLastY = e.clientY;
-                return;
-              }
-
-              // Locked axis: compute delta
-              let delta;
-              if (scrubAxis === 'h') {
-                delta = e.clientX - scrubLastX;
-                scrubLastX = e.clientX;
-              } else {
-                delta = -(e.clientY - scrubLastY); // up = increase
-                scrubLastY = e.clientY;
-              }
-
-              const step = parseFloat(input.step) || 1;
-              const sensitivity = step / 4; // 4px per step → 40px = 10 steps
-
-              let mult = 1;
-              if (e.shiftKey) mult = 10;
-              else if (e.altKey) mult = 0.1;
-
-              scrubAccum += delta * sensitivity * mult;
-
-              const min = input.min !== '' ? parseFloat(input.min) : -Infinity;
-              const max = input.max !== '' ? parseFloat(input.max) : Infinity;
-              let newVal = scrubStartVal + scrubAccum;
-              // Emit one decimal finer than the declared step (0.01 → 0.001).
-              // scrubAccum keeps the raw remainder — round only the emission,
-              // never the accumulator, or slow drags stop moving.
-              const q = Math.pow(10, (String(step).split('.')[1] || '').length + 1);
-              newVal = Math.round(newVal * q) / q;
-              newVal = Math.max(min, Math.min(max, newVal));
-
-              input.value = newVal;
-              input.dispatchEvent(new Event('input', { bubbles: true }));
-              input.dispatchEvent(new Event('change', { bubbles: true }));
-            };
-
-            const onScrubUp = () => {
-              if (!scrubDragging) return;
-              scrubDragging = false;
-              scrubAxis = null;
-              scrub.classList.remove('scrubbing');
-              document.documentElement.style.cursor = '';
-              document.removeEventListener('mousemove', onScrubMove);
-              document.removeEventListener('mouseup', onScrubUp);
-              document.removeEventListener('keydown', onScrubKey);
-              document.body.style.userSelect = '';
-            };
-
-            const onScrubKey = (e) => {
-              if (e.key === 'Escape' && scrubDragging) {
-                input.value = scrubStartVal;
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-                onScrubUp();
-              }
-            };
-
-            scrub.addEventListener('mousedown', (e) => {
-              e.preventDefault();
-              DragRelay.arm(e, 'scrub');   // CONTINUOUS DRAG S1: the pointer lock, when it is granted
-              scrubDragging = true;
-              scrubAxis = null;
-              scrubStartVal = parseFloat(input.value) || 0;
-              scrubAccum = 0;
-              scrubOriginX = e.clientX;
-              scrubOriginY = e.clientY;
-              scrubLastX = e.clientX;
-              scrubLastY = e.clientY;
-              scrub.classList.add('scrubbing');
-              document.body.style.userSelect = 'none';
-              document.addEventListener('mousemove', onScrubMove);
-              document.addEventListener('mouseup', onScrubUp);
-              document.addEventListener('keydown', onScrubKey);
-            });
-          }
+          // The field is the drag surface (v20261010a; the left-side grip of
+          // v20260522 is gone): press and move = scrub, press and release =
+          // focus + select all; a focused field is native. Every number field,
+          // the compact quick-style bar's included (its grip was dropped for
+          // room, and the field needs none).
+          attachFieldScrub(input, wrap);
         });
       };
       initCustomSpinners();
@@ -100254,11 +100122,118 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       document.documentElement.style.setProperty('--timeline-height', h + 'px');
     };
 
+    // --- FIELD SCRUB (v20261010a) — the number field is its own drag surface --
+    // Owner, 2026-10-10: "remove the left side draggable spinner ... make the input
+    // field bigger for the numbers". Until this release every number field carried
+    // an 8 px drag grip on its left (v20260522) and 12 px of padding to house it.
+    // The grip is gone; the FIELD takes the gesture, the way the on-canvas pills
+    // (v20260916e) and the HUD bars already do, and the way After Effects and
+    // Blender do:
+    //   UNFOCUSED field - a press that moves past 3 px SCRUBS (axis locked by the
+    //                     direction it leaves the slop in: sideways, or up = more;
+    //                     Shift x10, Alt x0.1, Escape puts the start value back);
+    //                     a press that releases in place FOCUSES the field and
+    //                     selects the number (so the next keystroke replaces it).
+    //   FOCUSED field   - nothing here runs: caret placement, drag-selection and
+    //                     double-click are the browser's. Scrub before you type.
+    // The decision is taken at the release, never at the press (the HUD's rule).
+    // The mousedown is preventDefaulted so the press neither focuses nor starts a
+    // text selection nor a row drag (a draggable tree row) before that decision.
+    // Listeners live on DOCUMENT (+ window blur), never on the element: a value
+    // change can rebuild the row under the hand (the timeline, the crease list -
+    // the v20260721o-p lesson); the input is held by closure and keeps emitting.
+    // Sensitivity, rounding and the min / max clamp are the grip's, verbatim.
+    // Both installers call this; wrapSpinnerNoScrub deliberately does not.
+    const attachFieldScrub = (input, wrap, opts = {}) => {
+      const SLOP = 3;   // px - the pills' and the HUD's click slop
+      let down = null;  // the press: { x, y, v0, axis, lastX, lastY, accum, scrubbing }
+      const emit = (v) => { input.value = v; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); };
+      const end = () => {
+        const d = down; if (!d) return null; down = null;
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        window.removeEventListener('keydown', onKey, true);
+        window.removeEventListener('blur', onUp);
+        if (d.scrubbing) { wrap.classList.remove('scrubbing'); document.documentElement.style.cursor = ''; document.body.style.userSelect = ''; }
+        return d;
+      };
+      const onMove = (e) => {
+        if (!down) return;
+        if (!down.axis) {
+          const dx = Math.abs(e.clientX - down.x), dy = Math.abs(e.clientY - down.y);
+          if (dx < SLOP && dy < SLOP) return;
+          down.axis = dx >= dy ? 'h' : 'v';
+          down.scrubbing = true;
+          down.lastX = e.clientX; down.lastY = e.clientY;   // the first delta after the lock is zero
+          wrap.classList.add('scrubbing');
+          document.documentElement.style.cursor = down.axis === 'h' ? 'ew-resize' : 'ns-resize';
+          document.body.style.userSelect = 'none';
+          return;
+        }
+        let delta;
+        if (down.axis === 'h') { delta = e.clientX - down.lastX; down.lastX = e.clientX; }
+        else { delta = -(e.clientY - down.lastY); down.lastY = e.clientY; }   // up = increase
+        const step = parseFloat(input.step) || 1;
+        const mult = e.shiftKey ? 10 : (e.altKey ? 0.1 : 1);
+        down.accum += delta * (step / 4) * mult;   // 4 px per step -> 40 px = 10 steps
+        const min = input.min !== '' ? parseFloat(input.min) : -Infinity;
+        const max = input.max !== '' ? parseFloat(input.max) : Infinity;
+        // Emit one decimal finer than the declared step (0.01 -> 0.001). accum keeps
+        // the raw remainder - round only the emission, never the accumulator, or
+        // slow drags stop moving.
+        const q = Math.pow(10, (String(step).split('.')[1] || '').length + 1);
+        emit(Math.max(min, Math.min(max, Math.round((down.v0 + down.accum) * q) / q)));
+      };
+      const onUp = (e) => {
+        const d = end(); if (!d) return;
+        // a press that never left the slop is a CLICK: the field is yours to type in
+        if (!d.scrubbing && e && e.type === 'mouseup') { try { input.focus(); input.select(); } catch (err) { } }
+      };
+      // Escape mid-scrub puts the start value back and ENDS THERE: the key is
+      // swallowed (window capture, before the tools' keydown), because the
+      // tools' Escape deselects the object - the grip let it through, so a
+      // cancelled scrub also lost the selection (measured 2026-10-10, old and
+      // new alike; DragRelay._onKey already swallows it for the same reason
+      // while a lock is on). A press that has not moved is simply forgotten,
+      // and that Escape is the page's.
+      const onKey = (e) => {
+        if (e.key !== 'Escape' || !down) return;
+        const d = end();
+        if (!d.scrubbing) return;
+        emit(d.v0);
+        e.preventDefault(); e.stopImmediatePropagation();
+      };
+      input.addEventListener('mousedown', (e) => {
+        if (e.button !== 0 || down) return;
+        if (document.activeElement === input) return;   // a FOCUSED field is a text field - all native
+        if (input.disabled || input.readOnly) return;
+        e.preventDefault();   // no focus, no caret, no selection, no row drag - the release decides
+        if (opts.stopPropagation) e.stopPropagation();
+        if (typeof DragRelay === 'object' && DragRelay) DragRelay.arm(e, 'scrub');   // CONTINUOUS DRAG S1: the pointer lock, when it is granted
+        down = { x: e.clientX, y: e.clientY, v0: parseFloat(input.value) || 0, axis: null, lastX: e.clientX, lastY: e.clientY, accum: 0, scrubbing: false };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        window.addEventListener('keydown', onKey, true);
+        window.addEventListener('blur', onUp);
+      });
+      wrap.dataset.scrub = 'field';   // the probes' witness: this wrap scrubs
+      // THE HINT (v20261010b, owner: "Add the 'drag to scrub, click to type' tooltip"): at rest the field shows an
+      // I-beam, so the tooltip is what says a drag does something. It rides the input's OWN title - appended after a
+      // title the field already has ("Corner radius ... - drag to scrub, click to type"), alone otherwise - and an
+      // observer puts it back whenever a panel rewrites that title at runtime (the position fields' unit title, the
+      // focal length, the colour picker's channel names): those writers need not know about it. The observer sees
+      // its own write too, and leaves a title that already ends with the hint alone.
+      const HINT = 'drag to scrub, click to type';
+      const hint = () => { const t = input.getAttribute('title') || ''; if (t.toLowerCase().endsWith(HINT)) return; input.title = t ? t.replace(/\s+$/, '') + ' - ' + HINT : 'Drag to scrub, click to type'; };
+      hint();
+      try { new MutationObserver(hint).observe(input, { attributes: true, attributeFilter: ['title'] }); } catch (err) { /* no observer: the static hint stays */ }
+    };
+
     // --- SPINNER-ONLY NUMBER FIELD (v20260731d) — REUSABLE PATTERN -----------
     // Wraps a number input in the app's standard .num-spin-wrap chrome — the
     // hover/focus-revealed 8 px chevron column, built from the same markup and
-    // the same two SVGs as every other number field — but WITHOUT the
-    // .num-spin-scrub drag handle that initCustomSpinners always installs.
+    // the same two SVGs as every other number field — but WITHOUT the field
+    // scrub (attachFieldScrub) that initCustomSpinners always installs.
     //
     // Reach for this whenever a drag-scrub would be wrong rather than merely
     // unnecessary: a small integer range where dragging buys nothing, or a
@@ -105314,7 +105289,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
 
     // --- HOUSE TRACK INPUT (extracted v20260731f) ----------------------------
     // The timeline's number field: a flat .ui-input inside a .num-spin-wrap,
-    // with hold-repeat spin arrows AND the drag-scrub handle. Extracted from
+    // with hold-repeat spin arrows AND the field scrub (v20261010a). Extracted from
     // addSubTrack verbatim so the shape drill-down's vertex rows can have THREE
     // real house inputs per row without triplicating ~140 lines of gesture
     // handling. Behaviour is unchanged for the scalar rows — that inertness was
@@ -105401,105 +105376,14 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       bindSpinBtn(upBtn, 1);
       bindSpinBtn(downBtn, -1);
 
-      // Scrub handle (left side — drag to adjust)
-      const scrub = document.createElement('button');
-      scrub.className = 'num-spin-scrub';
-      scrub.tabIndex = -1;
-      scrub.type = 'button';
-      scrub.setAttribute('aria-label', 'Drag to adjust value');
-      scrub.innerHTML = '<svg viewBox="0 0 8 16"><polyline points="5.2 9.2 6.8 8 5.2 6.8"/><polyline points="2.8 6.8 1.2 8 2.8 9.2"/><line x1="6.8" y1="8" x2="1.2" y2="8"/></svg>';
-      wrap.appendChild(scrub);
-
-      let scrubDragging = false;
-      let scrubStartVal = 0;
-      let scrubAccum = 0;
-      let scrubLastX = 0;
-      let scrubLastY = 0;
-      let scrubAxis = null;
-      let scrubOriginX = 0;
-      let scrubOriginY = 0;
-      const SCRUB_AXIS_THRESHOLD = 3;
-
-      const onScrubMove = (e) => {
-        if (!scrubDragging) return;
-        if (!scrubAxis) {
-          const totalDx = Math.abs(e.clientX - scrubOriginX);
-          const totalDy = Math.abs(e.clientY - scrubOriginY);
-          if (totalDx < SCRUB_AXIS_THRESHOLD && totalDy < SCRUB_AXIS_THRESHOLD) return;
-          scrubAxis = totalDx >= totalDy ? 'h' : 'v';
-          document.documentElement.style.cursor = scrubAxis === 'h' ? 'ew-resize' : 'ns-resize';
-          scrubLastX = e.clientX;
-          scrubLastY = e.clientY;
-          return;
-        }
-        let delta;
-        if (scrubAxis === 'h') {
-          delta = e.clientX - scrubLastX;
-          scrubLastX = e.clientX;
-        } else {
-          delta = -(e.clientY - scrubLastY);
-          scrubLastY = e.clientY;
-        }
-        const st = parseFloat(inp.step) || 1;
-        const sensitivity = st / 4;
-        let mult = 1;
-        if (e.shiftKey) mult = 10;
-        else if (e.altKey) mult = 0.1;
-        scrubAccum += delta * sensitivity * mult;
-        const min = inp.min !== '' ? parseFloat(inp.min) : -Infinity;
-        const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
-        let newVal = scrubStartVal + scrubAccum;
-        // Emit one decimal finer than the declared step (0.01 → 0.001).
-        // scrubAccum keeps the raw remainder — round only the emission,
-        // never the accumulator, or slow drags stop moving.
-        const q = Math.pow(10, (String(st).split('.')[1] || '').length + 1);
-        newVal = Math.round(newVal * q) / q;
-        newVal = Math.max(min, Math.min(max, newVal));
-        inp.value = newVal;
-        inp.dispatchEvent(new Event('input', { bubbles: true }));
-        inp.dispatchEvent(new Event('change', { bubbles: true }));
-      };
-      const onScrubUp = () => {
-        if (!scrubDragging) return;
-        scrubDragging = false;
-        scrubAxis = null;
-        scrub.classList.remove('scrubbing');
-        document.documentElement.style.cursor = '';
-        document.removeEventListener('mousemove', onScrubMove);
-        document.removeEventListener('mouseup', onScrubUp);
-        document.removeEventListener('keydown', onScrubKey);
-        document.body.style.userSelect = '';
-      };
-      const onScrubKey = (e) => {
-        if (e.key === 'Escape' && scrubDragging) {
-          inp.value = scrubStartVal;
-          inp.dispatchEvent(new Event('input', { bubbles: true }));
-          inp.dispatchEvent(new Event('change', { bubbles: true }));
-          onScrubUp();
-        }
-      };
-      scrub.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        DragRelay.arm(e, 'scrub');   // CONTINUOUS DRAG S1
-        scrubDragging = true;
-        scrubAxis = null;
-        scrubStartVal = parseFloat(inp.value) || 0;
-        scrubAccum = 0;
-        scrubOriginX = e.clientX;
-        scrubOriginY = e.clientY;
-        scrubLastX = e.clientX;
-        scrubLastY = e.clientY;
-        scrub.classList.add('scrubbing');
-        document.body.style.userSelect = 'none';
-        document.addEventListener('mousemove', onScrubMove);
-        document.addEventListener('mouseup', onScrubUp);
-        document.addEventListener('keydown', onScrubKey);
-      });
+      // The field is the drag surface (v20261010a; the left-side grip is gone).
+      // stopPropagation as the grip did: the label column must not read the
+      // press as its own.
+      attachFieldScrub(inp, wrap, { stopPropagation: true });
       // NOTE: no rebuild-time cleanup here. The scrub is rebuild-safe by
-      // construction - its move/up/key listeners live on document, so a
-      // mid-drag DOM rebuild (every value change re-renders the tracks)
-      // leaves the drag running until the real mouseup. The v20260721o
+      // construction - attachFieldScrub's move/up/key listeners live on
+      // document, so a mid-drag DOM rebuild (every value change re-renders
+      // the tracks) leaves the drag running until the real mouseup. The v20260721o
       // registry FORCED onScrubUp() on every rebuild, which terminated a
       // live drag after its first value change - that was a regression,
       // verified and removed in v20260721p.

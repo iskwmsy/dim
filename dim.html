@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261010b -->
+<!-- dim v20261011zc -->
 
 <!--
   MIT License
@@ -1994,7 +1994,10 @@
        wrapper (#extrudeRenderSettings, v20260906n) and of the tool-panel mirror
        (v20260907c), which silently dropped its divider (owner report). */
     #extrudeRenderSettings > .ui-header-small:first-child,
-    #extrudeRenderSettingsMirror > .ui-header-small:first-child {
+    #extrudeRenderSettingsMirror > .ui-header-small:first-child,
+    /* v20261011v: the Boolean Operand header is the first child of its block; until v20261011v an empty <div hidden>
+       stood before it for no other reason than to make it :not(:first-child) (the differ caught the lost border). */
+    #booleanOperandBlock > .ui-header-small:first-child {
       margin-top: 10px;
       padding-top: 8px;
       border-top: 1px solid var(--border-light);
@@ -2496,6 +2499,11 @@
       box-shadow: none;
     }
 
+    /* v20261011v: a full-width .ui-btn and nothing else - the 19 panel buttons that carried style="width: 100%;" inline.
+       NOT .ui-btn-full (the Text tool's): that one also sets margin-bottom, font-weight and font-size. */
+    .ui-btn-wide { width: 100%; }
+    /* v20261011v: the WebGPU status word; was an inline style on the span. The one margin-left: auto of its row. */
+    #webgpuStatus { font-size: 10px; color: var(--text-muted); margin-left: auto; margin-right: 6px; }
     .ui-btn-full {
       width: 100%;
       margin-bottom: 4px;
@@ -5874,6 +5882,10 @@
         var t = (s.theme === 'light' || s.theme === 'dark') ? s.theme : 'system';
         if (t === 'system') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', t);
+        // v20261011z: the browser chrome colour for the FIRST paint too - dark: the panel ground (the <style> above is
+        // parsed, so the token's dark value is readable), light: a stored accent. _syncThemeColorMeta takes over at load.
+        var m = document.querySelector('meta[name="theme-color"]');
+        if (m) { var c = t === 'dark' ? getComputedStyle(document.documentElement).getPropertyValue('--bg-panel').trim() : (s.accentColor || ''); if (c) m.setAttribute('content', c); }
       } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
     })();
   </script>
@@ -6095,7 +6107,7 @@
   </div>
   <!-- PEN MODE FLYOUT (v20260914d): rows built by buildPenFlyout() from PEN_FLYOUT_MODES -->
   <div id="penFlyout" class="tool-flyout" hidden role="menu" aria-label="Pen modes"></div>
-  <!-- BOOLEAN: the three operations of a row, built by BooleanUI.openFlyout -->
+  <!-- BOOLEAN: the four operations of a row (Union / Subtract / Intersect, and the Drill since v20261005a), built by BooleanUI.openFlyout -->
   <div id="booleanFlyout" class="tool-flyout" hidden role="menu" aria-label="Boolean operation"></div>
   <div id="toolToolbar">
     <button data-tool="select" class="active" title="Select (V)">
@@ -6319,23 +6331,23 @@
         <div class="xyz-row">
           <label for="fileNameInput">File Name</label>
           <div class="xyz-inputs">
-            <input type="text" id="fileNameInput" value="Untitled 3D work" />
+            <input type="text" id="fileNameInput" title="The name the scene is saved and exported under" value="Untitled 3D work" />
           </div>
         </div>
         <div class="prop-row prop-row-plain">
-          <button id="importSceneBtn" class="ui-btn ui-btn-small">Import Scene</button>
-          <button id="exportSceneBtn" class="ui-btn ui-btn-small">Export Scene</button>
+          <button id="importSceneBtn" title="Open a dim scene file (.json) in place of the scene on the canvas" class="ui-btn ui-btn-small">Import Scene</button>
+          <button id="exportSceneBtn" title="Download the scene as a dim .json file under the name above - objects, cameras, workplanes and the animation" class="ui-btn ui-btn-small">Export Scene</button>
           <input class="hidden" type="file" id="importSceneInput" accept=".json" />
         </div>
         <div class="prop-row prop-row-plain">
-          <button id="saveSceneBtn" class="ui-btn" style="width: 100%;">Save Scene (⌘S)</button>
+          <button id="saveSceneBtn" title="Save the scene in this browser (Cmd+S) - Export Scene is the one that writes a file" class="ui-btn ui-btn-wide">Save Scene (⌘S)</button>
         </div>
         <div class="prop-row prop-row-plain">
-          <button id="revertSceneBtn" class="ui-btn" style="width: 100%;" title="Replace the open scene with the saved slot (the last Save / autosave). Asks first; one undo brings the open scene back.">Reload Saved</button>
+          <button id="revertSceneBtn" class="ui-btn ui-btn-wide" title="Replace the open scene with the saved slot (the last Save / autosave). Asks first; one undo brings the open scene back.">Reload Saved</button>
         </div>
         <div class="prop-row prop-row-plain">
-          <button id="createTestSceneBtn" class="ui-btn ui-btn-small">Test Scene</button>
-          <button id="clearSceneBtn" class="ui-btn ui-btn-small ui-btn-danger">Clear Scene</button>
+          <button id="createTestSceneBtn" title="Load the built-in test scene with its preset cameras - one undo step, Cmd+Z brings the current scene back" class="ui-btn ui-btn-small">Test Scene</button>
+          <button id="clearSceneBtn" title="Remove every object and restore the default cameras, workplane and paper - asks first; one undo step" class="ui-btn ui-btn-small ui-btn-danger">Clear Scene</button>
         </div>
 
 
@@ -6345,17 +6357,17 @@
              SVG, Copy to Clipboard and the animation sequence export, which share one
              producer. Persisted as omitHiddenFaces; DEFAULT OFF (owner). -->
         <div class="prop-row prop-inline" id="omitHiddenFacesRow">
-          <label for="omitHiddenFacesCb" class="ui-checkbox-label" title="Drop the faces that are completely covered by others from the SVG export and the clipboard copy (back caps and back sides of extrusions, objects entirely behind others). The picture is unchanged; the file is smaller and Illustrator shows no invisible objects.">Omit hidden faces in export</label>
+          <label for="omitHiddenFacesCb" class="ui-checkbox-label" title="Drop the faces that are completely covered by others from the SVG export and the clipboard copy (back caps and back sides of extrusions, objects entirely behind others). The picture is unchanged; the file is smaller and Illustrator shows no invisible objects.">Omit Hidden Faces in Export</label>
           <input type="checkbox" id="omitHiddenFacesCb" class="ui-checkbox" />
         </div>
         <div class="prop-row prop-row-plain">
-          <button id="importSVGFileBtn" class="ui-btn ui-btn-small">Import SVG</button>
-          <button id="exportSVGFileBtn" class="ui-btn ui-btn-small">Export SVG</button>
+          <button id="importSVGFileBtn" title="Import an SVG file as paths - 100 px per world unit, the SVG y flipped to the app up" class="ui-btn ui-btn-small">Import SVG</button>
+          <button id="exportSVGFileBtn" title="Download the view as an SVG file - what Illustrator opens: every face a path, hidden parts as clips" class="ui-btn ui-btn-small">Export SVG</button>
           <input class="hidden" type="file" id="importSVGFileInput" accept=".svg" />
         </div>
         <div class="prop-row prop-row-plain">
-          <button id="pasteSVGBtn" class="ui-btn ui-btn-small">Paste from Clipboard</button>
-          <button id="copySVGBtn" class="ui-btn ui-btn-small">Copy to Clipboard</button>
+          <button id="pasteSVGBtn" title="Paste SVG from the clipboard as paths - copy in Illustrator, paste here" class="ui-btn ui-btn-small">Paste from Clipboard</button>
+          <button id="copySVGBtn" title="Copy the view to the clipboard as SVG - paste straight into Illustrator" class="ui-btn ui-btn-small">Copy to Clipboard</button>
         </div>
 
       </div>
@@ -6459,10 +6471,10 @@
         <div id="cameraManagementPanel"
           style="display: flex; flex-direction: column; gap: 4px; padding: 4px 0; margin-top: 4px;">
           <div class="flex-row-gap">
-            <button id="activateCameraBtn" class="ui-btn ui-btn-small ui-btn-primary" style="flex: 1;">
+            <button id="activateCameraBtn" title="Make the selected camera the one the canvas looks through" class="ui-btn ui-btn-small ui-btn-primary" style="flex: 1;">
               Activate
             </button>
-            <button id="loadCameraBtn" class="ui-btn ui-btn-small" style="flex: 1;">
+            <button id="loadCameraBtn" title="Copy the selected camera into the active one - the active camera moves, the selected one is untouched" class="ui-btn ui-btn-small" style="flex: 1;">
               Load
             </button>
           </div>
@@ -6611,24 +6623,24 @@
           </div>
         </div>
         <div class="prop-row prop-row-plain">
-          <button id="btnResetTruckPedestal" class="ui-btn" style="width: 100%;">Reset Truck / Pedestal</button>
+          <button id="btnResetTruckPedestal" title="Put the truck and pedestal back to 0 - the camera target returns to where the orbit started" class="ui-btn ui-btn-wide">Reset Truck / Pedestal</button>
         </div>
 
 
         <div class="ui-header-small">View</div>
         <!-- Face Workplane -->
         <div class="prop-row prop-row-plain">
-          <button id="faceWorkplaneBtn" class="ui-btn" style="width: 100%;">Face Workplane</button>
+          <button id="faceWorkplaneBtn" title="Turn the camera to look straight at the active workplane" class="ui-btn ui-btn-wide">Face Workplane</button>
         </div>
         <div class="prop-row prop-row-plain">
-          <button id="resetZoomBtn" class="ui-btn" style="width: 100%;">Reset Zoom</button>
+          <button id="resetZoomBtn" title="Put the zoom back to the reference - the orthographic zoom, or the perspective distance that matches it" class="ui-btn ui-btn-wide">Reset Zoom</button>
         </div>
         <!-- CAMERA SUBWINDOW toggle (Phase 2). Hosted here rather than on the
              main toolbar because the feature is camera-scoped and this section
              already carries full-width action buttons — a third row costs no
              layout anywhere else in the app. -->
         <div class="prop-row prop-row-plain">
-          <button id="subWindowToggleBtn" class="ui-btn" style="width: 100%;"
+          <button id="subWindowToggleBtn" class="ui-btn ui-btn-wide"
             title="Open a floating window showing the scene from another camera">Camera Window</button>
         </div>
         <!-- Oblique Settings (Hidden by default) -->
@@ -6658,7 +6670,7 @@
              per-camera control. -->
         <div class="ui-header-small">Presets</div>
         <div class="prop-row prop-row-plain">
-          <button id="restorePresetCamerasBtn" class="ui-btn" style="width: 100%;"
+          <button id="restorePresetCamerasBtn" class="ui-btn ui-btn-wide"
             title="Add any missing preset cameras (Front / Top / Side / Isometric / Dimetric / Trimetric / Default) and reset changed ones to their standard pose. Camera 1 and your own cameras are left alone.">Restore Preset Cameras</button>
         </div>
 
@@ -6725,10 +6737,10 @@
         <div id="workplaneManagementPanel"
           style="display: flex; flex-direction: column; gap: 4px; padding: 4px 0; border-top: 1px solid var(--border-light); margin-top: 4px;">
           <div class="flex-row-gap">
-            <button id="activateWorkplaneBtn" class="ui-btn ui-btn-small ui-btn-primary" style="flex: 1;">
+            <button id="activateWorkplaneBtn" title="Make the selected workplane the active one - drawing, snapping and the grid follow it" class="ui-btn ui-btn-small ui-btn-primary" style="flex: 1;">
               Activate
             </button>
-            <button id="loadWorkplaneBtn" class="ui-btn ui-btn-small" style="flex: 1;">
+            <button id="loadWorkplaneBtn" title="Copy the selected workplane into the active one - the active plane moves, the selected one is untouched" class="ui-btn ui-btn-small" style="flex: 1;">
               Load
             </button>
           </div>
@@ -6824,7 +6836,7 @@
 
           <input class="hidden" type="file" id="refImageInput" accept="image/*">
           <div class="prop-row prop-row-plain">
-            <button id="refImageBtn" class="ui-btn" style="width: 100%;">Import Reference Image</button>
+            <button id="refImageBtn" title="Place an image under the workplane as a tracing reference - never exported" class="ui-btn ui-btn-wide">Import Reference Image</button>
           </div>
 
           <div class="hidden" id="refImageControls">
@@ -6884,7 +6896,7 @@
         <div class="xyz-row">
           <label for="displayUnitSelect">Unit</label>
           <div class="xyz-inputs" style="max-width: 80px; margin-left: auto;">
-            <select id="displayUnitSelect">
+            <select id="displayUnitSelect" title="The unit every length field shows - px (Illustrator points), mm, or world units (100 px); the model never changes">
               <option value="px" selected>px (pt)</option>
               <option value="mm">mm</option>
               <option value="world">World</option>
@@ -6895,7 +6907,7 @@
         <div class="xyz-row">
           <label for="themeSelect">Theme</label>
           <div class="xyz-inputs" style="max-width: 80px; margin-left: auto;">
-            <select id="themeSelect">
+            <select id="themeSelect" title="Light, Dark, or follow the system">
               <option value="system" selected>System</option>
               <option value="light">Light</option>
               <option value="dark">Dark</option>
@@ -6905,9 +6917,9 @@
 
         <div class="style-row">
           <label class="ui-checkbox-label">Accent Color</label>
-          <input type="text" id="accentColorHexInput" class="color-hex-input" maxlength="6" placeholder="2645D2"
+          <input type="text" id="accentColorHexInput" title="The accent colour of the interface as hex" class="color-hex-input" maxlength="6" placeholder="2645D2"
             spellcheck="false" style="margin-left: auto;" />
-          <input type="color" id="accentColorInput" value="#2645d2" class="color-fill" />
+          <input type="color" id="accentColorInput" title="The accent colour of the interface - buttons, the selection, the gizmo highlight" value="#2645d2" class="color-fill" />
         </div>
 
         <div class="xyz-row">
@@ -6942,7 +6954,7 @@
              pointer lock so it never runs out of screen; the app draws a wrapping
              cursor. Off = every drag stops at the window edge as before. -->
         <div class="prop-row prop-inline" id="continuousDragRow">
-          <label for="continuousDragCb" class="ui-checkbox-label" title="While dragging - a number field, an object, a vertex, a camera bar, the subwindow - the pointer is captured once it starts moving, so the drag never stops at the screen edge; a drawn cursor wraps around instead. The browser shows a one-time notice the first time. Press Esc to release a drag.">Continuous drag</label>
+          <label for="continuousDragCb" class="ui-checkbox-label" title="While dragging - a number field, an object, a vertex, a camera bar, the subwindow - the pointer is captured once it starts moving, so the drag never stops at the screen edge; a drawn cursor wraps around instead. The browser shows a one-time notice the first time. Press Esc to release a drag.">Continuous Drag</label>
           <input type="checkbox" id="continuousDragCb" class="ui-checkbox" checked />
         </div>
 
@@ -6951,26 +6963,25 @@
              staircase and a label with the distance, the components and the
              plane or axis the drag moves on. Off = the drag alone. -->
         <div class="prop-row prop-inline" id="dragReadoutRow">
-          <label for="dragReadoutCb" class="ui-checkbox-label" title="While you move an object or a vertex, draw the vector from where the drag started, its world x / y / z legs with the amount moved on each, the distance on a dimension line, and the plane or axis the drag is on. The picture stays after the drag until the next operation. A move straight toward or away from the camera shows its amount in one pill beside the gizmo, and a rotate drag shows its angle on an arc with a pill.">Drag readout</label>
+          <label for="dragReadoutCb" class="ui-checkbox-label" title="While you move an object or a vertex, draw the vector from where the drag started, its world x / y / z legs with the amount moved on each, the distance on a dimension line, and the plane or axis the drag is on. The picture stays after the drag until the next operation. A move straight toward or away from the camera shows its amount in one pill beside the gizmo, and a rotate drag shows its angle on an arc with a pill.">Drag Readout</label>
           <input type="checkbox" id="dragReadoutCb" class="ui-checkbox" checked />
         </div>
         <div class="prop-row prop-inline" id="gizmoColorRow">
-          <label for="gizmoColorCb" class="ui-checkbox-label" title="Highlight a gizmo control in its own hue (red / green / blue, yellow / cyan / magenta) when you hover or drag it, instead of the accent color.">Colored gizmo highlight</label>
+          <label for="gizmoColorCb" class="ui-checkbox-label" title="Highlight a gizmo control in its own hue (red / green / blue, yellow / cyan / magenta) when you hover or drag it, instead of the accent color.">Colored Gizmo Highlight</label>
           <input type="checkbox" id="gizmoColorCb" class="ui-checkbox" />
         </div>
 
         <!-- COLOR PICKER -->
         <div class="prop-row prop-inline" id="customColorPickerRow">
-          <label for="customColorPickerCb" class="ui-checkbox-label" title="On by default. Replace the browser's colour dialog with dim's own picker on every colour swatch: a saturation / brightness square, a hue bar, HSB / HSL / RGB and hex fields, and a before / now chip to revert. Off = the browser's picker, as before.">Custom color picker</label>
+          <label for="customColorPickerCb" class="ui-checkbox-label" title="On by default. Replace the browser's colour dialog with dim's own picker on every colour swatch: a saturation / brightness square, a hue bar, HSB / HSL / RGB and hex fields, and a before / now chip to revert. Off = the browser's picker, as before.">Custom Color Picker</label>
           <input type="checkbox" id="customColorPickerCb" class="ui-checkbox" checked />
         </div>
         <!-- END COLOR PICKER -->
 
         <div class="prop-row prop-inline" id="webgpuRow">
           <label for="webgpuEnabledCb" class="ui-checkbox-label">WebGPU Compute</label>
-          <span id="webgpuStatus"
-            style="font-size:10px; color:var(--text-muted); margin-left:auto; margin-right:6px;">Checking…</span>
-          <input type="checkbox" id="webgpuEnabledCb" class="ui-checkbox" disabled />
+          <span id="webgpuStatus">Checking…</span>
+          <input type="checkbox" id="webgpuEnabledCb" class="ui-checkbox" disabled title="Compute the mapping grids on the GPU where the browser offers WebGPU - the CPU draws the same picture; greyed out where there is no adapter" />
         </div>
 
         <!-- Animation and the Text tool were Settings checkboxes marked
@@ -6979,7 +6990,7 @@
              TEXT_TOOL_DEFAULT_ON), not in this panel. -->
 
         <div class="prop-row prop-row-plain" style="margin-top: 8px;">
-          <button id="resetSettingsBtn" class="ui-btn" style="width: 100%;">Reset Settings</button>
+          <button id="resetSettingsBtn" class="ui-btn ui-btn-wide" title="Put every setting back to its default - theme, accent, unit, keyboard increment, undo limit, autosave, the colour picker and the switches; the scene is untouched">Reset Settings</button>
         </div>
 
       </div>
@@ -7112,7 +7123,7 @@
                   <option value="" hidden>&mdash;</option>
                   <option value="arc">Arc</option>
                   <option value="bspline">B-Spline (Cubic)</option>
-                  <option value="bspline2">B-Spline (Quad)</option>
+                  <option value="bspline2">B-Spline (Quadratic)</option>
                 </select>
               </div>
               <div class="prop-row prop-inline" id="dsCornerBakeRow">
@@ -7189,8 +7200,8 @@
             </div>
 
             <div class="prop-row mt-2">
-              <button id="moveCancelBtn" class="ui-btn mr-1">Cancel</button>
-              <button id="moveSubmitBtn" class="ui-btn ui-btn-primary">Submit</button>
+              <button id="moveCancelBtn" title="Discard this tool session - the object returns to where it started" class="ui-btn mr-1">Cancel</button>
+              <button id="moveSubmitBtn" title="Commit this tool session as one history entry" class="ui-btn ui-btn-primary">Submit</button>
             </div>
 
             <!-- FLATTEN SECTION. Under V the whole selected path(s); under A
@@ -7209,8 +7220,8 @@
             <hr class="ui-hr" />
             <div class="ui-header-small">Adjust Pivot</div>
             <div class="prop-row">
-              <button id="alignPivotBtn" class="ui-btn">Align
-                to Work Plane</button>
+              <button id="alignPivotBtn" title="Move the pivot onto the active workplane - the object stays where it is" class="ui-btn">Align
+                to Workplane</button>
             </div>
 
           </div>
@@ -7238,8 +7249,8 @@
             </div>
 
             <div class="prop-row mt-2">
-              <button id="rotateCancelBtn" class="ui-btn mr-1">Cancel</button>
-              <button id="rotateSubmitBtn" class="ui-btn ui-btn-primary">Submit</button>
+              <button id="rotateCancelBtn" title="Discard this tool session - the object returns to where it started" class="ui-btn mr-1">Cancel</button>
+              <button id="rotateSubmitBtn" title="Commit this tool session as one history entry" class="ui-btn ui-btn-primary">Submit</button>
             </div>
           </div>
 
@@ -7276,8 +7287,8 @@
             </div>
 
             <div class="prop-row mt-2">
-              <button id="scaleCancelBtn" class="ui-btn mr-1">Cancel</button>
-              <button id="scaleSubmitBtn" class="ui-btn ui-btn-primary">Submit</button>
+              <button id="scaleCancelBtn" title="Discard this tool session - the object returns to where it started" class="ui-btn mr-1">Cancel</button>
+              <button id="scaleSubmitBtn" title="Commit this tool session as one history entry" class="ui-btn ui-btn-primary">Submit</button>
             </div>
           </div>
 
@@ -7339,8 +7350,8 @@
             </div>
 
             <div class="prop-row mt-2">
-              <button id="shearCancelBtn" class="ui-btn mr-1">Cancel</button>
-              <button id="shearSubmitBtn" class="ui-btn ui-btn-primary">Submit</button>
+              <button id="shearCancelBtn" title="Discard this tool session - the object returns to where it started" class="ui-btn mr-1">Cancel</button>
+              <button id="shearSubmitBtn" title="Commit this tool session as one history entry" class="ui-btn ui-btn-primary">Submit</button>
             </div>
           </div>
           <!-- EXTRUDE TOOL (v20260906m, _plans/PLAN-extrude-tool.md): a UI for
@@ -7387,8 +7398,8 @@
               </div>
             </div>
             <div class="prop-row mt-2">
-              <button id="extrudeCancelBtn" class="ui-btn mr-1">Cancel</button>
-              <button id="extrudeSubmitBtn" class="ui-btn ui-btn-primary">Submit</button>
+              <button id="extrudeCancelBtn" title="Discard this tool session - the object returns to where it started" class="ui-btn mr-1">Cancel</button>
+              <button id="extrudeSubmitBtn" title="Commit this tool session as one history entry" class="ui-btn ui-btn-primary">Submit</button>
             </div>
           </div>
 
@@ -7429,8 +7440,8 @@
             </div>
 
             <div class="prop-row prop-row-plain" style="display: flex; gap: 4px;">
-              <button id="pivotToCenterBtn" class="ui-btn" style="flex: 1;">Center Pivot</button>
-              <button id="pivotResetBtn" class="ui-btn" style="flex: 1;">Reset Pivot</button>
+              <button id="pivotToCenterBtn" title="Put the pivot at the centre of the object - the object does not move" class="ui-btn" style="flex: 1;">Center Pivot</button>
+              <button id="pivotResetBtn" title="Put the pivot back at the object origin - the object does not move" class="ui-btn" style="flex: 1;">Reset Pivot</button>
             </div>
             <div class="prop-row prop-row-plain" style="display: flex; gap: 4px;">
               <button id="pivotCenterOriginBtn" class="ui-btn" style="flex: 1;"
@@ -7451,8 +7462,8 @@
             </div>
 
             <div class="prop-row mt-2">
-              <button id="pivotCancelBtn" class="ui-btn mr-1">Cancel</button>
-              <button id="pivotSubmitBtn" class="ui-btn ui-btn-primary">Submit</button>
+              <button id="pivotCancelBtn" title="Discard this tool session - the object returns to where it started" class="ui-btn mr-1">Cancel</button>
+              <button id="pivotSubmitBtn" title="Commit this tool session as one history entry" class="ui-btn ui-btn-primary">Submit</button>
             </div>
           </div>
           <div class="xyz-row hidden" id="algorithmSelectContainer">
@@ -7460,9 +7471,9 @@
             <div class="xyz-inputs">
               <select id="algorithmSelect">
                 <option value="linear">Linear</option>
-                <option value="bspline">BSpline (Cubic)</option>
-                <option value="bspline2">BSpline (Quad)</option>
-                <option value="bezier">Bezier</option>
+                <option value="bspline">B-Spline (Cubic)</option>
+                <option value="bspline2">B-Spline (Quadratic)</option>
+                <option value="bezier">Cubic Bezier</option>
               </select>
             </div>
           </div>
@@ -7474,7 +7485,7 @@
                  and is shown by the SAME predicate — one implementation, two
                  entry points. -->
             <div class="prop-row prop-row-plain" id="penConvertToBezierRow" style="display:none;">
-              <button id="penConvertToBezierBtn" class="ui-btn" style="width: 100%;">Convert to Bezier</button>
+              <button id="penConvertToBezierBtn" title="Rewrite the path as explicit Cubic Bezier handles - the drawn curve stays, the Path Type stops reinterpreting" class="ui-btn ui-btn-wide">Convert to Bezier</button>
             </div>
             <!-- Pen MODE (v20260725o, PLAN-path-edit-parity slice 2):
                  explicit modes instead of hover-context gesture overloading,
@@ -7535,7 +7546,7 @@
               <input type="checkbox" id="penAutoSwitchCb" class="ui-checkbox" />
             </div>
             <div class="prop-row prop-row-plain" style="padding: 4px 10px;">
-              <button id="penConfirmBtn" class="ui-btn" style="width: 100%;">Confirm Path</button>
+              <button id="penConfirmBtn" title="Finish the path (Enter)" class="ui-btn ui-btn-wide">Confirm Path</button>
             </div>
             <div class="ui-hint">or press Enter</div>
           </div>
@@ -7555,13 +7566,13 @@
           <div id="toolHintText" class="tool-hint hidden"></div>
           <div class="hidden flex-col" id="directSelectSettingsContainer">
             <div class="prop-row">
-              <button id="setPivotBtn" class="ui-btn">Set Pivot to Selection</button>
+              <button id="setPivotBtn" title="Put the pivot at the selected vertices - the object does not move" class="ui-btn">Set Pivot to Selection</button>
             </div>
 
             <div class="hidden" id="vertexOperationsContainer">
               <div class="ui-header-small">Vertex Operation</div>
               <div class="prop-row">
-                <button id="mergeVerticesBtn" class="ui-btn ui-btn-primary">
+                <button id="mergeVerticesBtn" title="Move the selected vertices onto the first selected one" class="ui-btn ui-btn-primary">
                   Merge to First Selected
                 </button>
               </div>
@@ -7569,7 +7580,7 @@
                    Validity-gated: shown only when the selection resolves to
                    exactly TWO open-subpath endpoints. -->
               <div class="prop-row" id="joinEndpointsRow" style="display:none;">
-                <button id="joinEndpointsBtn" class="ui-btn">Join</button>
+                <button id="joinEndpointsBtn" title="Join the two selected endpoints with a segment - or close a path at its own two ends" class="ui-btn">Join</button>
               </div>
             </div>
           </div>
@@ -7597,9 +7608,9 @@
                 <select id="pixelArtAlgorithm">
                   <option value="linear">Linear</option>
                   <option value="ellipse">Ellipse</option>
-                  <option value="bspline">BSpline (Cubic)</option>
-                  <option value="bspline2">BSpline (Quad)</option>
-                  <option value="bezier">Bezier</option>
+                  <option value="bspline">B-Spline (Cubic)</option>
+                  <option value="bspline2">B-Spline (Quadratic)</option>
+                  <option value="bezier">Cubic Bezier</option>
                 </select>
               </div>
             </div>
@@ -7656,9 +7667,9 @@
               <div class="xyz-inputs">
                 <select id="snfAlgorithm">
                   <option value="linear">Linear</option>
-                  <option value="bspline">BSpline (Cubic)</option>
-                  <option value="bspline2">BSpline (Quad)</option>
-                  <option value="bezier">Bezier</option>
+                  <option value="bspline">B-Spline (Cubic)</option>
+                  <option value="bspline2">B-Spline (Quadratic)</option>
+                  <option value="bezier">Cubic Bezier</option>
                 </select>
               </div>
             </div>
@@ -7829,7 +7840,7 @@
                   <span id="textKernPairLabel"
                     style="font-size:10px; color:var(--text-muted); flex:0 0 auto; min-width:34px; text-align:center; line-height:1;">–</span>
                   <input type="number" id="textKernValue" step="10" value="0" disabled style="width:76px;" />
-                  <button id="textKernClearBtn" class="ui-btn ui-btn-small"
+                  <button id="textKernClearBtn" title="Clear every kerning adjustment" class="ui-btn ui-btn-small"
                     style="flex:0 0 auto; margin-left:auto; min-height:0; height:26px; padding:0 10px;">Clear
                     All</button>
                 </div>
@@ -7844,10 +7855,10 @@
               </div>
             </div>
             <div class="prop-row prop-row-plain" style="margin-top:6px;">
-              <button id="textConfirmBtn" class="ui-btn ui-btn-full ui-btn-primary">Confirm Text</button>
+              <button id="textConfirmBtn" title="Place the text as paths" class="ui-btn ui-btn-full ui-btn-primary">Confirm Text</button>
             </div>
             <div class="prop-row prop-row-plain">
-              <button id="textSplitBtn" class="ui-btn ui-btn-full">Split to Letters</button>
+              <button id="textSplitBtn" title="Split the text into one path per letter, in a group - the layer range, motion path and fold come along" class="ui-btn ui-btn-full">Split to Letters</button>
             </div>
           </div>
           <!-- /TEXT TOOL -->
@@ -7957,9 +7968,9 @@
               <div class="xyz-inputs">
                 <select id="cycAlgorithm">
                   <option value="linear">Linear</option>
-                  <option value="bspline">BSpline (Cubic)</option>
-                  <option value="bspline2">BSpline (Quad)</option>
-                  <option value="bezier">Bezier</option>
+                  <option value="bspline">B-Spline (Cubic)</option>
+                  <option value="bspline2">B-Spline (Quadratic)</option>
+                  <option value="bezier">Cubic Bezier</option>
                 </select>
               </div>
             </div>
@@ -8062,9 +8073,9 @@
               <div class="xyz-inputs">
                 <select id="lisAlgorithm">
                   <option value="linear">Linear</option>
-                  <option value="bspline">BSpline (Cubic)</option>
-                  <option value="bspline2">BSpline (Quad)</option>
-                  <option value="bezier">Bezier</option>
+                  <option value="bspline">B-Spline (Cubic)</option>
+                  <option value="bspline2">B-Spline (Quadratic)</option>
+                  <option value="bezier">Cubic Bezier</option>
                 </select>
               </div>
             </div>
@@ -8146,7 +8157,7 @@
         </div>
 
         <div class="xyz-row hidden" id="polyInnerRadiusRow">
-          <label>Inner R %</label>
+          <label>Inner Radius %</label>
           <div class="xyz-inputs">
             <input type="number" id="polyInnerRadius" step="0.05" min="0.05" max="0.95" />
           </div>
@@ -8166,13 +8177,13 @@
           </div>
         </div>
         <div class="prop-row prop-row-plain" id="confirmShapeRow" style="padding: 4px 10px;">
-          <button id="confirmShapeBtn" class="ui-btn" style="width: 100%;">Confirm Shape</button>
+          <button id="confirmShapeBtn" title="Place the shape (Enter)" class="ui-btn ui-btn-wide">Confirm Shape</button>
         </div>
         <div class="ui-hint">or press Enter</div>
       </div>
       <div class="prop-row prop-row-plain" id="toolDrawerBakeRow"
         style="display: none; padding-left: 10px; padding-right: 10px;">
-        <button id="toolDrawerBakeBtn" class="ui-btn" style="width: 100%;">Bake to Path</button>
+        <button id="toolDrawerBakeBtn" title="Turn this parametric shape into a plain path - its vertices become editable, the parameters are gone" class="ui-btn ui-btn-wide">Bake to Path</button>
       </div>
       <!-- 3D SHAPE TOOL (v20260906j, owner decision D2 revised): a cuboid is ONE
            editable primitive (the six-face group) and its two destinations are
@@ -8180,7 +8191,7 @@
            above) and Bake to Extrude (one rectangle with a symmetric extrude). -->
       <div class="prop-row prop-row-plain" id="toolDrawerBakeExtrudeRow"
         style="display: none; padding-left: 10px; padding-right: 10px;">
-        <button id="toolDrawerBakeExtrudeBtn" class="ui-btn" style="width: 100%;" title="Replace the six-face group with one rectangle carrying a symmetric extrude of the same size">Bake to Extrude</button>
+        <button id="toolDrawerBakeExtrudeBtn" class="ui-btn ui-btn-wide" title="Replace the six-face group with one rectangle carrying a symmetric extrude of the same size">Bake to Extrude</button>
       </div>
     </div> <!-- End toolDrawerContent -->
   </div> <!-- End toolDrawer -->
@@ -8188,8 +8199,8 @@
   <!-- ─── Quick Style Bar ─── -->
   <div id="quickStyleBar">
     <div class="qs-group">
-      <span class="qs-label qs-label-opt">Algorithm</span>
-      <select id="qsAlgorithm" title="Path algorithm">
+      <span class="qs-label qs-label-opt">Path Type</span>
+      <select id="qsAlgorithm" title="Path Type - how the vertices are read: Linear, B-Spline (Cubic / Quadratic) or Cubic Bezier; the vertex array is reinterpreted, never rebuilt">
         <option value="linear">Linear</option>
         <option value="bspline">B-Spline (Cubic)</option>
         <option value="bspline2">B-Spline (Quadratic)</option>
@@ -8200,21 +8211,21 @@
     <div class="qs-group">
       <span class="qs-label">Fill</span>
       <input type="checkbox" id="qsFillEnabled" class="ui-checkbox" title="Fill" />
-      <input type="text" id="qsFillHex" class="color-hex-input" maxlength="6" placeholder="505050" spellcheck="false" />
-      <input type="color" id="qsFillColor" class="color-fill" />
+      <input type="text" id="qsFillHex" title="Fill colour as hex" class="color-hex-input" maxlength="6" placeholder="505050" spellcheck="false" />
+      <input type="color" id="qsFillColor" title="Fill colour" class="color-fill" />
     </div>
     <div class="qs-divider"></div>
     <div class="qs-group">
       <span class="qs-label">Stroke</span>
       <input type="checkbox" id="qsStrokeEnabled" class="ui-checkbox" title="Stroke" />
       <input type="number" id="qsStrokeWidth" step="0.5" min="0" title="Stroke width" />
-      <input type="text" id="qsStrokeHex" class="color-hex-input" maxlength="6" placeholder="000000"
+      <input type="text" id="qsStrokeHex" title="Stroke colour as hex" class="color-hex-input" maxlength="6" placeholder="000000"
         spellcheck="false" />
-      <input type="color" id="qsStrokeColor" class="color-stroke" />
+      <input type="color" id="qsStrokeColor" title="Stroke colour" class="color-stroke" />
     </div>
     <div class="qs-divider"></div>
     <div class="qs-group">
-      <span class="qs-label">Close</span>
+      <span class="qs-label">Close Path</span>
       <input type="checkbox" id="qsClosePath" class="ui-checkbox" title="Close path" />
     </div>
     <div class="qs-divider"></div>
@@ -8322,8 +8333,8 @@
         <ul id="sceneTree"></ul>
         <!-- Secondary actions -->
         <div class="flex-row-gap my-1">
-          <button id="groupBtn" class="ui-btn ui-btn-small">Group</button>
-          <button id="ungroupBtn" class="ui-btn ui-btn-small">Ungroup</button>
+          <button id="groupBtn" title="Put the selected objects into a new group" class="ui-btn ui-btn-small">Group</button>
+          <button id="ungroupBtn" title="Dissolve the selected groups into their children" class="ui-btn ui-btn-small">Ungroup</button>
           <!-- BOOLEAN --><button id="booleanBtn" class="ui-btn ui-btn-small" style="display: none;" title="Make a Boolean of the selection: the bottom object is the base, the others act on it (Cmd + B)">Boolean</button>
         </div>
 
@@ -8445,14 +8456,14 @@
                     </div>
                   </div>
                   <div class="prop-row prop-row-plain">
-                    <button id="bakeScaleBtn" class="ui-btn" style="width: 100%;"
+                    <button id="bakeScaleBtn" class="ui-btn ui-btn-wide"
                       title="Fold the whole shape matrix - scale AND shear - into the vertices, leaving the object looking identical with scale 1 and shear 0.">Bake Scale / Shear</button>
                   </div>
                   <div class="prop-row prop-row-plain" id="bakeToPathRow" style="display: none;">
-                    <button id="bakeToPathBtn" class="ui-btn" style="width: 100%;">Bake to Path</button>
+                    <button id="bakeToPathBtn" title="Turn this parametric shape into a plain path - its vertices become editable, the parameters are gone" class="ui-btn ui-btn-wide">Bake to Path</button>
                   </div>
                   <div class="prop-row prop-row-plain" id="bakeToExtrudeRow" style="display: none;">
-                    <button id="bakeToExtrudeBtn" class="ui-btn" style="width: 100%;" title="Replace the six-face group with one rectangle carrying a symmetric extrude of the same size">Bake to Extrude</button>
+                    <button id="bakeToExtrudeBtn" class="ui-btn ui-btn-wide" title="Replace the six-face group with one rectangle carrying a symmetric extrude of the same size">Bake to Extrude</button>
                   </div>
 
                   <div class="ui-header-small">Pivot</div>
@@ -8473,7 +8484,7 @@
                     </div>
                   </div>
                   <div class="prop-row prop-row-plain" style="display: flex; gap: 4px;">
-                    <button id="resetPivotBtn" class="ui-btn" style="flex: 1;">Reset Pivot</button>
+                    <button id="resetPivotBtn" title="Put the pivot and the pivot rotation back to zero - the object does not move" class="ui-btn" style="flex: 1;">Reset Pivot</button>
                     <button id="bakePivotShiftBtn" class="ui-btn" style="flex: 1;"
                       title="Move the object's origin to the pivot (no visual change)">Bake Pivot</button>
                   </div>
@@ -8482,11 +8493,11 @@
                     <div class="ui-header-small">Vertex</div>
                     <div class="prop-row items-center mb-2">
                       <label class="w-auto mr-1">Index:</label>
-                      <button id="prevVertexBtn" class="ui-btn ui-btn-small flex-none">&lt;</button>
+                      <button id="prevVertexBtn" title="Select the previous vertex of the path" class="ui-btn ui-btn-small flex-none">&lt;</button>
                       <input type="number" id="vertexIndexInput" class="ui-input w-40 text-center">
                       <span class="mx-1 text-sm opacity-70" id="totalVerticesSpan">/ 0</span>
-                      <button id="nextVertexBtn" class="ui-btn ui-btn-small flex-none">&gt;</button>
-                      <button id="deleteVertexBtn" class="ui-btn ui-btn-small ui-btn-danger">Del</button>
+                      <button id="nextVertexBtn" title="Select the next vertex of the path" class="ui-btn ui-btn-small flex-none">&gt;</button>
+                      <button id="deleteVertexBtn" aria-label="Delete vertex" title="Delete the selected vertex" class="ui-btn ui-btn-small ui-btn-danger">Del</button>
                     </div>
                     <div class="xyz-row">
                       <label>Vertex</label>
@@ -8512,11 +8523,11 @@
                     </div>
                     <div class="prop-row"
                       style="flex-direction: column; align-items: stretch; gap: 6px; padding: 4px 10px 8px;">
-                      <button id="invertWindingBtn" class="ui-btn ui-btn-small" style="width: 100%;">Invert
+                      <button id="invertWindingBtn" title="Reverse the vertex order of the selected paths - flips which side is the front, and the fill under Nonzero" class="ui-btn ui-btn-small ui-btn-wide">Invert
                         Winding</button>
                       <div class="flex-row-gap" style="width: 100%;">
-                        <button id="createSubPathBtn" class="ui-btn ui-btn-small">Merge Subpath</button>
-                        <button id="purgeSubPathBtn" class="ui-btn ui-btn-small ui-btn-danger">Purge Subpath</button>
+                        <button id="createSubPathBtn" title="Merge the selected paths into one compound path - each becomes a subpath" class="ui-btn ui-btn-small">Merge Subpath</button>
+                        <button id="purgeSubPathBtn" title="Split the selected compound path into one path per subpath" class="ui-btn ui-btn-small ui-btn-danger">Purge Subpath</button>
                       </div>
                     </div>
                   </div>
@@ -8533,9 +8544,9 @@
 
                   <!-- PATH ALGORITHM (hidden for Groups) -->
                   <div class="xyz-row" id="algorithmRow">
-                    <label for="algorithmInput">Algorithm</label>
+                    <label for="algorithmInput">Path Type</label>
                     <div class="xyz-inputs">
-                      <select id="algorithmInput">
+                      <select id="algorithmInput" title="How the vertices are read - Linear, B-Spline (Cubic / Quadratic) or Cubic Bezier; the array is reinterpreted, never rebuilt">
                         <option value="linear">Linear</option>
                         <option value="bspline">B-Spline (Cubic)</option>
                         <option value="bspline2">B-Spline (Quadratic)</option>
@@ -8550,7 +8561,7 @@
                        getBezierSegments(), the very segments the renderer
                        draws. Shown only for non-bezier Paths. -->
                   <div class="prop-row prop-row-plain" id="convertToBezierRow" style="display:none;">
-                    <button id="convertToBezierBtn" class="ui-btn" style="width: 100%;">Convert to Bezier</button>
+                    <button id="convertToBezierBtn" title="Rewrite the path as explicit Cubic Bezier handles - the drawn curve stays, the Path Type stops reinterpreting" class="ui-btn ui-btn-wide">Convert to Bezier</button>
                   </div>
 
                   <!-- BACKSIDE: NONE / SHEET / VIEW (Group only; v20260817a
@@ -8567,7 +8578,7 @@
                   <div class="xyz-row" id="backsideModeRow" style="display:none;">
                     <label for="backsideModeInput" title="The sheet's backside model: None never reverses layer order; Sheet reverses only pieces folded past the unfolded sheet's plane; View reverses whichever side faces away from the camera (and enables the mapping sticker sections)">Backside</label>
                     <div class="xyz-inputs">
-                      <select id="backsideModeInput">
+                      <select id="backsideModeInput" title="What a face shows from behind - nothing, the sheet itself, or the view through it">
                         <option value="none">None</option>
                         <option value="sheet">Sheet</option>
                         <option value="view">View</option>
@@ -8582,7 +8593,7 @@
                   <div class="xyz-row" id="zSortModeRow" style="display:none;">
                     <label for="zSortModeInput">Depth</label>
                     <div class="xyz-inputs">
-                      <select id="zSortModeInput">
+                      <select id="zSortModeInput" title="What the group sorts by depth - its direct children, or every descendant flattened into one order">
                         <option value="children">Children</option>
                         <option value="descendants">All Descendants</option>
                       </select>
@@ -8592,17 +8603,8 @@
                     <label class="ui-checkbox-label">Render Intersections</label>
                     <input type="checkbox" id="renderIntersectionsCb" class="ui-checkbox" />
                   </div>
-                  <div class="xyz-row" id="renderIntersectionsMethodRow" style="display:none;">
-                    <label for="renderIntersectionsMethodInput">Method</label>
-                    <div class="xyz-inputs">
-                      <select id="renderIntersectionsMethodInput">
-                        <!-- MASK RENDERER: first and the default for a newly
-                             enabled group (v20260805c) — measured the most
-                             accurate and stable of the three. -->
-                        <option value="maskRender" id="maskRenderOption">Masks (Vector Z-Buffer)</option>
-                      </select>
-                    </div>
-                  </div>
+                  <!-- The Method row (one option, Masks) stood here hidden by MASK_ONLY from v20260806c to v20261011q; the
+                       Render Intersections checkbox above is the whole control now. -->
                   <!-- RASTER HELPER (experimental): debug view of the depth/ID buffer -->
                   <div class="style-row" id="rasterHelperViewRow" style="display:none;">
                     <label class="ui-checkbox-label">Show Raster Image <span
@@ -8637,7 +8639,7 @@
                   <div class="xyz-row" id="ruleBlendCloseRow">
                     <label>Rule</label>
                     <div class="xyz-inputs">
-                      <select id="fillRuleInput">
+                      <select id="fillRuleInput" title="How overlapping subpaths fill - Nonzero counts the winding, Even-Odd alternates">
                         <option value="evenodd">Even-Odd</option>
                         <option value="nonzero">Non-Zero</option>
                       </select>
@@ -8659,7 +8661,7 @@
                   <div class="xyz-row" id="blendModeRow">
                     <label>Blend</label>
                     <div class="xyz-inputs">
-                      <select id="blendModeInput">
+                      <select id="blendModeInput" title="How the object blends over what is behind it - exported as mix-blend-mode">
                         <option value="normal">Normal</option>
                         <option value="multiply">Multiply</option>
                         <option value="screen">Screen</option>
@@ -8697,7 +8699,7 @@
                     <div class="xyz-inputs">
                       <div class="xyz-field">
                         <span class="xyz-col-label">Join</span>
-                        <select id="strokeLineJoinInput">
+                        <select id="strokeLineJoinInput" title="How the stroke turns a corner - miter, round or bevel">
                           <option value="miter">Miter</option>
                           <option value="round">Round</option>
                           <option value="bevel">Bevel</option>
@@ -8707,7 +8709,7 @@
                       </div>
                       <div class="xyz-field">
                         <span class="xyz-col-label">Cap</span>
-                        <select id="strokeLineCapInput">
+                        <select id="strokeLineCapInput" title="How the stroke ends - butt, round or square">
                           <option value="butt">Butt</option>
                           <option value="round">Round</option>
                           <option value="square">Square</option>
@@ -8719,7 +8721,7 @@
                   <div class="xyz-row">
                     <label>Dash</label>
                     <div class="xyz-inputs">
-                      <input type="text" id="strokeDashArrayInput" placeholder="e.g. 5, 5" />
+                      <input type="text" id="strokeDashArrayInput" title="Dash pattern in stroke units, dash gap dash gap - empty is solid" placeholder="e.g. 5, 5" />
                     </div>
                   </div>
 
@@ -8743,7 +8745,7 @@
                   </div>
                   <div class="style-row" id="strokeTrimModeRow">
                     <label>Trim Mode</label>
-                    <select id="strokeTrimModeInput" class="ui-select">
+                    <select id="strokeTrimModeInput" title="How the trim counts along a compound path - each subpath on its own, or all of them in sequence" class="ui-select">
                       <option value="individually">Individual</option>
                       <option value="sequential">Sequential</option>
                     </select>
@@ -8758,7 +8760,7 @@
                        still comes from stroke width x Scale Stroke with Zoom. -->
                   <div class="style-row" id="stroke3dModeRow">
                     <label>3D Stroke</label>
-                    <select id="stroke3dModeInput" class="ui-select">
+                    <select id="stroke3dModeInput" title="Stroke width in 3D - Off keeps it flat, Perspective scales it with distance, Depth Range maps it over a near / far band" class="ui-select">
                       <option value="">Off</option>
                       <option value="perspective">Perspective</option>
                       <option value="range">Depth Range</option>
@@ -8781,7 +8783,7 @@
                        instead of one flat shape. -->
                   <div class="style-row" id="stroke3dOccludeRow">
                     <label for="stroke3dOccludeInput" class="ui-checkbox-label">Self-Occlude</label>
-                    <input type="checkbox" id="stroke3dOccludeInput" class="ui-checkbox" />
+                    <input type="checkbox" id="stroke3dOccludeInput" title="Hide the parts of the stroke that lie behind the object itself" class="ui-checkbox" />
                   </div>
 
                   <hr class="ui-separator" id="drawPointsSeparator" />
@@ -8893,7 +8895,6 @@
                     </div>
                   </div>
                   <div id="booleanOperandBlock" style="display: none;">
-                    <div hidden></div>
                     <div class="ui-header-small" id="booleanOperandTitle">Boolean Operand</div>
                     <div class="xyz-row">
                       <label for="booleanOpInput" title="What this object does to the ones below it in its Boolean group">Operation</label>
@@ -9172,7 +9173,7 @@
                     <div class="xyz-row xyz-axis-center">
                       <label>Axis</label>
                       <div class="xyz-inputs">
-                        <select id="revolveAxisInput">
+                        <select id="revolveAxisInput" title="The axis of revolution in the path own space - X, Y or Z (Z lays the profile x on local z)">
                           <option value="x">X</option>
                           <option value="y">Y</option>
                           <option value="z">Z</option>
@@ -9497,7 +9498,7 @@
                          group it was unreachable in stacks mode. Shown for clean AND
                          stacks; one input, one field. -->
                     <div class="xyz-row" id="sweepSegsRow">
-                      <label>Segs</label>
+                      <label>Segments</label>
                       <div class="xyz-inputs">
                         <input type="number" id="sweepCleanSegsUInput" min="1" max="256" step="1" />
                       </div>
@@ -9706,7 +9707,7 @@
                     </div>
                   </div>
                   <div class="xyz-row">
-                    <label>Div V</label>
+                    <label>Divisions</label>
                     <div class="xyz-inputs">
                       <input type="number" id="loftDivisionsVInput" step="1" min="3" max="128" value="16" />
                     </div>
@@ -9849,7 +9850,7 @@
                     <div class="ui-header-small">Render Settings</div>
 
                     <div class="xyz-row">
-                      <label>Mesh</label>
+                      <label>Algorithm</label>
                       <div class="xyz-inputs">
                         <div class="xyz-field">
                           <select id="surfaceAlgorithmSelect">
@@ -10362,7 +10363,7 @@
                     <!-- v20260721d: plain button row (no xyz-inputs field
                          background), matching the Reset Pivot convention -->
                     <div class="prop-row prop-row-plain" id="foldAddCreaseRow" style="display: flex; gap: 4px;">
-                      <button type="button" id="foldAddCreaseBtn" class="ui-btn ui-btn-small" style="flex: 1;">Add Crease</button>
+                      <button type="button" id="foldAddCreaseBtn" title="Add a crease after the last one" class="ui-btn ui-btn-small" style="flex: 1;">Add Crease</button>
                     </div>
                   </div>
                 </div>
@@ -10782,10 +10783,10 @@
         <div class="tl-curve-toolbar">
           <label>Curve</label>
           <select id="tlCurveAlgorithm" class="ui-select">
-            <option value="bezier">Bézier</option>
+            <option value="bezier">Cubic Bezier</option>
             <option value="linear">Linear</option>
             <option value="bspline">B-Spline (Cubic)</option>
-            <option value="bspline2">B-Spline (Quad)</option>
+            <option value="bspline2">B-Spline (Quadratic)</option>
           </select>
           <button id="tlCurveMirrorH" type="button" class="tl-curve-pt-btn"
             title="Mirror horizontal (reverse)"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"
@@ -11820,6 +11821,7 @@
         // Re-apply stroke-width to all objects for immediate visual feedback
         sceneObjects.forEach(obj => updateVisualsRecursive(obj));
         requestRender();
+        pushUndoState('Scale Stroke with Zoom');   // (v20261011d) scene state: the toggle is an undo step (push AFTER the write, no reselect between)
       });
     }
 
@@ -13023,6 +13025,14 @@
       }
     };
 
+    // (v20261011e) THE LABEL OF A SHAPE CONFIRM in the History panel. The nine confirm sites pushed the raw primitive type
+    // ('cuboid', 'spiral', or 'shape' for a primitive without data), which the panel capitalised into "Cuboid" - a noun where
+    // every other entry is a verb phrase. One helper, so the wording lives in one place.
+    const _shapeConfirmLabel = (type) => {
+      const NAMES = { polygon: 'Polygon', star: 'Star', ellipse: 'Ellipse', pixelArt: 'Pixel Art', spiral: 'Spiral', cycloid: 'Cycloid', lissajous: 'Lissajous', doodle: 'Doodle', text: 'Text', cuboid: 'Cuboid', sphere: 'Sphere', cylinder: 'Cylinder', cone: 'Cone' };
+      const n = type ? (NAMES[type] || (String(type).charAt(0).toUpperCase() + String(type).slice(1))) : 'shape';
+      return 'Confirm ' + n;
+    };
     const setTool = (tool) => {
       // TEXT-TOOL experimental gate: refuse activation while disabled
       if (tool === 'text' && !textToolEnabled) return;
@@ -13049,7 +13059,7 @@
             delete pendingPolygon._preCreationSceneState;
           }
           pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-          pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
+          pushUndoState(_shapeConfirmLabel(pendingPolygon?.primitiveData?.type));
           const p = pendingPolygon;
           delete p._isReEditing;
           pendingPolygon = null;
@@ -13128,7 +13138,7 @@
           delete pendingPolygon._preCreationSceneState;
         }
         pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-        pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
+        pushUndoState(_shapeConfirmLabel(pendingPolygon?.primitiveData?.type));
         const p = pendingPolygon;
         delete p._isReEditing;
         pendingPolygon = null;
@@ -14811,7 +14821,9 @@
     if (scaleStrokesCb) {
       scaleStrokesCb.addEventListener('change', (e) => {
         scaleStrokesWithObject = !!e.target.checked;
-        if (typeof saveSettings === 'function') saveSettings({ scaleStrokes: scaleStrokesWithObject });
+        // The save lives in the Settings closure (saveSettings is a const there, out of scope here: the guard that stood
+        // here read `typeof saveSettings === 'function'` and was false on every click, so the preference was never stored
+        // between v20260922i and v20261011n - the loader read a key nothing wrote). Its listener runs after this one.
         // Turning it ON mid-session means "from here on": re-arm from the
         // CURRENT widths and scale, so the strokes do not jump by the delta
         // the user already dragged. Turning it OFF puts the widths back.
@@ -15391,6 +15403,7 @@
         objects: sceneObjects.map(obj => serializeObject(obj, { undo: true })),   // v20260904e: snapshots keep disabled blocks
         backgroundColor: _currentBackgroundColor,
         frameGuide: _currentFrameGuide,
+        scaleStrokeWithZoom: !!scaleStrokeWithZoom,   // (v20261011d) scene state (it is in the file) - always present so a toggle diffs
         sceneRender: _sceneRenderSnapshot(),   // SCENE Z-SORT S1 (v20260914zzr): always present so a toggle diffs
         // Reference image (v20260724h Phase 2): enters the scene undo diff so
         // position/scale/opacity edits and add/remove are undoable. null when
@@ -15585,6 +15598,13 @@
         const fgSelect = document.getElementById('frameGuideSelect');
         if (fgSelect) fgSelect.value = state.frameGuide;
         _currentFrameGuide = state.frameGuide;
+      }
+      // (v20261011d) Scale Stroke with Zoom rides the scene undo (an entry older than the field leaves it as it is, the
+      // frameGuide reading); the checkbox follows, and every object's stroke width is re-applied as the handler does
+      if (state.scaleStrokeWithZoom !== undefined && !!state.scaleStrokeWithZoom !== !!scaleStrokeWithZoom) {
+        scaleStrokeWithZoom = !!state.scaleStrokeWithZoom;
+        const sz = document.getElementById('scaleStrokeZoomCheckbox'); if (sz) sz.checked = scaleStrokeWithZoom;
+        sceneObjects.forEach(obj => updateVisualsRecursive(obj));
       }
       // SCENE Z-SORT S1 (v20260914zzr): an entry older than the field restores
       // the defaults (off) - the same reading the loader gives an absent key.
@@ -16042,8 +16062,8 @@
           animUndoHistory.push(diffs);
           if (animUndoHistory.length > HISTORY_MAX) animUndoHistory.shift();
           _lastAnimState = deepClone(current);
+          _scheduleHistoryUpdate();   // (v20261011e) was after the return - unreachable, so the History panel lagged one event on this stack
           return true;
-          _scheduleHistoryUpdate();
         }
       }
       return false;
@@ -16268,7 +16288,7 @@
           move: 'Move', rotate: 'Rotate', scale: 'Scale', shear: 'Shear',
           fill: 'Fill', stroke: 'Stroke', style: 'Style', rename: 'Rename',
           vertices: 'Edit vertices', visibility: 'Visibility',
-          lock: 'Lock', algorithm: 'Algorithm', primitive: 'Edit primitive',
+          lock: 'Lock', algorithm: 'Path Type', primitive: 'Edit primitive',   // v20261011r: the label the dropdown wears
           extrude: 'Extrude', revolve: 'Revolve', sweep: 'Sweep', loft: 'Loft',
           mapping: 'Mapping', pivot: 'Pivot', path: 'Path',
           faceCamera: 'Face Camera', mode2D: '2D Mode', vertexPoints: 'Vertex Points',
@@ -16957,7 +16977,7 @@
       const wasSpiral = pendingPolygon.name && pendingPolygon.name.startsWith('Spl_');
       const _akOldPd = pendingPolygon.primitiveData || null; // AUTO-KEY: pre-edit params
       pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-      pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
+      pushUndoState(_shapeConfirmLabel(pendingPolygon?.primitiveData?.type));
       // AUTO-KEY (v20260721r): primitive params commit HERE (the drawer edits
       // are a transactional session; primitiveData only updates on Confirm).
       // Diff old vs new pd and record the params this re-edit changed —
@@ -17216,7 +17236,7 @@
           delete pendingPolygon._preCreationSceneState;
         }
         pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-        pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
+        pushUndoState(_shapeConfirmLabel(pendingPolygon?.primitiveData?.type));
         const p = pendingPolygon;
         delete p._isReEditing;
         pendingPolygon = null;
@@ -19975,6 +19995,12 @@
       grp.lock = !!obj.lock;
       BooleanGroup.carry(obj, grp);   // BOOLEAN (v20260928a): the group takes the text's row, and its operation
       grp.surfaceConstraint = deepClone(obj.surfaceConstraint);
+      // (v20261011c) THE GROUP KEEPS WHAT THE TEXT CARRIED: its layer range (the duration bar), its motion path and its fold
+      // (Group fold has the same shape, v20260721f). Before this the three were dropped by the swap - a layer-trimmed or
+      // motion-pathed text lost that on Split, with no notice (the shear-in-duplicateObject class, state report s11).
+      if (_tlHasLayerRange(obj)) grp.layerRanges = obj.layerRanges.map(sg => ({ in: sg.in, out: sg.out }));
+      if (obj.motionPathSettings) grp.motionPathSettings = deepClone(obj.motionPathSettings);
+      if (obj.foldSettings && obj.foldSettings.enabled) grp.foldSettings = deepClone(obj.foldSettings);
       // 2D MODE (v20260727b): the flag moves to the GROUP, not the letters —
       // letters are children whose positions are group-space offsets; each
       // letter carrying mode2D would re-anchor them all to absolute frame
@@ -21954,6 +21980,9 @@
         if (!this.isOn(g)) return { text: '', warn: false };
         if (g._booleanError) return { text: 'The result could not be drawn (' + g._booleanError + '). The objects are shown as they are.', warn: true };   // S3: the draw's crash guard
         const kids = g.children || [], st = kids.map(c => ({ c, s: this.operandStatus(c) }));
+        // (v20261011a) a GROUP row above the base that carries the Drill is refused by exprOf (a drill is one object): the hint says so
+        const base = st.findIndex(x => x.s.ok);
+        st.forEach((x, i) => { if (x.s.ok && x.s.group && i > base && this.opOf(x.c) === 'drill') x.s = { ok: false, reason: this.drillStatus(x.c).reason }; });
         const bad = st.filter(x => !x.s.ok && !x.s.hidden), ok = st.filter(x => x.s.ok);
         if (bad.length) return { text: bad[0].c.name + ' ' + bad[0].s.reason + (bad.length > 1 ? ' (and ' + (bad.length - 1) + ' more)' : ''), warn: true };
         if (!ok.length) return { text: 'The group is empty.', warn: true };
@@ -22145,8 +22174,9 @@
         }
         return res;
       },
-      // the CUTTER of a drill row: the operand's own solid with its local space scaled by k about its pivot,
-      // W . T(P) . S(k) . T(-P) - every point of the solid moves away from the pivot by k. Cached by object like solidOf.
+      // the CUTTER of a drill row: the operand's own solid GROWN by a clearance distance (v20261005d, _growLoops - every
+      // loop offset outward by the distance in its own plane; until v20261005d the local space was SCALED by k about the
+      // pivot, W . T(P) . S(k) . T(-P)). Cached by object like solidOf.
       _drillCache: new WeakMap(),
       drillSolidOf(o, view) {
         const ds = this.drillStatus(o); if (!ds.ok) return ds;
@@ -22372,6 +22402,12 @@
           const s = this.operandStatus(child);
           if (!s.ok) { if (!s.hidden) out.skipped.push({ obj: child, reason: s.reason }); continue; }
           const op = items.length ? (on ? this.opOf(child) : 'union') : undefined;
+          // (v20261011a) A DRILL IS ONE OBJECT - a GROUP row cannot drill. The engine has no 'drill' (exprOf alone
+          // translates it, below, for a Path); a group row carrying the op reached foldOperands untranslated (read as
+          // subtract by one function, intersect by another, its leaves kept positive - measured 2026-10-10: a file or a
+          // Split to Letters of a drill row makes one). It is REFUSED here, with drillStatus's reason, and drawn as
+          // itself - the one translator refuses, the model (read / carry) keeps the op so a conversion back restores it.
+          if (op === 'drill' && s.group) { out.skipped.push({ obj: child, reason: this.drillStatus(child).reason }); continue; }
           // (v20261005a) a drill's CUTTER, built first (the order of the owner's two rows; the picture does not depend on it -
           // measured against the two-row twin: identical faces; one MaskRender clip path 2 px apart where it changes no pixel).
           // A clearance of 0 is EXACTLY a union - (A - T) u T = A u T - and is made one: the two coincident surfaces of the literal
@@ -22428,7 +22464,7 @@
         t('an absent operation MEANS union', B.opOf({}) === 'union' && B.opOf(null) === 'union');
         t('an unknown operation means union', B.opOf({ booleanOp: 'xor' }) === 'union' && B.opOf({ booleanOp: 3 }) === 'union');
         t('a known operation is kept', B.opOf({ booleanOp: 'subtract' }) === 'subtract' && B.opOf({ booleanOp: 'intersect' }) === 'intersect');
-        // (v20261005a) the Drill: a known operation; its scale clamped to [1, 20], absent = 1.5, nonsense = absent; carried with the operation
+        // (v20261005a) the Drill: a known operation; its CLEARANCE (v20261005d; a scale in [1, 20] until then) clamped to [0, DRILL_CLEARANCE_MAX = 1e4], absent = DRILL_CLEARANCE_DEFAULT 0.1, nonsense = absent; carried with the operation
         t('drill: a known operation; its clearance clamped to [0, 1e4], absent = 0.1, nonsense = absent, the old scale not read; carry takes it', B.opOf({ booleanOp: 'drill' }) === 'drill'
           && B.drillClearanceOf({}) === 0.1 && B.drillClearanceOf({ booleanDrillClearance: -2 }) === 0 && B.drillClearanceOf({ booleanDrillClearance: 1e9 }) === 1e4 && B.drillClearanceOf({ booleanDrillClearance: 'x' }) === 0.1 && B.drillClearanceOf({ booleanDrillClearance: 0.25 }) === 0.25 && B.drillClearanceOf({ booleanDrillScale: 2 }) === 0.1
           && B.carry({ booleanOp: 'drill', booleanDrillClearance: 0.25 }, {}).booleanDrillClearance === 0.25 && !('booleanDrillClearance' in B.carry({ booleanOp: 'drill' }, {})));
@@ -22439,7 +22475,7 @@
           && (() => { const ln = (a, b) => [a, [a[0] + (b[0] - a[0]) / 3, a[1] + (b[1] - a[1]) / 3], [a[0] + 2 * (b[0] - a[0]) / 3, a[1] + 2 * (b[1] - a[1]) / 3], b], P = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
             const sq = [P.map((p, i) => ln(p, P[(i + 1) % 4]))], area = (Ls) => { let a = 0; for (const L of Ls) for (const sg of L) for (let k = 0; k < 64; k++) { const f = (t) => { const u = 1 - t; return [0, 1].map(i => u * u * u * sg[0][i] + 3 * u * u * t * sg[1][i] + 3 * u * t * t * sg[2][i] + t * t * t * sg[3][i]); }, p = f(k / 64), q = f((k + 1) / 64); a += p[0] * q[1] - q[0] * p[1]; } return Math.abs(a / 2); };
             return Math.abs(area(B._growLoops(sq, 0.5, { round: true })) - (8 + Math.PI / 4)) < 1e-3 && Math.abs(area(B._growLoops(sq, 0.5)) - 9) < 1e-6; })());
-        t('the operation of a NEW operand is one of the three', B.isOp(B.NEW_OP) && B.isOp(B.ABSENT_OP));
+        t('the operation of a NEW operand is one of OPS', B.isOp(B.NEW_OP) && B.isOp(B.ABSENT_OP));
         t('isOn: not a group, no settings, off, on', !B.isOn(null) && !B.isOn({ booleanSettings: { enabled: true } }) && !B.isOn({ isGroup: true })
           && !B.isOn({ isGroup: true, booleanSettings: { enabled: false } }) && B.isOn({ isGroup: true, booleanSettings: { enabled: true } }));
         t('carry copies a known operation and nothing else', B.carry({ booleanOp: 'intersect' }, {}).booleanOp === 'intersect'
@@ -22599,6 +22635,19 @@
           hg._booleanError = 'probe';
           t('a result that could not be drawn is said so, before anything else', B.hintOf(hg).warn === true && B.hintOf(hg).text === 'The result could not be drawn (probe). The objects are shown as they are.');
           hg._booleanError = '';
+          // (v20261011a) A DRILL ON A GROUP ROW: the model keeps the op (read / carry), the one translator refuses it - the engine
+          // has no 'drill', and a group row with it reached foldOperands untranslated (measured 2026-10-10)
+          { const dg = new Group('bool_drill_group'); made.push(dg); const dIn = new Group('DInner'); made.push(dIn); dIn.add(mk('DIn'));
+            dg.add(mk('DBase')); dg.add(dIn); dIn.booleanOp = 'drill'; dIn.booleanDrillClearance = 0.2; dg.booleanSettings = B.normalize({ enabled: true });
+            const ask = () => { const out = { ownerOf: new Map(), skipped: [], changed: false, groups: [], view: (typeof activeCamera !== 'undefined' && activeCamera) ? B.viewOf(activeCamera) : undefined }; const e = B.exprOf(dg, out); const ops = []; const walk = (n) => { if (n && n.op) { ops.push(n.op); walk(n.a); walk(n.b); } }; walk(e); return { e, ops, out }; };
+            const a = ask();
+            t('a GROUP row carrying the Drill is refused by exprOf (the engine has no drill): the expression is the base alone, the row skipped with the reason', a.e && a.e.leaf && a.ops.length === 0 && a.out.skipped.length === 1 && a.out.skipped[0].obj === dIn && /a drill is one object/.test(a.out.skipped[0].reason), J([a.ops, a.out.skipped.map(x => x.reason)]));
+            t('... the hint under the switch warns with the same words', B.hintOf(dg).warn === true && /DInner is a group - a drill is one object/.test(B.hintOf(dg).text), B.hintOf(dg).text);
+            t('... the op survives on the group (the model is not stripped; a conversion back restores a working drill)', B.opOf(dIn) === 'drill' && B.drillClearanceOf(dIn) === 0.2);
+            dIn.booleanOp = 'subtract'; const c = ask();
+            t('CONTROL - the same group row as a Subtract is taken: one engine op, nothing skipped, the hint reads the group', c.ops.length === 1 && c.ops[0] === 'subtract' && c.out.skipped.length === 0 && B.hintOf(dg).warn === false, J([c.ops, B.hintOf(dg).text]));
+            dIn.booleanOp = 'drill'; dg.children.reverse();
+            t('CONTROL - the same group row as the BASE keeps its drill unused and is not refused (kept, not used)', ask().out.skipped.length === 0 && B.baseIndex(dg) === 0 && B.hintOf(dg).warn === false, B.hintOf(dg).text); }
 
           // --- S2: the engine, and the bridge to it
           const E = BooleanEngine, PZ = BooleanPieces, V3 = E.V;
@@ -22768,7 +22817,7 @@
     // BOOLEAN GROUPS, slice S1 (v20260928b): THE INTERFACE (plan of record _plans/PLAN-boolean-interface.md,
     // shown to the owner on the running app before it was built). One button beside Group / Ungroup (and
     // Cmd+B), one switch with its settings in 3D Settings, one icon on every row of a Boolean group with a
-    // menu of the three operations, one line of text for a refusal. No tool, no tab, no dialog, no mode.
+    // menu of the four operations (the Drill since v20261005a), one line of text for a refusal. No tool, no tab, no dialog, no mode.
     // THE PICTURE IS NOT IN THIS SLICE: a Boolean group still draws its children as separate objects, so
     // the whole interface sits behind a Settings checkbox, OFF by default, until the picture exists (S3).
     // With the gate off nothing here is shown and nothing is written; the model of S0 is untouched by it.
@@ -22907,14 +22956,18 @@
         else if (base) w = svg(this.ICON10.base, 'tree-op-base', 'Base: the bottom row. The others act on it.');
         else {
           const op = BooleanGroup.opOf(obj);
-          w = svg(this.ICON10[op], 'tree-op-toggle' + (s.hidden ? ' tree-op-stale' : ''), this.OP_LABEL[op] + ' - click to change');
+          // (v20261011a) a group row that carries the Drill is refused (exprOf: a drill is one object): the toggle stays - so the
+          // op can be changed here - but reads as a warning, and the row as skipped
+          const gd = op === 'drill' && s.group, why = gd ? BooleanGroup.drillStatus(obj).reason : '';
+          w = svg(this.ICON10[op], 'tree-op-toggle' + (s.hidden ? ' tree-op-stale' : '') + (gd ? ' tree-op-warn' : ''), this.OP_LABEL[op] + (gd ? ' - ' + obj.name + ' ' + why + ' Click to change.' : ' - click to change'));
+          if (gd) li.classList.add('boolean-skipped');
           w.addEventListener('click', (e) => { e.stopPropagation(); this.openFlyout(w, obj); });
           w.addEventListener('dblclick', (e) => e.stopPropagation());
         }
         statusIcons.appendChild(w);
       },
 
-      // ---- the menu of the three operations, in the form of the pen flyout
+      // ---- the menu of the four operations (Union / Subtract / Intersect / Drill), in the form of the pen flyout
       _flyoutFor: null,
       _flyOutside: null, _flyKey: null,
       openFlyout(anchor, obj) {
@@ -22974,7 +23027,7 @@
           const base = bp.children.indexOf(o) === BooleanGroup.baseIndex(bp), sel = this._el('booleanOpInput'), s = BooleanGroup.operandStatus(o), H = this._el('booleanOperandHint');
           if (document.activeElement !== sel) sel.value = BooleanGroup.opOf(o);
           sel.disabled = base || (!s.ok && !s.hidden);
-          // (v20261005a) the Drill option follows the predicate; its Scale row shows on a drill row
+          // (v20261005a) the Drill option follows the predicate; its Clearance row (v20261005d; Scale until then) shows on a drill row
           const ds = BooleanGroup.drillStatus(o), dOpt = sel.querySelector('option[value="drill"]');
           if (dOpt) { dOpt.disabled = !ds.ok && BooleanGroup.opOf(o) !== 'drill'; dOpt.title = ds.ok ? 'Cut a hole a clearance wider than this object all round, and keep the object in it' : (o.name + ' ' + ds.reason); }
           const isDrill = !base && BooleanGroup.opOf(o) === 'drill', dRow = this._el('booleanDrillClearanceRow'), dIn = this._el('booleanDrillClearanceInput');
@@ -25403,10 +25456,11 @@
     // edges as exact projected cubics, seams and silhouettes as fitted cubics, a seam fitted ONCE for the two
     // faces that meet along it (canonical seams), so the two pieces share the same bytes there.
     // ORIGIN: the lab's _docs/cad_research/cadlab_render.js (md5 aa6f0fd7c3c9c416f2c310c429fd7bb5), by script. Left in the lab:
-    // its painter (orderPieces, the ink layer) and its SVG writer. Brought along as TEST INSTRUMENTS, used by
-    // BooleanGroup.selfTest and by nothing that draws: makeCamera (a camera that needs no scene), rayEntries
-    // and oracleHit (a view ray walked through the expression on the plain implicit function - an independent
-    // answer that shares nothing with the trimming).
+    // its painter (orderPieces, the ink layer) and its SVG writer. Brought along as TEST INSTRUMENTS at first:
+    // makeCamera (a camera that needs no scene), rayEntries and oracleHit (a view ray walked through the expression
+    // on the plain implicit function - an independent answer that shares nothing with the trimming). Since
+    // v20261006a rayEntries DRAWS too: MaskRender's EXACT_GROUP_RANK (one ray per overlap part) and INK_REACH
+    // (v20261008a) read it; oracleHit and makeCamera stay instruments of BooleanGroup.selfTest and the probes.
     const BooleanPieces = (() => {
       'use strict';
       const C = BooleanEngine, { V } = C;
@@ -26775,7 +26829,18 @@
     };
     const BooleanPool = {
       enabled: true, size: 0, failed: false, pass: 0, _passSeq: 0, _fid: 0, _workers: null, _est: new Map(), _pose: null,
-      stats: { frames: 0, used: 0, missed: 0, jobs: 0, engineErrors: 0, workers: 0, ms: 0, waitMs: 0, errors: 0, lastError: '', poseRestored: 0, targets: 0, skipped: 0 },
+      // (v20261011g) THE WALL IS THE HEAVIEST FACE. Whole faces go to the workers (a face's patches share its store), and the
+      // frame waits for the slowest worker: measured on the owner's scenes the wait EQUALS the heaviest face unit (pool demo
+      // 37 ms wall, heaviest face 39, the six workers' sum 151 - a balanced share of 25) - two faces carried half the engine
+      // while four workers sat idle. A unit over SPLIT_OVER x the balanced share is cut in two by its jobs' last costs and the
+      // parts placed apart (as many parts as it holds balanced shares); only those (the store of a split face is built once
+      // per worker, which is why v20261002h did not scatter every patch: 97 ms against 45 - and why a part costs more than its
+      // planned share: the pool demo's slowest worker 26.6 ms busy against a planned 17). The trims are the same bytes whatever
+      // the placement (boolean_pool_split_ab.mjs A1). SPLIT_OVER 1.0 measured against 1.5 in the same probe: 1.5 left the
+      // second face whole at 30 ms (the wall followed it); 1.0 cut both (pool demo wall 32.4 -> 27.4, sheets 14.8 -> 12.8,
+      // the owner's three scenes: no unit over the share, nothing cut, unchanged).
+      SPLIT_HEAVY: true, SPLIT_OVER: 1.0,
+      stats: { frames: 0, used: 0, missed: 0, jobs: 0, engineErrors: 0, workers: 0, ms: 0, waitMs: 0, errors: 0, lastError: '', poseRestored: 0, targets: 0, skipped: 0, lastSplit: 0, lastMaxUnit: 0, lastSumUnits: 0 },
       usable() { return this.enabled && !this.failed && typeof Worker === 'function' && typeof Blob === 'function' && typeof URL !== 'undefined' && !!URL.createObjectURL; },
       _source() {
         const txt = Array.from(document.scripts).map(sc => sc.textContent || '').find(t => t.indexOf('const BooleanEngine = (() => {') >= 0);
@@ -26818,7 +26883,22 @@
         // (NOT the main thread too: given the largest units while it waited, the frames came out SLOWER - the owner's IX06 41.5 ->
         // 46 ms, border gap 58 -> 65 - and several workers at once are slower each already: the same jobs cost 44 ms of one
         // worker's time and 100 - 140 summed over six. The cores of this Mac slow each other; the pool still wins.)
-        const order = Array.from(units.values()).sort((p, q) => q.c - p.c), load = workers.map(() => 0), parts = workers.map(() => []);
+        let list = Array.from(units.values()); const total = list.reduce((a, u) => a + u.c, 0);
+        this.stats.lastSplit = 0; this.stats.lastSumUnits = total;
+        if (this.SPLIT_HEAVY && workers.length > 1) {   // (v20261011g) see SPLIT_HEAVY above
+          const share = total / workers.length, over = share * this.SPLIT_OVER, cost = (i) => this._est.has(jk(jobs[i])) ? this._est.get(jk(jobs[i])) : mean, next = [];
+          for (const u of list) {
+            if (!(u.c > over && u.idx.length >= 2)) { next.push(u); continue; }
+            // into as many parts as the unit holds balanced shares (at most one per job), cut by cumulative cost
+            const k = Math.max(2, Math.min(u.idx.length, Math.ceil(u.c / share))), goal = u.c / k; let part = { idx: [], c: 0 };
+            for (const i of u.idx) { const ci = cost(i); if (part.idx.length && part.c + ci > goal) { next.push(part); part = { idx: [], c: 0 }; } part.idx.push(i); part.c += ci; }
+            if (part.idx.length) next.push(part);
+            this.stats.lastSplit++;
+          }
+          list = next;
+        }
+        const order = list.sort((p, q) => q.c - p.c), load = workers.map(() => 0), parts = workers.map(() => []);
+        this.stats.lastMaxUnit = order.length ? order[0].c : 0;
         for (const u of order) { let m = 0; for (let w = 1; w < workers.length; w++) if (load[w] < load[m]) m = w; load[m] += u.c; for (const i of u.idx) parts[m].push(i); }
         const exprS = ser(expr), key = S0.opts.key, t0 = performance.now();
         const replies = await Promise.all(workers.map((rec, w) => {
@@ -26827,7 +26907,8 @@
           const add = []; for (const [id, c] of ctors) if (!rec.sent.has(id)) { add.push(c); rec.sent.add(id); }
           return this._post(rec, { fid: ++this._fid, key, add, expr: exprS, cam: cam.data, behind: !!cam.behind, jobs: parts[w].map(i => { const j = jobs[i]; return [j.leaf, j.faceIndex, j.back, j.patch]; }) });
         }));
-        this.stats.waitMs += performance.now() - t0; this.stats.jobs += jobs.length;
+        this.stats.waitMs += performance.now() - t0; this.stats.jobs += jobs.length; this.stats.lastWall = performance.now() - t0;
+        this.stats.lastWorkerBusy = Math.max(0, ...replies.map(r => r.reduce((a, x) => a + (x.ms || 0), 0)));   // (v20261011g) the slowest worker's own time: the wall above it is transfer + idle
         const res = new Array(jobs.length); replies.forEach((r, w) => parts[w].forEach((i, n) => { res[i] = r[n]; }));
         if (this._est.size > 20000) this._est.clear();
         const out = [], seen = new Set();
@@ -46548,7 +46629,9 @@
       // 9–13.7u line weights it is 4.5–7u. Do NOT close it by dilating the hole:
       // that makes clip geometry a function of stroke width, which is the
       // v20260814b/d decline. The remedy is per-boundary stroke overlays
-      // re-expressed clip-natively (plan M3), and it is not built here.
+      // re-expressed clip-natively (plan M3) - BUILT since: _clipStrokeOverlay
+      // (the M3 bands) and, for a Boolean group's pieces, st.inkBands
+      // (OCCLUDER_INK, v20261007a). The accounting above is the gap as it stood.
       //
       // THE DEFAULT PRODUCER (comment corrected v20260914zze; it said "debug
       // entry only" from M0). clipExport is what every Cmd+C / Export SVG /
@@ -50622,12 +50705,9 @@
       XR_REFINE_TOL: 0.5,       // px — screen refinement tolerance for mapped region rings
       XR_NEWTON_TOL2: 1e-4,     // px² — Newton screen-inversion convergence
       ORDER_DEPTH_EPS: 1e-7,    // depth gap below this at a common point = no order constraint (Proposal A)
-      //   when true, orderFaces re-checks every probed edge against the FINAL
-      //   paint order and counts mismatches in stats.orderViolations — the
-      //   v20260705j violation methodology as a standing console tool. It
-      //   adjudicated (and killed) the C0 verdict-recording experiment:
-      //   cheap coverage modes scored 13–88 violations vs baseline 0–3.
-      stats: null,
+      // (The `stats` field and its orderFaces / stats.orderViolations note - the v20260705j violation methodology
+      //  that adjudicated the C0 experiment, 13-88 violations vs 0-3 - went with the painter in v20260806f; nothing
+      //  read or wrote the field since. Removed v20261011x.)
       // ---- depth plane ---------------------------------------------------
       // Fit z = a·x + b·y + c through projected face points (x,y in
       // d-coordinate space, z = NDC depth). Newell's normal over the point
@@ -71090,7 +71170,7 @@
             c.setAttribute('r', 5 / mainScale);
             c.setAttribute('class', 'corner-widget' + (Path._cornerDrag && Path._cornerDrag.key === obj.id + '_' + vi ? ' dragging' : ''));
             c.dataset.cornerWidget = obj.id + '_' + vi;
-            const modeNow = ({ bspline: 'B-Spline (Cubic)', bspline2: 'B-Spline (Quad)' }[cornerModeOf(e && e.mode)] || 'Arc');
+            const modeNow = ({ bspline: 'B-Spline (Cubic)', bspline2: 'B-Spline (Quadratic)' }[cornerModeOf(e && e.mode)] || 'Arc');
             c.setAttribute('title', 'Round corner: drag toward the corner to round it (' + modeNow + ')');
             vertexGizmoGroup.appendChild(c);
             Path._cornerWidgets.set(obj.id + '_' + vi, { obj, vi, J, r });
@@ -76881,10 +76961,14 @@
       if (selectedObject) {
         // --- Show Selected Object Panel ---
         if (selectedObjectContent) selectedObjectContent.style.display = 'block';
-        // Auto-expand the selected object collapsible section
+        // Auto-expand the selected object collapsible section - on a selection CHANGE only (v20261011m). This
+        // function runs on every nudge, drag end, undo and unit change (103 call sites); until v20261011m it
+        // re-opened the section on each of them, so a collapsed section came back on the next arrow key.
         const soHeader = document.getElementById('selectedObjectHeader');
         const soBody = document.getElementById('cb-selected-object');
-        if (soHeader && soBody && soBody.classList.contains('collapsed')) {
+        const soNewSel = selectedObject !== updatePropertiesPanel._lastSel;
+        updatePropertiesPanel._lastSel = selectedObject;
+        if (soNewSel && soHeader && soBody && soBody.classList.contains('collapsed')) {
           soBody.classList.remove('collapsed');
           soHeader.classList.remove('collapsed');
           const chevron = soHeader.querySelector('.collapse-chevron');
@@ -77022,6 +77106,7 @@
         // Update Subpath UI
         updateSubPathUI();
       } else {
+        updatePropertiesPanel._lastSel = null;   // v20261011m: re-selecting the same object after a deselect expands again
         propertiesPanel.style.display = 'none';
         if (selectedObjectContent) selectedObjectContent.style.display = 'none';
         // Reset name input to placeholder state
@@ -77976,6 +78061,17 @@
 
           const middleIds = isPath ? (selectedObject.loftSettings?.middleIds || []) : [];
           const MAX_MIDDLES = 8;
+          // v20261011p: rebuild the rows only when they would DIFFER - the owner, the target, the middles, the enabled /
+          // path state and the candidate list (ids + the labels populateRefSelect shows: a rename or a reparent rebuilds).
+          // This function runs on most edits; until v20261011p every call emptied the container and re-attached the change
+          // listeners. On a match the two checkboxes follow the model in place (an undo flips them without touching middleIds).
+          const _lmCands = _refCandidates(selectedObject).filter(c => c.obj instanceof Path).map(c => c.obj.id + '=' + c.label).join('|');
+          const _lmSig = [selectedObject.id, currentTargetId, middleIds.join(','), loftEnabled ? 1 : 0, isPath ? 1 : 0, _lmCands].join('\u0001');
+          if (loftMiddleContainer.dataset.sig === _lmSig) {
+            const _as = document.getElementById('loftAutoSortMiddlesInput'); if (_as && document.activeElement !== _as) _as.checked = isPath ? (selectedObject.loftSettings?.autoSortMiddles !== false) : true;
+            const _sm = document.getElementById('loftSmoothMiddlesInput'); if (_sm && document.activeElement !== _sm) _sm.checked = isPath ? (selectedObject.loftSettings?.smoothMiddles || false) : false;
+          } else {
+          loftMiddleContainer.dataset.sig = _lmSig;
           loftMiddleContainer.innerHTML = '';
 
           // Build rows: one per existing middle + one empty "add" row (if under cap)
@@ -78088,12 +78184,13 @@
             smoothRow.appendChild(smoothCb);
             loftMiddleContainer.appendChild(smoothRow);
           }
+          }   // v20261011p: end of the rebuild branch
         }
 
         // Depth input
         const loftDepthInput = document.getElementById('loftDepthInput');
         if (loftDepthInput && document.activeElement !== loftDepthInput) {
-          loftDepthInput.value = isPath && selectedObject.loftSettings?.depth !== undefined ? selectedObject.loftSettings.depth : 1.0;
+          loftDepthInput.value = fmtDisplay(isPath && selectedObject.loftSettings?.depth !== undefined ? selectedObject.loftSettings.depth : 1.0);   // v20261011o: display units, as Extrude Depth
           loftDepthInput.disabled = !isPath || !loftEnabled;
         }
 
@@ -78298,8 +78395,6 @@
       const zSortModeInput = document.getElementById('zSortModeInput');
       const renderIntersectionsRow = document.getElementById('renderIntersectionsRow');
       const renderIntersectionsCb = document.getElementById('renderIntersectionsCb');
-      const renderIntersectionsMethodRow = document.getElementById('renderIntersectionsMethodRow');
-      const renderIntersectionsMethodInput = document.getElementById('renderIntersectionsMethodInput');
       // BACKSIDE: SHEET / VIEW (v20260817a) — group-only, always visible for
       // groups (it is general: fold, pristine fold, plain layered groups).
       {
@@ -78338,23 +78433,7 @@
           if (renderIntersectionsCb && document.activeElement !== renderIntersectionsCb) {
             renderIntersectionsCb.checked = isRiActive;
           }
-          if (renderIntersectionsMethodRow) {
-            // MASK_ONLY: one method, so the picker has nothing to pick.
-            renderIntersectionsMethodRow.style.display =
-              (!MASK_ONLY && selectedObject.zSortChildren && isRiActive) ? '' : 'none';
-          }
-          // MASK RENDERER: a first-class method since v20260805c — always
-          // listed, no longer behind the raster-helper Settings gate (that
-          // gate still governs the PAINTER-side helper consumers and the
-          // debug view, which is why it stays).
-          if (renderIntersectionsMethodInput && document.activeElement !== renderIntersectionsMethodInput) {
-            // A group with a method set reports it; a group with NONE set
-            // pre-selects Masks, so ticking Render Intersections applies the
-            // default method (the checkbox handler reads this value).
-            // one method remains, so this is constant; the row is hidden by
-            // MASK_ONLY anyway (v20260807g).
-            renderIntersectionsMethodInput.value = 'maskRender';
-          }
+          // The Method picker (Masks, the one method since MASK_ONLY) was synced and hidden here until v20261011q.
           // --- RASTER HELPER (experimental): Show Raster Image debug row ---
           // rides on the RI checkbox; a SESSION-ONLY global lens (the state
           // lives on RasterHelper.SHOW_RASTER, never on the group, never
@@ -78388,7 +78467,6 @@
           zSortChildrenRow.style.display = 'none';
           if (zSortModeRow) zSortModeRow.style.display = 'none';
           if (renderIntersectionsRow) renderIntersectionsRow.style.display = 'none';
-          if (renderIntersectionsMethodRow) renderIntersectionsMethodRow.style.display = 'none';
           const _rhvRow = document.getElementById('rasterHelperViewRow'); // RASTER HELPER
           if (_rhvRow) _rhvRow.style.display = 'none';
           const _rhoRow = document.getElementById('rasterHelperOpacityRow'); // RASTER HELPER
@@ -78483,7 +78561,7 @@
         const sfBendAlongInput = document.getElementById('splineFlowBendAlong');
 
         if (sc) {
-          if (offInput && document.activeElement !== offInput) offInput.value = sc.offset || 0;
+          if (offInput && document.activeElement !== offInput) offInput.value = sc.offset || 0;   // a FRACTION of the rail's u (the mapper reads 0.5 + offset), not a length: never a display unit (v20261011o)
           if (hOffInput && document.activeElement !== hOffInput) hOffInput.value = sc.hOffset || 0;
           if (resInput && document.activeElement !== resInput) resInput.value = sc.resolution || 16;
           if (splitInput && document.activeElement !== splitInput) splitInput.checked = (sc.silhouetteSplit !== false);
@@ -78708,7 +78786,7 @@
           const fdWave = fdMode === 'wave'; // WAVE (v20260821g)
           syncSel(fdModeInput, fdMode);
           if (fdRadiusRow) fdRadiusRow.style.display = (fdMode === 'wrap' || fdMode === 'curl') ? '' : 'none';
-          syncSel(fdRadiusInput, cr ? (cr.radius ?? 0.5) : 0.5);
+          syncSel(fdRadiusInput, fmtDisplay(cr ? (cr.radius ?? 0.5) : 0.5));   // v20261011o: display units (a world length - the wrap's arc is radius x angle)
           if (fdPitchRow) fdPitchRow.style.display = fdMode === 'curl' ? '' : 'none';
           syncSel(fdPitchInput, cr ? (cr.pitch ?? 0) : 0);
           const fdTightenInput = document.getElementById('foldTightenInput');
@@ -80178,7 +80256,7 @@
         fdApply(fd => { const v = e.target.value; fd.wavePaper = v === 'stretch' ? 'stretch' : 'conserve'; });
       });
       document.getElementById('foldRadiusInput')?.addEventListener('input', (e) => {
-        fdApply((fd, cr) => { const v = parseFloat(e.target.value); cr.radius = isFinite(v) ? Math.max(0, v) : 0.5; }, ['fdRadius']);
+        fdApply((fd, cr) => { const v = parseFloat(e.target.value); cr.radius = isFinite(v) ? Math.max(0, fromDisplay(v)) : 0.5; }, ['fdRadius']);   // v20261011o: display units
       });
       document.getElementById('foldPitchInput')?.addEventListener('input', (e) => {
         fdApply((fd, cr) => { const v = parseFloat(e.target.value); cr.pitch = isFinite(v) ? v : 0; }, ['fdPitch']);
@@ -81174,7 +81252,16 @@
           newPath.visible = obj.visible; newPath.lock = obj.lock;
           newPath.silhouetteSplit = !!obj.silhouetteSplit;   // v20260907a (the second duplicate branch)
           BooleanGroup.carry(obj, newPath);   // BOOLEAN (v20260928a): every piece keeps the operation of the whole
-          if (obj.faceCamera !== undefined) newPath.faceCamera = obj.faceCamera;
+          // ROUND CORNERS ride along (v20261011b): the map is keyed by RAW vertex index, so a piece takes the entries of
+          // its own subpath re-based to its own buffer (index - sp.start; every subpath starts on an anchor, so a bezier
+          // stride keeps its anchors). Before this the pieces of a round-cornered compound came apart SHARP, with no notice.
+          if (obj.corners) {
+            const c = {}; for (const k of Object.keys(obj.corners)) { const i = +k, e = obj.corners[k]; if (e && +e.r > 0 && i >= sp.start && i < sp.start + sp.count) c[i - sp.start] = { ...e }; }
+            if (Object.keys(c).length) { newPath.corners = c; newPath._effGeoCache = null; }
+          }
+          // (v20261011b) a faceCamera record of the piece's OWN - it was copied BY REFERENCE, so every piece shared one object and
+          // the Face Camera checkboxes on one piece flipped them all (duplicateObject spreads a copy; the two branches now agree)
+          if (obj.faceCamera !== undefined) newPath.faceCamera = (obj.faceCamera && typeof obj.faceCamera === 'object') ? { ...obj.faceCamera } : obj.faceCamera;
           if (obj.mode2D) newPath.mode2D = true;
           if (_tlHasLayerRange(obj)) newPath.layerRanges = obj.layerRanges.map(sg => ({ in: sg.in, out: sg.out }));
           for (const key of ['extrudeSettings', 'revolveSettings', 'sweepSettings', 'loftSettings',
@@ -82692,7 +82779,7 @@
 
           if (loftEnabled) obj.loftSettings.enabled = loftEnabled.checked;
           if (loftTarget) obj.loftSettings.targetId = adoptRef(loftTarget, obj.loftSettings.targetId); // bulk write — see adoptRef
-          if (loftDepth) obj.loftSettings.depth = parseFloat(loftDepth.value) || 1.0;
+          if (loftDepth) { const _ld = parseFloat(loftDepth.value); obj.loftSettings.depth = _ld ? fromDisplay(_ld) : 1.0; }   // v20261011o: display units (empty / 0 -> 1.0, as before)
           if (loftSegments) obj.loftSettings.segments = parseInt(loftSegments.value) || 16;
           if (loftInterp) obj.loftSettings.interpolation = loftInterp.value;
           if (loftAutoAlign) obj.loftSettings.autoAlign = loftAutoAlign.checked;
@@ -83074,18 +83161,11 @@
     document.getElementById('renderIntersectionsCb').addEventListener('change', function (e) {
       if (selectedObject && selectedObject.isGroup) {
         pushUndoState();
-        const methodInput = document.getElementById('renderIntersectionsMethodInput');
-        // v20260805c: Masks is the default method for a first application —
-        // updateStylePanel pre-selects it on a group with none set, and this
-        // fallback matches for the (defensive) missing-element case.
-        // MASK_ONLY: the picker is hidden, so never read a stale value from it.
-        const method = MASK_ONLY ? 'maskRender' : (methodInput ? methodInput.value : 'maskRender');
+        // Masks is the one method (MASK_ONLY, v20260806c); the Method picker that chose it went in v20261011q.
         if (e.target.checked) {
-          if (method === 'maskRender') {
-            selectedObject.pathRender = false;
-            selectedObject.renderIntersections = false;
-            selectedObject.maskRender = true;
-          }
+          selectedObject.pathRender = false;
+          selectedObject.renderIntersections = false;
+          selectedObject.maskRender = true;
         } else {
           selectedObject.pathRender = false;
           selectedObject.renderIntersections = false;
@@ -83094,22 +83174,6 @@
         updateStylePanel(selectedObject);
         requestRender();
         pushUndoState('Render Intersections');   // v20260914w
-      }
-    });
-    document.getElementById('renderIntersectionsMethodInput').addEventListener('change', function (e) {
-      if (selectedObject && selectedObject.isGroup) {
-        pushUndoState();
-        const checked = document.getElementById('renderIntersectionsCb').checked;
-        if (checked) {
-          if (e.target.value === 'maskRender') {
-            selectedObject.pathRender = false;
-            selectedObject.renderIntersections = false;
-            selectedObject.maskRender = true;
-          }
-        }
-        updateStylePanel(selectedObject);
-        requestRender();
-        pushUndoState('Render method');   // v20260914w
       }
     });
     document.getElementById('vertexDrawPointsInput').addEventListener('change', updateStyleFromInput);
@@ -84755,8 +84819,10 @@
     let _tlLastAdvanceMs = 0;      // when the review clock last stepped a frame
     // --- ANIMATION RENDER CACHE (v20260809f, PLAN-animation-render-cache.md P1) ---
     // Caches the EMITTED SVG of each animation frame so a repeat play does not
-    // re-derive it. Phase 1 is flag-driven: no UI (Phase 3) and NO AUTOMATIC
-    // INVALIDATION (Phase 2) — edit the scene and you must clear() by hand.
+    // re-derive it. Phase 1 was flag-driven with no UI and no automatic
+    // invalidation; since then the cache is keyed on renderCacheEpoch (grep it in
+    // step) - an edit bumps the epoch and the stale frames are dropped, clear()
+    // is no longer a hand step (the Phase 2 note that stood here was stale).
     //
     // WHY IT IS WORTH CACHING AT ALL. Measured on ix_03_vase_blades (386 faces,
     // 5,760 pairs): deriving one frame costs 137-405 ms, while cloning the
@@ -89847,7 +89913,7 @@
                   delete pendingPolygon._preCreationSceneState;
                 }
                 pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-                pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
+                pushUndoState(_shapeConfirmLabel(pendingPolygon?.primitiveData?.type));
                 const confirmedShape = pendingPolygon;
                 delete confirmedShape._isReEditing;
                 pendingPolygon = null;
@@ -89995,7 +90061,7 @@
                       delete pendingPolygon._preCreationSceneState;
                     }
                     pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-                    pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
+                    pushUndoState(_shapeConfirmLabel(pendingPolygon?.primitiveData?.type));
                     pendingPolygon = null;
                     activePath = null;
                     updateTreeView();
@@ -92446,7 +92512,7 @@
               delete pendingPolygon._preCreationSceneState;
             }
             pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-            pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
+            pushUndoState(_shapeConfirmLabel(pendingPolygon?.primitiveData?.type));
             const confirmedShape = pendingPolygon;
             pendingPolygon = null;
             activePath = null;
@@ -92567,7 +92633,7 @@
             }
             const wasCycloid = pendingPolygon.name && (pendingPolygon.name.startsWith('Cyc_') || pendingPolygon.name.startsWith('LCyc_') || pendingPolygon.name.startsWith('PCyc_'));
             pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-            pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
+            pushUndoState(_shapeConfirmLabel(pendingPolygon?.primitiveData?.type));
             const confirmedShape = pendingPolygon;
             pendingPolygon = null;
             activePath = null;
@@ -92765,7 +92831,7 @@
             }
             const wasLissajous = pendingPolygon.name && pendingPolygon.name.startsWith('Lis_');
             pendingPolygon.primitiveData = captureCurrentPrimitiveData(pendingPolygon);
-            pushUndoState(pendingPolygon?.primitiveData?.type || 'shape');
+            pushUndoState(_shapeConfirmLabel(pendingPolygon?.primitiveData?.type));
             const confirmedShape = pendingPolygon;
             pendingPolygon = null;
             activePath = null;
@@ -94334,7 +94400,8 @@
       const L = _exportLossy; if (!L) return;
       const parts = [];
       if (L.capDropped) parts.push(L.capDropped + ' occluder' + (L.capDropped === 1 ? '' : 's') + ' dropped to fit the nesting budget');
-      if (L.failed) parts.push(L.failed + ' clip level' + (L.failed === 1 ? '' : 's') + ' failed to convert');
+      if (L.reason) parts.push(L.reason);   // (v20261011d) the conversion threw: the message, and what was shipped instead
+      else if (L.failed) parts.push(L.failed + ' clip level' + (L.failed === 1 ? '' : 's') + ' failed to convert');
       try {
         showAppConfirm('Export was lossy',
           'The SVG ' + what + ', but its occlusion clips are incomplete: ' + parts.join('; ') + '. '
@@ -94367,10 +94434,11 @@
       // #pathGroup is display:none while a cached frame is presented, which the
       // hidden-element pass below would then drop). Strip the cache group and put
       // #pathGroup back on in the CLONE only — the live DOM is untouched.
-      // KNOWN GAP, Phase 1 only: during cached playback the live tree holds the last
-      // frame that was drawn live, so an export taken mid-playback is that frame,
-      // not the one on screen. Phase 3 closes it by forcing one live draw before
-      // export; harmless while this is a console flag with no UI.
+      // KNOWN GAP (Phase 1), mostly closed: during cached playback the live tree holds
+      // the last frame that was drawn live, so an export taken mid-playback would be
+      // that frame, not the one on screen. withLiveTree (grep it) forces one live draw
+      // at the three async entries (the file, the clipboard, the sequence); what
+      // remains is a DIRECT generateSVGString() call from the console mid-playback.
       {
         const _rcClone = clonedGroup.querySelector('#renderCacheGroup');
         if (_rcClone) _rcClone.remove();
@@ -94542,7 +94610,28 @@
                   + ' capDropped=' + _exportLossy.capDropped + ' - the Illustrator paste may show a face unclipped (MaskRender.clipExport stats).');
               }
             }
-            catch (err) { console.error('[MaskRender] export clip conversion failed (masks kept in export):', err); }
+            catch (err) {
+              // (v20261011d) A FAILED CONVERSION MUST NOT SHIP SILENTLY. Until now a throw here was a console line and the
+              // owner got the file as it stood. What it holds depends on WHERE the converter threw (measured): past its
+              // teardown - the one throw it makes on purpose, _clipNormalizeWinding "an un-normalised file is worse than no
+              // file" - the masks are already gone and the clip chains stand UN-NORMALISED (Illustrator reads a compound clip
+              // nonzero whatever its clip-rule, so a level may read wrong there, while the browser draws it right); before
+              // the teardown the clone keeps its <mask> elements, which Illustrator does not read at all. Now: the lossy
+              // notice shows with the reason; where masks are still there the FALLBACK producer runs on the clone (the
+              // contract of this seam: each producer leaves it mask-free); an un-normalised file is shipped as the only file
+              // there is, and the notice says which clip levels may read wrong.
+              const why = String(err && err.message || err).split('\n')[0];
+              console.error('[MaskRender] export clip conversion failed (' + why + '):', err);
+              let what;
+              if (clonedGroup.querySelector('mask[id^="mrm"]')) {
+                what = 'the flatten fallback drew the occlusion instead';
+                try { MaskRender.flattenExport(clonedGroup); } catch (err2) { what = 'the flatten fallback failed too - the masks are left in the file, which Illustrator does not read'; console.error('[MaskRender] flatten fallback failed:', err2); }
+              } else {
+                const lv = clonedGroup.querySelectorAll('clipPath[id^="cvc"]').length;
+                what = 'the file holds ' + lv + ' clip level' + (lv === 1 ? '' : 's') + ' whose winding was not normalised - a compound clip may read wrong in Illustrator (nonzero), right in a browser';
+              }
+              _exportLossy = { failed: 1, capDropped: 0, reason: 'the clip conversion threw (' + why + '); ' + what };
+            }
           } else {
             try { MaskRender.flattenExport(clonedGroup); }
             catch (err) { console.error('[MaskRender] export flatten failed (masks kept in export):', err); }
@@ -94997,6 +95086,14 @@
       if (keyLower === 'd') isDPressed = true;
 
       if (event.key === 'Tab') {
+        // v20261011zb (owner: keep the guides toggle, but travel the forms when a form is focused): Tab toggles the
+        // guides when the focus is on the canvas or on nothing (the body, the <html>, the SVG); with any element
+        // focused - a button, a checkbox, a select, a tree row - it is left to the browser's own focus traversal
+        // (Shift+Tab backwards). Text fields never reach here (the guard at the top). A click on the canvas blurs
+        // whatever was focused, so the next Tab toggles again.
+        const _ae = document.activeElement, _aeTag = _ae ? String(_ae.tagName).toUpperCase() : '';
+        const _onCanvas = !_ae || _aeTag === 'BODY' || _aeTag === 'HTML' || _aeTag === 'SVG' || !!_ae.closest('#svgContainer');
+        if (!_onCanvas) return;
         event.preventDefault();
         showGuides = !showGuides;
         requestRender();
@@ -98338,7 +98435,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       // (§11 of the state report has the full checklist). Removal is one-way and
       // deliberately silent: the value is dead by the time it is deleted, so there
       // is nothing to warn about.
-      const RETIRED_SETTINGS_KEYS = ['animationEnabled', 'textToolEnabled'];
+      const RETIRED_SETTINGS_KEYS = ['animationEnabled', 'textToolEnabled', 'importExportUnit'];   // (v20261011e) the legacy unit key, ignored by loadSettings, pruned at last
 
       // --- THEME (v20260908b, dark-mode Phase 2) ---
       // The preference is three-state (system / light / dark) and is what gets
@@ -98370,7 +98467,20 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         }
         // The ruler canvas reads its inks at draw time — one redraw is the theme.
         try { tlDrawRuler(); } catch (e) { /* declared later; nothing to repaint at boot */ }
+        _syncThemeColorMeta();   // v20261011u
         requestRender();   // the dirty-signal rule: every mutation reaches requestRender
+      };
+      // THE BROWSER CHROME COLOUR (v20261011u): <meta name="theme-color"> follows the theme and the accent. Light: the
+      // accent (a fill with white text on it - the accent as a FILL stays the accent); dark: the panel ground, --bg-panel's
+      // dark value (the chrome is a surface, and the owner's dark-mode rule keeps surfaces off the accent). Read from the
+      // computed tokens at call time, so a custom accent and the dark block are both honoured; the head carries the
+      // light default for the first paint. Called by applyTheme, the two accent writers and Reset Settings.
+      const _syncThemeColorMeta = () => {
+        const m = document.querySelector('meta[name="theme-color"]'); if (!m) return;
+        const cs = getComputedStyle(document.documentElement);
+        const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+        const v = (dark ? cs.getPropertyValue('--bg-panel') : cs.getPropertyValue('--accent-color')).trim();
+        if (v && m.getAttribute('content') !== v) m.setAttribute('content', v);
       };
       if (_themeMedia) {
         _themeMedia.addEventListener('change', () => { if (themePref === 'system') applyTheme('system'); });
@@ -98494,6 +98604,11 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         }
       };
 
+      // SCALE STROKES (v20261011n): the SAVE of the Scale-tool preference. Its change handler (grep scaleStrokesCb, top
+      // level) sets the flag and arms / restores the strokes; it cannot reach saveSettings (a const of this closure), and
+      // the `typeof saveSettings` guard it carried was false on every click - nothing wrote the key the loader reads.
+      // Registered after that handler, so it stores the flag the handler has just set.
+      { const c = document.getElementById('scaleStrokesCb'); if (c) c.addEventListener('change', () => saveSettings({ scaleStrokes: scaleStrokesWithObject })); }
       // CONTINUOUS DRAG (v20260914zzzg): the Settings checkbox, persisted; absent = ON.
       {
         let _cdOn = true;
@@ -98624,6 +98739,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           const color = e.target.value;
           document.documentElement.style.setProperty('--accent-color', color);
           if (accentColorHexInput) accentColorHexInput.value = color.slice(1).toUpperCase();
+          _syncThemeColorMeta();   // v20261011u
           saveSettings({ accentColor: color });
         });
       }
@@ -98635,6 +98751,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
             const color = '#' + hex;
             document.documentElement.style.setProperty('--accent-color', color);
             if (accentColorInput) accentColorInput.value = color;
+            _syncThemeColorMeta();   // v20261011u
             saveSettings({ accentColor: color });
           }
         });
@@ -98741,6 +98858,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           });
           // Refresh all panels to show new display values
           updatePropertiesPanel();
+          updateStylePanel();   // v20261011o: the 3D / Mapping / Fold rows too (measured: Extrude Depth read 150.00 px after a switch to mm until the next sync)
           updateMoveToolUI();
           // Update keyboard increment display
           const kbInp = document.getElementById('keyboardIncrementInput');
@@ -98843,6 +98961,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           if (picker) picker.value = defaultAccent;
           const hexInp = document.getElementById('accentColorHexInput');
           if (hexInp) hexInp.value = '2645D2';
+          _syncThemeColorMeta();   // v20261011u: applyTheme ran above with the OLD accent still set
 
           // Reset display unit to px (re-convert parametric inputs first)
           const _oldUnit = displayUnit;
@@ -98864,6 +98983,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
                 if (!isNaN(v) && v !== 0) el.value = _convertReset(v).toFixed(3);
               }
             });
+            updatePropertiesPanel(); updateStylePanel();   // v20261011o: the rows with a model value re-read in the new unit (they stayed in the old one)
           }
 
           // Reset keyboard increment to default (0.01 internal = 1 px)
@@ -98889,6 +99009,14 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           ColorPicker.setEnabled(true); ColorPicker.setModel('HSB'); ColorPicker.setRecent([]);
           { const _cpCb = document.getElementById('customColorPickerCb'); if (_cpCb) _cpCb.checked = true; }
           BooleanUI.setEnabled(true);   // BOOLEAN: on (v20261002g: no setting - a console switch left off is put back)
+          // The five switches Reset Settings left as they were until v20261011n (the v20260914i class: the pref was cleared
+          // from storage but the session flag and the checkbox stayed) - each through the setter its change handler calls.
+          DragRelay.setEnabled(true); { const c = document.getElementById('continuousDragCb'); if (c) c.checked = true; }       // Continuous Drag: ON
+          ExportCull.enabled = false; { const c = document.getElementById('omitHiddenFacesCb'); if (c) c.checked = false; }     // Omit hidden faces: OFF
+          DragReadout.setEnabled(true); { const c = document.getElementById('dragReadoutCb'); if (c) c.checked = true; }        // Drag Readout: ON
+          document.documentElement.removeAttribute('data-gizmo'); { const c = document.getElementById('gizmoColorCb'); if (c) c.checked = false; }   // Colored Gizmo Highlight: OFF
+          if (scaleStrokesWithObject) { scaleStrokesWithObject = false; ScaleStyle.restore(); ScaleStyle.disarm(); syncStrokeWidthInputs(); }   // Scale Strokes: OFF (the widths put back, as the checkbox does)
+          { const c = document.getElementById('scaleStrokesCb'); if (c) c.checked = false; }
 
           // Animation and the Text tool are no longer settings, so Reset
           // Settings has nothing to reset for them (v20260812p).
@@ -101651,7 +101779,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       // Motion Path param (v20260719f)
       const mpDef = _motionPathParams.find(p => p.prop === prop);
       if (mpDef && obj.motionPathSettings) return obj.motionPathSettings[mpDef.mpKey] ?? null;
-      // Boolean drill scale (v20261005a)
+      // Boolean drill clearance (v20261005d; the scale bdScale until then)
       if (_boolDrillParams.some(p => p.prop === prop)) return BooleanGroup.drillClearanceOf(obj);
       // Fold param (v20260720m) — settings-level, creases[0], or fdN* per-crease (v20260721a)
       const fdDef = _foldParamOf(prop);
@@ -101804,7 +101932,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       // Motion Path (v20260719f): unclamped — closed targets wrap (multi-lap)
       const mpDef = _motionPathParams.find(p => p.prop === prop);
       if (mpDef && obj.motionPathSettings) { obj.motionPathSettings[mpDef.mpKey] = val; return; }
-      // Boolean drill scale (v20261005a): clamped to the model's range
+      // Boolean drill clearance (v20261005d; the scale bdScale until then): clamped to the model's range
       if (_boolDrillParams.some(p => p.prop === prop)) { const k = BooleanGroup._clampDrill(val); if (k !== null) obj.booleanDrillClearance = k; return; }
       // Fold (v20260720m): unclamped (angle past 180 keeps circling)
       const fdDef = _foldParamOf(prop);
@@ -102987,7 +103115,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           }
         }
 
-        // --- Boolean drill scale (v20261005a): the RAW table, so a track keeps applying while the row is not a drill (as opacity) ---
+        // --- Boolean drill clearance (v20261005d; the scale bdScale until then): the RAW table, so a track keeps applying while the row is not a drill (as opacity) ---
         for (const paramDef of _boolDrillParams) {
           const kfs = objTracks.get(paramDef.prop);
           if (!kfs) continue;
@@ -104104,7 +104232,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         { id: 'revolveScaleEndInput', prop: 'rvScaleEnd' },
         { id: 'sweepScaleStartInput', prop: 'swScaleStart' },
         { id: 'sweepScaleEndInput', prop: 'swScaleEnd' },
-        { id: 'loftDepthInput', prop: 'lfDepth' },
+        { id: 'loftDepthInput', prop: 'lfDepth', fmt: v => fmtDisplay(v) },   // v20261011o: display units
         { id: 'loftSegmentsInput', prop: 'lfSegments' },
         // Mapping tab — Spline Flow
         { id: 'surfaceOffsetInput', prop: 'sfOffset' },
@@ -104138,7 +104266,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         { id: 'foldExtentBInput', prop: 'fdExtentB' },
         { id: 'foldRotationInput', prop: 'fdRotation' },
         { id: 'foldAngleInput', prop: 'fdAngle' },
-        { id: 'foldRadiusInput', prop: 'fdRadius' },
+        { id: 'foldRadiusInput', prop: 'fdRadius', fmt: v => fmtDisplay(v) },   // v20261011o: display units
         { id: 'foldPitchInput', prop: 'fdPitch' },
         { id: 'foldTightenInput', prop: 'fdTighten' },
       ];
@@ -104531,7 +104659,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
               }
             }
           }
-          // Boolean drill scale fallback (v20261005a)
+          // Boolean drill clearance fallback (v20261005d; bdScale until then)
           if (!paramDef) {
             const bdParamDef = _boolDrillParams.find(p => p.prop === prop);
             if (bdParamDef) {
@@ -105812,7 +105940,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
                     }
                   }
                 }
-                // Boolean drill scale (v20261005a)
+                // Boolean drill clearance (v20261005d; the scale bdScale until then)
                 if (!keyed && _boolDrillParams.some(p => p.prop === prop)) {
                   tlAddKeyframe(objectName, prop, frame, BooleanGroup.drillClearanceOf(obj));
                   keyed = true;
@@ -106712,7 +106840,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
               }
             }
           }
-          // Also key the Boolean drill scale if this row drills (v20261005a)
+          // Also key the Boolean drill clearance if this row drills (v20261005d; bdScale until then)
           const bdParams = obj ? _getBoolDrillParamsForObj(obj) : null;
           if (bdParams) for (const paramDef of bdParams) tlAddKeyframe(objectName, paramDef.prop, frame, BooleanGroup.drillClearanceOf(obj));
           // Also key fold params if applicable (v20260720m)

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261011zc -->
+<!-- dim v20261012s -->
 
 <!--
   MIT License
@@ -2293,7 +2293,7 @@
     /* style-row children */
     .style-row>.num-spin-wrap,
     .style-row .num-spin-wrap {
-      width: 50px;
+      width: 64px;   /* v20261012n: was 50 - Extrude Depth clipped "200.00" (54 px needed); 64 fits seven characters, and the tightest spinner row (the Stroke rows) measured 24 px of slack at 50 */
       flex-shrink: 0;
     }
 
@@ -12383,14 +12383,19 @@
       referenceImage.y = parseFloat(e.target.value) || 0;
       requestRender();
     });
+    // (v20261012i) a scale mid-typing ("-" on the way to a mirror, "" or "0") leaves the
+    // model alone instead of snapping the image to scale 1 for a keystroke; 0 stays refused
+    const _refScaleOk = (v) => Number.isFinite(v) && Math.abs(v) > 1e-6;
     refImageScaleU.addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value); if (!_refScaleOk(v)) return;
       pushUndoStateCoalesced();
-      referenceImage.scaleU = parseFloat(e.target.value) || 1;
+      referenceImage.scaleU = v;
       requestRender();
     });
     refImageScaleV.addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value); if (!_refScaleOk(v)) return;
       pushUndoStateCoalesced();
-      referenceImage.scaleV = parseFloat(e.target.value) || 1;
+      referenceImage.scaleV = v;
       requestRender();
     });
 
@@ -13450,9 +13455,9 @@
           document.getElementById('cycRail').value = 'circle';
           document.getElementById('cycMode').value = 'hypo';
           // Facing is populated dynamically by updateCycloidRailUI() below
-          document.getElementById('cycFixedR').value = 2;
-          document.getElementById('cycRollingR').value = 1.2;
-          document.getElementById('cycPenD').value = 1.2;
+          document.getElementById('cycFixedR').value = CYC_DEFAULTS.R;
+          document.getElementById('cycRollingR').value = CYC_DEFAULTS.r;
+          document.getElementById('cycPenD').value = CYC_DEFAULTS.d;
           document.getElementById('cycCount').value = 500;
           document.getElementById('cycLoop').value = 1;
           document.getElementById('cycHeight').value = 0;
@@ -13926,7 +13931,7 @@
 
         // Logic: We need to apply World Delta to Local Vertex.
         // invRot * deltaWorld
-        const invRot = matrixInverse(s.target.object.rotationMatrix);
+        const invRot = _vertexDeltaMatrix(s.target.object);
         if (invRot) {
           const localDelta = vectorApplyMatrix(delta, invRot);
           // reset to startLocal + localDelta
@@ -13937,7 +13942,7 @@
       } else if (moveToolSession.mode === 'multi-vertex') {
         // Apply to all
         moveToolSession.items.forEach(item => {
-          const invRot = matrixInverse(item.target.object.rotationMatrix);
+          const invRot = _vertexDeltaMatrix(item.target.object);
           if (invRot) {
             const localDelta = vectorApplyMatrix(delta, invRot);
             item.target.object.localVertices[item.target.vertexIndex] = vectorAdd(item.startLocal, localDelta);
@@ -14061,7 +14066,7 @@
       } else if (moveToolSession.mode === 'vertex') {
         const s = moveToolSession;
         if (!s.target || !s.target.object) return;
-        const invRot = matrixInverse(s.target.object.rotationMatrix);
+        const invRot = _vertexDeltaMatrix(s.target.object);
         if (invRot) {
           const delta = vectorSubtract(newPos, s.startPos);
           const localDelta = vectorApplyMatrix(delta, invRot);
@@ -14071,7 +14076,7 @@
       } else if (moveToolSession.mode === 'multi-vertex') {
         const delta = vectorSubtract(newPos, moveToolSession.startPos);
         moveToolSession.items.forEach(item => {
-          const invRot = matrixInverse(item.target.object.rotationMatrix);
+          const invRot = _vertexDeltaMatrix(item.target.object);
           if (invRot) {
             const localDelta = vectorApplyMatrix(delta, invRot);
             item.target.object.localVertices[item.target.vertexIndex] = vectorAdd(item.startLocal, localDelta);
@@ -15694,6 +15699,7 @@
           cameraUndoHistory.push(diffs);
           if (cameraUndoHistory.length > HISTORY_MAX) cameraUndoHistory.shift();
           _lastCameraState = deepClone(current);
+          _scheduleHistoryUpdate();   // v20261012n: its scene / animation twins schedule it (v20261011e); this one showed the flushed entry only when the 300 ms timer fired
           return true;
         }
       }
@@ -16098,6 +16104,7 @@
       _lastAnimState = deepClone(captureAnimationState());
       // Clear keyframe selection — restored state may no longer match
       if (typeof tlClearKfSelection === 'function') tlClearKfSelection();
+      if (typeof _tlCloseCurveEditor === 'function') _tlCloseCurveEditor();   // v20261012f: the restored state replaced the keyframe objects
       _scheduleHistoryUpdate();
     };
 
@@ -16131,6 +16138,7 @@
       _lastAnimState = deepClone(captureAnimationState());
       // Clear keyframe selection — restored state may no longer match
       if (typeof tlClearKfSelection === 'function') tlClearKfSelection();
+      if (typeof _tlCloseCurveEditor === 'function') _tlCloseCurveEditor();   // v20261012f: the restored state replaced the keyframe objects
       _scheduleHistoryUpdate();
     };
 
@@ -16201,11 +16209,14 @@
       let removedCount = false;
 
       let hasBgColor = false;
+      let hasFrameGuide = false, hasRefImage = false;   // v20261012n: two scene keys the classifier never named - their entries read "1 changes"
 
       for (const d of diffs) {
         const p = d.path;
         if (p[0] === 'workplane') { hasWorkplane = true; continue; }
         if (p[0] === 'backgroundColor') { hasBgColor = true; continue; }
+        if (p[0] === 'frameGuide') { hasFrameGuide = true; continue; }
+        if (p[0] === 'referenceImage') { hasRefImage = true; continue; }
         if (p[0] === 'objects') {
           if (p.length === 1) {
             // Array length change (add/remove objects)
@@ -16303,10 +16314,12 @@
 
       if (hasWorkplane && objIndices.size === 0 && !hasBgColor) return 'Workplane';
       if (hasBgColor && objIndices.size === 0 && !hasWorkplane) return 'Background color';
+      if (hasFrameGuide && objIndices.size === 0 && !hasWorkplane && !hasBgColor) return 'Frame guide';   // v20261012n
+      if (hasRefImage && objIndices.size === 0 && !hasWorkplane && !hasBgColor) return 'Reference image';   // v20261012n
       if (hasWorkplane) return `Edit ${name} + Workplane`;
       if (hasBgColor) return `Edit ${name} + Background`;
 
-      return `${diffs.length} changes`;
+      return `${diffs.length} change${diffs.length === 1 ? '' : 's'}`;   // v20261012n: "1 change"
     };
 
     const updateHistoryPanel = () => {
@@ -16681,6 +16694,15 @@
 
 
 
+    // (v20261012i) A NUMBER OR ITS DEFAULT - `parseFloat(x) || d` turned a typed 0 into d.
+    // Used where 0 is a legitimate value (a cycloid's pen distance d = 0 draws a circle, a
+    // revolve angle of 0 is the first frame of a sweep-open animation, a point size of 0).
+    // Where 0 is NOT legitimate (the cycloid radii divide, R and r) the `||` stays, on purpose.
+    const _numOr = (v, d) => Number.isFinite(v) ? v : d;
+    // ONE set of cycloid defaults - the tool's reset wrote 2 / 1.2 / 1.2 while the readers'
+    // fallbacks said 5 / 3 / 3 (two "defaults" for one field).
+    const CYC_DEFAULTS = { R: 2, r: 1.2, d: 1.2 };
+
     // --- Parametric Primitive Data Capture (v20260430e) ---
     // Captures current tool panel state into a primitiveData object.
     // Called before pendingPolygon is confirmed, so the shape retains its creation parameters.
@@ -16738,9 +16760,9 @@
         base.facing = document.getElementById('cycFacing').value || 'XZ';
         base.pathTarget = document.getElementById('cycPathTarget').value || '';
         base.pathFace = document.getElementById('cycPathFace').value || 'Y';
-        base.fixedR = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || 5);
-        base.rollingR = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || 3);
-        base.penD = fromDisplay(parseFloat(document.getElementById('cycPenD').value) || 3);
+        base.fixedR = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || CYC_DEFAULTS.R);
+        base.rollingR = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || CYC_DEFAULTS.r);
+        base.penD = fromDisplay(_numOr(parseFloat(document.getElementById('cycPenD').value), CYC_DEFAULTS.d));
         base.count = Math.min(Math.max(parseInt(document.getElementById('cycCount').value) || 500, 10), 2000);
         base.loops = Math.min(Math.max(parseInt(document.getElementById('cycLoop').value) || 1, 1), 100);
         base.height = fromDisplay(parseFloat(document.getElementById('cycHeight').value) || 0);
@@ -17071,6 +17093,24 @@
         }
         _lastSceneState = pre || deepClone(captureSceneState());
       }
+      _pendingShapePanelOff();
+      selectedObject = null;
+      selectedObjects = [];
+      updateTreeView();
+      updatePropertiesPanel();
+      updateStylePanel();
+      requestRender();
+      return true;
+    };
+
+    // (v20261012d) The Pending Shape panel OFF, the re-edit tag cleared and the
+    // tool hint back - the UI half of cancelPendingShape, shared with the scene
+    // import's session reset. The panel is SHOWN by `style.display = 'block'`
+    // at seven sites, so it must be hidden by the inline style too: the import
+    // reset used classList.add('hidden') and `.hidden { display: none }` loses
+    // to an inline `block` - a pending shape's panel survived File > Import,
+    // Clear Scene and Reload Saved with its stale fields (review A-F14 / K3).
+    const _pendingShapePanelOff = () => {
       const creationPanel = document.getElementById('polygonCreationPanel');
       if (creationPanel) creationPanel.style.display = 'none';
       const _reTag = document.getElementById('toolDrawerReEditTag');
@@ -17079,13 +17119,6 @@
       if (_hint && (currentTool === 'polygon' || currentTool === 'star' || currentTool === 'ellipse' || currentTool === 'spiral' || currentTool === 'cycloid' || currentTool === 'lissajous' || currentTool === 'text' || currentTool === 'shape3d')) {
         _hint.style.display = 'block';
       }
-      selectedObject = null;
-      selectedObjects = [];
-      updateTreeView();
-      updatePropertiesPanel();
-      updateStylePanel();
-      requestRender();
-      return true;
     };
 
     // --- Confirm Pen Path ---
@@ -17357,9 +17390,9 @@
         document.getElementById('cycMode').value = pd.mode || 'hypo';
         updateCycloidRailUI(); // Populate facing options before setting value
         document.getElementById('cycFacing').value = pd.facing || 'XZ';
-        document.getElementById('cycFixedR').value = toDisplay(pd.fixedR || 5).toFixed(2);
-        document.getElementById('cycRollingR').value = toDisplay(pd.rollingR || 3).toFixed(2);
-        document.getElementById('cycPenD').value = toDisplay(pd.penD || 3).toFixed(2);
+        document.getElementById('cycFixedR').value = toDisplay(pd.fixedR || CYC_DEFAULTS.R).toFixed(2);
+        document.getElementById('cycRollingR').value = toDisplay(pd.rollingR || CYC_DEFAULTS.r).toFixed(2);
+        document.getElementById('cycPenD').value = toDisplay(pd.penD ?? CYC_DEFAULTS.d).toFixed(2);
         document.getElementById('cycCount').value = pd.count || 500;
         document.getElementById('cycLoop').value = pd.loops || 1;
         document.getElementById('cycHeight').value = toDisplay(pd.height || 0).toFixed(2);
@@ -19167,9 +19200,9 @@
 
       const rail = document.getElementById('cycRail').value || 'circle';
       const mode = document.getElementById('cycMode').value || 'hypo';
-      const R = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || 5);
-      const r = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || 3);
-      const d = fromDisplay(parseFloat(document.getElementById('cycPenD').value) || 3);
+      const R = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || CYC_DEFAULTS.R);
+      const r = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || CYC_DEFAULTS.r);
+      const d = fromDisplay(_numOr(parseFloat(document.getElementById('cycPenD').value), CYC_DEFAULTS.d));
       const count = Math.min(Math.max(parseInt(document.getElementById('cycCount').value) || 500, 10), 2000);
       const loop = Math.min(Math.max(parseInt(document.getElementById('cycLoop').value) || 1, 1), 100);
       const cycHeight = fromDisplay(parseFloat(document.getElementById('cycHeight').value) || 0);
@@ -20820,6 +20853,38 @@
       ];
     };
 
+    // (v20261012b) A WORLD displacement enters a path's VERTEX space through the
+    // inverse of its whole world matrix - rotation, pivot rotation, scale, shear
+    // AND the parent chain (vectorApplyMatrix reads the 3x3 block, so the
+    // translation column is ignored and only the linear part acts). Every vertex
+    // edit used the inverse of `rotationMatrix` alone - right for an unscaled,
+    // unsheared top-level object only: the local matrix is
+    // T(pos+shift) . R . (RP . S . Sh . RP^T) . T(-pivot) (CLAUDE.md), so R^-1 . dW
+    // lands in the world as R.RP.S.Sh.RP^T.R^-1 . dW - a vertex on a [2,2,2] path
+    // moved TWICE the cursor (120.6 px for a 60 px drag, vertex_drag_scale_probe),
+    // and slid off-axis under a turned group. The object-mode branches were given
+    // _worldDeltaToParent for the same reason in v20260904h; this is the vertex
+    // twin, used by the A-tool drags, the nudges, the pen, the handle drag, the
+    // companions and the Move panel's vertex modes (twenty sites). Singular
+    // (a 0 scale): the old rotation-only inverse, so the edit still moves.
+    const _vertexDeltaMatrix = (obj) => {
+      const inv = obj && obj.getWorldMatrix ? matrixInverse(obj.getWorldMatrix()) : null;
+      return inv || matrixInverse(obj.rotationMatrix);
+    };
+
+    // (v20261012l) A PATH'S ORIGIN IN WORLD SPACE - the point its vertices are expressed
+    // about, through the whole chain. The loft (drawLoft and its SurfaceMapper twin) read
+    // `obj.getWorldPosition ? obj.getWorldPosition() : obj.position` at six sites: no such
+    // method exists (grep: 0 definitions), so every read fell to the PARENT-LOCAL position,
+    // while the loft blends world-space profiles - a target inside a translated group gave
+    // a direction of zero (middles all at t = 0.5, Depth != 1 extended nothing).
+    const _worldOriginOf = (obj) => {
+      if (!obj) return [0, 0, 0];
+      if (!obj.getWorldMatrix) return obj.position || [0, 0, 0];
+      const w = transformVertex([0, 0, 0], obj.getWorldMatrix());
+      return w ? [w[0], w[1], w[2]] : (obj.position || [0, 0, 0]);
+    };
+
     // --- Constants ---
     const FRAME_SIZE = 1000;
 
@@ -21322,7 +21387,7 @@
       CANVAS_INSET_H = railW;
       CANVAS_OFFSET_X = railW / 2;
     };
-    const getViewScale = () => Math.min(width - CANVAS_INSET_H, height - CANVAS_INSET_V) / FRAME_SIZE;
+    const getViewScale = () => Math.max(1e-3, Math.min(width - CANVAS_INSET_H, height - CANVAS_INSET_V)) / FRAME_SIZE;   // v20261012n: never negative (a hidden pane boots with innerHeight 0: 34 `width="-65"` errors); unchanged at any real size
     const TRUCK_SPEED = 0.002;
 
     // Compute viewport-aware pixel-to-world scale factor
@@ -21816,7 +21881,11 @@
         const sc = o.surfaceConstraint || {}, fc = o.faceCamera || {};
         return [V.length, h, o.algorithm, o.loop, o.visible === false, !!o.mode2D, !!(fc.x || fc.y || fc.plane), JSON.stringify(o.subPathData || null), JSON.stringify(o.corners || null),
           JSON.stringify(es || null), JSON.stringify(o.revolveSettings || null), !!(o.sweepSettings && o.sweepSettings.enabled), !!(o.loftSettings && o.loftSettings.enabled),
-          !!(o.foldSettings && o.foldSettings.enabled), !!(sc.active && sc.targetId), !!(sc.surfaceMapping && sc.surfaceMapping.enabled)].join('|');
+          !!(o.foldSettings && o.foldSettings.enabled), !!(sc.active && sc.targetId), !!(sc.surfaceMapping && sc.surfaceMapping.enabled),
+          // (v20261012e) the revolve CENTER's inputs: Center = Pivot reads the pivot, Center = World the world matrix - neither
+          // is in revolveSettings, so a pivot or position edit moved the axis while the cached "crosses its revolve axis"
+          // verdict stood (solidOf's key carried revolveCenterKey since v20261003q; the status key did not - review C-F1)
+          (o.revolveSettings && o.revolveSettings.enabled) ? SurfaceMapper.revolveCenterKey(o, o.revolveSettings) : ''].join('|');
       },
       operandStatus(o) {
         const no = (reason, extra) => ({ ok: false, reason, ...(extra || {}) });
@@ -22610,6 +22679,9 @@
           // the answer follows the object (a cache that did not notice would keep the first answer)
           t('the answer FOLLOWS an edit: refused, put right, refused again', (() => { const a = why(bent), z = bent.localVertices[0][2]; bent.localVertices[0][2] = 0; const b = why(bent); bent.localVertices[0][2] = z; return !/^ok$/.test(a) && b === 'ok' && why(bent) === a; })());
           t('... and an edit of a VERTEX (the path leaves its plane)', (() => { const a = why(solid); solid.localVertices[2][2] = 0.5; const b = why(solid); solid.localVertices[2][2] = 0; return a === 'ok' && /leaning/.test(b) && why(solid) === 'ok'; })());
+          // (v20261012e) ... and an edit of the PIVOT under Center = Pivot: the axis moves with the pivot, the status must follow
+          const revP = mk('bool_p_revpivot'); revP.extrudeSettings.enabled = false; revP.revolveSettings.enabled = true; revP.revolveSettings.offset = 3; revP.revolveSettings.center = 'pivot';
+          t('... and an edit of the PIVOT (Center = Pivot carries the axis across the profile, then back)', (() => { const a = why(revP); revP.pivot = [3, 0, 0]; const b = why(revP); revP.pivot = [0, 0, 0]; return a === 'ok' && /crosses its revolve axis/.test(b) && why(revP) === 'ok'; })(), why(revP));
           // groups
           const gg = new Group('bool_p_group'); made.push(gg); gg.add(mk('bool_p_in_a')); gg.add((() => { const f = mk('bool_p_in_b'); f.extrudeSettings.enabled = false; f.localVertices[0] = [f.localVertices[0][0], f.localVertices[0][1], 0.4]; return f; })());
           t('a group with one usable object in it is ONE operand', st(gg).ok === true && st(gg).group === true);
@@ -30877,6 +30949,9 @@
       static revolveRailWorld(path) { const W = path.getWorldMatrix(), sh = SurfaceMapper.revolveAxisShift(path, path.revolveSettings); return sh ? matrixMultiply(W, sh.T) : W; }
       // the cache key's center part: '' without a shift, so every pre-v20261003q key is unchanged
       static revolveCenterKey(path, rs) { const sh = SurfaceMapper.revolveAxisShift(path, rs); return sh ? '_c' + sh.cr : ''; }
+      // (v20261012i) the revolve angle in degrees, 360 when ABSENT - never when 0. Seven readers took `rs.angle` OR 360,
+      // so an authored (or keyframed) 0 drew a full ring; the Boolean's _pathStatus already read it this way.
+      static revolveAngleDeg(rs) { const a = rs ? rs.angle : undefined; return (a === undefined || a === null || a === '' || !Number.isFinite(+a)) ? 360 : +a; }
 
       static generateCircularRail(axis, radius, angleDeg, numFrames, worldMatrix, scaleStart = 1, scaleEnd = 1) {
         const totalAngle = Math.min(360, Math.max(0, angleDeg));
@@ -31075,8 +31150,8 @@
           _loftDivsV = Math.max(16, (ls.divisionsV || 16) * 4); // high-res for smooth mapping
           _loftIsClosed = surfacePath.subPathData?.[0]?.closed ?? surfacePath.loop ?? false;
 
-          const posA = surfacePath.getWorldPosition ? surfacePath.getWorldPosition() : surfacePath.position;
-          const posB = targetPath.getWorldPosition ? targetPath.getWorldPosition() : targetPath.position;
+          const posA = _worldOriginOf(surfacePath);   // v20261012l
+          const posB = _worldOriginOf(targetPath);   // v20261012l
           _loftDirection = vectorSubtract(posB, posA);
           const abDot = _loftDirection[0] * _loftDirection[0] + _loftDirection[1] * _loftDirection[1] + _loftDirection[2] * _loftDirection[2];
 
@@ -31161,7 +31236,7 @@
             const rawMid = resampleForLoft(mp, _loftDivsV);
             if (!rawMid) continue;
             const aligned = autoAlign(sourcePts, rawMid);
-            const posM = mp.getWorldPosition ? mp.getWorldPosition() : mp.position;
+            const posM = _worldOriginOf(mp);   // v20261012l
             const am = vectorSubtract(posM, posA);
             let t = 0.5;
             if (abDot > 1e-9) {
@@ -31220,13 +31295,13 @@
             surfacePath._revolveRail = SurfaceMapper.generateCircularRail(
               rs.axis || 'y',
               SurfaceMapper.revolveEffOffset(surfacePath, rs),   // v20261003q: the renderer's
-              rs.angle || 360,
+              SurfaceMapper.revolveAngleDeg(rs),
               Math.max(32, rs.segments || 32),
               null,   // LOCAL space - the renderer's contract (v20260309e); the world matrix rides getWorldMatrix below
               rs.scaleStart ?? 1, rs.scaleEnd ?? 1
             );
             if (arcRadius > 1e-9) {
-              const frac = Math.min(360, Math.max(0, rs.angle || 360)) / 360;
+              const frac = Math.min(360, Math.max(0, SurfaceMapper.revolveAngleDeg(rs))) / 360;
               surfacePath._revolveRail._arcLengthData.totalLength = 2 * Math.PI * arcRadius * frac || 1;
             }
             surfacePath._revolveRailKey = railKey;
@@ -31265,7 +31340,7 @@
           railIsClosed = false; // Loft rail (source→target) is always open
           profileIsClosed = _loftIsClosed;
         } else if (useRevolve && rs?.enabled) {
-          railIsClosed = (rs.angle || 360) >= 360;
+          railIsClosed = (SurfaceMapper.revolveAngleDeg(rs)) >= 360;
         } else if (surfaceType === 'extrude') {
           railIsClosed = false; // Linear rail is always open
         } else {
@@ -33429,8 +33504,15 @@
 
                 // Around mode: detect u-wrap crossing and split into clean separate fragments
                 if (mapAround) {
-                  const xLocal = srcPt[0];
-                  const uGeo = 0.5 + (xLocal / totalLen) + hOffset + tgtOff;
+                  // (v20261012j) THE SAME u project() USES. This read `srcPt[0]` raw, so a group child
+                  // (sourceMatrix), a scaled / rotated source or a non-X flow axis was cut at the wrong
+                  // source x (or not cut) - the "fan of lenses" across the seam that the around-mode
+                  // chain was built to remove. project() exposes its geometric u as `uGeo` (null in rigid
+                  // mode, where the old formula stays the reading). One extra projection per sample, on
+                  // the Split-OFF Around path only; the sample's own project() below is left in place so
+                  // the frame state addLine sees is the one it always saw.
+                  const _tvU = project(srcPt);
+                  const uGeo = (_tvU && _tvU.uGeo !== null && _tvU.uGeo !== undefined) ? _tvU.uGeo : (0.5 + (srcPt[0] / totalLen) + hOffset + tgtOff);
                   const uFloor = Math.floor(uGeo);
                   if (prevUGeoFloor !== null && uFloor !== prevUGeoFloor
                     && prevRawUGeo !== null && prevAround_srcPt !== null) {
@@ -35665,7 +35747,7 @@
       // (Field plane is z=0 of source space — matches flat 2D sources; 3D
       // sources' w-displacement is a Stage 4 refinement.)
       static collectSplineFlowOverlay(ctx) {
-        const { segments, project } = ctx;
+        const { segments, project, camPos } = ctx;   // v20261012n: camPos was missing - a ReferenceError the try/catch swallowed, so the spline-flow contour overlay never drew
         let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
         segments.forEach(seg => {
           const pts = seg.type === 'L' ? [seg.pStart, seg.pEnd] : [seg.p0, seg.p1, seg.p2, seg.p3];
@@ -53067,11 +53149,24 @@
         this.target = vectorAdd(this.target, combinedMove);
       }
 
+      // (v20261012a) THE WHEEL NEVER SNAPS. The clamp used to be the absolute [5, 50]
+      // (written when every camera lived inside 50): a far camera at distance 300 -
+      // the regime depthScale (v20261003f) exists for - read 50 after ONE tick, and a
+      // camera placed at 2 by the panel jumped to 5 (measured by camera_zoom_far_probe:
+      // 300 -> 50, 2 -> 5; control 20 -> 21). Now: the bounds include where the camera
+      // already is (a near camera can still zoom out, never trapped), the far bound is
+      // the subwindow's DIST_MAX 500, and beyond 50 the additive step scales with the
+      // radius so the wheel keeps the relative speed it has at 50 (0.2 % a notch);
+      // inside [5, 50] the arithmetic is the old one exactly.
+      static ZOOM_NEAR = 5;
+      static ZOOM_FAR = 500;
+      static ZOOM_STEP_FROM = 50;   // the radius beyond which the step grows with the radius
       zoom(deltaY) {
         if ((this.projectionType || projectionType) === 'perspective') {
           const zoomSpeed = 0.001;
           const oldRadius = vectorLength(vectorSubtract(this.position, this.target));
-          const newRadius = Math.max(5, Math.min(50, oldRadius + deltaY * zoomSpeed));
+          const step = deltaY * zoomSpeed * Math.max(1, oldRadius / Camera.ZOOM_STEP_FROM);
+          const newRadius = Math.max(Math.min(Camera.ZOOM_NEAR, oldRadius), Math.min(Math.max(Camera.ZOOM_FAR, oldRadius), oldRadius + step));
 
           const relPos = vectorNormalize(vectorSubtract(this.position, this.target));
           this.position = vectorAdd(this.target, vectorScale(relPos, newRadius));
@@ -53087,9 +53182,11 @@
             }
           }
         } else {
+          // Same rule for the orthographic zoom (its old clamp was [1, 50]).
           const zoomSpeed = 0.02;
-          const newZoom = this.orthoZoom + deltaY * zoomSpeed;
-          this.orthoZoom = Math.max(1, Math.min(50, newZoom));
+          const oldZoom = this.orthoZoom;
+          const newZoom = oldZoom + deltaY * zoomSpeed * Math.max(1, oldZoom / Camera.ZOOM_STEP_FROM);
+          this.orthoZoom = Math.max(Math.min(1, oldZoom), Math.min(Math.max(Camera.ZOOM_FAR, oldZoom), newZoom));
         }
       }
 
@@ -59616,8 +59713,13 @@
           // dramatically the moment a reference broke. Same reasoning for the fold
           // exclusivity test below.
           const _rawSplineFlow = !!(activeMapping && activeMapping.active && activeMapping.targetId);
+          // (v20261012k) the surface-mapping term read the RESOLVED surfaceMappingActive, against the rule
+          // three lines up: a mapped child whose target surface was just deleted (or deleted-and-about-to-be-
+          // undone) was claimed by group extrude and grew sides the moment the reference broke. The raw
+          // declared flag, like _rawSplineFlow.
+          const _rawSurfaceMapping = !!(activeMapping && activeMapping.surfaceMapping && activeMapping.surfaceMapping.enabled && activeMapping.surfaceMapping.surfacePathId);
           const _otherModifier = this.revolveSettings.enabled || this.sweepSettings.enabled
-            || this.loftSettings.enabled || _rawSplineFlow || surfaceMappingActive
+            || this.loftSettings.enabled || _rawSplineFlow || _rawSurfaceMapping
             || !!(this.foldSettings && this.foldSettings.enabled);
           this._effExtrude =
             (inheritedExtrude && !_otherModifier && (inheritedExtrude.override || !_ownEx))
@@ -62326,13 +62428,13 @@
           this._revolveRail = SurfaceMapper.generateCircularRail(
             rs.axis || 'y',
             effOffset,
-            rs.angle || 360,
+            SurfaceMapper.revolveAngleDeg(rs),
             Math.max(32, rs.segments || 32),
             null,  // no longer bake world matrix — applied at render time
             rs.scaleStart ?? 1, rs.scaleEnd ?? 1
           );
           if (arcRadius > 1e-9) {
-            const frac = Math.min(360, Math.max(0, rs.angle || 360)) / 360;
+            const frac = Math.min(360, Math.max(0, SurfaceMapper.revolveAngleDeg(rs))) / 360;
             this._revolveRail._arcLengthData.totalLength = 2 * Math.PI * arcRadius * frac || 1;
           }
           this._revolveRailKey = railKey;
@@ -62381,10 +62483,10 @@
           // differently-painted faces meeting with no explanation). The
           // Crease Lines checkbox stays a Silhouette-mode-only option.
           creaseLines: bandMergeMode ? true : rs.creaseLines !== false,
-          railClosed: (rs.angle || 360) >= 360,          // 360° revolve: station 0 wraps to the last interval (seam is interior)
+          railClosed: (SurfaceMapper.revolveAngleDeg(rs)) >= 360,          // 360° revolve: station 0 wraps to the last interval (seam is interior)
           axisOffset: effOffset,                         // profile-X + this = distance from the revolve axis (pole detection; v20261003q: the CENTER's)
           revolveAxis: rs.axis || 'y',                   // analytic horizon tracer (v20260726i)
-          revolveAngleDeg: Math.min(360, Math.max(0, rs.angle || 360)),
+          revolveAngleDeg: Math.min(360, Math.max(0, SurfaceMapper.revolveAngleDeg(rs))),
           revolveUntapered: (rs.scaleStart ?? 1) === 1 && (rs.scaleEnd ?? 1) === 1,
           revolveScaleStart: rs.scaleStart ?? 1,         // S6: linear taper program s(theta)
           revolveScaleEnd: rs.scaleEnd ?? 1,             //     from theta=0 to theta=angle
@@ -62466,7 +62568,7 @@
           capStartFill: _xe.startFill,  // v20260913b: 'fill' | 'side' (three-way cap)
           capEndFill: _xe.endFill,
           drawPoints: es.drawPoints || false,
-          pointSize: es.pointSize || 5.0,
+          pointSize: _numOr(es.pointSize, 5.0),
           pointColor: es.pointColor || '#0000ff',
           pointShape: es.pointShape || 'circle'
         };
@@ -64536,7 +64638,7 @@
 
             // --- Draw Points at segment endpoints per U-station ---
             if (ss.drawPoints) {
-              const ptSize = ss.pointSize || 5.0;
+              const ptSize = _numOr(ss.pointSize, 5.0);
               const ptColor = ss.pointColor || '#0000ff';
               const ptShape = ss.pointShape || 'circle';
               const halfSize = ptSize / 2;
@@ -65154,7 +65256,7 @@
 
           // --- 5. Draw Points at Grid Intersections ---
           if (ss.drawPoints) {
-            const ptSize = ss.pointSize || 5.0;
+            const ptSize = _numOr(ss.pointSize, 5.0);
             const ptColor = ss.pointColor || '#0000ff';
             const ptShape = ss.pointShape || 'circle';
             const halfSize = ptSize / 2;
@@ -67639,8 +67741,8 @@
         const segments = Math.max(2, ls.segments || 16);
         const depth = ls.depth !== undefined ? ls.depth : 1.0;
 
-        const posA = this.getWorldPosition ? this.getWorldPosition() : this.position;
-        const posB = targetPath.getWorldPosition ? targetPath.getWorldPosition() : targetPath.position;
+        const posA = _worldOriginOf(this);   // v20261012l
+        const posB = _worldOriginOf(targetPath);   // v20261012l
         const direction = vectorSubtract(posB, posA);
         const abDot = direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2];
 
@@ -67762,7 +67864,7 @@
             const midSubs = resamplePathMulti(mp, divsV);
             if (!midSubs || si >= midSubs.length) continue;
             const aligned = autoAlignProfile(srcPts, midSubs[si].points, spClosed);
-            const posM = mp.getWorldPosition ? mp.getWorldPosition() : mp.position;
+            const posM = _worldOriginOf(mp);   // v20261012l
             const am = vectorSubtract(posM, posA);
             let t = 0.5;
             if (abDot > 1e-9) {
@@ -68093,7 +68195,7 @@
 
           // Draw Points in layer mode (all subpaths)
           if (ls.drawPoints) {
-            const ptSize = ls.pointSize || 5.0;
+            const ptSize = _numOr(ls.pointSize, 5.0);
             const ptColor = ls.pointColor || '#0000ff';
             const ptShape = ls.pointShape || 'circle';
             const halfSize = ptSize / 2;
@@ -68434,6 +68536,7 @@
             if (strokeColor) {
               capEl.setAttribute('stroke', strokeColor);
               capEl.setAttribute('stroke-width', strokeWidth);
+              if (_effLoft['stroke-opacity'] !== undefined) capEl.setAttribute('stroke-opacity', _effLoft['stroke-opacity']);   // v20261012l: every sibling site writes it; the cap rim was opaque under a translucent stroke
             } else {
               capEl.setAttribute('stroke', 'none');
             }
@@ -68469,7 +68572,7 @@
 
         // --- 7. Draw Points at Grid Intersections (all subpaths) ---
         if (ls.drawPoints) {
-          const ptSize = ls.pointSize || 5.0;
+          const ptSize = _numOr(ls.pointSize, 5.0);
           const ptColor = ls.pointColor || '#0000ff';
           const ptShape = ls.pointShape || 'circle';
           const halfSize = ptSize / 2;
@@ -68589,7 +68692,18 @@
         const isOrtho = (srPt === 'orthographic') || (srPt === 'oblique') || (fovVal < 5);
 
         let eyeWorld = cam.position;
-        if (isOrtho) {
+        if (isIn2DMode(this)) {
+          // (v20261012p) 2D MODE: no camera. Path.draw draws a mode2D object through
+          // VP_2D (world straight to the frame, +z toward the viewer), so the eye
+          // is a parallel ray along +z - exactly resolveEyeForObject's 2D answer
+          // ({E:[0,0,1], w:0}), as a point pushed 1e6 like the ortho case below.
+          // This block re-implemented the resolver without that branch, so an
+          // extruded 2D-Mode path had its horizon split, Simple Sides chains and
+          // _prismEye solved for the CAMERA while drawn without one: orbiting
+          // the camera changed its sides. The ortho / oblique arithmetic below
+          // is untouched on purpose (bit-identical for every 3D object).
+          eyeWorld = [0, 0, 1e6];
+        } else if (isOrtho) {
           // Push eye very far back along the effective view ray direction
           // to make (Eye - P) approximately constant (parallel rays).
           const backDir = vectorNormalize(vectorSubtract(cam.position, cam.target));
@@ -71247,7 +71361,14 @@
           finalModelMatrix = modelMatrix;
         }
 
-        const mvpMatrix = matrixMultiply(vpMatrix, finalModelMatrix);
+        // 2D MODE (v20261012c): the highlight, the B-spline cage and the handle
+        // lines must land where the renderer drew - through VP_2D for a mode2D
+        // object (resolveObjectMVP), as drawVertexGizmos has since v20260727c.
+        // This function was not converted then: the accent outline of a 2D Mode
+        // path sat at the object's 3D position while its vertex squares sat on it.
+        const mvpMatrix = targetObject.getWorldMatrix
+          ? resolveObjectMVP(targetObject, vpMatrix)
+          : matrixMultiply(vpMatrix, finalModelMatrix);
 
         // --- Phase 1: Algorithm-aware curve highlight ---
         // Use computePreviewPathData for non-linear algorithms to draw actual curves
@@ -73899,22 +74020,31 @@
       }
       if (shapes.length === 0) return null;
 
-      // Use the first shape (most common case; compound clips are rare)
-      const shape = shapes[0];
-      const tag = shape.tagName.toLowerCase();
-      // The raw polygon, then the shape's own transform (+ the <use>'s and the
-      // <clipPath>'s) and the orientation rule — see _clipPolyFinish.
-      const raw = _clipShapeRawPolygon(shape, tag);
-      if (!raw) return null;
-      let poly = raw;
-      poly = _applyDomMatrixToPoly(poly, _ownTransformMatrix(shape));
-      if (viaUse) {
-        const ux = parseFloat(viaUse.getAttribute('x') || 0), uy = parseFloat(viaUse.getAttribute('y') || 0);
-        poly = _applyDomMatrixToPoly(poly, _ownTransformMatrix(viaUse));
-        if (ux || uy) poly = poly.map(p => [p[0] + ux, p[1] + uy]);
+      // (v20261012s) EVERY shape and every ring of the clipPath (it used to be shapes[0]'s first
+      // subpath). Each ring goes through the shape's own transform (+ the <use>'s and the
+      // <clipPath>'s) and the orientation rule - see _clipPolyFinish. The return value is the
+      // first ring (the shape every older reader expects) carrying `.rings` = all of them;
+      // clipParsedVerticesByPolygon reads the rings, evenodd across them.
+      const rings = [];
+      for (const shape of shapes) {
+        const tag = shape.tagName.toLowerCase();
+        for (const raw of _clipShapeRawRings(shape, tag)) {
+          let poly = raw;
+          poly = _applyDomMatrixToPoly(poly, _ownTransformMatrix(shape));
+          if (viaUse) {
+            const ux = parseFloat(viaUse.getAttribute('x') || 0), uy = parseFloat(viaUse.getAttribute('y') || 0);
+            poly = _applyDomMatrixToPoly(poly, _ownTransformMatrix(viaUse));
+            if (ux || uy) poly = poly.map(p => [p[0] + ux, p[1] + uy]);
+          }
+          poly = _applyDomMatrixToPoly(poly, _ownTransformMatrix(clipPathEl));
+          const fin = _clipPolyFinish(poly);
+          if (fin) rings.push(fin);
+        }
+        if (viaUse) break;   // a <use> resolves to exactly one shape
       }
-      poly = _applyDomMatrixToPoly(poly, _ownTransformMatrix(clipPathEl));
-      return _clipPolyFinish(poly);
+      if (!rings.length) return null;
+      const first = rings[0]; first.rings = rings;
+      return first;
     };
     // ORIENTATION-FREE CLIPS (v20260904j). The rect/circle/ellipse generators
     // below always wind positive, but a <path>/<polygon> clip is whatever
@@ -73981,16 +74111,50 @@
         const svgp = new SVGParser();
         const subpaths = svgp.parsePath(d);
         if (subpaths.length === 0 || subpaths[0].vertices.length < 3) return null;
-        // SVGParser returns vertices in app space (scaled and Y-flipped).
-        // For clip polygon comparison we need raw SVG coordinates,
-        // so we reverse the transform: x_svg = v[0] / S, y_svg = -v[1] / S
-        // A bezier clip path is flattened by control-polygon sampling here
-        // (the same approximation the old code made).
+        // SVGParser returns vertices in app space (scaled and Y-flipped) as a
+        // bezier buffer (anchor, cp, cp, anchor ...). (v20261012r) The mask is
+        // flattened EXACTLY - the same 16-step flattener the artwork side uses
+        // (flattenBezierSubpathToPolyline returns SVG-space points) - where it
+        // used to be the CONTROL POLYGON of the first subpath: a circle drawn
+        // as four cubic arcs clipped like a rounded square 12 % too large
+        // (measured), and every curved Illustrator mask clipped loosely.
         const S = getImportScale();
-        return subpaths[0].vertices.map(v => [v[0] / S, -v[1] / S]);
+        return _clipFlattenSubpath(subpaths[0], S);
       }
 
       return null;
+    };
+    // (v20261012r/s) one parsed clip subpath -> an exact SVG-space ring (the flattener repeats each
+    // anchor at the seam of consecutive arcs, and the closing anchor; both dropped)
+    const _clipFlattenSubpath = (sp, S) => {
+      if (!sp || !sp.vertices || sp.vertices.length < 3) return null;
+      const flat = flattenBezierSubpathToPolyline(sp.vertices, 0, sp.vertices.length, 'bezier', S);
+      if (flat && flat.length >= 3) {
+        const out = []; for (const q of flat) { const prev = out[out.length - 1]; if (!prev || prev[0] !== q[0] || prev[1] !== q[1]) out.push(q); }
+        if (out.length > 1 && out[0][0] === out[out.length - 1][0] && out[0][1] === out[out.length - 1][1]) out.pop();
+        // a STRAIGHT mask edge (an L the parser wrote as a cubic) flattens to 17 collinear points; keep the ends only
+        if (out.length >= 3) {
+          const keep = [];
+          for (let i = 0; i < out.length; i++) {
+            const a = out[(i + out.length - 1) % out.length], b = out[i], c = out[(i + 1) % out.length];
+            const ux = b[0] - a[0], uy = b[1] - a[1], vx = c[0] - b[0], vy = c[1] - b[1];
+            const cross = ux * vy - uy * vx, scale = Math.hypot(ux, uy) * Math.hypot(vx, vy);
+            if (scale > 0 && Math.abs(cross) <= 1e-9 * scale && (ux * vx + uy * vy) > 0) continue;   // b lies on a -> c
+            keep.push(b);
+          }
+          if (keep.length >= 3) return keep;
+        }
+        if (out.length >= 3) return out;
+      }
+      return sp.vertices.map(v => [v[0] / S, -v[1] / S]);
+    };
+    // (v20261012s) EVERY ring of a clip shape: a <path> mask's subpaths (a compound mask with holes),
+    // one ring for the other tags. Evenodd across the rings (the clipper's semantics).
+    const _clipShapeRawRings = (shape, tag) => {
+      if (tag !== 'path') { const r = _clipShapeRawPolygon(shape, tag); return r ? [r] : []; }
+      const d = shape.getAttribute('d'); if (!d) return [];
+      const S = getImportScale();
+      return new SVGParser().parsePath(d).map(sp => _clipFlattenSubpath(sp, S)).filter(r => r && r.length >= 3);
     };
 
     /**
@@ -74110,12 +74274,15 @@
     // intersections computed parametrically. (2026-07-24: replaces the closed-
     // polygon approximation for open subpaths.)
     const clipPolylineByPolygon = (polyline, clipPoly) => {
+      const rings = clipPoly.rings || [clipPoly];   // v20261012s: evenodd across every ring of the mask
       const inside = (p) => {
         let inside = false;
-        for (let i = 0, j = clipPoly.length - 1; i < clipPoly.length; j = i++) {
-          const [xi, yi] = clipPoly[i], [xj, yj] = clipPoly[j];
-          if ((yi > p[1]) !== (yj > p[1]) &&
-              p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) inside = !inside;
+        for (const ring of rings) {
+          for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+            const [xi, yi] = ring[i], [xj, yj] = ring[j];
+            if ((yi > p[1]) !== (yj > p[1]) &&
+                p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) inside = !inside;
+          }
         }
         return inside;
       };
@@ -74131,8 +74298,8 @@
         const a = polyline[i], b = polyline[i + 1];
         // gather intersection params of segment a→b with every clip edge
         const ts = [0, 1];
-        for (let j = 0, k = clipPoly.length - 1; j < clipPoly.length; k = j++) {
-          const c = clipPoly[k], d = clipPoly[j];
+        for (const ring of rings) for (let j = 0, k = ring.length - 1; j < ring.length; k = j++) {
+          const c = ring[k], d = ring[j];
           const rx = b[0] - a[0], ry = b[1] - a[1];
           const sx = d[0] - c[0], sy = d[1] - c[1];
           const den = rx * sy - ry * sx;
@@ -74176,8 +74343,17 @@
 
         // Clip the polyline polygon against the clip polygon
         if (isClosed && polyline.length >= 3) {
-          const clipped = sutherlandHodgmanClip(polyline, clipPoly);
-          if (clipped && clipped.length >= 2) {
+          // (v20261012s) the in-house kernel - exact for a CONCAVE mask and for a mask with holes
+          // (PolyClip.split, evenodd over the rings; `front` = the subject inside the region, in
+          // input coordinates, outer rings CCW / holes CW). Sutherland-Hodgman - convex only, it
+          // slivered concave masks - is the fallback should the kernel throw.
+          let pieces = null;
+          try {
+            const res = PolyClip.split([polyline], clipPoly.rings || [clipPoly]);
+            pieces = (res && res.front) ? res.front.map(r => r.pts).filter(r => r && r.length >= 3) : [];
+          } catch (e) { console.warn('[SVG Import] PolyClip failed on a clipped shape, using the convex clipper:', e && e.message); pieces = null; }
+          if (pieces === null) { const sh = sutherlandHodgmanClip(polyline, clipPoly); pieces = (sh && sh.length >= 2) ? [sh] : []; }
+          for (const clipped of pieces) {
             const startIdx = newVertices.length;
             clipped.forEach(p => newVertices.push([p[0] * S, -p[1] * S, 0]));
             newSubPathData.push({ start: startIdx, count: clipped.length, closed: true });
@@ -74310,7 +74486,12 @@
             // right frame (v20260904j), and re-apply the orientation rule —
             // a mirroring transform flips the winding.
             let m = null; try { m = node.getCTM && node.getCTM(); } catch (e) { m = null; }
-            return _clipPolyFinish(_applyDomMatrixToPoly(poly, m)) || null;
+            // (v20261012s) every ring through the element's transform chain - this site rebuilt the first
+            // ring only, which dropped a compound mask's holes on the way from the clipPath to the artwork
+            const _rings = (poly.rings || [poly]).map(r => _clipPolyFinish(_applyDomMatrixToPoly(r, m))).filter(Boolean);
+            if (!_rings.length) return null;
+            const _first = _rings[0]; _first.rings = _rings;
+            return _first;
           };
 
           // PAINT SERVERS (v20260904k): a gradient/pattern fill arrives as
@@ -74929,7 +75110,7 @@
                 allVertices,
                 'linear', // Use 'linear' to preserve exact segments from parser (no misinterpreted control points)
                 false, // "Loop" property is less relevant for compound, handled by metadata
-                currentStyle,
+                deepClone(currentStyle),   // v20261012h: a COPY - the constructor keeps the reference, and this was the one new Path that handed it the live global (a Style edit made with another object selected rewrote the pasted path until the next deselect)
                 [1, 1, 1],
                 subPathData // Pass metadata
               );
@@ -74985,6 +75166,7 @@
               rootGroup.position = [0, 0, 0];
               sceneObjects.push(rootGroup);
               imported = true;
+              processed = true;   // v20261012h: the raw path-data branch never set it, so every successful raw paste ALSO raised "Nothing to paste"
               // Restore pre-import baseline and push, so the import is a single undo entry
               if (_svgPreImportState) _lastSceneState = _svgPreImportState;
               pushUndoState('Import SVG');
@@ -75305,11 +75487,11 @@
       });
     };
     // Apply the carry for the current drag frame. Same world→local delta
-    // conversion as the selectedVertices loops (rotation only — companions
-    // must stay rigid relative to their anchor under the SAME transform).
+    // conversion as the selectedVertices loops (_vertexDeltaMatrix, v20261012b —
+    // companions must stay rigid relative to their anchor under the SAME transform).
     const applyVertexDragCarry = (totalWorldDelta) => {
       for (const c of _vertexDragCarry) {
-        const invRot = matrixInverse(c.object.rotationMatrix);
+        const invRot = _vertexDeltaMatrix(c.object);
         if (!invRot) continue;
         const localDelta = vectorApplyMatrix(totalWorldDelta, invRot);
         c.object.localVertices[c.vertexIndex] = vectorAdd(c.dragStartLocalPosition, localDelta);
@@ -75328,7 +75510,7 @@
       list.forEach(v => {
         const role = bezierRoleOf(v.object, v.vertexIndex);
         if (!role || !role.isAnchor) return;
-        const invRot = matrixInverse(v.object.rotationMatrix);
+        const invRot = _vertexDeltaMatrix(v.object);
         if (!invRot) return;
         const localDelta = vectorApplyMatrix(worldSpaceDelta, invRot);
         for (const ci of bezierAnchorCompanions(v.object, v.vertexIndex, role)) {
@@ -79340,14 +79522,27 @@
 
       pushUndoState();   // commit drift first (v20260914v); the labelled entry is the bake itself, below
 
+      const applyM = (v) => [
+        M[0][0] * v[0] + M[0][1] * v[1] + M[0][2] * (v[2] || 0),
+        M[1][0] * v[0] + M[1][1] * v[1] + M[1][2] * (v[2] || 0),
+        M[2][0] * v[0] + M[2][1] * v[1] + M[2][2] * (v[2] || 0)
+      ];
+      // (v20261012q) the corner RADII and the SHAPE-KEY poses ride along (bakeOriginToPivot's
+      // two passes, v20261004c): a live corner radius is in object units, so a bake at scale 2
+      // halved the visible rounds, and every keyed pose kept the unbaked vertices. The radius
+      // takes Scale Strokes' factor - exact for a uniform scale, the geometric mean over the
+      // axes the path extends along otherwise (v20260922i).
+      const _cornerF = (selectedObject.corners && Object.keys(selectedObject.corners).length)
+        ? ScaleStyle.factor([1, 1, 1], selectedObject.scale || [1, 1, 1], ScaleStyle.extentOf(selectedObject)) : 1;
+
       for (let i = 0; i < selectedObject.localVertices.length; i++) {
-        const v = selectedObject.localVertices[i];
-        selectedObject.localVertices[i] = [
-          M[0][0] * v[0] + M[0][1] * v[1] + M[0][2] * v[2],
-          M[1][0] * v[0] + M[1][1] * v[1] + M[1][2] * v[2],
-          M[2][0] * v[0] + M[2][1] * v[1] + M[2][2] * v[2]
-        ];
+        selectedObject.localVertices[i] = applyM(selectedObject.localVertices[i]);
       }
+      if (_cornerF !== 1) {
+        for (const k of Object.keys(selectedObject.corners)) { const e = selectedObject.corners[k]; if (e && +e.r > 0) e.r = +e.r * _cornerF; }
+        selectedObject._effGeoCache = null;
+      }
+      if (typeof _tlShapeCarry === 'function') _tlShapeCarry(selectedObject, (nv) => nv.map(applyM));
 
       selectedObject.scale = [1, 1, 1];
       selectedObject.shear = [0, 0, 0, 0, 0, 0];
@@ -81333,11 +81528,24 @@
         console.log("Need at least 2 paths to merge.");
         return;
       }
-      pushUndoState(); // discrete snapshot before merging paths (deletes "others")
-
       // 2. Identify Host (Last selected, or first in list if single group selected)
       const host = pathsToMerge[pathsToMerge.length - 1];
       const others = pathsToMerge.slice(0, pathsToMerge.length - 1);
+
+      // (v20261012q) THE STRUCTURAL-EDIT DISCIPLINE (v20261011b) reaches this edit too.
+      // Until now: a shape-keyed host was merged into without the confirm-drop every
+      // other structural edit asks for; a bezier buffer took linear vertices (or the
+      // reverse) and the stride broke; the absorbed paths' live corners were lost.
+      if (typeof _tlShapeConfirmDrop === 'function' && !_tlShapeConfirmDrop(host, 'Merging into this path')) return;
+      {
+        const algos = new Set(pathsToMerge.map(o => o.algorithm || 'linear'));
+        if (algos.size > 1) {
+          showAppConfirm('Cannot merge', 'The selected paths are of different types (' + [...algos].join(', ') + '). Convert them to one type first (Convert to Bézier), then merge.', { okOnly: true });
+          return;
+        }
+      }
+      const _mergePins = cornerPins(host) || [];   // the host's pins as they are; the absorbed ones join below
+      pushUndoState(); // discrete snapshot before merging paths (deletes "others")
 
       // Ensure host has subPathData initialized
       if (!host.subPathData || host.subPathData.length === 0) {
@@ -81371,6 +81579,12 @@
             const vHostLocal = transformVertex(vWorld, hostInverseWorld);
             host.localVertices.push(vHostLocal);
           });
+          // (v20261012q) the absorbed subpath's corner pins, re-attached by position (the Join idiom)
+          for (const pin of (cornerPins(other) || [])) {
+            if (pin.vi < osp.start || pin.vi >= osp.start + osp.count) continue;
+            const w = transformVertex(pin.pos, otherWorldMatrix); const l = w ? transformVertex(w, hostInverseWorld) : null;
+            if (l) _mergePins.push({ ...pin, vi: -1, pos: [l[0], l[1], l[2]] });
+          }
 
           // Append SubPath Metadata
           host.subPathData.push({
@@ -81382,6 +81596,8 @@
       });
 
       // 4. Cleanup
+      applyCornerPins(host, _mergePins);   // v20261012q: the host's and the absorbed paths' live corners
+
       // Remove 'others' from scene
       others.forEach(other => {
         if (other.parent) {
@@ -82149,7 +82365,7 @@
       const revolveEnabled = revolveEnabledInput.checked;
       const revolveAxis = revolveAxisInput.value;
       const revolveOffset = fromDisplay(parseFloat(revolveOffsetInput.value) || 0);
-      const revolveAngle = parseFloat(revolveAngleInput.value) || 360;
+      const revolveAngle = _numOr(parseFloat(revolveAngleInput.value), 360);   // v20261012i: a typed 0 is 0
       const revolveSegments = parseInt(revolveSegmentsInput.value) || 32;
       const revolveCapStartMode = revolveCapStartInput.value || 'fill';   // v20260913c: 'fill' | 'side' | 'none'
       const revolveCapEndMode = revolveCapEndInput.value || 'fill';
@@ -82580,7 +82796,7 @@
           const extPcHex = document.getElementById('extrudePointColorHexInput');
           const extPshInput = document.getElementById('extrudePointShapeInput');
           if (extDpInput) obj.extrudeSettings.drawPoints = extDpInput.checked;
-          if (extPsInput) obj.extrudeSettings.pointSize = parseFloat(extPsInput.value) || 5.0;
+          if (extPsInput) obj.extrudeSettings.pointSize = _numOr(parseFloat(extPsInput.value), 5.0);
           if (extPcHex && targetId === 'extrudePointColorHexInput') {
             const hex = extPcHex.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
             if (hex.length === 6) obj.extrudeSettings.pointColor = '#' + hex;
@@ -82647,7 +82863,7 @@
           const revPcHex = document.getElementById('revolvePointColorHexInput');
           const revPshInput = document.getElementById('revolvePointShapeInput');
           if (revDpInput) obj.revolveSettings.drawPoints = revDpInput.checked;
-          if (revPsInput) obj.revolveSettings.pointSize = parseFloat(revPsInput.value) || 5.0;
+          if (revPsInput) obj.revolveSettings.pointSize = _numOr(parseFloat(revPsInput.value), 5.0);
           if (revPcHex && targetId === 'revolvePointColorHexInput') {
             const hex = revPcHex.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
             if (hex.length === 6) obj.revolveSettings.pointColor = '#' + hex;
@@ -82739,7 +82955,7 @@
           const pcHex = document.getElementById('sweepPointColorHexInput');
           const pshInput = document.getElementById('sweepPointShapeInput');
           if (dpInput) obj.sweepSettings.drawPoints = dpInput.checked;
-          if (psInput) obj.sweepSettings.pointSize = parseFloat(psInput.value) || 5.0;
+          if (psInput) obj.sweepSettings.pointSize = _numOr(parseFloat(psInput.value), 5.0);
           if (pcHex && targetId === 'sweepPointColorHexInput') {
             const hex = pcHex.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
             if (hex.length === 6) obj.sweepSettings.pointColor = '#' + hex;
@@ -82815,7 +83031,7 @@
           const loftPcHex = document.getElementById('loftPointColorHexInput');
           const loftPshInput = document.getElementById('loftPointShapeInput');
           if (loftDpInput) obj.loftSettings.drawPoints = loftDpInput.checked;
-          if (loftPsInput) obj.loftSettings.pointSize = parseFloat(loftPsInput.value) || 5.0;
+          if (loftPsInput) obj.loftSettings.pointSize = _numOr(parseFloat(loftPsInput.value), 5.0);
           if (loftPcHex && targetId === 'loftPointColorHexInput') {
             const hex = loftPcHex.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
             if (hex.length === 6) obj.loftSettings.pointColor = '#' + hex;
@@ -87614,7 +87830,7 @@
       // and unconditionally every 30th frame as a belt (≤0.5 s staleness for
       // anything the header does not name). updateCameraPanel keeps its own
       // activeElement guard, so typing is never fought.
-      const _chromeHdr = width + '|' + height + '|' + CANVAS_OFFSET_X + '|' + _camPose(activeCamera) + '|' + (selectedCamera === activeCamera ? 'same' : _camPose(selectedCamera)) + '|' + cameras.indexOf(selectedCamera) + '|' + tlExpanded + '|' + _tlExpandedHeight + '|' + _currentFrameGuide + '|' + projectionType;
+      const _chromeHdr = width + '|' + height + '|' + CANVAS_OFFSET_X + '|' + _camPose(activeCamera) + '|' + (selectedCamera === activeCamera ? 'same' : _camPose(selectedCamera)) + '|' + cameras.indexOf(selectedCamera) + '|' + tlExpanded + '|' + _tlExpandedHeight + '|' + _currentFrameGuide + '|' + projectionType + '|' + (_showHudCb ? _showHudCb.checked : true);   // v20261012g: Show Camera HUD is written by this gated block too - without it the toggle waited for the 30th-frame belt
       render._chromeTick = (render._chromeTick || 0) + 1;
       const _chromeDirty = (_chromeHdr !== render._chromeHdr) || (render._chromeTick % 30 === 0);
       if (_chromeDirty) render._chromeHdr = _chromeHdr;
@@ -88659,6 +88875,7 @@
         _hudEndEdit();   // v20260906d — this bar has no readout, but it is still a HUD press
         const cam = selectedCamera || activeCamera;
         if (cam.lock) return;
+        DragRelay.arm(e, 'arrow');   // CONTINUOUS DRAG (v20261012g): the one HUD control that was never armed - its free truck stopped at the screen edge; the subwindow's hand (_wireHandBtn) arms the same way
         _hudResetDragging = true;
         _hudResetDidMove = false;
         _hudResetStartX = e.clientX;
@@ -91544,7 +91761,7 @@
             // Vertex snap: compute candidate vertex world position
             const _obj = selectedVertexInfo.object;
             const _localV = _obj.localVertices[selectedVertexInfo.vertexIndex];
-            const _invRot = matrixInverse(_obj.rotationMatrix);
+            const _invRot = _vertexDeltaMatrix(_obj);
             if (_invRot) {
               const _localDelta = vectorApplyMatrix(moveVec, _invRot);
               const _candidateLocal = vectorAdd(_localV, _localDelta);
@@ -91563,7 +91780,7 @@
         }
 
         if (selectedVertexInfo) {
-          const invRot = matrixInverse(selectedVertexInfo.object.rotationMatrix);
+          const invRot = _vertexDeltaMatrix(selectedVertexInfo.object);
           if (invRot) {
             const localDelta = vectorApplyMatrix(moveVec, invRot);
             const v = selectedVertexInfo.object.localVertices[selectedVertexInfo.vertexIndex];
@@ -91575,7 +91792,7 @@
             if (selectedVertices.length > 0) {
               selectedVertices.forEach(sv => {
                 if (sv !== selectedVertexInfo) { // Avoid double apply? selectedVertexInfo is in list?
-                  const invR = matrixInverse(sv.object.rotationMatrix);
+                  const invR = _vertexDeltaMatrix(sv.object);
                   const lDelta = vectorApplyMatrix(moveVec, invR);
                   sv.object.localVertices[sv.vertexIndex] = vectorAdd(sv.object.localVertices[sv.vertexIndex], lDelta);
                 }
@@ -91918,7 +92135,7 @@
           // Multi-vertex translation
           if (selectedVertices.length > 0) {
             selectedVertices.forEach(v => {
-              const invRot = matrixInverse(v.object.rotationMatrix);
+              const invRot = _vertexDeltaMatrix(v.object);
               if (invRot) {
                 const totalLocalDelta = vectorApplyMatrix(totalWorldDelta, invRot);
                 v.object.localVertices[v.vertexIndex] = vectorAdd(v.dragStartLocalPosition, totalLocalDelta);
@@ -91941,7 +92158,7 @@
             // Actually, in onMouseDown, we push to selectedVertices even for single click now?
             // Let's keep specific logic for robust single
             const newWorldPosition = vectorAdd(dragStartWorldPosition, totalWorldDelta);
-            const invRot = matrixInverse(selectedVertexInfo.object.rotationMatrix);
+            const invRot = _vertexDeltaMatrix(selectedVertexInfo.object);
 
             if (invRot) {
               const totalLocalDelta = vectorApplyMatrix(totalWorldDelta, invRot);
@@ -92051,7 +92268,7 @@
                 // Multi-vertex translation
                 if (selectedVertices.length > 0) {
                   selectedVertices.forEach(v => {
-                    const invRot = matrixInverse(v.object.rotationMatrix);
+                    const invRot = _vertexDeltaMatrix(v.object);
                     if (invRot) {
                       const totalLocalDelta = vectorApplyMatrix(totalWorldDelta, invRot);
                       v.object.localVertices[v.vertexIndex] = vectorAdd(v.dragStartLocalPosition, totalLocalDelta);
@@ -92065,7 +92282,7 @@
                   involvedObjects.forEach(obj => notifyPathUpdated(obj));
                 } else {
                   const newWorldPosition = vectorAdd(dragStartWorldPosition, totalWorldDelta);
-                  const invRot = matrixInverse(selectedVertexInfo.object.rotationMatrix);
+                  const invRot = _vertexDeltaMatrix(selectedVertexInfo.object);
                   if (invRot) {
                     const totalLocalDelta = vectorApplyMatrix(totalWorldDelta, invRot);
                     selectedVertexInfo.object.localVertices[selectedVertexInfo.vertexIndex] = vectorAdd(dragStartVertexPosition, totalLocalDelta);
@@ -92659,9 +92876,9 @@
           const cycRail = document.getElementById('cycRail').value || 'circle';
           const cycMode = document.getElementById('cycMode').value || 'hypo';
           const cycFacing = document.getElementById('cycFacing').value || 'XZ';
-          const cycR = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || 5);
-          const cycr = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || 3);
-          const cycD = fromDisplay(parseFloat(document.getElementById('cycPenD').value) || 3);
+          const cycR = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || CYC_DEFAULTS.R);
+          const cycr = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || CYC_DEFAULTS.r);
+          const cycD = fromDisplay(_numOr(parseFloat(document.getElementById('cycPenD').value), CYC_DEFAULTS.d));
           const cycCount = Math.min(Math.max(parseInt(document.getElementById('cycCount').value) || 500, 10), 2000);
           const cycLoop = Math.min(Math.max(parseInt(document.getElementById('cycLoop').value) || 1, 1), 100);
           const cycHeightVal = fromDisplay(parseFloat(document.getElementById('cycHeight').value) || 0);
@@ -92747,9 +92964,9 @@
 
               // Scale Wheel (r) and Offset (d) proportionally from drag distance
               // For circle mode, Ring (R) is also scaled; for line/path, R is unused
-              const origR = fromDisplay(parseFloat(document.getElementById('cycFixedR').dataset.origR || document.getElementById('cycFixedR').value) || 5);
-              const origr = fromDisplay(parseFloat(document.getElementById('cycRollingR').dataset.origr || document.getElementById('cycRollingR').value) || 3);
-              const origD = fromDisplay(parseFloat(document.getElementById('cycPenD').dataset.origD || document.getElementById('cycPenD').value) || 3);
+              const origR = fromDisplay(parseFloat(document.getElementById('cycFixedR').dataset.origR || document.getElementById('cycFixedR').value) || CYC_DEFAULTS.R);
+              const origr = fromDisplay(parseFloat(document.getElementById('cycRollingR').dataset.origr || document.getElementById('cycRollingR').value) || CYC_DEFAULTS.r);
+              const origD = fromDisplay(_numOr(parseFloat(document.getElementById('cycPenD').dataset.origD || document.getElementById('cycPenD').value), CYC_DEFAULTS.d));
 
               // On first drag frame, store original values
               if (!document.getElementById('cycRollingR').dataset.origr) {
@@ -92778,9 +92995,9 @@
               // Re-generate vertices
               const cycMode = document.getElementById('cycMode').value || 'hypo';
               const cycFacing = document.getElementById('cycFacing').value || 'XZ';
-              const newR = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || 5);
-              const newR2 = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || 3);
-              const newD = fromDisplay(parseFloat(document.getElementById('cycPenD').value) || 3);
+              const newR = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || CYC_DEFAULTS.R);
+              const newR2 = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || CYC_DEFAULTS.r);
+              const newD = fromDisplay(_numOr(parseFloat(document.getElementById('cycPenD').value), CYC_DEFAULTS.d));
               const cycCount = Math.min(Math.max(parseInt(document.getElementById('cycCount').value) || 500, 10), 2000);
               const cycLoop = Math.min(Math.max(parseInt(document.getElementById('cycLoop').value) || 1, 1), 100);
               const cycHeightVal = fromDisplay(parseFloat(document.getElementById('cycHeight').value) || 0);
@@ -93313,7 +93530,7 @@
         const _dsMod = !!(selectedVertexInfo && _dsHandleCtx && (event.shiftKey || event.altKey));
         if (_dsMod) {
           const _o = _dsHandleCtx.obj;
-          const _invR = matrixInverse(_o.rotationMatrix);
+          const _invR = _vertexDeltaMatrix(_o);
           if (_invR) {
             const _free = vectorAdd(dragStartVertexPosition, vectorApplyMatrix(totalWorldDelta, _invR));
             const _pos = resolveHandleDragPos(_dsHandleCtx.anchorPos, _free, {
@@ -93334,7 +93551,7 @@
         if (selectedVertexInfo) {
           if (selectedVertices.length > 0) {
             selectedVertices.forEach(v => {
-              const invRot = matrixInverse(v.object.rotationMatrix);
+              const invRot = _vertexDeltaMatrix(v.object);
               if (invRot) {
                 const localDelta = vectorApplyMatrix(totalWorldDelta, invRot);
                 v.object.localVertices[v.vertexIndex] = vectorAdd(v.dragStartLocalPosition, localDelta);
@@ -93344,7 +93561,7 @@
               }
             });
           } else {
-            const invRot = matrixInverse(selectedVertexInfo.object.rotationMatrix);
+            const invRot = _vertexDeltaMatrix(selectedVertexInfo.object);
             if (!invRot) return;
             const localDelta = vectorApplyMatrix(totalWorldDelta, invRot);
             selectedVertexInfo.object.localVertices[selectedVertexInfo.vertexIndex] = vectorAdd(dragStartVertexPosition, localDelta);
@@ -93412,7 +93629,7 @@
         if (selectedVertexInfo) {
           if (selectedVertices.length > 0) {
             selectedVertices.forEach(v => {
-              const invRot = matrixInverse(v.object.rotationMatrix);
+              const invRot = _vertexDeltaMatrix(v.object);
               if (invRot) {
                 const localDelta = vectorApplyMatrix(totalWorldDelta, invRot);
                 v.object.localVertices[v.vertexIndex] = vectorAdd(v.dragStartLocalPosition, localDelta);
@@ -93422,7 +93639,7 @@
               }
             });
           } else {
-            const invRot = matrixInverse(selectedVertexInfo.object.rotationMatrix);
+            const invRot = _vertexDeltaMatrix(selectedVertexInfo.object);
             if (!invRot) return;
             const localDelta = vectorApplyMatrix(totalWorldDelta, invRot);
             selectedVertexInfo.object.localVertices[selectedVertexInfo.vertexIndex] = vectorAdd(dragStartVertexPosition, localDelta);
@@ -93601,9 +93818,9 @@
           const cycRail = document.getElementById('cycRail').value || 'circle';
           const cycMode = document.getElementById('cycMode').value || 'hypo';
           const cycFacing = document.getElementById('cycFacing').value || 'XZ';
-          const cycR = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || 5);
-          const cycr = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || 3);
-          const cycD = fromDisplay(parseFloat(document.getElementById('cycPenD').value) || 3);
+          const cycR = fromDisplay(parseFloat(document.getElementById('cycFixedR').value) || CYC_DEFAULTS.R);
+          const cycr = fromDisplay(parseFloat(document.getElementById('cycRollingR').value) || CYC_DEFAULTS.r);
+          const cycD = fromDisplay(_numOr(parseFloat(document.getElementById('cycPenD').value), CYC_DEFAULTS.d));
           const cycCount = Math.min(Math.max(parseInt(document.getElementById('cycCount').value) || 500, 10), 2000);
           const cycLoop = Math.min(Math.max(parseInt(document.getElementById('cycLoop').value) || 1, 1), 100);
           const cycHeightVal = fromDisplay(parseFloat(document.getElementById('cycHeight').value) || 0);
@@ -95016,7 +95233,7 @@
           if (currentTool === 'directSelect' && selectedVertices && selectedVertices.length > 0) {
             // Move multiple vertices (A tool multi-select)
             selectedVertices.forEach(vi => {
-              const invRot = matrixInverse(vi.object.rotationMatrix);
+              const invRot = _vertexDeltaMatrix(vi.object);
               if (invRot) {
                 const localDelta = vectorApplyMatrix(worldSpaceDelta, invRot);
                 vi.object.localVertices[vi.vertexIndex] = vectorAdd(vi.object.localVertices[vi.vertexIndex], localDelta);
@@ -95034,7 +95251,7 @@
             requestRender();
           } else if (selectedVertexInfo && currentTool === 'directSelect') {
             // Move single vertex
-            const invRot = matrixInverse(selectedVertexInfo.object.rotationMatrix);
+            const invRot = _vertexDeltaMatrix(selectedVertexInfo.object);
             if (invRot) {
               const localDelta = vectorApplyMatrix(worldSpaceDelta, invRot);
               selectedVertexInfo.object.localVertices[selectedVertexInfo.vertexIndex] = vectorAdd(selectedVertexInfo.object.localVertices[selectedVertexInfo.vertexIndex], localDelta);
@@ -95650,6 +95867,46 @@
       }
     };
 
+    // (v20261012o) ONE object out of the scene: its DOM (recursively), the stubborn
+    // element by id, the pen's activePath, then the parent's children or sceneObjects.
+    // Returns the sibling list and the index it held, for the single delete's
+    // auto-select. Shared by the single and the multi branches of deleteSelection.
+    const _removeObjectFromScene = (obj) => {
+      const removeDomElements = (o) => {
+        if (o.destroy && typeof o.destroy === 'function') {
+          o.destroy();
+        } else if (o.svgElement) {
+          o.svgElement.remove();
+        }
+        if (o.children) {
+          o.children.forEach(child => removeDomElements(child));
+        }
+      };
+      const targetId = obj.id;
+      removeDomElements(obj);
+      if (targetId) {
+        const domEl = document.getElementById(targetId);
+        if (domEl) {
+          console.warn("Delete: Found stubborn DOM element, force removing:", targetId);
+          domEl.remove();
+        }
+      }
+      if (activePath === obj) activePath = null;
+      const siblings = obj.parent ? obj.parent.children : sceneObjects;
+      const delIdx = siblings.indexOf(obj);
+      if (obj.parent) {
+        obj.parent.remove(obj);
+      } else {
+        const index = sceneObjects.indexOf(obj);
+        if (index > -1) {
+          sceneObjects.splice(index, 1);
+        } else {
+          console.warn("Delete: Object not found in sceneObjects, but destroyed.", obj.id);
+        }
+      }
+      return { siblings, delIdx };
+    };
+
     const deleteSelection = () => {
       pushUndoState(); // Snapshot before delete
 
@@ -95691,52 +95948,30 @@
         requestRender();
         pushUndoState('Delete vertex');
         return;
+      } else if (selectedObjects.length > 1) {
+        // (v20261012o) A MULTI-SELECTION DELETES EVERY SELECTED OBJECT. Until now
+        // Delete / Remove removed the primary only (no loop over selectedObjects;
+        // no decision recorded anywhere - review K2; owner 2026-10-12: delete all).
+        // A child whose selected ancestor is also in the list goes with the
+        // ancestor. ONE undo entry, pushed BEFORE any selection change (the
+        // v20260726n rule below). No auto-select afterwards: the selection is
+        // the one thing a multi delete is about.
+        const list = selectedObjects.slice();
+        const inList = new Set(list);
+        const covered = (o) => { for (let a = o.parent; a; a = a.parent) if (inList.has(a)) return true; return false; };
+        const roots = list.filter(o => !covered(o));
+        for (const o of roots) _removeObjectFromScene(o);
+        if (typeof tlRenderTracks === 'function' && typeof tlExpanded !== 'undefined' && tlExpanded) tlRenderTracks();
+        selectedObject = null;
+        selectedObjects = [];
+        pushUndoState('Delete ' + roots.length + ' objects');
+        updateTreeView();
+        updatePropertiesPanel();
+        updateStylePanel();
+        requestRender();
       } else if (selectedObject) {
-        // Recursive Clean-up Helper
-        const removeDomElements = (obj) => {
-          if (obj.destroy && typeof obj.destroy === 'function') {
-            obj.destroy();
-          } else if (obj.svgElement) {
-            obj.svgElement.remove();
-          }
-          if (obj.children) {
-            obj.children.forEach(child => removeDomElements(child));
-          }
-        };
-
-        // Delete Object
-        const targetId = selectedObject.id;
-        removeDomElements(selectedObject);
-
-        // Brute Force DOM Cleanup
-        if (targetId) {
-          const domEl = document.getElementById(targetId);
-          if (domEl) {
-            console.warn("Delete: Found stubborn DOM element, force removing:", targetId);
-            domEl.remove();
-          }
-        }
-
-        if (activePath === selectedObject) {
-          activePath = null;
-        }
-
-        // Determine next sibling to auto-select after deletion
-        const siblings = selectedObject.parent ? selectedObject.parent.children : sceneObjects;
-        const delIdx = siblings.indexOf(selectedObject);
-
-        // Remove from parent if exists, otherwise from sceneObjects
-        if (selectedObject.parent) {
-          selectedObject.parent.remove(selectedObject);
-        } else {
-          const index = sceneObjects.indexOf(selectedObject);
-          if (index > -1) {
-            sceneObjects.splice(index, 1);
-          } else {
-            // Fallback: If object is not in the list, force re-render anyway to clear artifacts
-            console.warn("Delete: Object not found in sceneObjects, but destroyed.", selectedObject.id);
-          }
-        }
+        // Delete Object (v20261012o: the removal itself is _removeObjectFromScene, shared with the multi branch above)
+        const { siblings, delIdx } = _removeObjectFromScene(selectedObject);
 
         // ANIMATION TRACKS ARE DELIBERATELY *NOT* REMOVED HERE (v20260726p).
         // They were, and it was irrecoverable: ⌘Z restored the object but the
@@ -100070,7 +100305,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       // pointed at objects that no longer exist.
       pendingPolygon = null; activePath = null; activePixelGroup = null; _lastPixelCell = null;
       selectedVertexInfo = null; hoveredVertexInfo = null; selectedVertices = []; dragMode = 'none';
-      { const pcp = document.getElementById('polygonCreationPanel'); if (pcp) pcp.classList.add('hidden'); }
+      _pendingShapePanelOff();   // v20261012d: the inline display, not the class (see the helper)
 
       // Restore Objects
       for (const obj of staged) sceneObjects.push(obj);
@@ -101155,11 +101390,17 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
     };
 
     // Close button — hides the popover AND clears the active keyframe reference
-    document.getElementById('tlCurveClose').addEventListener('click', () => {
+    // (v20261012f) THE ONE WAY TO CLOSE THE CURVE EDITOR, shared by its Close button,
+    // a scene import (both tlDeserialize branches) and the animation undo / redo.
+    // Until now only the button closed it: after File > Import, Clear Scene or
+    // an animation undo the popover stayed open on a keyframe object that no
+    // longer existed, and a preset change wrote into that detached keyframe.
+    const _tlCloseCurveEditor = () => {
       _activeCurveKf = null;
       _activeCurveTrack = null;
-      tlCurveEditor.hidePopover();
-    });
+      if (tlCurveEditor.matches(':popover-open')) tlCurveEditor.hidePopover();
+    };
+    document.getElementById('tlCurveClose').addEventListener('click', _tlCloseCurveEditor);
 
     // When curve editor closes, deselect the segment line and re-render track icons.
     tlCurveEditor.addEventListener('toggle', (e) => {
@@ -101306,6 +101547,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       tlCurvePreset.value = (algo === 'bezier') ? _matchPreset(pts) : 'custom';
       tlApplyFrame(animationTimeline.currentFrame, true);
       sceneObjects.forEach(obj => updateVisualsRecursive(obj));
+      tlRenderTracks();   // v20261012f: the diamond glyph / segment class derive from the curve - every sibling handler re-renders
       tlUpdateTrackInputs();
     });
 
@@ -101431,12 +101673,12 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         try {
           parsed = JSON.parse(ev.target.result);
         } catch (err) {
-          alert('Could not import curve: the file is not valid JSON.');
+          showAppConfirm('Could not import curve', 'The file is not valid JSON.', { okOnly: true });   // v20261012m: the house modal, not alert()
           return;
         }
         const payload = _parseCurvePayload(parsed);
         if (!payload) {
-          alert('Could not import curve: no valid curve data found in the file.');
+          showAppConfirm('Could not import curve', 'No valid curve data was found in the file.', { okOnly: true });   // v20261012m
           return;
         }
         if (!_activeCurveKf) return; // editor may have closed while reading
@@ -103521,7 +103763,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       // element that has focus; the max attributes stay unconditional.
       const ae = document.activeElement;
       if (ae !== tlFrameInput) tlFrameInput.value = f;
-      tlFrameInput.max = animationTimeline.playbackRange - 1;
+      tlFrameInput.max = animationTimeline.totalFrames - 1;   // v20261012n: the ruler scrubs to totalFrames - 1 (the START does not bound scrubbing; neither does the END)
       if (ae !== tlPlaybackRange) tlPlaybackRange.value = animationTimeline.playbackRange;
       // PLAY RANGE START (v20260826e). Its max tracks the range so the spinner
       // cannot walk it past the end; tlFrameInput.max above is deliberately NOT
@@ -107123,7 +107365,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       }
       // Clamp current frame if beyond the new range
       if (animationTimeline.currentFrame >= val) tlSetFrame(val - 1);
-      tlFrameInput.max = val - 1;
+      tlFrameInput.max = animationTimeline.totalFrames - 1;   // v20261012n: not the play range
       tlDrawRuler();
       tlRenderTracks();
     };
@@ -107330,7 +107572,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
     });
 
     // Clear Animation — context-aware: selected keyframe → focused track → all
-    tlClearAnimation.addEventListener('click', (e) => {
+    tlClearAnimation.addEventListener('click', async (e) => {   // v20261012m: async for the house confirm below
       e.stopPropagation();
 
       // Priority 1: Delete selected keyframe(s) (blue diamonds)
@@ -107381,7 +107623,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
 
       // Priority 3: Clear all animation (with confirmation)
       if (animationTimeline.tracks.size === 0) return;
-      if (!confirm('Clear all keyframes? This will remove the entire animation.')) return;
+      if (!(await showAppConfirm('Clear animation', 'Clear all keyframes? This will remove the entire animation.', { okLabel: 'Clear' }))) return;   // v20261012m: was a native confirm()
       pushAnimUndoState('Clear animation');
       tlStopPlayback();
       tlSetFrame(0);
@@ -107874,8 +108116,17 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         _tlHoldFraming.clear(); // v20260802h — same reason; BOTH branches must clear
         _tlGroupCollapsed.clear();
         _tlSubGroupCollapsed.clear();
+        // (v20261012f) the HEADER too: Clear Scene imports a keyless payload (and a
+        // legacy file has no animation block) - a scene at fps 12 / range 100 kept
+        // them. The data branch sets all four; "absent = the default", the rule
+        // written beside the call in importScene.
+        animationTimeline.playbackRange = 360;
+        animationTimeline.fps = 24;
+        animationTimeline.loop = true;
+        animationTimeline.pingPong = false;
         tlClearKfSelection();
         _tlFocusedTrack = null;
+        _tlCloseCurveEditor();   // v20261012f
         tlUpdateUI();
         if (tlExpanded) {
           tlDrawRuler();
@@ -108038,6 +108289,11 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           });
         }
       }
+      // (v20261012f) the selection, the focused track and the curve editor pointed
+      // at the PREVIOUS scene's keyframe objects (the null branch always reset them)
+      tlClearKfSelection();
+      _tlFocusedTrack = null;
+      _tlCloseCurveEditor();
       tlUpdateUI();
       if (tlExpanded) {
         tlDrawRuler();
@@ -108062,14 +108318,48 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       return found;
     };
 
+    // (v20261012m) THE EXPORT PROGRESS OVERLAY - one builder for the SVG-sequence and the
+    // multi-layer exporters, which carried two byte-identical copies (one with an id, one
+    // without) and painted the bar #4a78ff: a third blue that was neither the accent nor
+    // a token. The scrim's black and the white text are the recorded exceptions (the export
+    // scrim, CLAUDE.md); the bar is the accent.
+    const _tlExportOverlay = () => {
+      const overlay = document.createElement('div');
+      overlay.id = 'svgExportOverlay';
+      overlay.style.cssText = [
+        'position:fixed', 'inset:0', 'z-index:99999',
+        'background:rgba(0,0,0,0.6)',
+        'display:flex', 'flex-direction:column',
+        'align-items:center', 'justify-content:center', 'gap:14px',
+        'font-family:system-ui,sans-serif'
+      ].join(';');
+      const progressLabel = document.createElement('div');
+      progressLabel.style.cssText = 'color:#fff;font-size:13px;font-weight:600;';
+      const progressBarWrap = document.createElement('div');
+      progressBarWrap.style.cssText = 'width:260px;height:6px;background:rgba(255,255,255,0.2);border-radius:3px;overflow:hidden;';
+      const progressBar = document.createElement('div');
+      progressBar.style.cssText = 'height:100%;width:0%;background:var(--accent-color);border-radius:3px;transition:width 0.1s linear;';
+      progressBarWrap.appendChild(progressBar);
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.style.cssText = 'margin-top:4px;padding:5px 18px;border:1px solid rgba(255,255,255,0.3);background:transparent;color:#fff;border-radius:4px;cursor:pointer;font-size:12px;';
+      overlay.appendChild(progressLabel);
+      overlay.appendChild(progressBarWrap);
+      overlay.appendChild(cancelBtn);
+      document.body.appendChild(overlay);
+      let cancelled = false;
+      cancelBtn.addEventListener('click', () => { cancelled = true; });
+      return { overlay, progressLabel, progressBar, isCancelled: () => cancelled };
+    };
+
     // --- Export SVG Sequence (File System Access API) ---
     const tlExportSVGSequence = async () => {
       if (!_tlHasAnyAnimation()) {
-        alert('No animation to export — add keyframes, or trim a layer’s duration in the timeline.');
+        await showAppConfirm('Nothing to export', 'No animation to export — add keyframes, or trim a layer’s duration in the timeline.', { okOnly: true });   // v20261012m
         return;
       }
       if (!('showDirectoryPicker' in window)) {
-        alert('Your browser does not support the File System Access API (directory picker).\nPlease use Chrome or Edge.');
+        await showAppConfirm('Directory picker unavailable', 'Your browser does not support the File System Access API (directory picker). Please use Chrome or Edge.', { okOnly: true });   // v20261012m
         return;
       }
 
@@ -108121,37 +108411,8 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       const count = total - from;
       const originalFrame = animationTimeline.currentFrame;
 
-      // --- Progress overlay ---
-      const overlay = document.createElement('div');
-      overlay.id = 'svgExportOverlay';
-      overlay.style.cssText = [
-        'position:fixed', 'inset:0', 'z-index:99999',
-        'background:rgba(0,0,0,0.6)',
-        'display:flex', 'flex-direction:column',
-        'align-items:center', 'justify-content:center', 'gap:14px',
-        'font-family:system-ui,sans-serif'
-      ].join(';');
-
-      const progressLabel = document.createElement('div');
-      progressLabel.style.cssText = 'color:#fff;font-size:13px;font-weight:600;';
-
-      const progressBarWrap = document.createElement('div');
-      progressBarWrap.style.cssText = 'width:260px;height:6px;background:rgba(255,255,255,0.2);border-radius:3px;overflow:hidden;';
-      const progressBar = document.createElement('div');
-      progressBar.style.cssText = 'height:100%;width:0%;background:#4a78ff;border-radius:3px;transition:width 0.1s linear;';
-      progressBarWrap.appendChild(progressBar);
-
-      const cancelBtn = document.createElement('button');
-      cancelBtn.textContent = 'Cancel';
-      cancelBtn.style.cssText = 'margin-top:4px;padding:5px 18px;border:1px solid rgba(255,255,255,0.3);background:transparent;color:#fff;border-radius:4px;cursor:pointer;font-size:12px;';
-
-      overlay.appendChild(progressLabel);
-      overlay.appendChild(progressBarWrap);
-      overlay.appendChild(cancelBtn);
-      document.body.appendChild(overlay);
-
-      let cancelled = false;
-      cancelBtn.addEventListener('click', () => { cancelled = true; });
+      // --- Progress overlay (v20261012m: one helper for both exporters) ---
+      const { overlay, progressLabel, progressBar, isCancelled } = _tlExportOverlay();
 
       // --- Compute vpMatrix for the export render (same as live render) ---
       const _getVpMatrix = () => {
@@ -108162,7 +108423,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
 
       try {
         for (let i = from; i < total; i++) {
-          if (cancelled) break;
+          if (isCancelled()) break;
 
           // Update progress — counted within the exported range, so the bar fills
           // over the files actually being written (v20260826e).
@@ -108194,7 +108455,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         }
       } catch (err) {
         console.error('[dim] SVG export error:', err);
-        alert(`Export failed: ${err.message}`);
+        await showAppConfirm('Export failed', String(err && err.message || err), { okOnly: true });   // v20261012m
       } finally {
         SubView._exportHold = false;
         _tlExportInProgress = false;
@@ -108204,7 +108465,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         tlUpdateUI();
         requestRender();
         // Show completion briefly then close overlay
-        if (!cancelled) {
+        if (!isCancelled()) {
           progressBar.style.width = '100%';
           progressLabel.textContent = `Export complete — ${count} frames saved.`
             + (lossyFrames ? ` ${lossyFrames} frame${lossyFrames === 1 ? '' : 's'} lossy (occlusion clips incomplete).` : '');
@@ -108228,7 +108489,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
     // --- Export Multi-Layer SVG (all frames, one <g> layer per frame) ---
     const tlExportSVGMultiLayer = async () => {
       if (!_tlHasAnyAnimation()) {   // v20260729b — see the note above
-        alert('No animation to export — add keyframes, or trim a layer’s duration in the timeline.');
+        await showAppConfirm('Nothing to export', 'No animation to export — add keyframes, or trim a layer’s duration in the timeline.', { okOnly: true });   // v20261012m
         return;
       }
 
@@ -108253,36 +108514,8 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       SubView._exportHold = true;
       let lossyFrames = 0;   // v20260914zh — see generateSVGString
 
-      // --- Progress overlay ---
-      const overlay = document.createElement('div');
-      overlay.style.cssText = [
-        'position:fixed', 'inset:0', 'z-index:99999',
-        'background:rgba(0,0,0,0.6)',
-        'display:flex', 'flex-direction:column',
-        'align-items:center', 'justify-content:center', 'gap:14px',
-        'font-family:system-ui,sans-serif'
-      ].join(';');
-
-      const progressLabel = document.createElement('div');
-      progressLabel.style.cssText = 'color:#fff;font-size:13px;font-weight:600;';
-
-      const progressBarWrap = document.createElement('div');
-      progressBarWrap.style.cssText = 'width:260px;height:6px;background:rgba(255,255,255,0.2);border-radius:3px;overflow:hidden;';
-      const progressBar = document.createElement('div');
-      progressBar.style.cssText = 'height:100%;width:0%;background:#4a78ff;border-radius:3px;transition:width 0.1s linear;';
-      progressBarWrap.appendChild(progressBar);
-
-      const cancelBtn = document.createElement('button');
-      cancelBtn.textContent = 'Cancel';
-      cancelBtn.style.cssText = 'margin-top:4px;padding:5px 18px;border:1px solid rgba(255,255,255,0.3);background:transparent;color:#fff;border-radius:4px;cursor:pointer;font-size:12px;';
-
-      overlay.appendChild(progressLabel);
-      overlay.appendChild(progressBarWrap);
-      overlay.appendChild(cancelBtn);
-      document.body.appendChild(overlay);
-
-      let cancelled = false;
-      cancelBtn.addEventListener('click', () => { cancelled = true; });
+      // --- Progress overlay (v20261012m: one helper for both exporters) ---
+      const { overlay, progressLabel, progressBar, isCancelled } = _tlExportOverlay();
 
       const _getVpMatrix = () => {
         const vm = activeCamera.createViewMatrix();
@@ -108312,7 +108545,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
 
       try {
         for (let i = from; i < total; i++) {
-          if (cancelled) break;
+          if (isCancelled()) break;
 
           progressLabel.textContent = `Building frame ${i - from + 1} / ${count}`;
           progressBar.style.width = `${((i - from) / count) * 100}%`;
@@ -108378,7 +108611,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         }
       } catch (err) {
         console.error('[dim] Multi-layer SVG export error:', err);
-        alert(`Export failed: ${err.message}`);
+        await showAppConfirm('Export failed', String(err && err.message || err), { okOnly: true });   // v20261012m
       } finally {
         SubView._exportHold = false;
         _tlExportInProgress = false;
@@ -108388,7 +108621,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         tlUpdateUI();
         requestRender();
 
-        if (!cancelled) {
+        if (!isCancelled()) {
           // Serialize and download
           const serializer = new XMLSerializer();
           const finalSVG = serializer.serializeToString(outSVG);

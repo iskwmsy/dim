@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261019b -->
+<!-- dim v20261020k -->
 
 <!--
   MIT License
@@ -197,6 +197,7 @@
          axis. It is the accent now. The hues live on as --gizmo-hue-* and Settings > Colored gizmo highlight
          (:root[data-gizmo="color"], below the dark block's neighbour) points the highlight tokens back at them. */
       --gizmo-hue-x: #c00; --gizmo-hue-y: #0a0; --gizmo-hue-z: #00d; --gizmo-hue-xy: #cc0; --gizmo-hue-yz: #0aa; --gizmo-hue-xz: #a0a;
+      --light-glyph: #d99a00;   /* LIGHT (experimental, PLAN-light S1): the rays of a light's glyph on the canvas */
       --gizmo-hot-grey: #999; --gizmo-centre-hot-grey: #444; --gizmo-free-centre-hot-grey: #555;
       --gizmo-axis-x-active: var(--accent-ink);
       --gizmo-axis-y-active: var(--accent-ink);
@@ -583,6 +584,7 @@
          mode pair, because a white letter in a dark halo on white paper read as
          a blob; the centre discs stay dark (they sit on the object). */
       --overlay-ink: #808080;
+      --light-glyph: #ffc43d;   /* LIGHT */
       --overlay-text: rgba(0, 0, 0, 0.85);
       --handle-fill: #262626;
       --handle-hot: #3b5f9e;
@@ -6426,6 +6428,18 @@
         <polygon points="12 7 3 7 8 4 17 4 12 7" />
       </svg>
     </button>
+    <!-- LIGHT (experimental, PLAN-light S1): the Light tool - a click on the workplane places a point light,
+         raised toward the camera (D1 / D2). Hidden until Settings > Lights (experimental) is on (setLightsEnabled). -->
+    <button data-tool="light" title="Light (I)" style="display:none;">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="10" cy="10" r="3.5" />
+        <line x1="10" y1="2" x2="10" y2="4" /><line x1="10" y1="16" x2="10" y2="18" />
+        <line x1="2" y1="10" x2="4" y2="10" /><line x1="16" y1="10" x2="18" y2="10" />
+        <line x1="4.34" y1="4.34" x2="5.76" y2="5.76" /><line x1="14.24" y1="14.24" x2="15.66" y2="15.66" />
+        <line x1="4.34" y1="15.66" x2="5.76" y2="14.24" /><line x1="14.24" y1="5.76" x2="15.66" y2="4.34" />
+      </svg>
+    </button>
+    <!-- /LIGHT -->
     <div style="flex:1"></div>
     <button id="helpBtn" title="Help (?)">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
@@ -7097,6 +7111,13 @@
           <label for="keepGizmoOnHideCheckbox" class="ui-checkbox-label" title="While Tab hides the guides, the selected object's transform gizmo stays, so it can still be moved, rotated or scaled over the clean picture. On by default.">Keep Gizmo on Hide (Tab)</label>
           <input type="checkbox" id="keepGizmoOnHideCheckbox" class="ui-checkbox" checked />
         </div>
+        <!-- LIGHT P1 (v20261019n): the scene's ambient light - the Light tab's Scene row again, here while a light is in the scene -->
+        <div class="xyz-row" id="wpAmbientRow" style="display:none;">
+          <label for="wpAmbientInput">Ambient (lights)</label>
+          <div class="xyz-inputs">
+            <input type="number" id="wpAmbientInput" value="0.35" step="0.05" min="0" max="1" title="The scene's ambient light: the share of its colour a face keeps where no light reaches it (the Light tab's Ambient, the same value)" />
+          </div>
+        </div>
 
 
         <hr class="ui-hr" />
@@ -7249,6 +7270,15 @@
         </div>
         <!-- END COLOR PICKER -->
 
+
+        <!-- LIGHT (experimental, PLAN-light S1, D10) - the gate. Off = the Light tool is hidden and every light in the
+             scene draws nothing (the file keeps them). Removable by marker sweep (grep "LIGHT" / "/LIGHT"), the Camera
+             Match convention. -->
+        <div class="prop-row prop-inline" id="lightsRow">
+          <label for="lightsCb" class="ui-checkbox-label" title="Experimental. Adds the Light tool (I): a click on the workplane places a point light, drawn as a sun glyph with a dashed drop line to the workplane. Shading and shadows are coming in later releases. Off = the tool and the glyphs are hidden; nothing is removed from the scene.">Lights (experimental)</label>
+          <input type="checkbox" id="lightsCb" class="ui-checkbox" />
+        </div>
+        <!-- /LIGHT -->
 
         <!-- Animation and the Text tool were Settings checkboxes marked
              "(experimental)" until v20260812p. They are DEFAULT FEATURES now;
@@ -7953,6 +7983,44 @@
               <input type="color" id="snfStrokeColor" value="#4466cc" class="color-stroke" title="Stroke colour" />
             </div>
           </div>
+
+          <!-- LIGHT (experimental, PLAN-light S1): the Light tool's panel - the creation defaults a click places
+               (Kind, Color, Intensity; readLightToolDefaults). The placed light's own values are edited in its Light tab. -->
+          <div class="hidden" id="lightSettingsContainer">
+            <div class="xyz-row">
+              <label for="lightToolKindSelect">Kind</label>
+              <div class="xyz-inputs">
+                <select id="lightToolKindSelect" title="The kind of light a click places: a point light shines from where it sits; a directional light shines along its local +Z axis and a panel light forward from a rectangle - both aimed at the click when placed">
+                  <option value="point" selected>Point Light</option>
+                  <option value="directional">Directional Light</option>
+                  <option value="panel">Panel Light</option>
+                </select>
+              </div>
+            </div>
+            <div class="style-row">
+              <label for="lightToolColorInput">Color</label>
+              <input type="text" id="lightToolColorHexInput" title="Light colour as hex" class="color-hex-input" maxlength="6" placeholder="FFFFFF" spellcheck="false" value="FFFFFF" />
+              <input type="color" id="lightToolColorInput" title="Light colour" class="color-fill" value="#ffffff" />
+            </div>
+            <div class="xyz-row">
+              <label for="lightToolIntensityInput">Intensity</label>
+              <div class="xyz-inputs">
+                <input type="number" id="lightToolIntensityInput" value="1" step="0.1" min="0" max="2" title="How strongly the light shades and shadows; 1 = full" />
+              </div>
+            </div>
+            <!-- (v20261019d, owner) the SELECTED light's position, typed here as in the Select tool's panel -->
+            <div class="ui-header-small">Position</div>
+            <div class="xyz-row">
+              <label for="lightToolPosX">X, Y, Z</label>
+              <div class="xyz-inputs">
+                <input type="number" id="lightToolPosX" value="0" step="0.1" title="The selected light's world X" />
+                <input type="number" id="lightToolPosY" value="0" step="0.1" title="The selected light's world Y" />
+                <input type="number" id="lightToolPosZ" value="0" step="0.1" title="The selected light's world Z" />
+              </div>
+            </div>
+            <div class="tool-hint" id="lightToolHint">Click on the workplane to place a light.</div>
+          </div>
+          <!-- /LIGHT -->
 
           <!-- 3D SHAPE TOOL (v20260906h, PLAN-3d-primitives): a Shape select, then
                per-shape rows toggled by data-shape3d. Display units through
@@ -8691,9 +8759,123 @@
                   <path d="M9.28,4.65V1.94c0,.31-.39.72-1.18,1.22-.59.37-.88.68-.88.91,0,.36.69.55,2.06.57Z" />
                 </svg>
               </button>
+              <!-- LIGHT (experimental, PLAN-light S1, D3): the Light tab, shown for a light only (_lightSyncTabs) -->
+              <button class="obj-tab" data-obj-panel="sub-light" title="Light" style="display:none;">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="10" cy="10" r="3.5" />
+                  <line x1="10" y1="2" x2="10" y2="4" /><line x1="10" y1="16" x2="10" y2="18" />
+                  <line x1="2" y1="10" x2="4" y2="10" /><line x1="16" y1="10" x2="18" y2="10" />
+                  <line x1="4.34" y1="4.34" x2="5.76" y2="5.76" /><line x1="14.24" y1="14.24" x2="15.66" y2="15.66" />
+                  <line x1="4.34" y1="15.66" x2="5.76" y2="14.24" /><line x1="14.24" y1="5.76" x2="15.66" y2="4.34" />
+                </svg>
+              </button>
+              <!-- /LIGHT -->
             </div>
 
             <div id="selectedObjectContent" style="display:none;">
+
+              <!-- LIGHT (experimental, PLAN-light S1, D3): the Light tab - shown for a light in place of Style /
+                   3D Settings / 3D Mapping (_lightSyncTabs). Kind / Color / Intensity write obj.light. -->
+              <div class="obj-tab-content" id="sub-light">
+                <div class="tool-panel-label">Light</div>
+                <div class="style-row">
+                  <label for="lightKindSelect">Kind</label>
+                  <select id="lightKindSelect" class="ui-select" title="The kind of light: a point light shines from where it sits; a directional light shines along its local +Z axis (rotate it in Transform), its position only places the glyph">
+                    <option value="point">Point Light</option>
+                    <option value="directional">Directional Light</option>
+                    <option value="panel">Panel Light</option>
+                  </select>
+                </div>
+                <!-- LIGHT P1 (v20261019n, PLAN-light-polish): a panel's SIZE - the object's Scale X / Y in the display unit, shown for a panel only -->
+                <div class="xyz-row" id="lightSizeRow" style="display:none;">
+                  <label for="lightPanelWInput">Size</label>
+                  <div class="xyz-inputs">
+                    <input type="number" id="lightPanelWInput" value="1" step="0.1" title="The panel's width (Scale X in Transform), in the display unit" />
+                    <input type="number" id="lightPanelHInput" value="1" step="0.1" title="The panel's height (Scale Y in Transform), in the display unit" />
+                  </div>
+                </div>
+                <!-- LIGHT P3 (v20261019p, PLAN-light-polish): the beam's direction for a directional or a panel light, in the workplane's
+                     terms - azimuth round the workplane's normal (0 = its first in-plane axis), elevation from the plane toward the normal
+                     (-90 = straight down onto it); written as the light's rotation (_lightAimMatrix), so Transform follows -->
+                <div id="lightAimGroup" style="display:none;">
+                  <div class="xyz-row">
+                    <label for="lightAimAzInput">Aim (az, el)</label>
+                    <div class="xyz-inputs">
+                      <input type="number" id="lightAimAzInput" value="0" step="1" title="Azimuth of the beam, degrees round the workplane's normal (0 = the plane's first axis, 90 = its second)" />
+                      <input type="number" id="lightAimElInput" value="-45" step="1" min="-90" max="90" title="Elevation of the beam, degrees from the workplane toward its normal (-90 = straight down onto the plane, 0 = along it)" />
+                    </div>
+                  </div>
+                  <div class="prop-row prop-row-plain prop-row-tight">
+                    <button id="lightAimOriginBtn" class="ui-btn" title="Turn the light so its beam points at the workplane's origin">Aim at Origin</button>
+                  </div>
+                </div>
+                <div class="style-row">
+                  <label for="lightColorInput">Color</label>
+                  <input type="text" id="lightColorHexInput" title="Light colour as hex" class="color-hex-input" maxlength="6" placeholder="FFFFFF" spellcheck="false" />
+                  <input type="color" id="lightColorInput" title="Light colour" class="color-fill" />
+                </div>
+                <div class="xyz-row">
+                  <label for="lightIntensityInput">Intensity</label>
+                  <div class="xyz-inputs">
+                    <input type="number" id="lightIntensityInput" value="1" step="0.1" min="0" max="2" title="How strongly the light shades and shadows; 1 = full" />
+                  </div>
+                </div>
+                <!-- LIGHT S3 (v20261019f): the shadow rows - Shadows (on / off), Shadow Opacity, Blur (scene units), Expand Blur in Export (D9) -->
+                <hr class="ui-hr" />
+                <div class="prop-row prop-inline">
+                  <label for="lightShadowInput" class="ui-checkbox-label" title="Cast a shadow from this light onto the workplane (objects in later releases). Turns Scene Z-Sort on: the shadow is a face the scene sorts and masks like any other.">Shadows</label>
+                  <input type="checkbox" id="lightShadowInput" class="ui-checkbox" checked />
+                </div>
+                <!-- LIGHT S4 (v20261019g): where the shadow lands -->
+                <div class="style-row">
+                  <label for="lightReceiversSelect">Receivers</label>
+                  <select id="lightReceiversSelect" class="ui-select" title="Where this light's shadow lands: the workplane and the flat faces of other objects, the workplane only, or the objects only">
+                    <option value="all">Workplane and Objects</option>
+                    <option value="workplane">Workplane only</option>
+                    <option value="objects">Objects only</option>
+                  </select>
+                </div>
+                <div class="xyz-row">
+                  <label for="lightShadowOpacityInput">Shadow Opacity</label>
+                  <div class="xyz-inputs">
+                    <input type="number" id="lightShadowOpacityInput" value="0.35" step="0.05" min="0" max="1" title="The shadow's darkness: black at this opacity over whatever it lands on" />
+                  </div>
+                </div>
+                <!-- LIGHT P2 (v20261019o, PLAN-light-polish): the shadow's colour - black by default; any colour at Shadow Opacity (a white one is a wash) -->
+                <div class="style-row">
+                  <label for="lightShadowColorInput">Shadow Color</label>
+                  <input type="text" id="lightShadowColorHexInput" title="Shadow colour as hex" class="color-hex-input" maxlength="6" placeholder="000000" spellcheck="false" />
+                  <input type="color" id="lightShadowColorInput" title="The shadow's colour, laid over whatever it lands on at Shadow Opacity (black by default; a light colour is a wash)" class="color-fill" />
+                </div>
+                <div class="xyz-row">
+                  <label for="lightBlurInput">Blur <span id="lightBlurUnit">(px)</span></label>
+                  <div class="xyz-inputs">
+                    <input type="number" id="lightBlurInput" value="0" step="0.1" min="0" title="The shadow's soft edge, in scene units (0 = a hard edge). On the canvas an SVG blur; in the export a stack of offset copies, since Illustrator drops SVG filters" />
+                  </div>
+                </div>
+                <!-- LIGHT S5b (v20261019j): a panel light's penumbra grows with the caster's distance from the surface -->
+                <div class="xyz-row" id="lightSoftnessRow" style="display:none;">
+                  <label for="lightSoftnessInput">Softness</label>
+                  <div class="xyz-inputs">
+                    <input type="number" id="lightSoftnessInput" value="0" step="0.05" min="0" title="Panel lights only: how much the shadow's soft edge widens per unit of distance between the casters and the surface the shadow lands on (the edge = Blur + Softness x that distance, averaged over the casters)" />
+                  </div>
+                </div>
+                <div class="prop-row prop-inline">
+                  <label for="lightExpandInput" class="ui-checkbox-label" title="On: a blurred shadow is exported as a vector soft edge (six offset copies of the shadow), which Illustrator reads. Off: the file keeps the SVG blur filter (for browsers; Illustrator drops it).">Expand Blur in Export</label>
+                  <input type="checkbox" id="lightExpandInput" class="ui-checkbox" checked />
+                </div>
+                <hr class="ui-hr" />
+                <!-- LIGHT S2 (v20261019e): the scene's ambient light, the floor of every lit face's shade (sceneRender.ambient); P1: in its own Scene group, the same row in the Workplane panel -->
+                <div class="ui-header-small">Scene</div>
+                <div class="xyz-row">
+                  <label for="lightAmbientInput">Ambient</label>
+                  <div class="xyz-inputs">
+                    <input type="number" id="lightAmbientInput" value="0.35" step="0.05" min="0" max="1" title="The scene's ambient light: the share of its colour a face keeps where no light reaches it (one value for the whole scene)" />
+                  </div>
+                </div>
+                <div class="tool-hint" id="lightTabHint">Point: shines from where it sits. Directional: along its +Z axis (rotate it; position only places the glyph). Panel: forward from a rectangle (Size above). Help has the rest.</div>
+              </div>
+              <!-- /LIGHT -->
 
               <!-- TRANSFORM TAB CONTENT -->
               <div class="obj-tab-content tab-active" id="sub-transform">
@@ -8928,6 +9110,21 @@
                   <div class="prop-row prop-inline">
                     <label for="holdoutInput" class="ui-checkbox-label" title="A holdout: the object hides whatever is behind it but paints no fill, so the paper or the camera's photo shows through where it is; the hidden parts are cut out of the export. The stroke is kept. Needs Scene Z-Sort (turned on for you when you tick this), or a group with Render Intersections.">Holdout</label>
                     <input type="checkbox" id="holdoutInput" class="ui-checkbox" />
+                  </div>
+                  <!-- LIGHT S2 (v20261019e, PLAN-light D8): Lit - whether the scene's lights shade this object; shown while a light is in the scene -->
+                  <div class="prop-row prop-inline" id="litRow" style="display:none;">
+                    <label for="litInput" class="ui-checkbox-label" title="Lit: the scene's lights shade this object's faces by their angle to each light (on by default while a light is in the scene). Off = the authored colours as they are. A group applies to its leaves.">Lit</label>
+                    <input type="checkbox" id="litInput" class="ui-checkbox" checked />
+                  </div>
+                  <!-- LIGHT S3 (v20261019f, D8): Cast Shadows - whether this object's faces throw a shadow -->
+                  <div class="prop-row prop-inline" id="castShadowRow" style="display:none;">
+                    <label for="castShadowInput" class="ui-checkbox-label" title="Cast Shadows: this object's faces throw a shadow from every light that casts one (on by default). Off = the object is left out of every shadow. A group applies to its leaves.">Cast Shadows</label>
+                    <input type="checkbox" id="castShadowInput" class="ui-checkbox" checked />
+                  </div>
+                  <!-- LIGHT S4 (v20261019g, D8): Receive Shadows - whether other objects' shadows land on this object's flat faces -->
+                  <div class="prop-row prop-inline" id="receiveShadowRow" style="display:none;">
+                    <label for="receiveShadowInput" class="ui-checkbox-label" title="Receive Shadows: other objects' shadows land on this object's flat faces (on by default). Off = its faces stay clear. A group applies to its leaves.">Receive Shadows</label>
+                    <input type="checkbox" id="receiveShadowInput" class="ui-checkbox" checked />
                   </div>
 
                   <div class="prop-row prop-inline slider-fill" id="fillOpacityRow" style="--fill: 100%">
@@ -9352,6 +9549,7 @@
                           <option value="mesh">Mesh</option>
                           <option value="layer">Layer</option>
                           <option value="stacks">Stacks</option>
+                          <option value="line" title="The path itself pushed through the depth as one stroked curve: the first vertex at depth 0, the last at the depth - a circle becomes a coil">Line</option>
                           <option value="exact" title="Drawn by the Boolean engine: the faces the eye sees, cut exactly at the outline - few paths, no mesh">Exact</option>
                         </select>
                       </div>
@@ -9441,6 +9639,34 @@
                         </div>
                       </div>
                     </div>
+                    <!-- LINE (v20261020a, PLAN-line-render-mode.md): the profile itself along the depth as one stroked curve -->
+                    <div id="extrudeLineGroup" style="display:none;">
+                      <div class="xyz-row">
+                        <label for="extrudeLineTurnsInput" title="How many times the profile is traced along the depth: a closed profile laps (a spring of N coils), an open one goes back and forth. Fractions allowed">Turns</label>
+                        <div class="xyz-inputs">
+                          <input type="number" id="extrudeLineTurnsInput" min="0.05" step="0.25" value="1" />
+                        </div>
+                      </div>
+                      <div class="xyz-row">
+                        <label for="extrudeLineFlatInput" title="How much of the path, from its start, stays flat (at the depth of its first vertex) before the line begins - a fraction of the whole line, 0 to 1. Animate it: a string falling to the floor">Flat</label>
+                        <div class="xyz-inputs">
+                          <input type="number" id="extrudeLineFlatInput" min="-10" max="1" step="0.05" value="0" title="0 to 1: that much of the path stays flat. Below 0: the path floats away from the plane by that much of the depth (Trim), or its start lifts while its end stays (Stretch)" />
+                          <!-- FLAT MODE (v20261020h): Stretch fits the rest into the whole depth; Trim keeps the depth for the whole line and trims the rise -->
+                          <select id="extrudeLineFlatModeInput" title="Stretch: the rest of the line fits the whole depth (it steepens as Flat grows). Trim: the depth is the whole line's, Flat flattens its first part and trims the rise - the hanging part keeps its slope and lands as Flat grows (a line hitting a wall)">
+                            <option value="stretch">Stretch</option>
+                            <option value="trim">Trim</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div class="style-row">
+                        <label for="extrudeLineReverseInput" class="ui-checkbox-label" title="Walk the profile from its last vertex to its first">Reverse</label>
+                        <input type="checkbox" id="extrudeLineReverseInput" class="ui-checkbox" />
+                      </div>
+                      <div class="style-row">
+                        <label for="extrudeLineJoinInput" class="ui-checkbox-label" title="The subpaths of a compound path as ONE line, in order - the depth keeps climbing from one subpath to the next (the pen lifts between them). Off: each subpath is its own line over the full depth">Join Subpaths</label>
+                        <input type="checkbox" id="extrudeLineJoinInput" class="ui-checkbox" />
+                      </div>
+                    </div>
                     <!-- SILHOUETTE SPLIT for extrude (v20260907d, owner): the flag used to be a
                          hidden always-on input; now a real checkbox, DEFAULT ON, read by the
                          Clean renderer too (off = raw side ribbons, no horizon split). -->
@@ -9508,10 +9734,13 @@
                           <span class="xyz-col-label" title="The turn's span in degrees (the end is Start + Angle)">Angle</span>
                           <input type="number" id="revolveAngleInput" value="360" min="0" max="360" step="1" />
                         </div>
-                        <div class="xyz-field">
-                          <span class="xyz-col-label" title="Segments">Segments</span>
-                          <input type="number" id="revolveSegmentsInput" value="32" min="3" step="1" title="Segments" />
-                        </div>
+                      </div>
+                    </div>
+                    <!-- SEGMENTS on its own row (v20261020f, owner: the Shape row was too crowded since Start joined it) -->
+                    <div class="xyz-row">
+                      <label for="revolveSegmentsInput" title="How many steps round the turn: the Clean / Mesh density, and a Line's pieces a turn">Segments</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="revolveSegmentsInput" value="32" min="3" step="1" title="Segments" />
                       </div>
                     </div>
 
@@ -9584,6 +9813,7 @@
                           <option value="mesh">Mesh</option>
                           <option value="layer">Layer</option>
                           <option value="stacks">Stacks</option>
+                          <option value="line" title="The path itself turned about the axis as one stroked curve: the first vertex at the start angle, the last at the end - a vertical line becomes a spring">Line</option>
                           <option value="silhouette">Silhouette</option>
                           <option value="exact" title="Drawn by the Boolean engine: the faces the eye sees, cut exactly at the outline - few paths, no mesh">Exact</option>
                         </select>
@@ -9662,6 +9892,39 @@
                       <div class="style-row">
                         <label for="revolveStackSnapInput" class="ui-checkbox-label">Snap to Anchors</label>
                         <input type="checkbox" id="revolveStackSnapInput" class="ui-checkbox" />
+                      </div>
+                    </div>
+                    <!-- LINE (v20261020a, PLAN-line-render-mode.md): the profile itself round the axis as one stroked curve -->
+                    <div id="revolveLineGroup" style="display:none;">
+                      <div class="xyz-row">
+                        <label for="revolveLineTurnsInput" title="How many times the profile is traced round the axis: a closed profile laps (a spring of N coils), an open one goes back and forth. Fractions allowed">Turns</label>
+                        <div class="xyz-inputs">
+                          <input type="number" id="revolveLineTurnsInput" min="0.05" step="0.25" value="1" />
+                        </div>
+                      </div>
+                      <div class="xyz-row">
+                        <label for="revolveLineFlatInput" title="How much of the path, from its start, stays flat (at the start angle) before the line begins - a fraction of the whole line, 0 to 1. Animate it: a string falling to the floor">Flat</label>
+                        <div class="xyz-inputs">
+                          <input type="number" id="revolveLineFlatInput" min="-10" max="1" step="0.05" value="0" title="0 to 1: that much of the path stays flat. Below 0: the path floats away from the plane by that much of the depth (Trim), or its start lifts while its end stays (Stretch)" />
+                          <!-- FLAT MODE (v20261020h): Stretch fits the rest into the whole depth; Trim keeps the depth for the whole line and trims the rise -->
+                          <select id="revolveLineFlatModeInput" title="Stretch: the rest of the line fits the whole depth (it steepens as Flat grows). Trim: the depth is the whole line's, Flat flattens its first part and trims the rise - the hanging part keeps its slope and lands as Flat grows (a line hitting a wall)">
+                            <option value="stretch">Stretch</option>
+                            <option value="trim">Trim</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div class="style-row">
+                        <label for="revolveLineReverseInput" class="ui-checkbox-label" title="Walk the profile from its last vertex to its first">Reverse</label>
+                        <input type="checkbox" id="revolveLineReverseInput" class="ui-checkbox" />
+                      </div>
+                      <div class="style-row">
+                        <label for="revolveLineJoinInput" class="ui-checkbox-label" title="The subpaths of a compound path as ONE line, in order - the depth keeps climbing from one subpath to the next (the pen lifts between them). Off: each subpath is its own line over the full depth">Join Subpaths</label>
+                        <input type="checkbox" id="revolveLineJoinInput" class="ui-checkbox" />
+                      </div>
+                      <!-- LINE S2 (v20261020d): the revolve had no bake button; a Line bakes to ONE plain 3D path -->
+                      <div class="prop-row prop-row-plain prop-row-tight" id="revolveLineBakeRow">
+                        <button type="button" id="revolveLineBakeBtn" class="ui-btn ui-btn-small"
+                          title="Replace this Line by ONE plain 3D path (not a group): every turn of every subpath its own open subpath of cubic curves, the stroke as drawn, no fill - a real space curve, usable as a Sweep rail or a Motion Path target. The revolve is off on the result.">Bake to Path</button>
                       </div>
                     </div>
                     <div class="style-row" id="revolveDrawPointsRow">
@@ -12638,6 +12901,7 @@
     const setTool = (tool) => {
       // TEXT-TOOL experimental gate: refuse activation while disabled
       if (tool === 'text' && !textToolEnabled) return;
+      if (tool === 'light' && !lightsEnabled) return;   // LIGHT (experimental): the same gate
       try { DragReadout.clearSticky(); } catch (e) { }   // DRAG READOUT (v20260915k): the corner numbers live until the next operation
       // Clear pen preview on any tool change
       _penPreviewLocalHit = null;
@@ -12810,6 +13074,7 @@
         doodle: 'Doodle Tool (B)',
         text: 'Text Tool (T)', // TEXT-TOOL
         shape3d: 'Cuboid Tool (N)', // 3D SHAPE TOOL - _shape3dSyncRows rewrites it per Shape
+        light: 'Light Tool (I)', // LIGHT (experimental, PLAN-light S1)
       };
       // The tool's icon + label go to the DRAWER header (the panel's own header
       // and label row were hidden since the drawer landed and went in v20260914zzd).
@@ -12832,6 +13097,7 @@
         doodle: '<polygon fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" points="10 3 13 10 7 10 10 3"/><rect fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" x="7" y="10" width="6" height="8"/>',
         text: '<line fill="none" stroke="currentColor" stroke-linecap="round" x1="4.5" y1="4.5" x2="15.5" y2="4.5"/><line fill="none" stroke="currentColor" stroke-linecap="round" x1="10" y1="4.5" x2="10" y2="16"/>', // TEXT-TOOL
         shape3d: '<rect fill="none" stroke="currentColor" x="3" y="7" width="9" height="9"/><polygon fill="none" stroke="currentColor" points="17 13 12 16 12 7 17 4 17 13"/><polygon fill="none" stroke="currentColor" points="12 7 3 7 8 4 17 4 12 7"/>', // 3D SHAPE TOOL
+        light: '<circle fill="none" stroke="currentColor" cx="10" cy="10" r="3.5"/><path fill="none" stroke="currentColor" stroke-linecap="round" d="M10 2v2M10 16v2M2 10h2M16 10h2M4.34 4.34l1.42 1.42M14.24 14.24l1.42 1.42M4.34 15.66l1.42-1.42M14.24 5.76l1.42-1.42"/>', // LIGHT (experimental)
       };
       // Sync Tool Drawer header icon + label
       const toolDrawerIcon = document.getElementById('toolDrawerIcon');
@@ -12986,6 +13252,8 @@
         }
       }
 
+      // LIGHT (experimental, PLAN-light S1): the Light tool's panel
+      { const ls = document.getElementById('lightSettingsContainer'); if (ls) { ls.classList.toggle('hidden', tool !== 'light'); ls.style.display = tool === 'light' ? 'block' : 'none'; } if (tool === 'light') _lightSyncToolPanel(); }   // + the Position row (v20261019d)
       // --- TEXT TOOL (experimental): settings visibility + reset ---
       const textSettings = document.getElementById('textSettingsContainer');
       if (textSettings) {
@@ -14905,12 +15173,15 @@
     // payload without the key and must reset it); in captureSceneState so a
     // toggle is one labelled scene-undo entry. Default Depth is descendants:
     // the reason to sort a scene is objects crossing each other.
-    const SCENE_RENDER_DEFAULTS = Object.freeze({ zSort: false, zSortMode: 'descendants', maskRender: true });
+    // LIGHT S2 (v20261019e): `ambient` - the scene's ambient light (0..1, 0.35), the floor of every lit face's shade; written
+    // only while it is not the default (or while zSort is on, with the block), so every file without a light is unchanged.
+    const SCENE_RENDER_DEFAULTS = Object.freeze({ zSort: false, zSortMode: 'descendants', maskRender: true, ambient: 0.35 });
     const sceneRender = { ...SCENE_RENDER_DEFAULTS };
     const _sceneRenderSnapshot = () => ({
       zSort: !!sceneRender.zSort,
       zSortMode: sceneRender.zSortMode === 'children' ? 'children' : 'descendants',
-      maskRender: sceneRender.maskRender !== false
+      maskRender: sceneRender.maskRender !== false,
+      ...(sceneRender.ambient !== SCENE_RENDER_DEFAULTS.ambient ? { ambient: sceneRender.ambient } : {})   // LIGHT S2
     });
     // One applier for the loader and the undo restore: a plain data object, or
     // anything falsy for the defaults. Unknown values fall back field by field.
@@ -14919,6 +15190,7 @@
       sceneRender.zSort = !!d.zSort;
       sceneRender.zSortMode = d.zSortMode === 'children' ? 'children' : 'descendants';
       sceneRender.maskRender = d.maskRender !== false;
+      { const a = typeof d.ambient === 'number' ? d.ambient : parseFloat(d.ambient); sceneRender.ambient = Number.isFinite(a) ? Math.max(0, Math.min(1, a)) : SCENE_RENDER_DEFAULTS.ambient; }   // LIGHT S2: absent = the default
     };
 
 
@@ -17750,10 +18022,82 @@
       const t = extrudeToolTarget(obj);
       if (!t.ok) return { ok: false, reason: t.reason };
       if (!obj.extrudeSettings || !obj.extrudeSettings.enabled) return { ok: false, reason: 'Turn Extrude on first.' };
+      // LINE (v20261020d, S2): a Line is bakeable too - to ONE plain 3D path, through _lineBakeToPath (the refusal of v20261020a is gone)
       return { ok: true, reason: '' };
+    };
+    // --- LINE BAKE TO PATH (v20261020d, PLAN-line-render-mode.md S2) ---
+    // A Line (the extrude's or the revolve's Render mode) bakes to ONE plain Path, not a group of faces (the owner's
+    // call, 2026-10-20: "one baked path"): the renderer runs once headless with _bakeCollect set (identity VP - the
+    // Line hook pushes its pieces' WORLD control points before any projection), each record (one turn of one profile
+    // subpath) becomes one OPEN subpath of the explicit-bezier buffer (anchor, handle, handle, anchor, ...; the shared
+    // anchor between two pieces written once), the world points brought into the object's local space through the
+    // inverse of its world matrix - the bake's own L - so the new Path takes the source's transform fields and lands
+    // exactly where the Line was drawn. The style: fill none, the stroke the Line drew with (the first turn's: the fill
+    // colour under D7 for a strokeless style, the first palette colour under D8 - one path has one stroke). The
+    // modifier is gone (a fresh Path has extrude / revolve off); the family's animation keys (Depth, Turns, Angle ...)
+    // have no owner any more and are dropped as Bake to Faces drops them. The new path is a real 3D curve: a Sweep rail,
+    // a Motion Path target, a Spline Flow target. Undo: pushUndoState before, the labelled push after (the house rule).
+    const _lineBakeToPath = async (obj, family) => {
+      if (!obj || obj.isGroup) return null;
+      const ss = family === 'revolve' ? obj.revolveSettings : obj.extrudeSettings;
+      if (!ss || !ss.enabled || ss.renderMode !== 'line') return null;
+      if (pendingPolygon === obj) confirmPendingShape();   // a pending session commits first (v20260906p lesson)
+      if (family === 'extrude' && currentTool === 'extrude' && extrudeToolSession && extrudeToolSession.targetObject === obj && _extrudeSessionHasDelta()) resetExtrudeToolSession();
+      // The collection first (a headless draw - no side effect but the rail cache), the undo entry only when there is
+      // something to bake: a style with neither stroke nor fill draws nothing and bakes nothing.
+      let recs = [];
+      obj._bakeCollect = recs;
+      try {
+        if (family === 'revolve') await obj.drawRevolveAsSurface([], createIdentityMatrix(), obj.getWorldMatrix());
+        else await obj.drawExtrudeAsMesh([], createIdentityMatrix(), obj.getWorldMatrix());
+      } finally { recs = obj._bakeCollect || recs; obj._bakeCollect = null; }
+      recs = recs.filter(r => r && r.kind === 'line' && r.pieces && r.pieces.length);
+      if (!recs.length) return null;
+      pushUndoState();
+      const inv = matrixInverse(obj.getWorldMatrix());
+      const L = (w) => transformVertex(w, inv).slice(0, 3);
+      const verts = [], subs = [];
+      for (const r of recs) {
+        const start = verts.length;
+        verts.push(L(r.pieces[0][0]));
+        for (const P of r.pieces) verts.push(L(P[1]), L(P[2]), L(P[3]));
+        subs.push({ start, count: verts.length - start, closed: false });
+      }
+      const style = obj.style || getCurrentPathStyle();
+      const st = JSON.parse(JSON.stringify(style));
+      st.fill = 'none';
+      if (recs[0].stroke) st.stroke = recs[0].stroke;
+      if (!(parseFloat(st['stroke-width']) > 0)) st['stroke-width'] = 2 / FRAME_SIZE;   // the Line's own default width
+      const base = (obj.name || 'Path').replace(/ \((Baked|Line)\)$/, '');
+      const taken = _collectSceneNames();
+      taken.delete(obj.name);
+      const nu = new Path(ensureUniqueName(base + ' (Line)', taken), [...obj.position], [0, 0, 0], verts, 'bezier', false, st, [...(obj.scale || [1, 1, 1])], subs);
+      nu.rotationMatrix = obj.rotationMatrix.map(r => [...r]);
+      nu.rotationEuler = matrixToEuler(nu.rotationMatrix);
+      nu.shear = [...(obj.shear || [0, 0, 0, 0, 0, 0])];
+      nu.pivot = [...(obj.pivot || [0, 0, 0])];
+      nu.pivotRotation = [...(obj.pivotRotation || [0, 0, 0])];
+      nu.pivotShift = [...(obj.pivotShift || [0, 0, 0])];
+      _swapObjectInPlace(obj, nu, { inheritId: true });   // transform tracks follow the id (the Bake to Faces rule)
+      if (typeof animationTimeline !== 'undefined') {
+        const tr = animationTimeline.tracks.get(tlKeyOf(nu));
+        if (tr) {
+          const fam = family === 'revolve' ? _revolveParams : _extrudeParams;
+          const dropped = fam.map(d => d.prop).filter(pn => tr.has(pn));
+          if (dropped.length && typeof pushAnimUndoState === 'function') pushAnimUndoState('Bake to Path');   // the animation stack is its own
+          dropped.forEach(pn => { tr.delete(pn); _tlOriginalValues.delete(tlKeyOf(nu) + '::' + pn); _tlLoopModes.delete(tlKeyOf(nu) + '::' + pn); });
+          if (dropped.length) console.warn('[line bake] dropped ' + family + ' keys with no owner after the bake: ' + dropped.join(', '));
+        }
+      }
+      updateTreeView();
+      pushUndoState('Bake to Path');   // BEFORE selection (house rule)
+      setSelectedObject(nu);
+      requestRender();
+      return nu;
     };
     const _extrudeBakeToFaces = async (obj) => {
       if (!_extrudeBakeable(obj).ok) return null;
+      if (obj.extrudeSettings.renderMode === 'line') return _lineBakeToPath(obj, 'extrude');   // LINE (v20261020d, S2): one path, not faces
       if (pendingPolygon === obj) confirmPendingShape();   // a pending session commits first (v20260906p lesson)
       // An Extrude tool session with a typed delta submits before the bake.
       if (currentTool === 'extrude' && extrudeToolSession && extrudeToolSession.targetObject === obj && _extrudeSessionHasDelta()) resetExtrudeToolSession();
@@ -17903,11 +18247,18 @@
       if (!btn) return;
       const b = _extrudeBakeable(selectedObject);
       btn.disabled = !b.ok;
+      // LINE (v20261020d, S2): in Line the button bakes to ONE plain 3D path and says so (the mirror copies text and title)
+      const isLine = b.ok && selectedObject && selectedObject.extrudeSettings && selectedObject.extrudeSettings.renderMode === 'line';
+      const label = isLine ? 'Bake to Path' : 'Bake to Faces';
+      if (btn.textContent !== label) btn.textContent = label;
       btn.title = b.ok
-        ? 'Replace this extrusion by a group of its faces: the two caps, every straight side as a plane, every curved side as a band with Silhouette Split on - plain paths, editable one by one. Mesh / Layer / Stacks bake their own faces (cells / layers / slabs).'
+        ? (isLine
+          ? 'Replace this Line by ONE plain 3D path (not a group): every turn of every subpath its own open subpath of cubic curves, the stroke as drawn, no fill - a real space curve, usable as a Sweep rail or a Motion Path target. The extrusion is off on the result.'
+          : 'Replace this extrusion by a group of its faces: the two caps, every straight side as a plane, every curved side as a band with Silhouette Split on - plain paths, editable one by one. Mesh / Layer / Stacks bake their own faces (cells / layers / slabs).')
         : b.reason;
     };
     document.getElementById('extrudeBakeBtn').addEventListener('click', () => { if (selectedObject) _extrudeBakeToFaces(selectedObject); });
+    document.getElementById('revolveLineBakeBtn').addEventListener('click', () => { if (selectedObject && !selectedObject.isGroup && selectedObject.revolveSettings && selectedObject.revolveSettings.enabled) _lineBakeToPath(selectedObject, 'revolve'); });   // LINE (v20261020d, S2): the revolve's Bake to Path (Line only)
 
     // Live update from the panel fields (creation AND re-edit sessions).
     const updateShape3dGeometry = () => {
@@ -21647,6 +21998,7 @@
         const fc = o.faceCamera; if (fc && (fc.x || fc.y || fc.plane)) return no('has Face Camera on. Turn it off in 3D Settings to use it in a Boolean.');
         const rs = o.revolveSettings, isRev = !!(rs && rs.enabled), isEx = !!(es && es.enabled);
         if (isRev && o.extrudeSettings && o.extrudeSettings.enabled) return no('has 3D Extrusion and 3D Revolve on. Turn one of them off.');
+        if ((isRev ? rs.renderMode : (isEx ? es.renderMode : null)) === 'line') return no('is drawn as a Line. Set Render to a surface mode to use it in a Boolean.');   // LINE (v20261020a)
         const isSheet = !isEx && !isRev;                 // (S-1) no depth: a SHEET, if it is closed and flat (below)
         const V = o.localVertices || [];
         const sub = (o.subPathData && o.subPathData.length) ? o.subPathData : [{ start: 0, count: V.length, closed: !!o.loop }];
@@ -27069,6 +27421,10 @@
       'vXInput', 'vYInput', 'vZInput',
       // Move tool
       'movePosX', 'movePosY', 'movePosZ',
+      // LIGHT P1 (v20261019n): a panel's size
+      'lightPanelWInput', 'lightPanelHInput',
+      // LIGHT (experimental, v20261019d): the Light tool's Position row; (v20261019f) the shadow's Blur, in scene units
+      'lightToolPosX', 'lightToolPosY', 'lightToolPosZ', 'lightBlurInput',
       'moveDeltaPosX', 'moveDeltaPosY', 'moveDeltaPosZ',
       'moveDeltaX', 'moveDeltaY', 'moveDeltaZ', 'moveDeltaDist',
       // Pivot tool
@@ -52909,6 +53265,757 @@
     }
     // --- /CAMERA MATCH --------------------------------------------------------------------------------------------------
 
+    // --- LIGHT (experimental) --------------------------------------------------------------------------------------------
+    // PLAN-light.md, S1 (2026-10-19): the light OBJECT - the model, the tool's placement, the glyph, the Light tab.
+    // Wrapped in grep-able removal markers - "LIGHT" block comments (HTML and JS) and "LIGHT" one-line tags - so it can
+    // be deleted by marker sweep if it fails (the Text tool's convention). Gate: Settings > Lights (experimental),
+    // dim-settings.lights, OFF by default (D10); off = the tool is hidden and every light draws nothing (the file keeps
+    // them). Shading (S2) and shadows (S3 / S4) are not here yet: a light is placed, moved, keyed and saved like an object.
+    // THE MODEL (plan §2). A light is a Path with a `light` record and NO vertices, so every path mechanism works
+    // unchanged - the transform tools and gizmo, undo, the tree, Duplicate, delete, the transform tracks, the
+    // serializer; an old build loads it as an empty path that draws nothing. ONE predicate: _isLightObj. The record:
+    //   light = { kind: 'point', color: '#rrggbb', intensity: 0..2, shadow, opacity, blur, softness, receivers, enabled }
+    // (the shadow fields ride along from S1 so a file written now reads the same in S3; only kind / color / intensity
+    // are edited yet). Serialised only when present (data.light), read back through makeLightRecord (every field
+    // defaulted), copied by Duplicate by hand (the Duplicate-drops-a-channel trap).
+    // THE GLYPH (D4): a sun disc in the light's colour with eight rays, at a constant screen size, and for a point
+    // light a dashed drop line to its foot on the working plane - drawn INTO the light's own svgElement and pushed as
+    // one face entry at the light's depth (the flat path's own form), so Scene Z-Sort keeps it and a click resolves to
+    // the light through svgElement.contains. The <g> is stamped data-light and leaves every export whole; Tab hides
+    // it with the guides (it is chrome).
+    const LIGHTS_DEFAULT_ON = false;
+    let lightsEnabled = LIGHTS_DEFAULT_ON;             // the gate; set by setLightsEnabled (Settings), never written elsewhere
+    const setLightsEnabled = (on) => {
+      lightsEnabled = !!on;
+      const btn = document.querySelector('#toolToolbar button[data-tool="light"]');
+      if (btn) btn.style.display = lightsEnabled ? '' : 'none';
+      // leaving the tool active while disabling would strand the UI (the Text tool's rule)
+      if (!lightsEnabled && typeof currentTool !== 'undefined' && currentTool === 'light') setTool(null);
+      if (typeof requestRender === 'function') requestRender();
+    };
+    const LIGHT_DEFAULTS = Object.freeze({ kind: 'point', color: '#ffffff', intensity: 1, shadow: true, opacity: 0.35, blur: 0, softness: 0, receivers: 'all', enabled: true });
+    const _lightNum = (v, lo, hi, d) => { const n = typeof v === 'number' ? v : parseFloat(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
+    // every field defaulted and clamped - a file from a later slice, or a hand edit, never puts a NaN in the record
+    const makeLightRecord = (o) => {
+      const s = (o && typeof o === 'object') ? o : {};
+      return {
+        kind: s.kind === 'directional' || s.kind === 'panel' ? s.kind : 'point',
+        color: (typeof ColorPicker !== 'undefined' && ColorPicker.normHex && ColorPicker.normHex(s.color)) || LIGHT_DEFAULTS.color,
+        intensity: _lightNum(s.intensity, 0, 2, LIGHT_DEFAULTS.intensity),
+        shadow: s.shadow !== false,
+        opacity: _lightNum(s.opacity, 0, 1, LIGHT_DEFAULTS.opacity),
+        blur: _lightNum(s.blur, 0, 1e6, LIGHT_DEFAULTS.blur),
+        softness: _lightNum(s.softness, 0, 1e6, LIGHT_DEFAULTS.softness),
+        receivers: s.receivers === 'workplane' || s.receivers === 'objects' ? s.receivers : 'all',
+        enabled: s.enabled !== false,
+        expandBlur: s.expandBlur !== false,   // S3 (D9): the export's vector soft edge in place of the filter
+        shadowColor: (typeof ColorPicker !== 'undefined' && ColorPicker.normHex && ColorPicker.normHex(s.shadowColor)) || '#000000',   // P2 (v20261019o): the shadow's colour, black by default (absent in older files = black)
+      };
+    };
+    const _isLightObj = (o) => !!(o && !o.isGroup && o.light && typeof o.light === 'object');
+    let _dimLightsInScene = false;                      // true while any enabled, visible light is in the scene and the gate is on (one scan per drawScene; S2 reads it)
+    const _dimScanLight = (list) => { for (const o of list || []) { if (!o || o.visible === false) continue; if (_isLightObj(o) && o.light.enabled !== false) return true; if (o.isGroup && _dimScanLight(o.children)) return true; } return false; };
+    // --- S2: SHADING (v20261019e, plan §3a) - the lights of the frame, the shade of a planar face, the per-object switch ---
+    // _dimLights is rebuilt once per drawScene (world position, colour, intensity of every enabled, visible light while the
+    // gate is on); the hooks at the fill WRITERS (the clean extrude's caps and sides, the flat path, the mesh quads) ask
+    // lightShadeHex for the fill they would have written, and write that instead - an explicit attribute on the face, so
+    // the picture, the settle, the cache and the export all carry it. With no light in the scene every writer runs as
+    // before (bit-identical). The authored style is never written. Curved Clean pieces (revolve / sweep) wait for S5.
+    let _dimLights = [];
+    const _dimCollectLights = (list, out) => {
+      for (const o of list || []) {
+        if (!o || o.visible === false) continue;
+        if (_isLightObj(o)) { if (o.light.enabled !== false && o.light.intensity > 0) { const W = o.getWorldMatrix(); out.push({ P: pointApplyMatrix([0, 0, 0], W), dir: _lightBeam(o, W), kind: o.light.kind, rgb: _hexToRgb(o.light.color) || [1, 1, 1], I: o.light.intensity }); } }
+        else if (o.isGroup) _dimCollectLights(o.children, out);
+      }
+      return out;
+    };
+    const _lightShadeOn = (o) => !(o && o.lighting && o.lighting.shade === false);   // absent = lit (D8: the per-object flags, written only when off)
+    const _lightDir = (v, M) => vectorSubtract(pointApplyMatrix(v, M), pointApplyMatrix([0, 0, 0], M));   // a direction through a matrix
+    // S5 (v20261019i): THE BEAM of a directional light - its local +Z through its world matrix (the extrude's Front axis
+    // convention; the Transform tab's rotation aims it, its position only places the glyph); null for a point light
+    const _lightBeam = (o, W) => { const L = o && o.light; if (!L || L.kind === 'point') return null; const d = vectorNormalize(_lightDir([0, 0, 1], W || o.getWorldMatrix())); return Math.hypot(d[0], d[1], d[2]) > 0.5 ? d : null; };
+    // P3 (v20261019p): the beam in the WORKPLANE's terms - azimuth round the plane's normal from its first in-plane axis (u),
+    // elevation from the plane toward the normal - and back: a direction from the two angles
+    const _lightAimOf = (o) => {
+      const d = _lightBeam(o, o.getWorldMatrix()); if (!d) return null;
+      const pl = _lightPlaneBasis(getWorkingPlane());
+      const du = vectorDot(d, pl.u), dv = vectorDot(d, pl.v), dn = Math.max(-1, Math.min(1, vectorDot(d, pl.n)));
+      // a VERTICAL beam has no azimuth: the one typed last (kept on the object, transient) is answered, so typing the azimuth
+      // first and the elevation second lands where both say (measured: the azimuth typed at -90 was lost otherwise)
+      const vertical = Math.hypot(du, dv) < 1e-6;
+      return { az: vertical ? (Number.isFinite(o._aimAz) ? o._aimAz : 0) : Math.atan2(dv, du) * 180 / Math.PI, el: Math.asin(dn) * 180 / Math.PI };
+    };
+    const _lightDirOfAim = (azDeg, elDeg) => {
+      const pl = _lightPlaneBasis(getWorkingPlane()), a = azDeg * Math.PI / 180, e = Math.max(-90, Math.min(90, elDeg)) * Math.PI / 180, c = Math.cos(e);
+      return vectorAdd(vectorAdd(vectorScale(pl.u, c * Math.cos(a)), vectorScale(pl.v, c * Math.sin(a))), vectorScale(pl.n, Math.sin(e)));
+    };
+    // the rotation that aims local +Z from `from` at `to` (the tool's placement of a directional light: the beam at the click)
+    const _lightAimMatrix = (from, to, up) => {
+      const z = vectorNormalize(vectorSubtract(to, from)); if (!(Math.hypot(z[0], z[1], z[2]) > 0.5)) return null;
+      let x = vectorCross(up || [0, 1, 0], z); if (Math.hypot(x[0], x[1], x[2]) < 1e-6) x = vectorCross(Math.abs(z[0]) < 0.9 ? [1, 0, 0] : [0, 0, 1], z);
+      x = vectorNormalize(x); const y = vectorCross(z, x);
+      return [[x[0], y[0], z[0], 0], [x[1], y[1], z[1], 0], [x[2], y[2], z[2], 0], [0, 0, 0, 1]];
+    };
+    // THE SHADE of one planar face: base (#rrggbb) x (ambient + the sum over the lights of intensity x max(0, n . l) x the
+    // light's colour), per channel, clamped to 1. n is oriented toward the EYE first: the visible side of a face is the
+    // one that faces the camera (a closed solid's outward normal where it is seen; either side of a sheet), so no winding
+    // is asked of any emitter. A fill the hex parser cannot read (none, rgba, a name) comes back as it was.
+    const lightShadeHex = (hex, nWorld, pWorld, eye) => {
+      if (!_dimLights.length || !hex || hex === 'none') return hex;
+      const base = _hexToRgb(hex); if (!base) return hex;
+      let n = vectorNormalize(nWorld); if (!(Math.hypot(n[0], n[1], n[2]) > 0.5)) return hex;
+      if (eye) { const v = eye.w ? vectorSubtract(eye.E, pWorld) : eye.E; if (vectorDot(n, v) < 0) n = [-n[0], -n[1], -n[2]]; }
+      const amb = sceneRender.ambient, acc = [amb, amb, amb];
+      for (const L of _dimLights) {
+        const l = L.kind === 'directional' ? [-L.dir[0], -L.dir[1], -L.dir[2]] : vectorNormalize(vectorSubtract(L.P, pWorld)), d = vectorDot(n, l);   // S5: a beam has one direction everywhere
+        if (d <= 0) continue;
+        let k = L.I * d;
+        if (L.kind === 'panel' && L.dir) { const e = -vectorDot(L.dir, l); if (e <= 0) continue; k *= e; }   // S5b: a panel emits forward only, Lambertian in its own normal
+        acc[0] += k * L.rgb[0]; acc[1] += k * L.rgb[1]; acc[2] += k * L.rgb[2];
+      }
+      const c = (x) => Math.round(Math.max(0, Math.min(1, x)) * 255).toString(16).padStart(2, '0');
+      return '#' + c(base[0] * acc[0]) + c(base[1] * acc[1]) + c(base[2] * acc[2]);
+    };
+    // --- S3: THE FLOOR SHADOW (v20261019f, plan §3b). A point light projects every caster's faces onto the working plane;
+    // their union (PolyClip.unionOf, snap-rounded) is ONE path in the light's own svgElement, black at the light's Shadow
+    // Opacity, pushed as a face WITH the plane's screen depth plane (R2: a face that carries a plane sorts and masks like
+    // any other - a box standing in its own shadow cuts it where it is nearer). A blur is an SVG feGaussianBlur on the
+    // canvas (in a <defs> beside the path; svgNamespaceIds rewrites the url in every clone) whose stdDeviation is the
+    // typed scene units x the frame units a scene unit spans at the shadow's centroid; the export replaces it with a
+    // VECTOR soft edge (R1: Illustrator drops the filter) - see _lightSoftEdge. The rings are CACHED per light on a key of
+    // the light's position, the plane and every caster's world matrix + geometry, so a still scene computes once and a
+    // drag recomputes only what moved (R5). Casters, v1: visible extrusions (caps + side quads of the flattened profile,
+    // untapered) and flat paths; revolve / sweep / loft / fold / mapped / flowed objects wait for S5; a holdout casts.
+    const LIGHT_SHADOW_STEPS = 8;         // a curved profile segment flattened at this many steps for the caster's faces
+    const LIGHT_SOFT_LAYERS = 6;          // the export's soft edge: this many offset copies across the penumbra
+    const _lightFlatten = (segs) => {     // the segments of a Path -> closed polygons (local space)
+      const polys = []; let cur = null;
+      for (const s of segs) {
+        if (s.command === 'M' || !cur) { if (cur && cur.length >= 3) polys.push(cur); cur = [s.type === 'C' ? s.p0 : (s.type === 'Q' ? s.p0 : s.pStart)]; }
+        if (s.type === 'C') { for (let i = 1; i <= LIGHT_SHADOW_STEPS; i++) { const t = i / LIGHT_SHADOW_STEPS, u = 1 - t; cur.push([0, 1, 2].map(k => u * u * u * (s.p0[k] || 0) + 3 * u * u * t * (s.p1[k] || 0) + 3 * u * t * t * (s.p2[k] || 0) + t * t * t * (s.p3[k] || 0))); } }
+        else if (s.type === 'Q') { for (let i = 1; i <= LIGHT_SHADOW_STEPS; i++) { const t = i / LIGHT_SHADOW_STEPS, u = 1 - t; cur.push([0, 1, 2].map(k => u * u * (s.p0[k] || 0) + 2 * u * t * (s.p1[k] || 0) + t * t * (s.p2[k] || 0))); } }
+        else cur.push(s.pEnd);
+      }
+      if (cur && cur.length >= 3) polys.push(cur);
+      return polys;
+    };
+    // a caster's faces as WORLD ring SETS { rings, nz }: an extrusion's caps and side quads, else the flat profile. A face
+    // is every subpath of the profile read as ONE region (v20261019h - a compound path's holes cut the shadow: as one set
+    // a subpath each, the owner's letters d / g / o cast solid blobs), under the rule the face DRAWS with - a cap is always
+    // even-odd (pushCapEntry), a flat path its style's fill-rule (mkPath; 'evenodd' when unset); a side quad is solid.
+    const _lightCasterFaces = (o) => {
+      if ((o.revolveSettings && o.revolveSettings.enabled) || (o.sweepSettings && o.sweepSettings.enabled)) return _lightCurvedFaces(o) || [];   // S5c
+      const W = o.getWorldMatrix(), polys = _lightFlatten(o.getSegments()), faces = [];
+      const es = o._effExtrude || o.extrudeSettings;
+      if (es && es.enabled) {
+        const v = es.vector || { x: 0, y: 0, z: -1 }, len = Math.hypot(v.x, v.y, v.z) || 1, d = es.depth || 0;
+        const z0 = es.symmetric ? -d / 2 : 0, z1 = z0 + d;
+        const off = (p, zz) => [p[0] + v.x / len * zz, p[1] + v.y / len * zz, (p[2] || 0) + v.z / len * zz];
+        const capA = [], capB = [];
+        for (const poly of polys) {
+          const a = poly.map(p => pointApplyMatrix(off(p, z0), W)), b = poly.map(p => pointApplyMatrix(off(p, z1), W));
+          capA.push(a); capB.push(b);
+          for (let i = 0; i < poly.length; i++) { const j = (i + 1) % poly.length; faces.push({ rings: [[a[i], a[j], b[j], b[i]]], nz: false }); }
+        }
+        if (capA.length) faces.push({ rings: capA, nz: false }, { rings: capB, nz: false });
+      } else if (polys.length) faces.push({ rings: polys.map(poly => poly.map(p => pointApplyMatrix([p[0], p[1], p[2] || 0], W))), nz: !!(o.style && o.style['fill-rule'] === 'nonzero') });
+      return faces;
+    };
+    // a face projected from L onto the plane pl: its rings in (u, v), or null when any ring has a point not between the
+    // light and the plane (the face is dropped WHOLE - planar first)
+    const _lightProjectFace = (face, L, pl) => {
+      const out = [];
+      for (const r of face.rings) { const p = _lightProject(r, L, pl); if (!p) return null; out.push(p); }
+      return out.length ? out : null;
+    };
+    // the union of projected faces: two families, the sets read nonzero and the sets read even-odd, marked where either lies
+    const _lightUnionFamilies = (faces) => { const nz = [], eo = []; for (const f of faces) (f.nz ? nz : eo).push(f.rings); return [nz, eo]; };
+    // --- S5c: CURVED CASTERS (v20261019k, plan §3b.1 "sampled Clean rings", R4). A revolve or a sweep casts through a SAMPLED
+    // SURFACE GRID: the profile's subpaths flattened (LIGHT_SHADOW_STEPS a curve) and swept through LIGHT_CURVE_STATIONS
+    // frames of the rail SurfaceMapper builds for the draw (a revolve's synthetic circular rail, generated here with the
+    // draw's own arguments, through revolveRailWorld - the centre, the start angle; a sweep's rail through ensureRailFrames
+    // with its taper), each cell a solid quad set, the profile ring through the first and the last frame the end caps (a
+    // closed profile on an open rail; a full turn has none). The point of a cell is drawSurface's sweepPoint, generic branch
+    // (pos + side . x . scaleU + normal . y . scaleV + tangent . z; a regular sweep mirrors x). Curved RECEIVERS are not here
+    // (R4: the field route is the exact one, a mean-plane piece seams) - a curved object's shadow lands on the workplane and
+    // on flat faces. Lofts, folds and mapped objects still wait.
+    const LIGHT_CURVE_STATIONS = 16;
+    const _lightRailOf = (o) => {
+      const rs = o.revolveSettings, sw = o.sweepSettings;
+      try {
+        if (rs && rs.enabled) {
+          const rail = SurfaceMapper.generateCircularRail(rs.axis || 'y', SurfaceMapper.revolveEffOffset(o, rs), SurfaceMapper.revolveAngleDeg(rs), Math.max(32, rs.segments || 32), null, rs.scaleStart ?? 1, rs.scaleEnd ?? 1);
+          if (!rail || !rail._frameData || !rail._frameData.length) return null;
+          return { frames: rail._frameData, W: SurfaceMapper.revolveRailWorld(o), mirror: false, closedRail: SurfaceMapper.revolveAngleDeg(rs) >= 360,
+            key: 'R' + [rs.axis, rs.offset, rs.angle, rs.startAngle, rs.scaleStart, rs.scaleEnd, rs.center].join(',') + SurfaceMapper.revolveCenterKey(o, rs) };
+        }
+        if (sw && sw.enabled) {
+          const rail = findObjectById(sw.railId);
+          if (!rail || rail.isGroup || typeof rail.getSegments !== 'function' || !rail.getSegments().length) return null;
+          SurfaceMapper.ensureRailFrames(rail, { scaleStart: sw.scaleStart ?? 1, scaleEnd: sw.scaleEnd ?? 1 });
+          if (!rail._frameData || !rail._frameData.length) return null;
+          const RW = rail.getWorldMatrix();
+          return { frames: rail._frameData, W: RW, mirror: true, closedRail: false,
+            key: 'S' + rail.id + '|' + RW.map(r => r.map(x => +x.toFixed(6)).join(',')).join(';') + '|' + SurfaceMapper._rcVertsChecksum(rail.localVertices) + '|' + [sw.scaleStart, sw.scaleEnd].join(',') };
+        }
+      } catch (e) { }
+      return null;
+    };
+    const _lightSweepPt = (frame, pp, R) => {
+      const s0 = frame.scale !== undefined ? frame.scale : 1, sU = frame.scaleU !== undefined ? frame.scaleU : s0, sV = frame.scaleV !== undefined ? frame.scaleV : s0;
+      let p = vectorAdd(frame.pos, vectorAdd(vectorScale(frame.side, (R.mirror ? -pp[0] : pp[0]) * sU), vectorScale(frame.normal, (pp[1] || 0) * sV)));
+      if (pp[2]) p = vectorAdd(p, vectorScale(vectorNormalize(vectorCross(frame.side, frame.normal)), pp[2]));
+      const w = transformVertex(p, R.W); return [w[0], w[1], w[2]];
+    };
+    const _lightCurvedFaces = (o) => {
+      const R = _lightRailOf(o); if (!R) return null;
+      const polys = _lightFlatten(o.getSegments()); if (!polys.length) return null;
+      const faces = [], N = LIGHT_CURVE_STATIONS, capA = [], capB = [];
+      const closedOf = (k) => { const sp = o.subPathData && o.subPathData[k]; return sp ? sp.closed !== false : !!o.loop; };
+      for (let k = 0; k < polys.length; k++) {
+        const poly = polys[k], rows = [];
+        for (let i = 0; i <= N; i++) { const fr = SurfaceMapper.getFrameAtU(R.frames, i / N); if (!fr) return null; rows.push(poly.map(pp => _lightSweepPt(fr, pp, R))); }
+        const closed = closedOf(k), m = poly.length;
+        for (let i = 0; i < N; i++) for (let j = 0; j < (closed ? m : m - 1); j++) { const j2 = (j + 1) % m; faces.push({ rings: [[rows[i][j], rows[i][j2], rows[i + 1][j2], rows[i + 1][j]]], nz: false }); }
+        if (closed && !R.closedRail) { capA.push(rows[0]); capB.push(rows[N]); }
+      }
+      if (capA.length) faces.push({ rings: capA, nz: false }, { rings: capB, nz: false });
+      return faces;
+    };
+    const _lightCastsShadow = (o) => {
+      if (!o || o.isGroup || _isLightObj(o) || o.visible === false || _tlOutOfRangeNow(o)) return false;
+      if (o.lighting && o.lighting.castShadow === false) return false;
+      { const _es = o._effExtrude || o.extrudeSettings, _rs = o.revolveSettings;   // LINE (v20261020a): a stroke casts nothing
+        if ((_rs && _rs.enabled) ? _rs.renderMode === 'line' : !!(_es && _es.enabled && _es.renderMode === 'line')) return false; }
+      const sc = o.surfaceConstraint;
+      if ((o.loftSettings && o.loftSettings.enabled)
+        || (o.foldSettings && o.foldSettings.enabled) || (sc && ((sc.active && sc.targetId) || (sc.surfaceMapping && sc.surfaceMapping.enabled)))) return false;   // S5c: revolves and sweeps cast; lofts, folds, mapped wait
+      return !!(o.localVertices && o.localVertices.length >= 3);
+    };
+    const _lightCollectCasters = (list, out) => { for (const o of list || []) { if (!o || o.visible === false) continue; if (o.isGroup) _lightCollectCasters(o.children, out); else if (_lightCastsShadow(o)) out.push(o); } return out; };
+    const _lightCasterKey = (o) => {
+      const es = o._effExtrude || o.extrudeSettings, W = o.getWorldMatrix();
+      const R = ((o.revolveSettings && o.revolveSettings.enabled) || (o.sweepSettings && o.sweepSettings.enabled)) ? _lightRailOf(o) : null;   // S5c: the rail's identity
+      return o.id + '|' + W.map(r => r.map(x => +x.toFixed(6)).join(',')).join(';') + '|' + SurfaceMapper._rcVertsChecksum(o.localVertices) + '|'
+        + ((es && es.enabled) ? [es.depth, es.symmetric ? 1 : 0, es.vector ? es.vector.x : 0, es.vector ? es.vector.y : 0, es.vector ? es.vector.z : -1].join(',') : 'flat') + '|' + Path.cornersKey(o) + (R ? '|' + R.key : '');
+    };
+    const _lightPlaneBasis = (wp) => {   // { o, u, v, n } of the working plane
+      const n = vectorNormalize(wp.normal), ax = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+      const u = vectorNormalize(vectorCross(ax, n)), v = vectorCross(n, u);
+      return { o: wp.point.slice(), u, v, n };
+    };
+    // the projection of world points from the light onto the plane: a (u, v) ring, or null (a point not between the light
+    // and the plane). `src` is { P, dir }: from the point P when dir is null, else ALONG the beam dir (S5, a directional
+    // light: a point projects where its ray P + dir t meets the plane, t >= 0 - the plane downstream of it); a bare point
+    // array reads as a point source (the probes' control)
+    const _lightProject = (pts, src, pl) => {
+      const L = Array.isArray(src) ? src : src.P, dir = Array.isArray(src) ? null : (src.dir || null), out = [];
+      const panel = Array.isArray(src) ? null : (src.panel || null);   // S5b: a panel's normal - a point behind the panel is unlit, its face drops whole
+      const num0 = dir ? 0 : vectorDot(vectorSubtract(pl.o, L), pl.n), dnB = dir ? vectorDot(dir, pl.n) : 0;
+      if (dir && Math.abs(dnB) < 1e-12) return null;   // the beam along the plane: nothing lands
+      for (const P of pts) {
+        let S;
+        if (panel && vectorDot(vectorSubtract(P, L), panel) <= 1e-9) return null;
+        if (dir) { const t = vectorDot(vectorSubtract(pl.o, P), pl.n) / dnB; if (t < -1e-9) return null; S = vectorAdd(P, vectorScale(dir, t)); }
+        else {
+          const dP = vectorSubtract(P, L), dn = vectorDot(dP, pl.n);
+          if (Math.abs(dn) < 1e-12) return null;
+          const t = num0 / dn;
+          if (t < 1 - 1e-9) return null;
+          S = vectorAdd(L, vectorScale(dP, t));
+        }
+        const r = vectorSubtract(S, pl.o);
+        out.push([vectorDot(r, pl.u), vectorDot(r, pl.v)]);
+      }
+      return out.length >= 3 ? out : null;
+    };
+    // --- S4: SHADOWS ON OBJECTS (v20261019g, plan §3b.4-6). A receiver is a planar world face of another object (the same
+    // faces _lightCasterFaces builds: an extrusion's caps and side quads, a flat path's profile - planar by construction; a
+    // face is a ring SET read under its own rule since v20261019h, so a receiver cap with a hole takes no piece in the hole),
+    // lit by the light (the light on its outward side); the piece = (the union of the casters' faces projected onto the
+    // face's plane) ∩ the face, by PolyClip.classify over two families (the casters' rings each a set, the face one), in
+    // the face's own (u, v). Each piece is its own face entry carrying the RECEIVER's plane and owner (R2: no mask between
+    // them; every other face masks the piece where it masks the receiver) with a z key a hair nearer than the receiver's
+    // nearest point (the receiver's own key is a mean - the piece must paint after it). A piece shows only while the eye is
+    // on the lit side of its face (the dark side has no shadow to show) - a per-draw test, so the cache stays camera-free.
+    // No self-shadowing (a caster's faces never receive its own shadow). A caster face with a point beyond the receiver's
+    // plane (as seen from the light) is dropped whole (planar first).
+    const _lightReceives = (o) => {
+      if (!o || o.isGroup || _isLightObj(o) || o.visible === false || _tlOutOfRangeNow(o)) return false;
+      if (o.lighting && o.lighting.receiveShadow === false) return false;
+      const sc = o.surfaceConstraint;
+      if ((o.revolveSettings && o.revolveSettings.enabled) || (o.sweepSettings && o.sweepSettings.enabled) || (o.loftSettings && o.loftSettings.enabled)
+        || (o.foldSettings && o.foldSettings.enabled) || (sc && ((sc.active && sc.targetId) || (sc.surfaceMapping && sc.surfaceMapping.enabled)))) return false;   // S5
+      return !!(o.localVertices && o.localVertices.length >= 3);
+    };
+    const _lightCollectReceivers = (list, out) => { for (const o of list || []) { if (!o || o.visible === false) continue; if (o.isGroup) _lightCollectReceivers(o.children, out); else if (_lightReceives(o)) out.push(o); } return out; };
+    const _lightFaceBasis = (poly, src) => {   // { o, u, v, n } of a world polygon, n toward the light (against the beam); null when degenerate or unlit
+      const n = [0, 0, 0];
+      for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; n[0] += (a[1] - b[1]) * (a[2] + b[2]); n[1] += (a[2] - b[2]) * (a[0] + b[0]); n[2] += (a[0] - b[0]) * (a[1] + b[1]); }
+      const len = Math.hypot(n[0], n[1], n[2]); if (!(len > 1e-9)) return null;
+      let nn = [n[0] / len, n[1] / len, n[2] / len];
+      const dir = Array.isArray(src) ? null : (src.dir || null);
+      const d = dir ? -vectorDot(nn, dir) : vectorDot(nn, vectorSubtract(Array.isArray(src) ? src : src.P, poly[0]));
+      if (Math.abs(d) < 1e-9) return null;
+      if (d < 0) nn = [-nn[0], -nn[1], -nn[2]];
+      const ax = Math.abs(nn[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+      const u = vectorNormalize(vectorCross(ax, nn)), v = vectorCross(nn, u);
+      return { o: poly[0].slice(), u, v, n: nn };
+    };
+    const _lightFaceBBox = (rings) => { let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity; for (const ring of rings) for (const p of ring) { if (p[0] < a) a = p[0]; if (p[1] < b) b = p[1]; if (p[0] > c) c = p[0]; if (p[1] > d) d = p[1]; } return [a, b, c, d]; };
+    // the shadow of the scene's casters from the light at P: { rings } on the working plane pl (when wantFloor) and
+    // { pieces } on the objects' faces (when wantObjects); cached on the light object
+    const _lightShadowRings = (lightObj, src, pl, wantFloor = true, wantObjects = false) => {
+      const casters = _lightCollectCasters(sceneObjects, []), receivers = wantObjects ? _lightCollectReceivers(sceneObjects, []) : [];
+      const flagsOf = (o) => o.lighting ? JSON.stringify(o.lighting) : '';
+      const P = src;   // the source: { P, dir } - a beam's key is its direction alone (a directional light moved recomputes nothing)
+      const key = (src.dir ? 'D' + src.dir.map(x => +x.toFixed(6)).join(',') : src.P.map(x => +x.toFixed(6)).join(',') + (src.panel ? 'N' + src.panel.map(x => +x.toFixed(6)).join(',') : '')) + '|' + (wantFloor ? pl.o.map(x => +x.toFixed(6)).join(',') + '|' + pl.n.map(x => +x.toFixed(6)).join(',') : '-') + '|' + (wantObjects ? 'O' : '-') + '|'
+        + casters.map(o => _lightCasterKey(o) + flagsOf(o)).join('#') + '|' + receivers.map(o => _lightCasterKey(o) + flagsOf(o)).join('#');
+      const c = lightObj._shadowCache;
+      if (c && c.key === key) return c.value;
+      let value = null;
+      try {
+        const casterFaces = casters.map(o => ({ o, faces: _lightCasterFaces(o) }));
+        value = { rings: [], pieces: [], casters: casters.length, faces: 0, receivers: receivers.length, pairs: 0, gap: 0 };
+        // S5b: the GAP of a receiving surface - the mean distance of the surviving casters' points from its plane, the one
+        // penumbra width a panel's Softness scales (one path per surface, so one width; the mean is the honest single number)
+        const gapOf = (faces, b) => { let s = 0, n = 0; for (const f of faces) for (const r of f.rings) for (const q of r) { s += Math.abs(vectorDot(vectorSubtract(q, b.o), b.n)); n++; } return n ? s / n : 0; };
+        if (wantFloor) {
+          const proj = [], src3 = [];
+          for (const cf of casterFaces) for (const f of cf.faces) { const r = _lightProjectFace(f, P, pl); if (r) { proj.push({ rings: r, nz: f.nz }); src3.push(f); } }
+          value.faces = proj.length; value.gap = gapOf(src3, pl);
+          if (proj.length) { const u = PolyClip.classify(_lightUnionFamilies(proj), (m) => m !== 0, [true, false]); value.rings = (u.rings || []).map(r => r.pts || r); }
+        }
+        if (wantObjects) {
+          for (const R of receivers) {
+            for (const face of _lightCasterFaces(R)) {
+              let b = null; for (const r of face.rings) { b = _lightFaceBasis(r, P); if (b) break; }
+              if (!b) continue;
+              const rings0 = face.rings.map(ring => ring.map(q => { const r = vectorSubtract(q, b.o); return [vectorDot(r, b.u), vectorDot(r, b.v)]; })), rb = _lightFaceBBox(rings0);
+              const proj = [], src3 = [];
+              for (const cf of casterFaces) {
+                if (cf.o === R) continue;   // no self-shadowing
+                for (const f of cf.faces) { const r = _lightProjectFace(f, P, b); if (!r) continue; const cb = _lightFaceBBox(r); if (cb[2] < rb[0] || rb[2] < cb[0] || cb[3] < rb[1] || rb[3] < cb[1]) continue; proj.push({ rings: r, nz: f.nz }); src3.push(f); }
+              }
+              if (!proj.length) continue;
+              value.pairs++;
+              // family 2 is the receiver face under its own rule; the piece lies in it AND in a caster's projection
+              const cl = PolyClip.classify([..._lightUnionFamilies(proj), [rings0]], (m) => (m & 4) !== 0 && (m & 3) !== 0, [true, false, face.nz]);
+              const rings = (cl.rings || []).map(r => r.pts || r).filter(r => r && r.length >= 3);
+              if (rings.length) value.pieces.push({ obj: R, basis: b, rings, face, gap: gapOf(src3, b) });
+            }
+          }
+        }
+      } catch (e) { value = null; }
+      lightObj._shadowCache = { key, value };
+      lightObj._shadowComputed = (lightObj._shadowComputed || 0) + 1;   // the probe counts the cache's misses
+      return value;
+    };
+    // THE EXPORT'S SOFT EDGE (D9, R1): a blurred shadow's path (frame units, M / L / Z polylines) becomes M offset copies of
+    // the ring - all INSIDE the hard edge (D11), from w inside to a hair inside, w = the blur's width in frame units - each at
+    // the alpha that composites the stack to the shadow's opacity. A shrink is a GROW of the ring's complement inside a rect
+    // (the grower dilates an even-odd region; BooleanGroup._growLoops, round corners), the rect left out again. Returns
+    // [{ d, alpha }] innermost first (the innermost paints last), or null when nothing can be grown.
+    const _lightSoftEdge = (d, w, alpha) => {
+      try {
+        const rings = []; let cur = null;
+        for (const m of String(d || '').matchAll(/([MLZ])\s*([-\d.e]+)?\s*,?\s*([-\d.e]+)?/gi)) {
+          const c = m[1].toUpperCase();
+          if (c === 'M') { if (cur && cur.length >= 3) rings.push(cur); cur = [[+m[2], +m[3]]]; }
+          else if (c === 'L' && cur) cur.push([+m[2], +m[3]]);
+          else if (c === 'Z') { if (cur && cur.length >= 3) rings.push(cur); cur = null; }
+        }
+        if (cur && cur.length >= 3) rings.push(cur);
+        if (!rings.length || !(w > 0)) return null;
+        const toLoop = (ring) => ring.map((p, i) => { const q = ring[(i + 1) % ring.length]; return [p, [p[0] + (q[0] - p[0]) / 3, p[1] + (q[1] - p[1]) / 3], [p[0] + (q[0] - p[0]) * 2 / 3, p[1] + (q[1] - p[1]) * 2 / 3], q]; });
+        const loops = rings.map(toLoop);
+        let lo = [Infinity, Infinity], hi = [-Infinity, -Infinity];
+        for (const r of rings) for (const p of r) { lo = [Math.min(lo[0], p[0]), Math.min(lo[1], p[1])]; hi = [Math.max(hi[0], p[0]), Math.max(hi[1], p[1])]; }
+        const M = LIGHT_SOFT_LAYERS, a = 1 - Math.pow(1 - Math.max(0, Math.min(1, alpha)), 1 / M), out = [];
+        const loopsToD = (ls) => ls.map(L => { let s = 'M' + L[0][0][0].toFixed(2) + ' ' + L[0][0][1].toFixed(2); for (const sg of L) s += 'C' + sg[1][0].toFixed(2) + ' ' + sg[1][1].toFixed(2) + ' ' + sg[2][0].toFixed(2) + ' ' + sg[2][1].toFixed(2) + ' ' + sg[3][0].toFixed(2) + ' ' + sg[3][1].toFixed(2); return s + 'Z'; }).join('');
+        const loopsOf = (g) => Array.isArray(g) ? g : ((g && g.loops) || []);   // the grower answers the loops as an array
+        for (let k = 1; k <= M; k++) {
+          const delta = -w + w * (k - 0.5) / M;   // D11: every copy inside the hard outline
+          let grown;
+          if (delta >= 0) grown = delta < 1e-9 ? loops : loopsOf(BooleanGroup._growLoops(loops, delta, { round: true }));
+          else {
+            const pad = -delta * 4 + 1, R = [[lo[0] - pad, lo[1] - pad], [hi[0] + pad, lo[1] - pad], [hi[0] + pad, hi[1] + pad], [lo[0] - pad, hi[1] + pad]];
+            const g = loopsOf(BooleanGroup._growLoops([toLoop(R)].concat(loops), -delta, { round: true }));
+            grown = g.filter(L => { let mn = Infinity, mx = -Infinity; for (const sg of L) for (const q of sg) { mn = Math.min(mn, q[0]); mx = Math.max(mx, q[0]); } return !(mn < lo[0] - pad / 2 || mx > hi[0] + pad / 2); });   // the rect left out
+          }
+          if (grown && grown.length) out.push({ d: loopsToD(grown), alpha: a });
+        }
+        return out.length ? out : null;
+      } catch (e) { return null; }
+    };
+    // ONE shadow piece as a face: rings in a plane's (u, v) -> a path in frame units in a <g> of its own, black at the light's
+    // opacity, the blur (D11-clipped to its own ring) in a <defs> after the path, the depth plane of the rings themselves.
+    // `owner` is the face's owner for the pair loop (the light for the floor, the receiver for a piece on an object), `zKey`
+    // the sort key when the caller fixes it (a piece paints just after its receiver), else the rings' mean z.
+    // THE FACE IS A <g> ROUND THE PATH (the flat path's own form: the unwrap reads firstElementChild), with the blur's <defs>
+    // AFTER the path inside it - a z-sorted host commits the face alone into #pathGroup and evicts the light's own <g>, so a
+    // <defs> left there would take the filter with it (measured: url(#...) dangling, no blur under Scene Z-Sort).
+    const _lightShadowFace = (obj, vp, rings, pl, owner, idTag, zKey, blurScene) => {
+      const L = obj.light, H = FRAME_SIZE / 2, ns = 'http://www.w3.org/2000/svg';
+      const blur = blurScene !== undefined ? blurScene : L.blur;   // S5b: a panel widens the edge with the gap
+      const mk = (tag, at) => { const e = document.createElementNS(ns, tag); for (const k in at) e.setAttribute(k, at[k]); return e; };
+      let d = '', zs = 0, n = 0, zMin = Infinity; const pts = [], cw = [0, 0, 0]; let cn = 0;
+      for (const r of rings) {
+        let first = true;
+        for (const q of r) {
+          const w = vectorAdd(pl.o, vectorAdd(vectorScale(pl.u, q[0]), vectorScale(pl.v, q[1]))), t = transformVertex(w, vp); if (!t) continue;
+          const x = t[0] * H, y = -t[1] * H; d += (first ? 'M' : 'L') + x.toFixed(2) + ' ' + y.toFixed(2); first = false;
+          pts.push({ x, y, z: t[2] }); zs += t[2]; n++; if (t[2] < zMin) zMin = t[2]; cw[0] += w[0]; cw[1] += w[1]; cw[2] += w[2]; cn++;
+        }
+        if (!first) d += 'Z';
+      }
+      if (!n) return null;
+      const el = mk('path', { d, fill: L.shadowColor || '#000000', 'fill-opacity': String(L.opacity), 'fill-rule': 'evenodd', stroke: 'none', 'data-light-shadow': '1' });   // P2: the shadow's colour
+      let defs = null;
+      if (blur > 0) {
+        // frame units a scene unit spans at the shadow's centroid, along the plane
+        const C = [cw[0] / cn, cw[1] / cn, cw[2] / cn], t0 = transformVertex(C, vp), t1 = transformVertex(vectorAdd(C, pl.u), vp);
+        const k = (t0 && t1) ? Math.hypot((t1[0] - t0[0]) * H, (t1[1] - t0[1]) * H) : 0;
+        const sigma = blur * k;
+        if (sigma > 0.01) {
+          // THE SOFT EDGE LIES INSIDE THE HARD OUTLINE (D11, measured 2026-10-19): a blur that spreads past the outline haloed
+          // round every caster's silhouette on its LIT side (the occlusion clip cuts the box's own area, not the bloom beyond
+          // it - the same in Chrome and in Illustrator's render of the expanded file). So the blurred path is CLIPPED to its
+          // own hard ring, and the export's offset copies are all shrinks (_lightSoftEdge): nothing of the shadow reaches
+          // beyond where the hard shadow is. (On an object's face the soft edge recedes from the face's border too - S4's edge.)
+          const tag = String(obj.id).replace(/[^A-Za-z0-9_-]/g, '') + idTag, id = 'dimLightBlur_' + tag, cid = 'dimLightClip_' + tag;
+          defs = mk('defs', {}); const f = mk('filter', { id, x: '-30%', y: '-30%', width: '160%', height: '160%' }); f.appendChild(mk('feGaussianBlur', { stdDeviation: sigma.toFixed(3) })); defs.appendChild(f);
+          const cp = mk('clipPath', { id: cid, 'clip-rule': 'evenodd' }); cp.appendChild(mk('path', { d, 'fill-rule': 'evenodd' })); defs.appendChild(cp);
+          el.setAttribute('filter', 'url(#' + id + ')');
+          el.setAttribute('clip-path', 'url(#' + cid + ')');
+          el.setAttribute('data-light-blur', (2 * sigma).toFixed(3));   // the penumbra's width in frame units, for the export's soft edge
+          if (L.expandBlur !== false) el.setAttribute('data-light-expand', '1');
+        }
+      }
+      let plane = null; try { plane = pts.length >= 3 ? RenderIntersections.planeFromPoints(pts) : null; } catch (e) { plane = null; }
+      const wrap = mk('g', { 'data-light-shadow-g': '1' }); wrap.appendChild(el); if (defs) wrap.appendChild(defs);
+      const entry = { element: wrap, z: zKey !== undefined ? zKey : zs / n, _lightShadow: true };
+      if (plane) entry.ix = { plane, pts: [], splits: 0, owner };
+      return { el: wrap, entry, zMin };
+    };
+    // the shadow faces of one light for this draw: [{ el, entry }] - the floor's (when the light's receivers allow) and one
+    // per piece on an object's face (S4), the pieces whose face the eye sees from its lit side only
+    const _lightShadowPaths = (obj, vp, eye) => {
+      const L = obj.light; if (!L || L.shadow === false || L.enabled === false || !(L.intensity > 0)) return [];
+      const wantFloor = L.receivers !== 'objects', wantObjects = L.receivers !== 'workplane';
+      const wp = getWorkingPlane(), pl = _lightPlaneBasis(wp), W = obj.getWorldMatrix(), P = pointApplyMatrix([0, 0, 0], W), beam = _lightBeam(obj, W);
+      const dir = L.kind === 'directional' ? beam : null, panel = L.kind === 'panel' ? beam : null;   // S5: a beam projects along itself; a panel from its centre, forward only
+      const onPlane = !dir && Math.abs(vectorDot(vectorSubtract(P, pl.o), pl.n)) <= 1e-9;   // a point light ON the plane casts nothing on it (a beam's position is nothing)
+      const res = _lightShadowRings(obj, { P, dir, panel }, pl, wantFloor && !onPlane, wantObjects); if (!res) return [];
+      const blurOf = (gap) => panel ? L.blur + (L.softness || 0) * (gap || 0) : L.blur;   // S5b: a panel's penumbra grows with the caster's distance from the surface
+      const out = [];
+      if (wantFloor && !onPlane && res.rings.length) { const f = _lightShadowFace(obj, vp, res.rings, pl, obj, '', undefined, blurOf(res.gap)); if (f) out.push(f); }
+      if (wantObjects) {
+        let k = 0;
+        for (const pc of res.pieces) {
+          const b = pc.basis;
+          if (eye) { const v = eye.w ? vectorSubtract(eye.E, b.o) : eye.E; if (vectorDot(v, b.n) <= 0) continue; }   // the eye on the face's dark side: no shadow to show
+          // the receiver's nearest point on screen: the piece paints just after the whole receiver face
+          let zNear = Infinity; for (const ring of pc.face.rings) for (const q of ring) { const t = transformVertex(q, vp); if (t && t[2] < zNear) zNear = t[2]; }
+          const f = _lightShadowFace(obj, vp, pc.rings, b, pc.obj, '_' + (k++), Number.isFinite(zNear) ? zNear - 1e-6 : undefined, blurOf(pc.gap));
+          if (f) out.push(f);
+        }
+      }
+      return out;
+    };
+    // the shade of a whole PLANAR profile (a cap, a flat path): the profile plane's normal and centroid through `tLocal` (the
+    // cap's own offset / taper, identity for a flat path) and the world matrix; null when the object is not lit
+    const _lightPlaneShader = (obj, cam) => {
+      if (!_dimLights.length || !_lightShadeOn(obj) || !obj.localVertices || obj.localVertices.length < 3) return null;
+      try {
+        const W = obj.getWorldMatrix(), pb = Path._profilePlaneBasis(obj.localVertices), eye = resolveEyeForObject(obj, cam);
+        const c = [0, 0, 0]; let m = 0; for (const v of obj.localVertices) { if (!v) continue; c[0] += v[0]; c[1] += v[1]; c[2] += v[2] || 0; m++; }
+        if (!m) return null; c[0] /= m; c[1] /= m; c[2] /= m;
+        const base = getEffectiveStyle(obj).fill;
+        return (tLocal, fill) => {
+          const f = fill || base; if (!f || f === 'none') return fill;
+          const M = tLocal ? matrixMultiply(W, tLocal) : W;
+          const n = vectorCross(_lightDir(pb.u, M), _lightDir(pb.v, M));
+          return lightShadeHex(f, n, pointApplyMatrix(c, M), eye);
+        };
+      } catch (e) { return null; }
+    };
+    // THE PLACEMENT (D2): from the hit on the workplane, raised toward the camera - the camera's own direction in the
+    // plane, 45 degrees up along the plane's normal (the side the camera is on), a third of the camera's distance away.
+    const lightPlacement = (hit, cam, normal) => {
+      let n = vectorNormalize(normal);
+      const toCam = vectorSubtract(cam.position, hit);
+      if (vectorDot(toCam, n) < 0) n = vectorScale(n, -1);
+      const dist = Math.max(1, Math.hypot(cam.position[0] - cam.target[0], cam.position[1] - cam.target[1], cam.position[2] - cam.target[2]) / 3);
+      let h = vectorSubtract(toCam, vectorScale(n, vectorDot(toCam, n)));
+      const hl = Math.hypot(h[0], h[1], h[2]);
+      if (hl < 1e-6) { const ax = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 0, 1]; h = vectorNormalize(vectorCross(n, ax)); }   // the camera straight above: any in-plane direction
+      else h = vectorScale(h, 1 / hl);
+      const c = dist * Math.SQRT1_2;
+      return vectorAdd(hit, vectorAdd(vectorScale(h, c), vectorScale(n, c)));
+    };
+    const readLightToolDefaults = () => {
+      const col = document.getElementById('lightToolColorInput'), inten = document.getElementById('lightToolIntensityInput'), kind = document.getElementById('lightToolKindSelect');
+      return { kind: kind ? kind.value : 'point', color: col ? col.value : LIGHT_DEFAULTS.color, intensity: inten ? parseFloat(inten.value) : LIGHT_DEFAULTS.intensity };
+    };
+    // the tool's click: one light at the hit (its defaults from the tool panel), selected, ONE labelled undo entry
+    const createLightAt = (hit) => {
+      const wp = getWorkingPlane();
+      const pos = lightPlacement(hit, activeCamera, wp.normal);
+      const p = new Path(mintNumberedName('Light_'), pos, [0, 0, 0], [], 'linear', false, {}, [1, 1, 1], [{ start: 0, count: 0, closed: false }]);
+      p.light = makeLightRecord(readLightToolDefaults());
+      if (p.light.kind !== 'point') { const R = _lightAimMatrix(pos, hit, wp.normal); if (R) { p.rotationMatrix = R; p.rotationEuler = matrixToEuler(R); } }   // S5: the beam at the click
+      pushUndoState();                                  // commit any drift first (the discrete-button shape of §7)
+      sceneObjects.push(p);
+      if (p.light.shadow !== false && !sceneRender.zSort) sceneRender.zSort = true;   // S3: a shadow needs the scene's one occlusion pass (the Holdout rule), in the same entry
+      updateTreeView();
+      pushUndoState('Add Light');                       // the labelled entry BEFORE setSelectedObject (the §7 ordering rule)
+      setSelectedObject(p);
+      requestRender();
+      return p;
+    };
+    // THE GLYPH. Called from Path.draw in place of every geometry branch; vpMatrix is the parent's accumulated MVP
+    // (the camera's VP at the root), cameraVP the camera's own (for the foot point, a world point).
+    const LIGHT_GLYPH_PX = 6;                           // the disc's radius on screen
+    const _lightDraw = (obj, vpMatrix, cameraVP, externalFaceList) => {
+      const g0 = obj.svgElement; if (!g0) return;
+      g0.setAttribute('data-light-g', '1');            // the light's own <g>: the export removes it when nothing of it ships
+      g0.removeAttribute('data-light');                // (S1 stamped the <g> itself; since S3 the glyph is a subgroup, the shadow its sibling)
+      while (g0.firstChild) g0.removeChild(g0.firstChild);
+      if (!lightsEnabled) return;                      // the gate off: nothing drawn, nothing pushed
+      const ns = 'http://www.w3.org/2000/svg';
+      const mk = (tag, at) => { const e = document.createElementNS(ns, tag); for (const k in at) e.setAttribute(k, at[k]); return e; };
+      // S3 / S4: the shadows first (under the glyph in tree order; their own faces under a z-sorted host)
+      try {
+        const eye = resolveEyeForObject(obj, obj._drawCam || activeCamera);
+        for (const sh of _lightShadowPaths(obj, cameraVP || vpMatrix, eye)) { g0.appendChild(sh.el); if (externalFaceList) externalFaceList.push(sh.entry); }
+      } catch (e) { /* no shadow this frame */ }
+      if (!showGuides) return;                         // Tab hid the guides: the glyph is chrome
+      const g = mk('g', { 'data-light': '1' }); g0.appendChild(g);
+      const M = matrixMultiply(vpMatrix, obj.getLocalMatrix());
+      const t = transformVertex([0, 0, 0], M); if (!t) return;
+      const s = getViewScale(), px = (n) => n / s, H = FRAME_SIZE / 2;
+      const fx = t[0] * H, fy = -t[1] * H;
+      const L = obj.light || LIGHT_DEFAULTS;
+      const f2 = (n) => (+n).toFixed(2);
+      if (L.kind === 'point') {
+        // the drop line: the light to its foot on the working plane, a small cross at the foot
+        try {
+          const P = pointApplyMatrix([0, 0, 0], obj.getWorldMatrix()), wp = getWorkingPlane();
+          const n = vectorNormalize(wp.normal), d = vectorDot(vectorSubtract(P, wp.point), n);
+          const F = vectorSubtract(P, vectorScale(n, d)), tf = transformVertex(F, cameraVP || vpMatrix);
+          if (tf) {
+            const ffx = tf[0] * H, ffy = -tf[1] * H, c = px(4);
+            g.appendChild(mk('line', { x1: f2(fx), y1: f2(fy), x2: f2(ffx), y2: f2(ffy), stroke: 'var(--overlay-ink)', 'stroke-width': px(1), 'stroke-dasharray': px(4) + ' ' + px(3), 'stroke-opacity': 0.6, fill: 'none' }));
+            g.appendChild(mk('path', { d: `M${f2(ffx - c)} ${f2(ffy)}L${f2(ffx + c)} ${f2(ffy)}M${f2(ffx)} ${f2(ffy - c)}L${f2(ffx)} ${f2(ffy + c)}`, stroke: 'var(--overlay-ink)', 'stroke-width': px(1), 'stroke-opacity': 0.6, fill: 'none' }));
+          }
+        } catch (e) { /* no plane: no drop line */ }
+      }
+      const r = px(LIGHT_GLYPH_PX);
+      if (L.kind === 'point') {
+        let rays = '';
+        for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, c = Math.cos(a), sn = Math.sin(a); rays += `M${f2(fx + c * r * 1.6)} ${f2(fy + sn * r * 1.6)}L${f2(fx + c * r * 2.3)} ${f2(fy + sn * r * 2.3)}`; }
+        g.appendChild(mk('path', { d: rays, stroke: 'var(--light-glyph)', 'stroke-width': px(1.5), 'stroke-linecap': 'round', fill: 'none' }));
+      } else {
+        if (L.kind === 'panel') {   // S5b: the panel itself - the local +-0.5 square through the world matrix (Scale X / Y = its size)
+          const Wp = obj.getWorldMatrix(); let dq = '', ok = true;
+          [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].forEach((c, i) => { const tq = transformVertex(pointApplyMatrix([c[0], c[1], 0], Wp), cameraVP || vpMatrix); if (!tq) { ok = false; return; } dq += (i ? 'L' : 'M') + f2(tq[0] * H) + ' ' + f2(-tq[1] * H); });
+          if (ok) g.appendChild(mk('path', { d: dq + 'Z', stroke: 'var(--light-glyph)', 'stroke-width': px(1.5), 'stroke-linejoin': 'round', fill: L.color || LIGHT_DEFAULTS.color, 'fill-opacity': 0.25 }));
+        }
+        // S5 (D4): the beam as an arrow from the disc, 26 px along the beam's screen direction (its head two barbs); a beam
+        // straight at or away from the eye has no screen direction - a second ring says so
+        const dirW = _lightBeam(obj, obj.getWorldMatrix());
+        const P0 = pointApplyMatrix([0, 0, 0], obj.getWorldMatrix()), tQ = dirW ? transformVertex(vectorAdd(P0, vectorScale(dirW, 0.01)), cameraVP || vpMatrix) : null;
+        let dx = tQ ? tQ[0] * H - fx : 0, dy = tQ ? -tQ[1] * H - fy : 0; const dl = Math.hypot(dx, dy);
+        if (dl > 1e-6) {
+          dx /= dl; dy /= dl;
+          const a0 = [fx + dx * r * 1.3, fy + dy * r * 1.3], a1 = [fx + dx * (r + px(26)), fy + dy * (r + px(26))], hb = px(6), ca = Math.cos(2.7), sa = Math.sin(2.7);
+          const b1 = [a1[0] + (dx * ca - dy * sa) * hb, a1[1] + (dx * sa + dy * ca) * hb], b2 = [a1[0] + (dx * ca + dy * sa) * hb, a1[1] + (-dx * sa + dy * ca) * hb];
+          g.appendChild(mk('path', { d: `M${f2(a0[0])} ${f2(a0[1])}L${f2(a1[0])} ${f2(a1[1])}M${f2(b1[0])} ${f2(b1[1])}L${f2(a1[0])} ${f2(a1[1])}L${f2(b2[0])} ${f2(b2[1])}`, stroke: 'var(--light-glyph)', 'stroke-width': px(1.5), 'stroke-linecap': 'round', 'stroke-linejoin': 'round', fill: 'none' }));
+        } else g.appendChild(mk('circle', { cx: f2(fx), cy: f2(fy), r: f2(r * 1.8), stroke: 'var(--light-glyph)', 'stroke-width': px(1.5), fill: 'none' }));
+      }
+      g.appendChild(mk('circle', { cx: f2(fx), cy: f2(fy), r: f2(r), fill: L.color || LIGHT_DEFAULTS.color, stroke: 'var(--overlay-ink)', 'stroke-width': px(1) }));
+      if (externalFaceList) externalFaceList.push({ element: g, z: t[2] });
+    };
+    // THE LIGHT TAB (D3): shown for a light in place of Style / 3D Settings / 3D Mapping; the fields follow the record.
+    const _lightSyncFields = (obj) => {
+      const L = obj && obj.light; if (!L) return;
+      const kind = document.getElementById('lightKindSelect'), col = document.getElementById('lightColorInput'), hex = document.getElementById('lightColorHexInput'), inten = document.getElementById('lightIntensityInput');
+      if (kind && document.activeElement !== kind) kind.value = L.kind === 'directional' || L.kind === 'panel' ? L.kind : 'point';
+      if (col && document.activeElement !== col) col.value = L.color;
+      if (hex && document.activeElement !== hex) hex.value = L.color.slice(1).toUpperCase();
+      if (inten && document.activeElement !== inten) inten.value = (+L.intensity).toFixed(2).replace(/\.?0+$/, '');
+      const amb = document.getElementById('lightAmbientInput');   // LIGHT S2: the scene's value, shown on every light
+      if (amb && document.activeElement !== amb) amb.value = (+sceneRender.ambient).toFixed(2).replace(/\.?0+$/, '');
+      // S3: the shadow rows
+      const shOn = document.getElementById('lightShadowInput'), shOp = document.getElementById('lightShadowOpacityInput'), shBl = document.getElementById('lightBlurInput'), shEx = document.getElementById('lightExpandInput');
+      if (shOn && document.activeElement !== shOn) shOn.checked = L.shadow !== false;
+      if (shOp && document.activeElement !== shOp) shOp.value = (+L.opacity).toFixed(2).replace(/\.?0+$/, '');
+      if (shBl && document.activeElement !== shBl) shBl.value = fmtDisplay(L.blur);
+      if (shEx && document.activeElement !== shEx) shEx.checked = L.expandBlur !== false;
+      const shRc = document.getElementById('lightReceiversSelect');   // S4
+      if (shRc && document.activeElement !== shRc) shRc.value = L.receivers === 'workplane' || L.receivers === 'objects' ? L.receivers : 'all';
+      for (const el of [shOp, shBl, shEx, shRc]) if (el) el.disabled = L.shadow === false;
+      const shC = document.getElementById('lightShadowColorInput'), shCH = document.getElementById('lightShadowColorHexInput');   // P2
+      if (shC && document.activeElement !== shC) shC.value = L.shadowColor || '#000000';
+      if (shCH && document.activeElement !== shCH) shCH.value = (L.shadowColor || '#000000').slice(1).toUpperCase();
+      for (const el of [shC, shCH]) if (el) el.disabled = L.shadow === false;
+      const shSo = document.getElementById('lightSoftnessInput');   // S5b: a panel's row (P1: hidden unless a panel)
+      if (shSo) { if (document.activeElement !== shSo) shSo.value = (+L.softness).toFixed(2).replace(/\.?0+$/, ''); shSo.disabled = L.shadow === false; }
+      const soRow = document.getElementById('lightSoftnessRow'); if (soRow) soRow.style.display = L.kind === 'panel' ? '' : 'none';
+      // P1 (v20261019n): the Blur label names the display unit; the Size row reads the panel's Scale X / Y in that unit
+      const bu = document.getElementById('lightBlurUnit'); if (bu) bu.textContent = '(' + displayUnitLabel() + ')';
+      const szRow = document.getElementById('lightSizeRow'); if (szRow) szRow.style.display = L.kind === 'panel' ? '' : 'none';
+      // P3 (v20261019p): the Aim group reads the beam in the workplane's terms
+      const aimG = document.getElementById('lightAimGroup'); if (aimG) aimG.style.display = L.kind === 'point' ? 'none' : '';
+      if (L.kind !== 'point') {
+        const ae = _lightAimOf(obj), az = document.getElementById('lightAimAzInput'), el = document.getElementById('lightAimElInput');
+        if (ae && az && document.activeElement !== az) az.value = (+ae.az.toFixed(2)).toString();
+        if (ae && el && document.activeElement !== el) el.value = (+ae.el.toFixed(2)).toString();
+      }
+      ['lightPanelWInput', 'lightPanelHInput'].forEach((id, k) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = fmtDisplay(obj.scale ? obj.scale[k] : 1); });
+      _lightSyncWpAmbient();
+    };
+    // THE TOOL PANEL'S POSITION ROW (v20261019d, owner: "we need a position input in the Light Tool tool setting panel"):
+    // the SELECTED light's world position in the display unit, typed here as in the Select tool's panel - the Transform
+    // tab's writer in miniature (coalesced undo, notifyPathUpdated, Auto-Key on the position channels); disabled with no
+    // light selected. Synced from updatePropertiesPanel (through _lightSyncTabs) and when the tool is entered.
+    const _lightSyncToolPanel = () => {
+      const L = _isLightObj(selectedObject) ? selectedObject : null;
+      ['lightToolPosX', 'lightToolPosY', 'lightToolPosZ'].forEach((id, k) => {
+        const el = document.getElementById(id); if (!el) return;
+        el.disabled = !L;
+        if (L && document.activeElement !== el) el.value = fmtDisplay(L.position[k]);
+        else if (!L) el.value = '';
+      });
+    };
+    // P1 (v20261019n): the Workplane panel's Ambient row - shown while a light is in the scene, the same value as the tab's
+    let _wpAmbientShown = null;
+    const _lightSyncWpAmbient = () => {
+      const row = document.getElementById('wpAmbientRow'), el = document.getElementById('wpAmbientInput'); if (!row || !el) return;
+      const show = !!_dimLightsInScene;
+      if (show !== _wpAmbientShown) { row.style.display = show ? '' : 'none'; _wpAmbientShown = show; }
+      if (show && document.activeElement !== el) el.value = (+sceneRender.ambient).toFixed(2).replace(/\.?0+$/, '');
+    };
+    const _lightSyncTabs = (obj) => {
+      _lightSyncToolPanel();
+      const isL = _isLightObj(obj);
+      const tabBtn = document.querySelector('.obj-tab[data-obj-panel="sub-light"]');
+      if (tabBtn) tabBtn.style.display = isL ? '' : 'none';
+      for (const id of ['sub-style', 'sub-3d-settings', 'sub-3d-mapping']) { const b = document.querySelector('.obj-tab[data-obj-panel="' + id + '"]'); if (b) b.style.display = isL ? 'none' : ''; }
+      const active = document.querySelector('.obj-tab.active'), ap = active ? active.dataset.objPanel : '';
+      if (isL) { if (ap !== 'sub-light' && ap !== 'sub-transform' && tabBtn) tabBtn.click(); _lightSyncFields(obj); }
+      else if (ap === 'sub-light') { const t = document.querySelector('.obj-tab[data-obj-panel="sub-transform"]'); if (t) t.click(); }
+    };
+    {   // the tab's writers and the tool panel's colour twin (the DOM is above this script)
+      const kindSel = document.getElementById('lightKindSelect'), col = document.getElementById('lightColorInput'), hex = document.getElementById('lightColorHexInput'), inten = document.getElementById('lightIntensityInput');
+      const sel = () => _isLightObj(selectedObject) ? selectedObject : null;
+      const write = (fn, prop) => { const o = sel(); if (!o) return; pushUndoStateCoalesced(); fn(o.light); if (prop && typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(o), [prop]); requestRender(); };   // S6: typed = a drag under Auto-Key
+      if (col) col.addEventListener('input', () => { if (hex) hex.value = col.value.slice(1).toUpperCase(); write(l => { l.color = col.value; }); });
+      if (hex) hex.addEventListener('change', () => {
+        const v = hex.value.trim().replace(/^#/, '');
+        if (/^[0-9a-f]{6}$/i.test(v)) { if (col) col.value = '#' + v.toLowerCase(); write(l => { l.color = '#' + v.toLowerCase(); }); }
+        else { const o = sel(); if (o) hex.value = o.light.color.slice(1).toUpperCase(); }
+      });
+      if (inten) inten.addEventListener('input', () => { const v = parseFloat(inten.value); if (Number.isFinite(v)) write(l => { l.intensity = Math.max(0, Math.min(2, v)); }, 'ltIntensity'); });
+      // P2 (v20261019o): the Shadow Color row - the Color row's form (the picker's input, the hex twin)
+      const shC = document.getElementById('lightShadowColorInput'), shCH = document.getElementById('lightShadowColorHexInput');
+      if (shC) shC.addEventListener('input', () => { if (shCH) shCH.value = shC.value.slice(1).toUpperCase(); write(l => { l.shadowColor = shC.value; }); });
+      if (shCH) shCH.addEventListener('change', () => {
+        const v = shCH.value.trim().replace(/^#/, '');
+        if (/^[0-9a-f]{6}$/i.test(v)) { if (shC) shC.value = '#' + v.toLowerCase(); write(l => { l.shadowColor = '#' + v.toLowerCase(); }); }
+        else { const o = sel(); if (o) shCH.value = (o.light.shadowColor || '#000000').slice(1).toUpperCase(); }
+      });
+      // S3: the shadow rows' writers
+      const shOn = document.getElementById('lightShadowInput'), shOp = document.getElementById('lightShadowOpacityInput'), shBl = document.getElementById('lightBlurInput'), shEx = document.getElementById('lightExpandInput');
+      if (shOn) shOn.addEventListener('change', () => { const o = sel(); if (!o) return; pushUndoState(); o.light.shadow = !!shOn.checked; if (o.light.shadow && !sceneRender.zSort) { sceneRender.zSort = true; updateTreeView(); } _lightSyncFields(o); requestRender(); pushUndoState(o.light.shadow ? 'Shadows on' : 'Shadows off'); });
+      if (shOp) { shOp.addEventListener('input', () => { const v = parseFloat(shOp.value); if (Number.isFinite(v)) write(l => { l.opacity = Math.max(0, Math.min(1, v)); }, 'ltOpacity'); }); shOp.addEventListener('keydown', (e) => e.stopPropagation()); }
+      if (shBl) { shBl.addEventListener('input', () => { const v = parseFloat(shBl.value); if (Number.isFinite(v)) write(l => { l.blur = Math.max(0, fromDisplay(v)); }, 'ltBlur'); }); shBl.addEventListener('keydown', (e) => e.stopPropagation()); }
+      if (shEx) shEx.addEventListener('change', () => { const o = sel(); if (!o) return; pushUndoState(); o.light.expandBlur = !!shEx.checked; pushUndoState(o.light.expandBlur ? 'Expand blur in export' : 'Keep blur filter in export'); });
+      const shSo = document.getElementById('lightSoftnessInput');   // S5b
+      if (shSo) { shSo.addEventListener('input', () => { const v = parseFloat(shSo.value); if (Number.isFinite(v)) write(l => { l.softness = Math.max(0, v); }, 'ltSoftness'); }); shSo.addEventListener('keydown', (e) => e.stopPropagation()); }
+      const shRc = document.getElementById('lightReceiversSelect');   // S4
+      if (shRc) shRc.addEventListener('change', () => { const o = sel(); if (!o) return; pushUndoState(); o.light.receivers = shRc.value === 'workplane' || shRc.value === 'objects' ? shRc.value : 'all'; requestRender(); pushUndoState('Shadow receivers'); });
+      const amb = document.getElementById('lightAmbientInput'), wpAmb = document.getElementById('wpAmbientInput');   // LIGHT S2: writes the SCENE (sceneRender rides captureSceneState - one coalesced entry); P1: the Workplane panel's twin
+      const writeAmbient = (src) => { const v = parseFloat(src.value); if (!Number.isFinite(v)) return; pushUndoStateCoalesced(); sceneRender.ambient = Math.max(0, Math.min(1, v)); const other = src === amb ? wpAmb : amb; if (other && document.activeElement !== other) other.value = (+sceneRender.ambient).toFixed(2).replace(/\.?0+$/, ''); requestRender(); };
+      for (const el of [amb, wpAmb]) if (el) { el.addEventListener('input', () => writeAmbient(el)); el.addEventListener('keydown', (e) => e.stopPropagation()); }
+      // P3 (v20261019p): the Aim fields write the light's ROTATION (the Transform tab's own channel: rotationMatrix + rotationEuler,
+      // the rotation tracks under Auto-Key); only the fired field changes its angle, the other is read from the beam as it is
+      const aimAz = document.getElementById('lightAimAzInput'), aimEl = document.getElementById('lightAimElInput'), aimBtn = document.getElementById('lightAimOriginBtn');
+      const aimTo = (o, dir, label) => {
+        const P = pointApplyMatrix([0, 0, 0], o.getWorldMatrix()), R = _lightAimMatrix(P, vectorAdd(P, dir), getWorkingPlane().normal); if (!R) return false;
+        o.rotationMatrix = R; o.rotationEuler = matrixToEuler(R);
+        notifyPathUpdated(o);
+        if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(o), ['rotX', 'rotY', 'rotZ']);
+        updatePropertiesPanel();
+        requestRender();
+        return true;
+      };
+      const writeAim = (e) => {
+        const o = sel(); if (!o || o.light.kind === 'point') return;
+        const cur = _lightAimOf(o); if (!cur) return;
+        const v = parseFloat(e.target.value); if (!Number.isFinite(v)) return;
+        const az = e.target === aimAz ? v : cur.az, el = e.target === aimEl ? Math.max(-90, Math.min(90, v)) : cur.el;
+        o._aimAz = az;   // remembered for a vertical beam (see _lightAimOf)
+        if (Math.abs(az - cur.az) < 1e-9 && Math.abs(el - cur.el) < 1e-9) return;
+        pushUndoStateCoalesced();
+        aimTo(o, _lightDirOfAim(az, el));
+      };
+      for (const el of [aimAz, aimEl]) if (el) { el.addEventListener('input', writeAim); el.addEventListener('keydown', (e) => e.stopPropagation()); }
+      if (aimBtn) aimBtn.addEventListener('click', () => {
+        const o = sel(); if (!o || o.light.kind === 'point') return;
+        const P = pointApplyMatrix([0, 0, 0], o.getWorldMatrix()), wp = getWorkingPlane(), dir = vectorSubtract(wp.point, P);
+        if (!(Math.hypot(dir[0], dir[1], dir[2]) > 1e-9)) return;
+        pushUndoState();
+        if (aimTo(o, dir)) pushUndoState('Aim at Origin');
+      });
+      // P1 (v20261019n): the Size row writes the panel's Scale X / Y - the Transform tab's own channel (clampScale, the scale tracks
+      // under Auto-Key); only the fired field writes its axis (the Position row's rule)
+      const szEls = ['lightPanelWInput', 'lightPanelHInput'].map(id => document.getElementById(id));
+      if (szEls.every(Boolean)) {
+        const writeSize = (e) => {
+          const o = sel(); if (!o) return;
+          const k = szEls.indexOf(e.target); if (k < 0) return;
+          const v = parseFloat(e.target.value); if (!Number.isFinite(v)) return;
+          const next = [...(o.scale || [1, 1, 1])]; next[k] = clampScale(fromDisplay(v));
+          if (next[k] === (o.scale || [1, 1, 1])[k]) return;
+          pushUndoStateCoalesced();
+          o.scale = next;
+          notifyPathUpdated(o);
+          if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(o), [k === 0 ? 'sclX' : 'sclY']);
+          updatePropertiesPanel();
+          requestRender();
+        };
+        szEls.forEach(el => { el.addEventListener('input', writeSize); el.addEventListener('keydown', (e) => e.stopPropagation()); });
+      }
+      if (kindSel) kindSel.addEventListener('change', () => { const o = sel(); if (!o) return; pushUndoState(); o.light.kind = kindSel.value === 'directional' || kindSel.value === 'panel' ? kindSel.value : 'point'; _lightSyncFields(o); pushUndoState('Light kind'); requestRender(); });
+      // the Position row writes the selected light (v20261019d)
+      const posEls = ['lightToolPosX', 'lightToolPosY', 'lightToolPosZ'].map(id => document.getElementById(id));
+      if (posEls.every(Boolean)) {
+        const writePos = (e) => {
+          const L = sel(); if (!L) return;
+          // ONLY the field that fired writes its channel (the Transform tab's _pick rule): re-reading the other two
+          // through the 2-decimal display would move them by a rounding residual (L9's first reading: Y moved on an X edit)
+          const next = posEls.map((el, k) => { if (!e || e.target !== el) return L.position[k]; const v = parseFloat(el.value); return Number.isFinite(v) ? fromDisplay(v) : L.position[k]; });
+          if (next.every((v, k) => v === L.position[k])) return;
+          pushUndoStateCoalesced();
+          L.position = next;
+          notifyPathUpdated(L);
+          if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(L), ['posX', 'posY', 'posZ']);   // typed = a drag under Auto-Key (v20260721q)
+          updatePropertiesPanel();
+          requestRender();
+        };
+        posEls.forEach(el => { el.addEventListener('input', writePos); el.addEventListener('keydown', (e) => e.stopPropagation()); });
+      }
+      const tc = document.getElementById('lightToolColorInput'), th = document.getElementById('lightToolColorHexInput');
+      if (tc && th) {
+        tc.addEventListener('input', () => { th.value = tc.value.slice(1).toUpperCase(); });
+        th.addEventListener('change', () => { const v = th.value.trim().replace(/^#/, ''); if (/^[0-9a-f]{6}$/i.test(v)) tc.value = '#' + v.toLowerCase(); else th.value = tc.value.slice(1).toUpperCase(); });
+      }
+    }
+    // --- /LIGHT ----------------------------------------------------------------------------------------------------------
+
     class AxisIndicator {
 
       constructor(group) {
@@ -53453,8 +54560,9 @@
           sideColor: '#888888',
           useSideColor: false,
           cleanRender: true,       // Legacy (backward compat) — use renderMode instead
-          renderMode: 'clean',     // 'clean' | 'mesh' | 'layer'
+          renderMode: 'clean',     // 'clean' | 'mesh' | 'layer' | 'stacks' | 'line'
           layerCount: 16,
+          // LINE (v20261020a): lineTurns / lineReverse are LAZY - absent = 1 / off - so every file written before the mode is byte-identical; the panel writes both on an edit
           divisionsU: 8,
           divisionsV: 8,
           curvedSurface: false,
@@ -54599,6 +55707,9 @@
           stackCount: 16,          // stacks mode (v20260824c): slabs through the profile
           stackAxis: 'y',          // stacks: stations walk profile Y ('y') or X ('x')
           stackAngle: 0,           // stacks: that axis rotated by degrees in the profile plane (v20260824e)
+          // LINE (v20261020a, PLAN-line-render-mode.md): lineTurns (the profile traced this many times along the depth) and
+          // lineReverse (walk it from its last vertex) are LAZY keys - absent = 1 / off - so a file written before the mode stays
+          // byte-identical (the K rows of the gates); the panel writes both on an edit, every reader takes absence
           divisionsU: 8,           // mesh: divisions along extrude depth
           divisionsV: 8,           // mesh: divisions along profile arc
           curvedSurface: false,        // Curved face edges in mesh render (same as Revolve/Sweep)
@@ -54627,6 +55738,7 @@
           renderMode: 'clean', // 'clean' | 'mesh' | 'layer'
           layerCount: 16,      // layer mode: number of profile copies
           stackCount: 16,      // stacks mode (v20260824a): rings along the axis
+          // LINE (v20261020a): lineTurns / lineReverse are LAZY (absent = 1 / off) - see extrudeSettings
           silhouetteSplit: true,        // Always on — improves Z-sorting at silhouette boundary
           curvedSurface: false,   // Curved face edges in non-clean render
           divsU: 16,
@@ -59159,6 +60271,8 @@
           this.svgElement.style.display = 'none';
           return;
         }
+        // LIGHT (experimental, PLAN-light S1): a light has no geometry - its glyph is the whole draw
+        if (this.light) { _lightDraw(this, vpMatrix, cameraVP, externalFaceList); return; }
 
         // vpMatrix here is either Camera VP (if root) or Parent's Accumulated MVP
         const modelMatrix = this.getLocalMatrix();
@@ -59856,7 +60970,7 @@
 
                   if (fragGroup.childNodes.length > 0) {
                     const face = { element: fragGroup, z: frag.avgZ || 0 };
-                    if (_dimHoldoutInScene) { const pl = _dimFragPlane(_dimFragPts(frag)); if (pl) face.ix = { plane: pl, pts: [], splits: 0, owner: this }; }   // HOLDOUT (v20261018zi)
+                    if (_dimHoldoutInScene || _dimLightsInScene) { const pl = _dimFragPlane(_dimFragPts(frag)); if (pl) face.ix = { plane: pl, pts: [], splits: 0, owner: this }; }   // HOLDOUT (v20261018zi); + a light (S4, v20261019g)
                     // Sticker Back (v20260803i; keyed on the group's tri-state
                     // Backside === 'view' since v20260817b): a GROUP-mapped
                     // child's split fragments carry their section identity up
@@ -60089,7 +61203,7 @@
                   // Only add to faceList if the group has children
                   if (fragGroup.childNodes.length > 0) {
                     const face = { element: fragGroup, z: frag.avgZ || 0 };
-                    if (_dimHoldoutInScene) { const pl = _dimFragPlane(_dimFragPts(frag)); if (pl) face.ix = { plane: pl, pts: [], splits: 0, owner: this }; }   // HOLDOUT (v20261018zi)
+                    if (_dimHoldoutInScene || _dimLightsInScene) { const pl = _dimFragPlane(_dimFragPts(frag)); if (pl) face.ix = { plane: pl, pts: [], splits: 0, owner: this }; }   // HOLDOUT (v20261018zi); + a light (S4, v20261019g)
                     // Sticker Back (v20260803i) — see the spline-flow site.
                     // Key = the surfaceMapping sub-object, so a group's spline
                     // flow and surface mapping can never share sections.
@@ -60150,7 +61264,10 @@
             // clean sides cycle the palette per CONTOUR, so there is no
             // depth-adjacent colour); null = inherit the object's fill.
             const _capSideFill = (_exs.useSideColor && _exs.sideColor) ? _exs.sideColor : null;
-            const _capFillOf = (mode) => (mode === 'side' ? _capSideFill : null);
+            const _capFillOf0 = (mode) => (mode === 'side' ? _capSideFill : null);
+            // LIGHT S2 (v20261019e): a lit cap writes its SHADE (of the Side colour, or of the inherited fill) as its own fill
+            const _litCap = _lightPlaneShader(this, cam);
+            const _capFillOf = (mode, tLocal) => (_litCap ? _litCap(tLocal, _capFillOf0(mode)) : _capFillOf0(mode));
 
             // Direction-aware taper scale matrices: the scale in the plane
             // perpendicular to the extrude direction (extrudeTaperMatrix, shared
@@ -60268,7 +61385,7 @@
 
             // Add the rail-START cap (frontFace; user-facing Front or Back per _exEnds)
             if (_exEnds.capStart) {
-              const _fillS = _capFillOf(_exEnds.startFill);
+              const _fillS = _capFillOf(_exEnds.startFill, tFront);
               if (capIslands) {
                 this.frontFace.style.display = 'none';
                 pushIslandCaps(islandChunksF, mvpFront, 'front', _fillS);
@@ -60293,7 +61410,7 @@
 
             // Add the rail-END cap (backFace)
             if (_exEnds.capEnd) {
-              const _fillE = _capFillOf(_exEnds.endFill);
+              const _fillE = _capFillOf(_exEnds.endFill, tBack);
               if (capIslands) {
                 this.backFace.style.display = 'none';
                 pushIslandCaps(islandChunksB, mvpBack, 'back', _fillE);
@@ -60326,7 +61443,7 @@
           // Each awaited helper: call, record what it pushed, THEN yield; after the
           // yield re-base the mark (the group may have sorted meanwhile). See the
           // _pushedFaces note above.
-          if (_exs.enabled && (extrudeRenderMode === 'mesh' || extrudeRenderMode === 'layer' || extrudeRenderMode === 'stacks')) {
+          if (_exs.enabled && (extrudeRenderMode === 'mesh' || extrudeRenderMode === 'layer' || extrudeRenderMode === 'stacks' || extrudeRenderMode === 'line')) {   // (v20261020a) Line rides the same rail
             const _pm = this.drawExtrudeAsMesh(faceList, vpMatrix, modelMatrix);
             _takeMine(); await _pm; _pushedMark = faceList.length;
           }
@@ -60487,7 +61604,10 @@
               // scene it carries its screen plane (the least-squares fit of its control points through the MVP, accepted
               // only when the points are flat: the residual gate of the sweep stacks), so a holdout in front cuts it.
               // Gated on the scene having a holdout, so every other picture is byte-identical.
-              if (_dimHoldoutInScene && this.localVertices && this.localVertices.length >= 3 && !(this.surfaceConstraint && this.surfaceConstraint.active)) {   // a flowed path's drawn geometry is not its source vertices
+              // LIGHT S4 (v20261019g): a LIGHT in the scene opens the same gate - a shadow on the floor behind a flat wall showed
+              // through it, since the wall had no plane and no record for the pair loop to mask the shadow with (measured in
+              // Chrome and Illustrator alike on the S4 file).
+              if ((_dimHoldoutInScene || _dimLightsInScene) && this.localVertices && this.localVertices.length >= 3 && !(this.surfaceConstraint && this.surfaceConstraint.active)) {   // a flowed path's drawn geometry is not its source vertices
                 try {
                   const lm = this.getLocalMatrix(), pts = [];
                   for (const p of this.localVertices) {
@@ -60535,6 +61655,8 @@
           // frame, so removing here costs nothing there.
           this.frontFace.removeAttribute('fill');
           if (this.backFace) this.backFace.removeAttribute('fill');
+          // LIGHT S2 (v20261019e): a lit flat path writes the shade of its plane as the front face's own fill
+          { const _litFlat = _lightPlaneShader(this, cam); if (_litFlat) { const sh = _litFlat(null, null); if (sh) this.frontFace.setAttribute('fill', sh); } }
 
           let _paintFlatTrim = null;   // set by the trim block, read by the 3D Stroke block (v20260914o)
           // --- STROKE TRIM (v20260719c): trimmed stroke overlay ---
@@ -62055,6 +63177,7 @@
           layerCount: rs.layerCount || 16,
           stackCount: rs.stackCount || 16,   // Stacks mode (v20260824a): rings along the axis
           stackSnap: rs.stackSnap || false,  // Stacks: stations at profile anchors (v20260825f)
+          lineTurns: rs.lineTurns, lineReverse: !!rs.lineReverse, lineFlat: rs.lineFlat, lineJoin: !!rs.lineJoin, lineFlatMode: rs.lineFlatMode,   // LINE (v20261020a; Flat / Join v20261020f; the Flat mode h)
           showCapStart: rs.capStart !== false,
           showCapEnd: rs.capEnd !== false,
           capStartMode: rs.capStartMode,     // v20260913c: three-way cap ('side' paints the cap as a ribbon)
@@ -62121,6 +63244,7 @@
           stackSnap: es.stackSnap || false,         // Stacks: stations at profile anchors (v20260825f)
           stackAxis: es.stackAxis || 'y',
           stackAngle: es.stackAngle || 0,           // degrees, rotates the stack axis in the profile plane (v20260824e)
+          lineTurns: es.lineTurns, lineReverse: !!es.lineReverse, lineFlat: es.lineFlat, lineJoin: !!es.lineJoin, lineFlatMode: es.lineFlatMode,   // LINE (v20261020a; Flat / Join v20261020f; the Flat mode h)
           showCapStart: _xe.capStart,   // v20260913a: positional Front / Back
           showCapEnd: _xe.capEnd,
           capStartFill: _xe.startFill,  // v20260913b: 'fill' | 'side' (three-way cap)
@@ -62313,6 +63437,9 @@
         // engine's and the eye's.
         const _osS = (ss.openSides && ss.useSurfaceColor && ss.surfaceColor && this.style.fill && this.style.fill !== 'none') ? BooleanGroup.shellOf(this) : null;
         const _osEye = _osS ? resolveEyeForObject(this, this._drawCam || activeCamera) : null;
+        // LIGHT S2 (v20261019e): the mesh quads are planar facets in WORLD space (the rail frames carry the world matrix) - lit by
+        // their own normal; the eye through the draw camera. null = nothing changes.
+        const _litMesh = (_dimLights.length && _lightShadeOn(this)) ? { eye: resolveEyeForObject(this, this._drawCam || activeCamera) } : null;
         const _osSign = new Map();
         const _osSub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
         const _osCross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -62354,6 +63481,42 @@
         };
         // the fill of a stretch: the object's Fill where its outside is seen, else what it was (the side colour / palette)
         const _osFill = (seesOut, inside) => seesOut === true ? resolvedFill : inside;
+        // LIGHT S5c (v20261019k): the shade of a curved Clean piece at its MIDDLE - a stretch (one profile segment between two
+        // rail frames) through the segment's middle and the frames' midpoint, its normal the profile tangent x the rail
+        // direction (the _osSeg construction); a More Simple Sides piece through the mean of its reps' points and normals
+        // (each oriented toward the eye first, so a piece round a turn does not cancel). Mesh quads shade in S2's hook; an
+        // Exact piece is not shaded yet. With no light in the scene nothing here runs.
+        const _litSurf = (_dimLights.length && _lightShadeOn(this)) ? (() => {
+          const eye = resolveEyeForObject(this, this._drawCam || activeCamera);
+          const stretchNX = (seg, fA, fB) => {
+            if (!seg || !seg.p0 || !seg.p3 || !fA || !fB) return null;
+            const m = _osAt(seg, 0.5), a = _osAt(seg, 0.45), b = _osAt(seg, 0.55), XA = sweepPoint(fA, m), XB = sweepPoint(fB, m);
+            return { N: _osCross(_osSub(sweepPoint(fA, b), sweepPoint(fA, a)), _osSub(XB, XA)), X: [(XA[0] + XB[0]) / 2, (XA[1] + XB[1]) / 2, (XA[2] + XB[2]) / 2] };
+          };
+          return {
+            stretch: (fill, seg, fA, fB) => { if (!fill || fill === 'none') return fill; try { const r = stretchNX(seg, fA, fB); return r ? lightShadeHex(fill, r.N, r.X, eye) : fill; } catch (e) { return fill; } },
+            piece: (fill, reps, subP, frames) => {   // (the first form read iv as an index into uStations - a near / far run's iv is not one; 3 of a cylinder's 10 pieces stayed authored)
+              if (!fill || fill === 'none' || !reps || !reps.length || !subP || !subP.profileSegs || !subP.intervals || !subP.intervals.length || !frames) return fill;
+              try {
+                // a rep is [the profile parameter p, the azimuth interval iv]; the interval's middle is u = (iv + 0.5) / the
+                // subpath's interval count - the engine's own reading of iv (the near / far split of v20260728) - and the
+                // stretch is a quarter interval either side of it
+                const NS = [0, 0, 0], XS = [0, 0, 0], nIv = subP.intervals.length, h = 0.25 / nIv; let n = 0;
+                for (const rp of reps) {
+                  const pMid = rp[0], iv = rp[1], si = Math.min(subP.profileSegs.length - 1, Math.max(0, Math.floor(pMid))), seg = subP.profileSegs[si];
+                  if (!seg || !Number.isFinite(iv)) continue;
+                  const um = (iv + 0.5) / nIv;
+                  const r = stretchNX(seg, SurfaceMapper.getFrameAtU(frames, Math.max(0, um - h)), SurfaceMapper.getFrameAtU(frames, Math.min(1, um + h))); if (!r) continue;
+                  let N = r.N; const l = Math.hypot(N[0], N[1], N[2]); if (!(l > 1e-12)) continue;
+                  N = [N[0] / l, N[1] / l, N[2] / l];
+                  const v = eye.w ? _osSub(eye.E, r.X) : eye.E; if (N[0] * v[0] + N[1] * v[1] + N[2] * v[2] < 0) N = [-N[0], -N[1], -N[2]];
+                  NS[0] += N[0]; NS[1] += N[1]; NS[2] += N[2]; XS[0] += r.X[0]; XS[1] += r.X[1]; XS[2] += r.X[2]; n++;
+                }
+                return n ? lightShadeHex(fill, NS, [XS[0] / n, XS[1] / n, XS[2] / n], eye) : fill;
+              } catch (e) { return fill; }
+            },
+          };
+        })() : null;
         const strokeColor = (this.style.stroke && this.style.stroke !== 'none') ? rgbToHex(this.style.stroke) : null;
         const strokeWidth = getEffectiveStrokeWidth(_effSurface['stroke-width'] || (2 / FRAME_SIZE).toString());
 
@@ -62366,6 +63529,135 @@
 
         // --- Determine render mode (clean / mesh / layer) ---
         const renderMode = ss.renderMode || (cleanRender ? 'clean' : 'mesh');
+
+        // ========== LINE RENDER MODE (v20261020a, PLAN-line-render-mode.md) ==========
+        // Revolve / Extrude. The profile's point at parameter s rides the rail at station u = s: the first anchor at
+        // the rail's start, the last at its end - a closed subpath's closing segment ends at the first anchor at u = 1,
+        // one whole coil (D3). One STROKED path per turn per subpath, fill none: no caps, no sides, no face. Turns N
+        // (D5): a closed subpath laps N times, an open one goes back and forth (continuous either way); Reverse (D6)
+        // walks the profile backwards. Between segments s is by ARC LENGTH (D2: one pitch everywhere); within a segment
+        // s is affine in the segment's own t, so an untapered extrusion's lifted segment is exactly a cubic. A segment's
+        // share of a lap is cut into pieces (a revolve: the Segments row's angle a piece; a tapered extrusion: 8 a lap;
+        // else one), and each piece is the cubic through FOUR points of the true curve (t = 0, 1/3, 2/3, 1 of the
+        // piece) - exact for a cubic, third-order elsewhere - interpolated in SCREEN space, so the samples lie on the
+        // curve under any camera (a world cubic's control points through a perspective divide do not). Every point goes
+        // through sweepPoint, the one map the surface modes use, so the Center, the Start angle, the taper and a
+        // symmetric extrusion hold by construction. No ix: a helix lies on no plane (D9) - the element sorts on its mean
+        // depth. The palette runs per turn (D8); a style with no stroke strokes with its fill (D7). The bake hook records
+        // each piece's WORLD control points (the same interpolant) for Bake to Path (S2).
+        // FLAT (v20261020f, Part B P1, owner: "a string falling to the floor"): the first `lineFlat` (0..1, a fraction of the
+        // whole line) lies at the rail's START - depth 0 for an extrusion, the start angle for a revolve - and the rest climbs
+        // over the rail as before: the station is u = (w - flat) / (1 - flat), 0 below flat. A piece that straddles w = flat
+        // is split there (a corner of the map). JOIN SUBPATHS (P2, lineJoin): the subpaths are ONE chain in authored order -
+        // the arc length accumulates across them, a lap is the whole chain, Turns / Reverse / Flat apply to the chain, the
+        // pen LIFTS between subpaths (a new M; the depth keeps climbing across the lift) - one element per turn; the bake
+        // records stay one per subpath per turn (an open subpath each), as the bake reads them.
+        if (renderMode === 'line' && (isRevolveSurface || isExtrudeSurface)) {
+          const frames = railPath._frameData;
+          const N = Math.max(0.05, +ss.lineTurns || 1), rev = !!ss.lineReverse, nTurns = Math.ceil(N - 1e-9);
+          // NEGATIVE FLAT (v20261020j, owner: "the path floats away from the plane"): down to -10. Trim shifts the whole line
+          // away by |flat| of the depth (its far end past the rail's end - frameAt carries the rail on: straight for an
+          // extrusion, on round the axis for a revolve); Stretch lifts the start while the end stays at the depth.
+          const flat = Math.min(1, Math.max(-10, +ss.lineFlat || 0)), join = !!ss.lineJoin;
+          // FLAT MODE (v20261020h, owner: "a long line hitting a wall and the shape reveals"): STRETCH (absent = today) fits the
+          // rest of the line into the whole depth - u = (w - flat) / (1 - flat); TRIM keeps the depth for the WHOLE line and the
+          // flat part trims the rise - u = w - flat, so the hanging part keeps its slope and its far end lands as Flat grows
+          const trim = ss.lineFlatMode === 'trim';
+          const uOf = trim ? (w) => Math.max(0, w - flat) : (flat >= 1 ? () => 0 : (w) => Math.max(0, (w - flat) / (1 - flat)));   // the rail station of the line parameter w
+          // the frame at a station past the rail's end (Trim with a negative Flat): an extrusion carries straight on with its
+          // taper continued; a revolve turns on with generateCircularRail's own parametrisation per axis (rail-local - the
+          // world matrix is applied by sweepPoint), its taper continued
+          const _fA = frames[0], _fZ = frames[frames.length - 1];
+          const frameAt = (u) => {
+            if (u <= 1) return SurfaceMapper.getFrameAtU(frames, u);
+            const e = u - 1;
+            if (isExtrudeSurface) return { pos: [0, 1, 2].map(k => _fZ.pos[k] + e * (_fZ.pos[k] - _fA.pos[k])), side: _fZ.side, normal: _fZ.normal, scale: _fZ.scale,
+              scaleU: _fZ.scaleU === undefined ? undefined : _fZ.scaleU + e * (_fZ.scaleU - _fA.scaleU), scaleV: _fZ.scaleV === undefined ? undefined : _fZ.scaleV + e * (_fZ.scaleV - _fA.scaleV) };
+            const A = Math.min(360, Math.max(0, ss.revolveAngleDeg ?? 360)) * Math.PI / 180 * u, r = ss.axisOffset || 0, sn = Math.sin(A), cs = Math.cos(A), ax = ss.revolveAxis || 'y';
+            const sc = (ss.revolveScaleStart ?? 1) + ((ss.revolveScaleEnd ?? 1) - (ss.revolveScaleStart ?? 1)) * u;
+            if (ax === 'z') return { pos: [r * cs, r * sn, 0], side: [0, 0, 1], normal: [cs, sn, 0], scale: sc };
+            if (ax === 'x') return { pos: [0, r * sn, r * cs], side: [1, 0, 0], normal: [0, sn, cs], scale: sc };
+            return { pos: [r * sn, 0, r * cs], side: [sn, 0, cs], normal: [0, 1, 0], scale: sc };
+          };
+          const segsU = Math.max(4, ss.cleanSegsU || 32);   // the revolve's Segments: pieces over the whole turn
+          const _f0 = frames[0], _fL = frames[frames.length - 1];
+          const exTapered = isExtrudeSurface && ((_f0.scaleU ?? _f0.scale ?? 1) !== (_fL.scaleU ?? _fL.scale ?? 1) || (_f0.scaleV ?? _f0.scale ?? 1) !== (_fL.scaleV ?? _fL.scale ?? 1));
+          const strokeFor = (k) => surfPal ? paletteColorAt(surfPal, k, nTurns, ss.paletteMode)
+            : ((ss.useSurfaceColor && ss.surfaceColor) ? ss.surfaceColor : (strokeColor || ((resolvedFill && resolvedFill !== 'none') ? resolvedFill : null)));
+          const at = (seg, t) => {   // a profile segment (cubic or line) at its own t, in profile coordinates
+            const w = 1 - t;
+            if (seg.p1) { const c = [seg.p0, seg.p1, seg.p2, seg.p3], r = [0, 0, 0]; for (let k = 0; k < 3; k++) r[k] = w * w * w * (c[0][k] || 0) + 3 * w * w * t * (c[1][k] || 0) + 3 * w * t * t * (c[2][k] || 0) + t * t * t * (c[3][k] || 0); return r; }
+            return [seg.p0[0] + (seg.p3[0] - seg.p0[0]) * t, seg.p0[1] + (seg.p3[1] - seg.p0[1]) * t, (seg.p0[2] || 0) + ((seg.p3[2] || 0) - (seg.p0[2] || 0)) * t];
+          };
+          const C = (seg, t, w) => sweepPoint(frameAt(uOf(w)), at(seg, t));
+          const I1 = (a, b, c, e) => (-5 * a + 18 * b - 9 * c + 2 * e) / 6, I2 = (a, b, c, e) => (2 * a - 9 * b + 18 * c - 5 * e) / 6;   // the 4-point interpolant's inner control points
+          // a subpath's segments with its closing chord (the Stacks rule), each tagged with its subpath index
+          const chordOf = (gi) => { const segs = subpathGroups[gi].slice(); if (!segs.length) return segs;
+            if (subpathClosed[gi]) { const a = segs[0].p0, b = segs[segs.length - 1].p3; if (Math.hypot(a[0] - b[0], a[1] - b[1], (a[2] || 0) - (b[2] || 0)) > 1e-9) segs.push({ type: 'L', command: 'L', p0: b, p3: a }); }
+            return segs.map(seg => ({ seg, gi })); };
+          // the chains: every subpath its own (today), or ONE chain of all of them (Join Subpaths)
+          const chains = [];
+          if (join) { const all = []; let allClosed = true; for (let gi = 0; gi < subpathGroups.length; gi++) { const sg = chordOf(gi); if (!sg.length) continue; allClosed = allClosed && !!subpathClosed[gi]; all.push(...sg); } if (all.length) chains.push({ segs: all, closed: allClosed }); }
+          else for (let gi = 0; gi < subpathGroups.length; gi++) { const sg = chordOf(gi); if (sg.length) chains.push({ segs: sg, closed: !!subpathClosed[gi] }); }
+          for (const ch of chains) {
+            const segs = ch.segs, closed = ch.closed;
+            const lens = segs.map(e => { let L = 0, p = at(e.seg, 0); for (let i = 1; i <= 16; i++) { const q = at(e.seg, i / 16); L += Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]); p = q; } return L; });
+            const total = lens.reduce((a, b) => a + b, 0); if (!(total > 1e-12)) continue;
+            const S0 = [0]; for (let i = 0; i < segs.length; i++) S0.push(S0[i] + lens[i] / total); S0[segs.length] = 1;
+            for (let k = 0; k < nTurns; k++) {
+              const stroke = strokeFor(k);
+              if (!stroke) continue;   // a style with neither stroke nor fill paints nothing
+              const back = closed ? rev : ((k % 2 === 1) !== rev);   // this lap walks the chain backwards
+              const wk = k / N, wEnd = Math.min(1, (k + 1) / N);
+              const order = [...segs.keys()]; if (back) order.reverse();
+              let d = '', sumZ = 0, nZ = 0, first = true, lastGi = null;
+              let pieces = null;   // the bake record being filled (one per subpath per turn)
+              const flush = () => { if (pieces && pieces.length) this._bakeCollect.push({ kind: 'line', turn: k, sub: lastGi, pieces, stroke }); pieces = this._bakeCollect ? [] : null; };   // (v20261020d) the stroke rides along for Bake to Path
+              for (const i of order) {
+                const { seg, gi } = segs[i], sa = S0[i], sb = S0[i + 1];
+                if (!(sb - sa > 1e-12)) continue;
+                let wa = wk + (back ? (1 - sb) : sa) / N, wb = wk + (back ? (1 - sa) : sb) / N;
+                if (wa >= wEnd - 1e-12) break;   // past a partial lap's end
+                const clipped = wb > wEnd; if (clipped) wb = wEnd;
+                const lift = gi !== lastGi;   // a new subpath: the pen lifts (a new M), the bake starts a new record
+                if (lift) { flush(); lastGi = gi; }
+                const tOf = (w) => { const sv = back ? (1 - (w - wk) * N) : ((w - wk) * N); return Math.min(1, Math.max(0, (sv - sa) / (sb - sa))); };
+                // the pieces: the interval split at w = flat (the flat / rising corner is a piece boundary), each part cut by its OWN
+                // rise du (a flat part is the plain profile - one exact piece a segment; a rising part the Segments density)
+                const parts = (flat > wa + 1e-9 && flat < wb - 1e-9) ? [[wa, flat], [flat, wb]] : [[wa, wb]];
+                const bounds = [];
+                for (const [pa, pb] of parts) {
+                  const du = uOf(pb) - uOf(pa);
+                  const m = isRevolveSurface ? Math.max(1, Math.ceil(du * segsU - 1e-9)) : (exTapered ? Math.max(1, Math.ceil(du * N * 8 - 1e-9)) : 1);
+                  for (let j = 0; j < m; j++) bounds.push(pa + (pb - pa) * j / m);
+                }
+                bounds.push(wb);
+                let liftPending = lift || first;
+                for (let j = 0; j + 1 < bounds.length; j++) {
+                  const w0 = bounds[j], w1 = bounds[j + 1]; if (!(w1 - w0 > 1e-12)) continue;
+                  const h = (w1 - w0) / 3;
+                  const W = [w0, w0 + h, w0 + 2 * h, w1].map(w => C(seg, tOf(w), w));
+                  const Q = W.map(toScreen); if (Q.some(q => !q)) continue;
+                  if (liftPending) { d += `M${Q[0].x},${Q[0].y}`; liftPending = false; first = false; }
+                  d += `C${I1(Q[0].x, Q[1].x, Q[2].x, Q[3].x)},${I1(Q[0].y, Q[1].y, Q[2].y, Q[3].y)} ${I2(Q[0].x, Q[1].x, Q[2].x, Q[3].x)},${I2(Q[0].y, Q[1].y, Q[2].y, Q[3].y)} ${Q[3].x},${Q[3].y}`;
+                  for (const q of Q) { sumZ += q.z; nZ++; }
+                  if (pieces) pieces.push([W[0], [0, 1, 2].map(c => I1(W[0][c], W[1][c], W[2][c], W[3][c])), [0, 1, 2].map(c => I2(W[0][c], W[1][c], W[2][c], W[3][c])), W[3]]);
+                }
+                if (clipped) break;
+              }
+              flush();
+              if (!d || !nZ) continue;
+              const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+              el.setAttribute('d', d);
+              el.setAttribute('fill', 'none');   // explicit: suppressRetracedStrokes keeps a fill="none" element's stroke
+              el.setAttribute('stroke', stroke);
+              el.setAttribute('stroke-width', strokeWidth);
+              faceList.push({ element: el, z: sumZ / nZ });
+            }
+          }
+          return;   // nothing else of the surface is drawn
+        }
+        // ========== END LINE RENDER MODE ==========
 
         // ========== STACKS RENDER MODE (v20260824a, PLAN-revolve-rings.md) ==========
         // Revolve / Extrude / Sweep. The ORTHOGONAL sibling of Layer: Layer copies the whole
@@ -64033,7 +65325,7 @@
                   const _in = surfPal
                     ? paletteColorAt(surfPal, segsA[firstIdx]?._pIdx ?? firstIdx, profileSegs.length, ss.paletteMode)
                     : fillColor;
-                  pathEl.setAttribute('fill', _osS ? _osFill(_osSeg(profileSegs, segsA[chain[chain.length >> 1]], frameA, frameB), _in) : _in);   // (v20261002f)
+                  { let _fc = _osS ? _osFill(_osSeg(profileSegs, segsA[chain[chain.length >> 1]], frameA, frameB), _in) : _in; if (_litSurf) _fc = _litSurf.stretch(_fc, segsA[chain[chain.length >> 1]], frameA, frameB); pathEl.setAttribute('fill', _fc); }   // (v20261002f)   // LIGHT S5c: the stretch's shade
                 }
                 pathEl.setAttribute('fill-opacity', _effSurface['fill-opacity']);
                 if (strokeColor) {
@@ -64701,7 +65993,15 @@
                   const N = _osCross(_osSub(g01, g10), _osSub(g11, g00)), C = [(g00[0] + g01[0] + g10[0] + g11[0]) / 4, (g00[1] + g01[1] + g10[1] + g11[1]) / 4, (g00[2] + g01[2] + g10[2] + g11[2]) / 4];
                   _out = _osSees(profileSegs, g00, N, C);
                 }
-                pathEl.setAttribute('fill', _osFill(_out, _in));
+                let _fq = _osFill(_out, _in);
+                if (_litMesh && !cachedScreenGrid) {   // LIGHT S2 (v20261019e): the quad's shade - its normal from the grid's diagonals (world space), its centre
+                  const g00 = grid[i][j], g01 = grid[i][j + 1], g10 = grid[i + 1][j], g11 = grid[i + 1][j + 1];
+                  if (g00 && g01 && g10 && g11) {
+                    const N = _osCross(_osSub(g01, g10), _osSub(g11, g00)), C = [(g00[0] + g01[0] + g10[0] + g11[0]) / 4, (g00[1] + g01[1] + g10[1] + g11[1]) / 4, (g00[2] + g01[2] + g10[2] + g11[2]) / 4];
+                    _fq = lightShadeHex(_fq, N, C, _litMesh.eye);
+                  }
+                }
+                pathEl.setAttribute('fill', _fq);
               }
               if (strokeColor) {
                 pathEl.setAttribute('stroke', strokeColor);
@@ -66781,7 +68081,9 @@
                   : fillColor;
                 // (v20261002f) a piece is one band seen from one side: its rings agree; the first that answers decides
                 const _r = _osS && p.rings ? p.rings.find(r => r.seesOut === true || r.seesOut === false) : null;
-                el.setAttribute('fill', _r ? _osFill(_r.seesOut, _in) : _in);
+                let _fm = _r ? _osFill(_r.seesOut, _in) : _in;
+                if (_litSurf) _fm = _litSurf.piece(_fm, p.reps, silh && silh.perSubpath ? silh.perSubpath[p.sp] : null, railPath._frameData);   // LIGHT S5c: the piece's shade
+                el.setAttribute('fill', _fm);
               }
               el.setAttribute('fill-rule', 'nonzero');
               el.setAttribute('fill-opacity', _effSurface['fill-opacity']);
@@ -67068,6 +68370,12 @@
             const thisCapFill = capIsSide(u) ? capSideFill(cleanRender ? 0 : (u === 0 ? 0 : divsU - 1), divsU) : capFillColor;
             // BAKE COLLECT (v20260907f): the mesh's cap = the profile at u with the cap fill.
             if (this._bakeCollect) this._bakeCollect.push({ kind: 'cap', u, fill: thisCapFill });
+            // LIGHT S2 (v20261019e): the cap's shade - its plane from the frame (world: the profile's x and y axes through
+            // sweepPoint), its point the profile origin; the bake above keeps the authored fill (a bake is geometry)
+            let thisCapFillLit = thisCapFill;
+            if (_litMesh && thisCapFill && thisCapFill !== 'none') {
+              try { const o = sweepPoint(frame, [0, 0, 0]), a = sweepPoint(frame, [1, 0, 0]), b = sweepPoint(frame, [0, 1, 0]); if (o && a && b) thisCapFillLit = lightShadeHex(thisCapFill, vectorCross(vectorSubtract(a, o), vectorSubtract(b, o)), o, _litMesh.eye); } catch (e) { }
+            }
             // Per-subpath chunks (aligned with subpathGroups/subPathData) so
             // wide compound profiles can emit per-island caps below.
             const chunks = [];
@@ -67109,7 +68417,7 @@
               capEl.setAttribute('d', d.trim());
               // Only fill caps when all subpaths are closed (otherwise SVG implicitly
               // closes open paths for fill, creating unwanted closure faces)
-              capEl.setAttribute('fill', allSubpathsClosed ? thisCapFill : 'none');
+              capEl.setAttribute('fill', allSubpathsClosed ? thisCapFillLit : 'none');   // LIGHT S2: the shade, or the fill as it was
               capEl.setAttribute('fill-rule', 'evenodd');
               if (allSubpathsClosed) {
                 capEl.setAttribute('fill-opacity', _effSurface['fill-opacity']);
@@ -68118,13 +69426,39 @@
           closeRun(segments.length);
         }
 
-        const createPath = (d, ciIdx, ciN) => {
+        // LIGHT S2 (v20261019e): a lit side writes its SHADE - of the palette / Side colour, or of the inherited fill - as its
+        // own fill. The side's normal is its source segment's chord x the extrude vector through the world matrix (a curved
+        // segment and a tapered side take their chord and the untapered vector: planar first, D7), its point the segment's
+        // middle at half the depth. Resolved once per draw, lazily (the eye through the draw camera).
+        let _litSideCache;
+        const _litSide = () => {
+          if (_litSideCache !== undefined) return _litSideCache;
+          if (!_dimLights.length || !_lightShadeOn(this)) return (_litSideCache = null);
+          try {
+            const v = _exr.vector || { x: 0, y: 0, z: -1 }, len = Math.hypot(v.x, v.y, v.z) || 1, depth = _exr.depth || 0;
+            const E = [v.x / len, v.y / len, v.z / len], mid = _exr.symmetric ? 0 : depth / 2;
+            _litSideCache = { W: this.getWorldMatrix(), eye: resolveEyeForObject(this, this._drawCam || activeCamera), base: _effSide.fill, E, mid };
+          } catch (e) { _litSideCache = null; }
+          return _litSideCache;
+        };
+        const _litSideFill = (seg, fill) => {
+          const lit = _litSide(); if (!lit || !seg) return fill;
+          const f = fill || lit.base; if (!f || f === 'none') return fill;
+          const a = seg.type === 'L' ? seg.pStart : seg.p0, b = seg.type === 'L' ? seg.pEnd : (seg.type === 'C' ? seg.p3 : seg.p2);
+          if (!a || !b) return fill;
+          const T = [b[0] - a[0], b[1] - a[1], (b[2] || 0) - (a[2] || 0)];
+          const m = [(a[0] + b[0]) / 2 + lit.E[0] * lit.mid, (a[1] + b[1]) / 2 + lit.E[1] * lit.mid, ((a[2] || 0) + (b[2] || 0)) / 2 + lit.E[2] * lit.mid];
+          const n = vectorCross(_lightDir(T, lit.W), _lightDir(lit.E, lit.W));
+          return lightShadeHex(f, n, pointApplyMatrix(m, lit.W), lit.eye);
+        };
+        const createPath = (d, ciIdx, ciN, litSeg) => {
           const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           p.setAttribute('d', d);
           p.setAttribute('fill-rule', 'nonzero');
-          if (sideColor) {
-            p.setAttribute('fill', (sidePal && ciIdx !== undefined && ciIdx !== null)
-              ? paletteColorAt(sidePal, ciIdx, ciN, sideMode) : sideColor);
+          let fillOut = sideColor ? ((sidePal && ciIdx !== undefined && ciIdx !== null) ? paletteColorAt(sidePal, ciIdx, ciN, sideMode) : sideColor) : null;
+          fillOut = _litSideFill(litSeg, fillOut);   // LIGHT S2: the same fill when nothing lights it
+          if (fillOut) {
+            p.setAttribute('fill', fillOut);
             const opacity = _effSide['fill-opacity'] !== undefined ? _effSide['fill-opacity'] : 1;
             p.setAttribute('fill-opacity', opacity);
             // Ensure opacity is maintained if we override the fill
@@ -68299,7 +69633,8 @@
               // so the color changes shift as you orbit. Turn Simple Sides off
               // for exact per-segment colors.
               const _rs0 = (ribbon.srcSegs && ribbon.srcSegs.length) ? ribbon.srcSegs[0] : null;
-              const sidePath = createPath(ribbon.d, _rs0 ? _rs0._ciIdx : undefined, _rs0 ? _rs0._ciN : undefined);
+              const sidePath = createPath(ribbon.d, _rs0 ? _rs0._ciIdx : undefined, _rs0 ? _rs0._ciN : undefined,
+                (ribbon.srcSegs && ribbon.srcSegs.length) ? ribbon.srcSegs[ribbon.srcSegs.length >> 1] : null);   // LIGHT S2: a merged ribbon is shaded flat by its middle segment
               if (_osS && ribbon.srcSegs && ribbon.srcSegs.length) _osApply(sidePath, ribbon.srcSegs[ribbon.srcSegs.length >> 1]);   // (v20261002f)
               const entry = { element: sidePath, z: ribbon.z };
               entry._prismRole = 'ribbon'; entry._prismSegs = ribbon.srcSegs || null; // v20260720c
@@ -68314,7 +69649,7 @@
             // Faceted sides: one face per source profile segment (possibly
             // split at the horizon), so the index is exact and fully stable.
             const sidePath = createPath(f.d, f.srcSeg ? f.srcSeg._ciIdx : undefined,
-              f.srcSeg ? f.srcSeg._ciN : undefined);
+              f.srcSeg ? f.srcSeg._ciN : undefined, f.srcSeg || null);   // LIGHT S2
             if (_osS && f.srcSeg) _osApply(sidePath, f.srcSeg);   // (v20261002f)
             const entry = { element: sidePath, z: f.z };
             entry._prismRole = 'ribbon'; entry._prismSegs = f.srcSeg ? [f.srcSeg] : null; // v20260720c
@@ -69451,6 +70786,9 @@
     // subtree's draws either way (S0 made Group.draw awaitable for this).
     const drawScene = (vp, cam) => {
       _dimHoldoutInScene = _dimScanHoldout(sceneObjects);   // HOLDOUT (v20261018zh): once per scene draw
+      _dimLights = lightsEnabled ? _dimCollectLights(sceneObjects, []) : [];   // LIGHT S2 (v20261019e): the lights of the frame, once per scene draw
+      _dimLightsInScene = _dimLights.length > 0;   // LIGHT (experimental, PLAN-light S1): once per scene draw
+      _lightSyncWpAmbient();   // LIGHT P1 (v20261019n): the Workplane panel's Ambient row follows the scene (a cached toggle)
       if (sceneRender.zSort) {
         const root = getSceneRoot();
         root.zSortChildren = true;
@@ -75735,6 +77073,8 @@
             _treeSetExpanded(obj, !_treeIsExpanded(obj));   // v20260728s
             updateTreeView();
           });
+        } else if (_isLightObj(obj)) {   // LIGHT (experimental, PLAN-light S1): a bulb
+          iconSpan.innerHTML = '<svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5,20c0-2.6-3.5-4-3.5-8a7,7,0,0,1,14,0c0,4-3.5,5.4-3.5,8"/><line x1="11.5" y1="22.5" x2="18.5" y2="22.5"/><line x1="12.5" y1="25" x2="17.5" y2="25"/>' + '<' + '/svg>';
         } else if (obj.primitiveData || obj === pendingPolygon) {
           // Parametric primitive — triangle icon (also during initial creation drag)
           iconSpan.innerHTML = '<svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><polygon points="15 9.8 9 20.2 21 20.2 15 9.8"/>' + '<' + '/svg>';
@@ -76633,6 +77973,7 @@
         // Show tab bar
         const tabBarSel = document.getElementById('selectedObjectTabBar');
         if (tabBarSel) tabBarSel.style.display = '';
+        _lightSyncTabs(selectedObject);   // LIGHT (experimental, PLAN-light S1): the Light tab for a light, the other three for everything else
 
         // --- Object Transform Section (Restored & Moved Outside Loop) ---
         propertiesPanel.style.display = 'block';
@@ -76774,6 +78115,7 @@
         // Hide tab bar
         const tabBarNone = document.getElementById('selectedObjectTabBar');
         if (tabBarNone) tabBarNone.style.display = 'none';
+        _lightSyncTabs(null);   // LIGHT (experimental): the three tabs back
       }
       PanelAnim.sync();   // ANIMATED-FIELD INDICATOR (v20260906f)
     };
@@ -76934,6 +78276,18 @@
           if (on) { fillColorInput.disabled = true; fillColorHexInput.disabled = true; }
         }
       }
+      {   // LIGHT S2 (v20261019e): the Lit row shows while a light is in the scene; checked unless a leaf is switched off.
+          // S3 (v20261019f): Cast Shadows the same way.
+        const leaves = []; const walk = (o) => { if (!o) return; if (o.isGroup) (o.children || []).forEach(walk); else if (!_isLightObj(o)) leaves.push(o); };
+        (selectedObjects && selectedObjects.length ? selectedObjects : (selectedObject ? [selectedObject] : [])).forEach(walk);
+        for (const [rowId, inputId, key] of [['litRow', 'litInput', 'shade'], ['castShadowRow', 'castShadowInput', 'castShadow'], ['receiveShadowRow', 'receiveShadowInput', 'receiveShadow']]) {   // + S4
+          const lr = document.getElementById(rowId), li = document.getElementById(inputId);
+          if (!lr || !li) continue;
+          lr.style.display = _dimLightsInScene ? '' : 'none';
+          if (document.activeElement !== li) li.checked = leaves.length > 0 && leaves.every(o => !(o.lighting && o.lighting[key] === false));
+          li.disabled = leaves.length === 0;
+        }
+      }
 
       const fillOpacityVal = styleSource['fill-opacity'] !== undefined ? styleSource['fill-opacity'] : 1;
       if (document.activeElement !== fillOpacityInput) fillOpacityInput.value = fillOpacityVal;
@@ -77073,10 +78427,35 @@
       if (extLayerGroup) extLayerGroup.style.display = extCurMode === 'layer' ? '' : 'none';
       const extStacksGroup = document.getElementById('extrudeStacksGroup');
       if (extStacksGroup) extStacksGroup.style.display = extCurMode === 'stacks' ? '' : 'none';
+      // LINE (v20261020a): its group; Caps and Silhouette Split are dead there (a stroke has neither)
+      const extLineGroup = document.getElementById('extrudeLineGroup');
+      if (extLineGroup) extLineGroup.style.display = extCurMode === 'line' ? '' : 'none';
+      const extSilhRow = document.getElementById('extrudeSilhouetteSplitRow');
+      if (extSilhRow) extSilhRow.style.display = extCurMode === 'line' ? 'none' : '';
+      const extrudeLineTurnsInput = document.getElementById('extrudeLineTurnsInput');
+      if (extrudeLineTurnsInput && document.activeElement !== extrudeLineTurnsInput) {
+        extrudeLineTurnsInput.value = extrudable ? (selectedObject.extrudeSettings?.lineTurns ?? 1) : 1;
+      }
+      const extrudeLineReverseInput = document.getElementById('extrudeLineReverseInput');
+      if (extrudeLineReverseInput && document.activeElement !== extrudeLineReverseInput) {
+        extrudeLineReverseInput.checked = extrudable ? !!selectedObject.extrudeSettings?.lineReverse : false;
+      }
+      const extrudeLineFlatInput = document.getElementById('extrudeLineFlatInput');   // (v20261020f) Flat, Join Subpaths
+      if (extrudeLineFlatInput && document.activeElement !== extrudeLineFlatInput) {
+        extrudeLineFlatInput.value = extrudable ? (selectedObject.extrudeSettings?.lineFlat ?? 0) : 0;
+      }
+      const extrudeLineJoinInput = document.getElementById('extrudeLineJoinInput');
+      if (extrudeLineJoinInput && document.activeElement !== extrudeLineJoinInput) {
+        extrudeLineJoinInput.checked = extrudable ? !!selectedObject.extrudeSettings?.lineJoin : false;
+      }
+      const extrudeLineFlatModeInput = document.getElementById('extrudeLineFlatModeInput');   // (v20261020h)
+      if (extrudeLineFlatModeInput && document.activeElement !== extrudeLineFlatModeInput) {
+        extrudeLineFlatModeInput.value = (extrudable && selectedObject.extrudeSettings?.lineFlatMode === 'trim') ? 'trim' : 'stretch';
+      }
       BooleanDraw.exactHint(document.getElementById('extrudeExactHint'), extCurMode === 'exact' && extrudable ? selectedObject : null);   // v20261002d
-      // Cap is dead in stacks (the block emits slabs only) - hide the row (v20260824n)
+      // Cap is dead in stacks (the block emits slabs only) - hide the row (v20260824n); in Line too (v20261020a)
       const extCapRow = document.getElementById('extrudeCapRow');
-      if (extCapRow) extCapRow.style.display = extCurMode === 'stacks' ? 'none' : '';
+      if (extCapRow) extCapRow.style.display = (extCurMode === 'stacks' || extCurMode === 'line') ? 'none' : '';
       _extrudeBakeSyncRow();   // EXTRUDE BAKE (v20260906q)
       // Layer count
       const extrudeLayerCountInput = document.getElementById('extrudeLayerCountInput');
@@ -77337,12 +78716,42 @@
       const revStacksGroup = document.getElementById('revolveStacksGroup');
       if (revStacksGroup) revStacksGroup.style.display = revCurMode === 'stacks' ? '' : 'none';
       if (revSilhGroup) revSilhGroup.style.display = revCurMode === 'silhouette' ? '' : 'none';
+      // LINE (v20261020a): its group and its two fields
+      const revLineGroup = document.getElementById('revolveLineGroup');
+      if (revLineGroup) revLineGroup.style.display = revCurMode === 'line' ? '' : 'none';
+      const revolveLineTurnsInput = document.getElementById('revolveLineTurnsInput');
+      if (revolveLineTurnsInput && document.activeElement !== revolveLineTurnsInput) {
+        revolveLineTurnsInput.value = isPath ? (selectedObject.revolveSettings?.lineTurns ?? 1) : 1;
+        revolveLineTurnsInput.disabled = !isPath || !revolveEnabled;
+      }
+      const revolveLineReverseInput = document.getElementById('revolveLineReverseInput');
+      if (revolveLineReverseInput && document.activeElement !== revolveLineReverseInput) {
+        revolveLineReverseInput.checked = isPath ? !!selectedObject.revolveSettings?.lineReverse : false;
+        revolveLineReverseInput.disabled = !isPath || !revolveEnabled;
+      }
+      const revolveLineFlatInput = document.getElementById('revolveLineFlatInput');   // (v20261020f) Flat, Join Subpaths
+      if (revolveLineFlatInput && document.activeElement !== revolveLineFlatInput) {
+        revolveLineFlatInput.value = isPath ? (selectedObject.revolveSettings?.lineFlat ?? 0) : 0;
+        revolveLineFlatInput.disabled = !isPath || !revolveEnabled;
+      }
+      const revolveLineJoinInput = document.getElementById('revolveLineJoinInput');
+      if (revolveLineJoinInput && document.activeElement !== revolveLineJoinInput) {
+        revolveLineJoinInput.checked = isPath ? !!selectedObject.revolveSettings?.lineJoin : false;
+        revolveLineJoinInput.disabled = !isPath || !revolveEnabled;
+      }
+      const revolveLineFlatModeInput = document.getElementById('revolveLineFlatModeInput');   // (v20261020h)
+      if (revolveLineFlatModeInput && document.activeElement !== revolveLineFlatModeInput) {
+        revolveLineFlatModeInput.value = (isPath && selectedObject.revolveSettings?.lineFlatMode === 'trim') ? 'trim' : 'stretch';
+        revolveLineFlatModeInput.disabled = !isPath || !revolveEnabled;
+      }
+      const revolveLineBakeBtn = document.getElementById('revolveLineBakeBtn');   // LINE S2 (v20261020d): one Line revolve of a path
+      if (revolveLineBakeBtn) revolveLineBakeBtn.disabled = !isPath || !revolveEnabled || revCurMode !== 'line';
       BooleanDraw.exactHint(document.getElementById('revolveExactHint'), revCurMode === 'exact' && isPath && revolveEnabled ? selectedObject : null);   // v20261002d
       // Caps and draw-points are dead in stacks (the block returns before both)
-      // - hide the rows there, restore everywhere else (v20260824n)
+      // - hide the rows there, restore everywhere else (v20260824n); in Line too (v20261020a)
       for (const _rid of ['revolveCapRow', 'revolveDrawPointsRow', 'revolvePointShapeRow']) {
         const el = document.getElementById(_rid);
-        if (el) el.style.display = (revCurMode === 'stacks' || (revCurMode === 'exact' && _rid !== 'revolveCapRow')) ? 'none' : '';   // (v20261002d) Exact draws no points
+        if (el) el.style.display = (revCurMode === 'stacks' || revCurMode === 'line' || (revCurMode === 'exact' && _rid !== 'revolveCapRow')) ? 'none' : '';   // (v20261002d) Exact draws no points
       }
       // Layer count
       const revolveLayerCountInput = document.getElementById('revolveLayerCountInput');
@@ -80715,6 +82124,8 @@
         newPath.faceCamera = { ...obj.faceCamera };
         newPath.mode2D = !!obj.mode2D; // 2D MODE (v20260727b)
         if (obj.holdout === true) newPath.holdout = true;   // HOLDOUT (v20261018zh) - the Duplicate-drops-a-channel trap
+        if (obj.light) newPath.light = makeLightRecord(obj.light);   // LIGHT (experimental, PLAN-light S1) - the same trap
+        if (obj.lighting) { const lk = {}; for (const k of ['shade', 'castShadow', 'receiveShadow']) if (obj.lighting[k] === false) lk[k] = false; if (Object.keys(lk).length) newPath.lighting = lk; }   // LIGHT S2 / S3
         // LAYER RANGE (v20260729a, copy added v20260730b — was missed): lazy
         // key, so an untrimmed duplicate stays byte-identical when serialized.
         if (Array.isArray(obj.layerRanges) && obj.layerRanges.length) newPath.layerRanges = obj.layerRanges.map(s => ({ in: s.in, out: s.out }));
@@ -82038,6 +83449,7 @@
           extrudeSideColorEnabledInput: ['useSideColor'], extrudeSideColorInput: ['sideColor'], extrudeSideColorHexInput: ['sideColor'],
           extrudeRenderModeInput: ['renderMode', 'cleanRender', 'exactRender'], extrudeLayerCountInput: ['layerCount'], extrudeStackCountInput: ['stackCount'],
           extrudeStackSnapInput: ['stackSnap'], extrudeStackAxisInput: ['stackAxis'], extrudeStackAngleInput: ['stackAngle'],
+          extrudeLineTurnsInput: ['lineTurns'], extrudeLineReverseInput: ['lineReverse'], extrudeLineFlatInput: ['lineFlat'], extrudeLineJoinInput: ['lineJoin'], extrudeLineFlatModeInput: ['lineFlatMode'],   // LINE (v20261020a; f; h)
           extrudeDivisionsUInput: ['divisionsU'], extrudeDivisionsVInput: ['divisionsV'], extrudeCurvedSurfaceInput: ['curvedSurface'],
           extrudeSilhouetteSplitInput: ['silhouetteSplit'], extrudeDrawPointsInput: ['drawPoints'], extrudePointSizeInput: ['pointSize'],
           extrudePointColorInput: ['pointColor'], extrudePointColorHexInput: ['pointColor'], extrudePointShapeInput: ['pointShape'],
@@ -82047,6 +83459,7 @@
           revolveCapStartInput: ['capStart', 'capStartMode'], revolveCapEndInput: ['capEnd', 'capEndMode'],
           revolveRenderModeInput: ['renderMode', 'cleanRender', 'silhouetteMerge', 'exactRender'], revolveLayerCountInput: ['layerCount'],
           revolveStackCountInput: ['stackCount'], revolveStackSnapInput: ['stackSnap'], revolveDivsVInput: ['divsV'], revolveDivsUInput: ['divsU'],
+          revolveLineTurnsInput: ['lineTurns'], revolveLineReverseInput: ['lineReverse'], revolveLineFlatInput: ['lineFlat'], revolveLineJoinInput: ['lineJoin'], revolveLineFlatModeInput: ['lineFlatMode'],   // LINE (v20261020a; f; h)
           revolveCurvedSurfaceInput: ['curvedSurface'], revolveSidesInput: ['simpleSides', 'moreSimpleSides'],
           revolveStreamlineInput: ['streamlineStrokes'], revolveStreamShouldersInput: ['streamlineShoulders'],
           revolveCreaseLinesInput: ['creaseLines'], revolveScaleStartInput: ['scaleStart'], revolveScaleEndInput: ['scaleEnd'],
@@ -82277,6 +83690,15 @@
           if (extSnapCb) { if (extSnapCb.checked) obj.extrudeSettings.stackSnap = true; else delete obj.extrudeSettings.stackSnap; }
           obj.extrudeSettings.stackAxis = document.getElementById('extrudeStackAxisInput')?.value === 'x' ? 'x' : 'y';
           obj.extrudeSettings.stackAngle = parseFloat(document.getElementById('extrudeStackAngleInput')?.value) || 0;
+          // LINE (v20261020a): Turns (>= 0.05), Reverse an explicit boolean (absent in an old file = off). Written explicitly, not
+          // the stackSnap delete-when-off way - a choice, not a need: v20261020a recorded "the diff undo does not bring back a deleted
+          // key", and v20261020c REFUTED it (deleted_key_undo_probe.mjs: computeDiff records { path, old, val: undefined } and the
+          // reverse puts the value back; the finding was a reference held across the undo - a dead object - and a net-zero coalesce)
+          { const _lt = parseFloat(document.getElementById('extrudeLineTurnsInput')?.value); obj.extrudeSettings.lineTurns = Number.isFinite(_lt) ? Math.max(0.05, _lt) : 1;
+            const _lr = document.getElementById('extrudeLineReverseInput'); if (_lr) obj.extrudeSettings.lineReverse = !!_lr.checked;
+            const _lf = parseFloat(document.getElementById('extrudeLineFlatInput')?.value); obj.extrudeSettings.lineFlat = Number.isFinite(_lf) ? Math.min(1, Math.max(-10, _lf)) : 0;   // (v20261020f) Flat -10..1 (negative since j: the path floats away), Join
+            const _lj = document.getElementById('extrudeLineJoinInput'); if (_lj) obj.extrudeSettings.lineJoin = !!_lj.checked;
+            const _lm = document.getElementById('extrudeLineFlatModeInput'); if (_lm) obj.extrudeSettings.lineFlatMode = _lm.value === 'trim' ? 'trim' : 'stretch'; }   // (v20261020h)
           obj.extrudeSettings.divisionsU = extDivsU;
           obj.extrudeSettings.divisionsV = extDivsV;
           // Curved Surface
@@ -82340,6 +83762,12 @@
           obj.revolveSettings.stackCount = parseInt(document.getElementById('revolveStackCountInput')?.value) || 16;
           const revSnapCb = document.getElementById('revolveStackSnapInput');
           if (revSnapCb) { if (revSnapCb.checked) obj.revolveSettings.stackSnap = true; else delete obj.revolveSettings.stackSnap; }
+          // LINE (v20261020a): Turns (>= 0.05), Reverse an explicit boolean (see the extrude arm: the undo of a deleted key)
+          { const _lt = parseFloat(document.getElementById('revolveLineTurnsInput')?.value); obj.revolveSettings.lineTurns = Number.isFinite(_lt) ? Math.max(0.05, _lt) : 1;
+            const _lr = document.getElementById('revolveLineReverseInput'); if (_lr) obj.revolveSettings.lineReverse = !!_lr.checked;
+            const _lf = parseFloat(document.getElementById('revolveLineFlatInput')?.value); obj.revolveSettings.lineFlat = Number.isFinite(_lf) ? Math.min(1, Math.max(-10, _lf)) : 0;   // (v20261020f) Flat -10..1 (negative since j), Join
+            const _lj = document.getElementById('revolveLineJoinInput'); if (_lj) obj.revolveSettings.lineJoin = !!_lj.checked;
+            const _lm = document.getElementById('revolveLineFlatModeInput'); if (_lm) obj.revolveSettings.lineFlatMode = _lm.value === 'trim' ? 'trim' : 'stretch'; }   // (v20261020h)
           obj.revolveSettings.divsV = revolveDivsV;
           obj.revolveSettings.divsU = revolveDivsU;
           obj.revolveSettings.silhouetteSplit = true;  // always on
@@ -82586,6 +84014,8 @@
           extrudeScaleBackVInput: taperLinked ? ['exScaleBackU', 'exScaleBackV'] : ['exScaleBackV'],
           revolveAngleInput: ['rvAngle'], revolveStartInput: ['rvStart'], revolveSegmentsInput: ['rvSegments'], revolveOffsetInput: ['rvOffset'],
           revolveScaleStartInput: ['rvScaleStart'], revolveScaleEndInput: ['rvScaleEnd'],
+          extrudeLineTurnsInput: ['exLineTurns'], revolveLineTurnsInput: ['rvLineTurns'],   // LINE (v20261020a)
+          extrudeLineFlatInput: ['exLineFlat'], revolveLineFlatInput: ['rvLineFlat'],   // LINE (v20261020f)
           sweepScaleStartInput: ['swScaleStart'], sweepScaleEndInput: ['swScaleEnd'],
           loftDepthInput: ['lfDepth'], loftSegmentsInput: ['lfSegments'],
         };
@@ -82663,6 +84093,22 @@
         if (on && !sceneRender.zSort) { sceneRender.zSort = true; updateTreeView(); }
         updateStylePanel(); requestRender();
         pushUndoState(on ? 'Holdout on' : 'Holdout off');
+      });
+    }
+    // LIGHT S2 (v20261019e): Lit - its own writer (the field is on the Path, not in the style; a group applies to its leaves;
+    // the key is written only when OFF, so a lit object stays byte-identical)
+    // S3 (v20261019f): Cast Shadows is the same writer on another key (one helper, two rows)
+    for (const [inputId, key, labelOn, labelOff] of [['litInput', 'shade', 'Lit on', 'Lit off'], ['castShadowInput', 'castShadow', 'Cast Shadows on', 'Cast Shadows off'], ['receiveShadowInput', 'receiveShadow', 'Receive Shadows on', 'Receive Shadows off']]) {   // + S4
+      const li = document.getElementById(inputId);
+      if (li) li.addEventListener('change', () => {
+        const on = !!li.checked;
+        const leaves = []; const walk = (o) => { if (!o) return; if (o.isGroup) (o.children || []).forEach(walk); else if (!_isLightObj(o)) leaves.push(o); };
+        (selectedObjects && selectedObjects.length ? selectedObjects : (selectedObject ? [selectedObject] : [])).forEach(walk);
+        if (!leaves.length) return;
+        pushUndoState();
+        leaves.forEach(o => { if (on) { if (o.lighting) { delete o.lighting[key]; if (!Object.keys(o.lighting).length) delete o.lighting; } } else o.lighting = { ...(o.lighting || {}), [key]: false }; });
+        updateStylePanel(); requestRender();
+        pushUndoState(on ? labelOn : labelOff);
       });
     }
     document.getElementById('fillColorInput').addEventListener('input', function (e) {
@@ -82746,8 +84192,12 @@
       if (mg) mg.style.display = mode === 'mesh' ? '' : 'none';
       if (lg) lg.style.display = mode === 'layer' ? '' : 'none';
       if (stg) stg.style.display = mode === 'stacks' ? '' : 'none';
+      const lng = document.getElementById('extrudeLineGroup');   // LINE (v20261020a)
+      if (lng) lng.style.display = mode === 'line' ? '' : 'none';
+      const ssr = document.getElementById('extrudeSilhouetteSplitRow');
+      if (ssr) ssr.style.display = mode === 'line' ? 'none' : '';
       const capRow = document.getElementById('extrudeCapRow');
-      if (capRow) capRow.style.display = mode === 'stacks' ? 'none' : '';
+      if (capRow) capRow.style.display = (mode === 'stacks' || mode === 'line') ? 'none' : '';
       updateStyleFromInput(e);
     });
     document.getElementById('extrudeLayerCountInput').addEventListener('input', updateStyleFromInput);
@@ -82755,6 +84205,11 @@
     document.getElementById('extrudeStackSnapInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('extrudeStackAxisInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('extrudeStackAngleInput').addEventListener('input', updateStyleFromInput);
+    document.getElementById('extrudeLineTurnsInput').addEventListener('input', updateStyleFromInput);   // LINE (v20261020a)
+    document.getElementById('extrudeLineReverseInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('extrudeLineFlatInput').addEventListener('input', updateStyleFromInput);   // (v20261020f)
+    document.getElementById('extrudeLineJoinInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('extrudeLineFlatModeInput').addEventListener('change', updateStyleFromInput);   // (v20261020h)
     document.getElementById('extrudeDivisionsUInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('extrudeDivisionsVInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('extrudeCurvedSurfaceInput').addEventListener('change', updateStyleFromInput);
@@ -82793,16 +84248,18 @@
       const stg = document.getElementById('revolveStacksGroup');
       if (stg) stg.style.display = mode === 'stacks' ? '' : 'none';
       if (sg) sg.style.display = mode === 'silhouette' ? '' : 'none';
+      const lng = document.getElementById('revolveLineGroup');   // LINE (v20261020a)
+      if (lng) lng.style.display = mode === 'line' ? '' : 'none';
       for (const _rid of ['revolveCapRow', 'revolveDrawPointsRow', 'revolvePointShapeRow']) {
         const el = document.getElementById(_rid);
-        if (el) el.style.display = mode === 'stacks' ? 'none' : '';
+        if (el) el.style.display = (mode === 'stacks' || mode === 'line') ? 'none' : '';
       }
       // Auto-reset Sides for mesh/layer, where it is meaningless.
       // NOT for silhouette (v20260728b): simpleSides still shapes that mode's
       // patch chains (legacy scenes carry both flags), so clean<->silhouette
       // round-trips must leave it untouched or an old scene's render changes
       // the first time the dropdown is touched.
-      if (mode === 'mesh' || mode === 'layer' || mode === 'stacks') {
+      if (mode === 'mesh' || mode === 'layer' || mode === 'stacks' || mode === 'line') {
         const sidesInput = document.getElementById('revolveSidesInput');
         if (sidesInput) sidesInput.value = 'full';
       }
@@ -82811,6 +84268,11 @@
     document.getElementById('revolveLayerCountInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('revolveStackCountInput').addEventListener('input', updateStyleFromInput);
     document.getElementById('revolveStackSnapInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('revolveLineTurnsInput').addEventListener('input', updateStyleFromInput);   // LINE (v20261020a)
+    document.getElementById('revolveLineReverseInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('revolveLineFlatInput').addEventListener('input', updateStyleFromInput);   // (v20261020f)
+    document.getElementById('revolveLineJoinInput').addEventListener('change', updateStyleFromInput);
+    document.getElementById('revolveLineFlatModeInput').addEventListener('change', updateStyleFromInput);   // (v20261020h)
     document.getElementById('revolveSidesInput').addEventListener('change', updateStyleFromInput);
     document.getElementById('revolveStreamlineInput')?.addEventListener('change', updateStyleFromInput);  // S1
     document.getElementById('revolveStreamShouldersInput')?.addEventListener('change', updateStyleFromInput);  // S4
@@ -89615,6 +91077,23 @@
           }
         }
 
+      } else if (currentTool === 'light' && lightsEnabled) {
+        // --- LIGHT (experimental, PLAN-light S1, D1 / D2): the polygon tool's plane hit, then one light placed at it,
+        // raised toward the camera (createLightAt) - no pending state, nothing to confirm ---
+        const vpL = matrixMultiply(activeCamera.createProjectionMatrix(), activeCamera.createViewMatrix());
+        const rayL = getRayFromClick(event, vpL);
+        if (rayL) {
+          const wpL = getWorkingPlane(), nL = wpL.normal;
+          const den = rayL.direction[0] * nL[0] + rayL.direction[1] * nL[1] + rayL.direction[2] * nL[2];
+          if (Math.abs(den) > 1e-6) {
+            const tL = vectorSubtract(wpL.point, rayL.origin).reduce((s, v, i) => s + v * nL[i], 0) / den;
+            if (tL >= 0) {
+              let hitL = vectorAdd(rayL.origin, vectorScale(rayL.direction, tL));
+              if (activeWorkplane.snapToGrid) { const bL = getGridBasis(); hitL = snapPointToPlaneLocal(hitL, wpL.point, bL.u, bL.v, activeWorkplane.gridSize); }
+              createLightAt(hitL);
+            }
+          }
+        }
       } else if (currentTool === 'shape3d' && clickedGizmoAxis === 'shape3d-depth' && _shape3dHandleTarget()) {
         // v20261003g: the pending cuboid's handle (its DEPTH since v20261003j) - the shape stays pending
         _shape3dBeginDepthDrag(event);
@@ -94512,6 +95991,37 @@
       clonedGroup.querySelectorAll('[data-mr-band],[data-mr-stroke],[data-mss],[data-mss-stroke],[data-axis]').forEach(el => {
         for (const a of ['data-mr-band', 'data-mr-stroke', 'data-mss', 'data-mss-stroke', 'data-axis']) el.removeAttribute(a);
       });
+      // LIGHT (experimental, PLAN-light S1): a light's glyph is chrome - it leaves every export whole; the holdout block below
+      // sweeps any wrapper left empty. S3: a SHADOW ships - and a blurred one as its VECTOR soft edge (R1: Illustrator drops
+      // <filter>) when the light asks (expandBlur, default on): the path becomes ONE <g> of M offset copies in its place (one
+      // child, so a clip wrapper round it keeps the clip-group contract), the filter and its <defs> leave; a light that asked
+      // to keep the filter ships it (a browser-bound file). The light's own <g> goes when nothing of it is left.
+      for (const el of [...clonedGroup.querySelectorAll('[data-light]')]) el.remove();
+      for (const el of [...clonedGroup.querySelectorAll('[data-light-shadow]')]) {
+        const w = parseFloat(el.getAttribute('data-light-blur')) || 0, expand = el.getAttribute('data-light-expand') === '1';
+        const wrapG = el.parentNode;
+        // the filter and the ring clip (D11) leave with the path: the copies lie inside the ring by construction - and a
+        // piece too small to survive the shrink ships HARD (never a dangling url)
+        const dropFx = () => {
+          const m = (el.getAttribute('filter') || '').match(/url\(#([^)]+)\)/); if (m) { const f = clonedGroup.querySelector('#' + CSS.escape(m[1])); if (f) f.remove(); }
+          const cm = (el.getAttribute('clip-path') || '').match(/url\(#([^)]+)\)/); if (cm) { const c = clonedGroup.querySelector('#' + CSS.escape(cm[1])); if (c) c.remove(); }
+          el.removeAttribute('filter'); el.removeAttribute('clip-path');
+          if (wrapG) for (const dd of [...wrapG.querySelectorAll(':scope > defs')]) if (!dd.firstElementChild) dd.remove();
+        };
+        if (w > 0 && expand) {
+          const layers = _lightSoftEdge(el.getAttribute('d'), w, parseFloat(el.getAttribute('fill-opacity')) || 1);
+          dropFx();
+          if (layers) {
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            for (const ly of layers) { const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', ly.d); p.setAttribute('fill', el.getAttribute('fill') || '#000000'); p.setAttribute('fill-opacity', ly.alpha.toFixed(4)); p.setAttribute('fill-rule', 'evenodd'); p.setAttribute('stroke', 'none'); g.appendChild(p); }
+            el.replaceWith(g);
+            continue;
+          }
+        }
+        for (const a of ['data-light-shadow', 'data-light-blur', 'data-light-expand']) el.removeAttribute(a);
+      }
+      for (const g of [...clonedGroup.querySelectorAll('[data-light-shadow-g]')]) g.removeAttribute('data-light-shadow-g');
+      for (const g of [...clonedGroup.querySelectorAll('[data-light-g]')]) { if (!g.firstElementChild) g.remove(); else g.removeAttribute('data-light-g'); }
       // HOLDOUT H1 (v20261018zl, PLAN-holdout-fill): a holdout's own faces paint nothing, and an invisible path in Illustrator
       // is a trap - a face with no effective stroke leaves the file (a stroked holdout keeps its stroke: a glass-edged box),
       // and so does any path explicitly fill none AND stroke none (the flatten's pieces of a masked holdout face are made
@@ -95159,6 +96669,10 @@
           case 'N':
             event.preventDefault();
             setTool('shape3d');
+            break;
+          case 'i': // LIGHT (experimental, PLAN-light S1; gated: don't swallow the key while disabled)
+          case 'I':
+            if (lightsEnabled) { event.preventDefault(); setTool('light'); }
             break;
           case 'b':
           case 'B':
@@ -98303,6 +99817,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
             const kg = document.getElementById('keepGridOnHideCheckbox'); if (kg) kg.checked = keepGridOnHide;
             keepGizmoOnHide = settings.keepGizmoOnHide !== false;   // v20261018zt: absent = on
             const kz = document.getElementById('keepGizmoOnHideCheckbox'); if (kz) kz.checked = keepGizmoOnHide;
+            { const on = settings.lights === true; setLightsEnabled(on); const lc = document.getElementById('lightsCb'); if (lc) lc.checked = on; }   // LIGHT (experimental): absent = off
             if (typeof CamMatchSession !== 'undefined') {   // v20261018zx: the match editor's point options, absent = on
               CamMatchSession.snap = settings.camMatchSnap !== false; CamMatchSession.coincident = settings.camMatchCoincident !== false;
               const a = document.getElementById('camMatchSnapCb'), b = document.getElementById('camMatchCoincidentCb');
@@ -98566,6 +100081,11 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       if (keepGizmoOnHideCheckbox) {
         keepGizmoOnHideCheckbox.addEventListener('change', (e) => { keepGizmoOnHide = e.target.checked; saveSettings({ keepGizmoOnHide }); requestRender(); });
       }
+      {   // LIGHT (experimental, PLAN-light S1, D10): the gate's save is registered HERE, beside saveSettings (a call from the
+          // LIGHT block is out of scope and stores nothing - the Scale Strokes / Camera Match trap)
+        const lc = document.getElementById('lightsCb');
+        if (lc) lc.addEventListener('change', () => { setLightsEnabled(lc.checked); saveSettings({ lights: lc.checked }); requestRender(); });
+      }
       const keepGridOnHideCheckbox = document.getElementById('keepGridOnHideCheckbox');
       if (keepGridOnHideCheckbox) {
         keepGridOnHideCheckbox.addEventListener('change', (e) => {
@@ -98629,6 +100149,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         // Update step on number inputs to match new display scale
         updateSpatialInputSteps(toDisplay(KEYBOARD_NUDGE_AMOUNT));
         updateQuickStyleBar();
+        if (typeof _lightSyncFields === 'function' && _isLightObj(selectedObject)) _lightSyncFields(selectedObject);   // LIGHT P1: the Blur unit and the Size row follow the unit
       };
       const unitSelect = document.getElementById('displayUnitSelect');
       if (unitSelect) {
@@ -98769,6 +100290,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           const _gw = document.getElementById('gridWeightInput'); if (_gw) _gw.value = gridWeight;
           const _kg = document.getElementById('keepGridOnHideCheckbox'); if (_kg) _kg.checked = false;
           const _kz = document.getElementById('keepGizmoOnHideCheckbox'); if (_kz) _kz.checked = true;
+          setLightsEnabled(LIGHTS_DEFAULT_ON); { const _lc = document.getElementById('lightsCb'); if (_lc) _lc.checked = LIGHTS_DEFAULT_ON; }   // LIGHT (experimental): OFF
           if (typeof CamMatchSession !== 'undefined') { CamMatchSession.snap = true; CamMatchSession.coincident = true; for (const id of ['camMatchSnapCb', 'camMatchCoincidentCb']) { const el = document.getElementById(id); if (el) el.checked = true; } }   // v20261018zx
           if (typeof updateVisualGrid === 'function' && activeWorkplane) updateVisualGrid(activeWorkplane.gridSize);
           requestRender();
@@ -99400,6 +100922,8 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         faceCamera: obj.faceCamera
       };
       if (obj.holdout === true && !obj.isGroup) data.holdout = true;   // HOLDOUT (v20261018zh): written only when set - every other object byte-identical
+      if (obj.light && !obj.isGroup) data.light = { ...obj.light };   // LIGHT (experimental, PLAN-light S1): the record, only on a light
+      if (obj.lighting && !obj.isGroup) { const lk = {}; for (const k of ['shade', 'castShadow', 'receiveShadow']) if (obj.lighting[k] === false) lk[k] = false; if (Object.keys(lk).length) data.lighting = lk; }   // LIGHT S2 / S3 (D8): written only when a flag is OFF
 
       // LAYER RANGE (v20260729a): written ONLY when the user has actually
       // trimmed the layer, so an untouched object stays byte-identical (the
@@ -99541,7 +101065,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       sceneData.scaleStrokeWithZoom = scaleStrokeWithZoom;
       // SCENE Z-SORT S1 (v20260914zzr): key present only while ON - off = absent
       // = byte-identical to every file written before the field existed.
-      if (sceneRender.zSort) sceneData.sceneRender = _sceneRenderSnapshot();
+      if (sceneRender.zSort || sceneRender.ambient !== SCENE_RENDER_DEFAULTS.ambient) sceneData.sceneRender = _sceneRenderSnapshot();   // + LIGHT S2: an ambient off its default
       // Reference image (v20260724g): file export has no size limit (unlike the
       // localStorage autosave), so the data URL rides along unconditionally.
       // null when inactive → harmless, treated as absent on import.
@@ -99797,6 +101321,8 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       if (data.faceCamera) obj.faceCamera = { ...data.faceCamera };
       if (data.mode2D) obj.mode2D = true; // 2D MODE (v20260727b); absent ⇒ ctor default false
       if (data.holdout === true && !obj.isGroup) obj.holdout = true;   // HOLDOUT (v20261018zh); absent = a painted object
+      if (data.light && typeof data.light === 'object' && !obj.isGroup) obj.light = makeLightRecord(data.light);   // LIGHT (experimental): every field defaulted
+      if (data.lighting && typeof data.lighting === 'object' && !obj.isGroup) { const lk = {}; for (const k of ['shade', 'castShadow', 'receiveShadow']) if (data.lighting[k] === false) lk[k] = false; if (Object.keys(lk).length) obj.lighting = lk; }   // LIGHT S2 / S3; absent = lit, casting
       BooleanGroup.read(obj, data);   // BOOLEAN (v20260928a): validated on the way in; absent = a plain group / union
 
       if (data.style) {
@@ -103710,6 +105236,8 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       { prop: 'exScaleFrontV', label: 'Front V', settingsKey: 'scaleFrontV', precision: 2, step: 0.1 },
       { prop: 'exScaleBackU', label: 'Back U', settingsKey: 'scaleBackU', precision: 2, step: 0.1 },
       { prop: 'exScaleBackV', label: 'Back V', settingsKey: 'scaleBackV', precision: 2, step: 0.1 },
+      { prop: 'exLineTurns', label: 'Turns', settingsKey: 'lineTurns', precision: 2, step: 0.25 },   // LINE (v20261020a): a spring winds up
+      { prop: 'exLineFlat', label: 'Flat', settingsKey: 'lineFlat', precision: 2, step: 0.05 },   // LINE (v20261020f): a string falls to the floor
     ];
 
     const _revolveParams = [
@@ -103719,6 +105247,8 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       { prop: 'rvOffset', label: 'Offset', settingsKey: 'offset', precision: 1, step: 1 },
       { prop: 'rvScaleStart', label: 'Scale Start', settingsKey: 'scaleStart', precision: 2, step: 0.1 },
       { prop: 'rvScaleEnd', label: 'Scale End', settingsKey: 'scaleEnd', precision: 2, step: 0.1 },
+      { prop: 'rvLineTurns', label: 'Turns', settingsKey: 'lineTurns', precision: 2, step: 0.25 },   // LINE (v20261020a)
+      { prop: 'rvLineFlat', label: 'Flat', settingsKey: 'lineFlat', precision: 2, step: 0.05 },   // LINE (v20261020f)
     ];
 
     const _sweepParams = [
@@ -103743,8 +105273,19 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
     // callers (the sub-group key is `settingsObj`, so rows would not
     // collide) — an owner decision, deferred; until then only one modifier
     // per object is animatable and that is the documented rule.
+    // LIGHT S6 (v20261019l): a light's own numbers are its family - the record is the settings object, so the eight callers
+    // (read / write / apply / offered / the two lookups / Key Selected / the sub-group) take it without a branch of their own.
+    // Colour, kind, the switches and Receivers are not animatable (enables / colours / modes, the house rule); Ambient is the
+    // scene's, not a light's (not keyed).
+    const _lightParams = [
+      { prop: 'ltIntensity', label: 'Intensity', settingsKey: 'intensity', precision: 2, step: 0.1 },
+      { prop: 'ltOpacity', label: 'Shadow Opacity', settingsKey: 'opacity', precision: 2, step: 0.05 },
+      { prop: 'ltBlur', label: 'Blur', settingsKey: 'blur', precision: 2, step: 0.1 },
+      { prop: 'ltSoftness', label: 'Softness', settingsKey: 'softness', precision: 2, step: 0.05 },
+    ];
     const _get3dSettingsParamsForObj = (obj) => {
       if (!obj) return null;
+      if (_isLightObj(obj)) return { params: _lightParams, settingsObj: 'light', label: 'Light' };   // LIGHT S6
       if (obj.extrudeSettings?.enabled) return { params: _extrudeParams, settingsObj: 'extrudeSettings', label: 'Extrude' };
       if (obj.revolveSettings?.enabled) return { params: _revolveParams, settingsObj: 'revolveSettings', label: 'Revolve' };
       if (obj.sweepSettings?.enabled) return { params: _sweepParams, settingsObj: 'sweepSettings', label: 'Sweep' };
@@ -103975,11 +105516,20 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         { id: 'extrudeScaleBackUInput', prop: 'exScaleBackU' },
         { id: 'extrudeScaleBackVInput', prop: 'exScaleBackV' },
         { id: 'revolveAngleInput', prop: 'rvAngle' },
+        // LIGHT S6 (v20261019l): the Light tab's four numbers (Blur in the display unit, like the row's own writer)
+        { id: 'lightIntensityInput', prop: 'ltIntensity' },
+        { id: 'lightShadowOpacityInput', prop: 'ltOpacity' },
+        { id: 'lightBlurInput', prop: 'ltBlur', fmt: v => fmtDisplay(v) },
+        { id: 'lightSoftnessInput', prop: 'ltSoftness' },
         { id: 'revolveStartInput', prop: 'rvStart' },
         { id: 'revolveSegmentsInput', prop: 'rvSegments' },
         { id: 'revolveOffsetInput', prop: 'rvOffset', fmt: v => fmtDisplay(v) },
         { id: 'revolveScaleStartInput', prop: 'rvScaleStart' },
         { id: 'revolveScaleEndInput', prop: 'rvScaleEnd' },
+        { id: 'extrudeLineTurnsInput', prop: 'exLineTurns' },   // LINE (v20261020a)
+        { id: 'revolveLineTurnsInput', prop: 'rvLineTurns' },
+        { id: 'extrudeLineFlatInput', prop: 'exLineFlat' },   // LINE (v20261020f)
+        { id: 'revolveLineFlatInput', prop: 'rvLineFlat' },
         { id: 'sweepScaleStartInput', prop: 'swScaleStart' },
         { id: 'sweepScaleEndInput', prop: 'swScaleEnd' },
         { id: 'loftDepthInput', prop: 'lfDepth', fmt: v => fmtDisplay(v) },   // v20261011o: display units
@@ -104063,6 +105613,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           || _revolveParams.find(p => p.prop === prop)
           || _sweepParams.find(p => p.prop === prop)
           || _loftParams.find(p => p.prop === prop)
+          || _lightParams.find(p => p.prop === prop)   // LIGHT S6 (v20261019m): the light family's four props (the selfTest's param: rows read them)
           || _strokeTrimParams.find(p => p.prop === prop)
           || _opacityParams.find(p => p.prop === prop)
           || _motionPathParams.find(p => p.prop === prop)

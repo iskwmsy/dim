@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261020k -->
+<!-- dim v20261026f -->
 
 <!--
   MIT License
@@ -1535,6 +1535,12 @@
       flex: 1 1 auto;
       min-height: 0;
     }
+    /* THE TREE KEEPS ITS ROWS WHILE AN OBJECT IS SELECTED (v20261023c, owner: "when I use the duplicate button the tree
+       does not get long"). The two panels shared the column by content, so a selected object's tabs took most of it and
+       squeezed the tree to a few rows - Duplicate selects its copy, paste and import select nothing, hence the difference.
+       The Scene Objects panel now keeps its content height (its tree is capped at 40vh, so it can never take the column)
+       and the Selected Object section takes the rest, scrolling in its own scroller. */
+    #sceneObjectsPanel { flex: 0 0 auto; }
     #sceneObjectsPanel > .ui-header, #selectedObjectSection > .ui-header { flex-shrink: 0; }
     #cb-scene-objects, #selectedObjectContent {
       flex: 1 1 auto;
@@ -4415,6 +4421,18 @@
        accent is recomputed each render from --accent-color. Centred on its
        own offset point (the offset is computed in screen space), and inert:
        the anchor dot is the handle, the number is for reading. */
+    /* PAGE TURN (v20261025c): the status line under Turn - its own row, one
+       line, clipped - so the Turn field never shares a flex line with a note
+       (the note had taken the field's 166 px and left it 0, measured). */
+    .fold-page-status {
+      display: block;
+      font-size: 11px;
+      opacity: 0.8;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-height: 1.2em;
+    }
     #pathHighlightGroup text.fold-crease-label {
       font-family: 'Avenir Next Condensed', var(--font-family-sans);
       font-weight: 600;
@@ -10661,6 +10679,33 @@
                           <option value="wrap">Wrap</option>
                           <option value="curl">Curl</option>
                           <option value="wave">Wave</option>
+                          <option value="page">Page Turn</option>
+                        </select>
+                      </div>
+                    </div>
+                    <!-- PAGE TURN (v20261025a, PLAN-fold-page-turn.md): the bound
+                         edge of the sheet - the paper there never moves. -->
+                    <div class="xyz-row" id="foldPageSpineRow" style="display:none;">
+                      <label for="foldPageSpineInput" title="The bound edge of the sheet: the paper there never moves, the page turns over it.">Spine</label>
+                      <div class="xyz-inputs">
+                        <select id="foldPageSpineInput">
+                          <option value="left">Left (U min)</option>
+                          <option value="right">Right (U max)</option>
+                          <option value="bottom">Bottom (V min)</option>
+                          <option value="top">Top (V max)</option>
+                        </select>
+                      </div>
+                    </div>
+                    <!-- v20261025c (owner: "just the corner where the flip starts on the page (so it won't move
+                         during turn) would be more friendly"): the START corner replaces the free grab. The
+                         option names follow the spine (the sync writes them). -->
+                    <div class="xyz-row" id="foldPageCornerRow" style="display:none;">
+                      <label for="foldPageCornerInput" title="Where the turn starts on the outer edge: a corner, or the edge's middle for a straight sweep.">Start</label>
+                      <div class="xyz-inputs">
+                        <select id="foldPageCornerInput">
+                          <option value="low">Bottom corner (V min)</option>
+                          <option value="high">Top corner (V max)</option>
+                          <option value="mid">Edge middle</option>
                         </select>
                       </div>
                     </div>
@@ -10713,8 +10758,8 @@
                     <div class="xyz-row" id="foldCrease1HeaderRow" style="display:none;">
                       <label>Crease 1</label>
                     </div>
-                    <div class="xyz-row">
-                      <label>Position U</label>
+                    <div class="xyz-row" id="foldPositionRow">
+                      <label id="foldPositionLabel">Position U</label>
                       <div class="xyz-inputs">
                         <input type="number" id="foldPositionInput" value="0.5" step="0.01" />
                       </div>
@@ -10723,11 +10768,51 @@
                          crease anchor's V coordinate — what lets a 90°-rotated
                          crease be placed at all. Default 0.5 = the old pinned
                          v-middle. -->
-                    <div class="xyz-row">
-                      <label>Position V</label>
+                    <div class="xyz-row" id="foldPositionVRow">
+                      <label id="foldPositionVLabel">Position V</label>
                       <div class="xyz-inputs">
                         <input type="number" id="foldPositionVInput" value="0.5" step="0.01" />
                       </div>
+                    </div>
+                    <!-- PAGE TURN (v20261025c, PLAN-page-turn-polish.md): ONE number turns the page. Turn is the
+                         stored truth (0 flat, 100 landed; track fdTurn); Swing bends the corner's path toward the
+                         page's middle (the e-book diagonal); Lift raises the page off the book as it turns (0 the
+                         e-book sweep, 100 a page swinging on its spine). The finger is derived - the dot on the
+                         canvas - and the notes live on a status line of their own (v20261025b put them beside the
+                         field, where they took its whole width). -->
+                    <div class="xyz-row" id="foldPageInfoRow" style="display:none;">
+                      <label for="foldPageTurnInput" title="How far the page has turned: 0 flat, 100 landed on the other side. Animate this one number.">Turn %</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="foldPageTurnInput" step="1" min="0" max="100" value="0" />
+                      </div>
+                    </div>
+                    <div class="xyz-row" id="foldPageSwingRow" style="display:none;">
+                      <label for="foldPageSwingInput" title="How far the corner swings toward the page's middle in the middle of the turn, as a fraction of the spine's length. 0 = a straight sweep.">Swing</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="foldPageSwingInput" step="0.05" value="0.25" />
+                      </div>
+                    </div>
+                    <div class="xyz-row" id="foldPageLiftRow" style="display:none;">
+                      <label for="foldPageLiftInput" title="How much the page lifts off the book as it turns: 0 the e-book curl (the turned part lies over), 100 a page swinging on its spine.">Lift %</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="foldPageLiftInput" step="5" min="0" max="100" value="50" />
+                      </div>
+                    </div>
+                    <!-- PAPER (v20261026a, PLAN-page-turn-paper.md): the gravity bow - zero at vertical, toward the start side
+                         before it, toward the landing side after -->
+                    <div class="xyz-row" id="foldPageSagRow" style="display:none;">
+                      <label for="foldPageSagInput" title="The paper's give, in degrees: how much the body bends ahead of the root as the page flips, and how far the corner curls up first and hooks back near the end. 0 = a stiff page.">Bend</label>
+                      <div class="xyz-inputs">
+                        <input type="number" id="foldPageSagInput" step="5" min="0" value="40" />
+                      </div>
+                    </div>
+                    <div class="xyz-row" id="foldPageStatusRow" style="display:none;">
+                      <label></label>
+                      <div class="xyz-inputs"><span id="foldPageInfo" class="fold-page-status"></span></div>
+                    </div>
+                    <div class="prop-row prop-row-plain prop-row-tight" id="foldPageBtnRow" style="display:none;">
+                      <button type="button" id="foldPageFlatBtn" class="ui-btn ui-btn-small" title="The finger back on the grab point: the page lies flat">Flat</button>
+                      <button type="button" id="foldPageTurnedBtn" class="ui-btn ui-btn-small" title="The finger on the landing point: the page fully turned">Turned</button>
                     </div>
                     <!-- CREASE EXTENT (v20260818d, PLAN-fold-crease-extent.md):
                          segment creases — the active span along the line as
@@ -10749,7 +10834,7 @@
                         <input type="number" id="foldExtentBInput" value="1" step="0.01" />
                       </div>
                     </div>
-                    <div class="xyz-row">
+                    <div class="xyz-row" id="foldRotationRow">
                       <label>Rotation</label>
                       <div class="xyz-inputs">
                         <input type="number" id="foldRotationInput" value="0" step="1" />
@@ -18065,8 +18150,9 @@
       }
       const style = obj.style || getCurrentPathStyle();
       const st = JSON.parse(JSON.stringify(style));
-      st.fill = 'none';
-      if (recs[0].stroke) st.stroke = recs[0].stroke;
+      // (v20261023a) the fill as drawn: the style's, or the FIRST turn's palette colour (one path has one fill - recorded); none when none
+      st.fill = recs[0].fill || 'none';
+      st.stroke = recs[0].stroke || 'none';
       if (!(parseFloat(st['stroke-width']) > 0)) st['stroke-width'] = 2 / FRAME_SIZE;   // the Line's own default width
       const base = (obj.name || 'Path').replace(/ \((Baked|Line)\)$/, '');
       const taken = _collectSceneNames();
@@ -55661,6 +55747,7 @@
         // a face — the line IS the artwork there, so a degenerate one still
         // draws. Every such emitter sets fill="none" explicitly.
         if (el.getAttribute('fill') === 'none') continue;
+        if (el.getAttribute('data-line') === '1') continue;   // LINE (v20261023a): a filled Line is a stroke with a fill, not a face - a ping-pong chain seen along the depth retraces itself on purpose
         if (_outlineRetraces(d)) el.setAttribute('stroke', 'none');
       }
     };
@@ -56483,14 +56570,22 @@
         // from the radius - sharp (0) runs the FOLD chain, rounded runs the
         // WRAP chain - and the synthetic creases feed the normal pipeline.
         const isWave = fs.mode === 'wave';
-        const sideSign = isWave ? 1 : ((cr.side === 'left') ? -1 : 1);
-        const rho = (cr.rotation || 0) * Math.PI / 180;
+        // PAGE TURN (v20261025a, PLAN-fold-page-turn.md): a generated single
+        // crease - the e-book curl (see Path._foldPageCrease). The synthetic
+        // crease stands in for crease 1 below as c0, so every read of side /
+        // rotation / anchor / angle / radius sees the generated values; for
+        // every other mode c0 IS cr - byte-identical arithmetic.
+        const isPage = fs.mode === 'page';
+        const pg = isPage ? Path._foldPageCrease(fs, cr, uMin, uMax, vMin, vMax, SG[2]) : null;
+        const c0 = pg ? pg.crease : cr;
+        const sideSign = isWave ? 1 : ((c0.side === 'left') ? -1 : 1);
+        const rho = (c0.rotation || 0) * Math.PI / 180;
         // POSITION V (v20260817d, PLAN-fold-crease-2d.md): the crease anchor
         // is 2D — positionV places it across the V extent (default 0.5 = the
         // old hard-pinned v-middle, so absent-key scenes are byte-identical).
         // This is what lets a 90°-rotated crease (parallel to U) be placed at
         // all: `position` slides such a line along itself.
-        const A2 = [uMin + (cr.position ?? 0.5) * (uMax - uMin), vMin + (cr.positionV ?? 0.5) * (vMax - vMin)];
+        const A2 = [uMin + (c0.position ?? 0.5) * (uMax - uMin), vMin + (c0.positionV ?? 0.5) * (vMax - vMin)];
         // WRAP (stage F2, v20260720u): mode 'wrap' replaces the sharp hinge
         // with a developable cylindrical bend of radius r starting AT the
         // crease (the tangency line — the base side never moves). The bend
@@ -56502,9 +56597,9 @@
         // b = pitch/2π) for its whole length. Angle contributes only its
         // SIGN (curl up/down); Position animates the curl front (the
         // rolled-map animation); pitch 0 = same-circle roll.
-        const angle = cr.angle || 0;
-        const radius = Math.abs(cr.radius ?? 0);
-        const engine = isWave ? (radius > 1e-6 ? 'wrap' : 'fold') : fs.mode;
+        const angle = c0.angle || 0;
+        const radius = Math.abs(c0.radius ?? 0);
+        const engine = (isWave || isPage) ? (radius > 1e-6 ? 'wrap' : 'fold') : fs.mode; // PAGE TURN: resolved from the generated radius like the wave
         // SHARP WAVE STRETCH (v20260825c, the v20260825a successor): Paper =
         // Stretch on a radius-0 wave runs the FOLD chain with per-cell
         // SHEARS instead of rigid rotations - same curve as conserve
@@ -56521,7 +56616,7 @@
         // THIS frame, so the rest of the build is untouched).
         const crs = isWave
           ? Path._foldWaveCreases(fs, cr, engine, A2, [sideSign * Math.cos(rho), sideSign * Math.sin(rho)], uMin, uMax - uMin, vMin, vMax - vMin, SG[2], waveShear)
-          : fs.creases;
+          : (isPage ? pg.creases : fs.creases); // PAGE TURN (v20261025a): the generated crease - two when the sag is on (v20261026a, a wrap chain)
         // WRAP CHAINS (v20260821f, PLAN-wrap-chains.md): wrap is on when ANY
         // crease has a real bend zone (crease 1 alone decided before - a
         // crease-1 angle of 0 silently degraded a multi-crease wrap to a
@@ -56728,6 +56823,7 @@
           // by shifting the pattern in paper space (see _foldWaveCreases).
           wrapAnchor: (isWave && fs.waveExtend === 'backward') ? Infinity : undefined,
           wave: isWave ? { count: Math.max(1, Math.round(fs.waveCount ?? 3)), size: fs.waveSize, shape: fs.waveShape || 'up', extend: fs.waveExtend || 'forward', engine } : null,
+          page: pg ? pg.page : null, // PAGE TURN (v20261025a): G / F / F' / G* / the spine for the guides, the panel and the probe
           // v20260823a: Both's paper translation as a uv vector (see
           // _foldWaveCreases); null = no translation (byte-identical).
           // (Stretch never transports, so Both needs no paper translation -
@@ -56741,6 +56837,345 @@
             : null,
           allParallel: allParallel || (wrapOn && crs.length > 1) // a wrap chain is parallel BY CONSTRUCTION (rotation inherited)
         };
+      }
+
+      // PAGE TURN (v20261025a, PLAN-fold-page-turn.md): the e-book page curl as
+      // a crease GENERATOR (the wave precedent). Every e-book implementation
+      // read for the plan - turn.js / StPageFlip (the 2D reflection), iBooks'
+      // imitators XBPageCurl / Project Austin (the cylinder), PARC's cone -
+      // sweeps a FOLD LINE from the grabbed point toward the spine with the
+      // paper bent round an axis on that line and the far part lying flat,
+      // face down. dim's single-crease WRAP at 180 is that cylinder verbatim
+      // (and the FOLD engine at radius 0 the reflection), so a page turn is
+      // ONE synthetic crease:
+      //   G = the START corner (fs.pageCorner: the outer edge's lower / upper
+      //   corner or its middle - fixed through the turn, v20261025c; it was a
+      //   free grab point in a-b), the SPINE = one bbox edge (fs.pageSpine),
+      //   the binding. The finger F is DERIVED from ONE number, Turn
+      //   (fs.pageTurn, 0..100): F(p) = G + p (G* - G) + Swing sin(pi p) s^,
+      //   s^ along the spine toward the page's middle (the hover / release arcs
+      //   of turn.js and StPageFlip - it starts on G and ENDS ON THE MIRROR for
+      //   every Swing). Lift (fs.pageLift, 0..1) blends the e-book SWEEP below
+      //   (0: the fold line crosses the page, the tail lies over at 180) with
+      //   the physical PIVOT (1: the crease ON the spine, angle 180 p, a
+      //   SHARP hinge - PARC's family, plan section 1 C): with w = L min(1,
+      //   p / 0.2), n^ = normalize((1-w) n^_sweep + w m^), anchor = M + w (Sg
+      //   - M) shifted by (1-w) r pi / 2, angle = 180 p^(L^0.2) (v20261026b),
+      //   radius = (1-L) sweep roll + L strip / a (the bend zone fills the
+      //   binding -> crease strip: bent paper, v20261026b). At p = 1 both give the spine line
+      //   at 180 - the exact mirror for every L; at p -> 0 the flap vanishes
+      //   for every L (the crease starts at the bisector) and the pivot's
+      //   angle -> 0. (PLAN-page-turn-polish.md)
+      //   F' = F clamped to the inextensible-paper discs |X - C| <= |G - C|
+      //        about the two spine corners C (StPageFlip's circles; the
+      //        condition is LINEAR in a point of the spine segment, so the
+      //        corners cover the whole edge): the spine never moves.
+      //   n = (G - F') / d, d = |G - F'| - the flap-side normal; Rotation =
+      //        atan2(n), Side right (the engine's n2 IS n).
+      //   r_eff = min(Radius, d / pi, |G* - F'| / pi, 2 / pi * clearance):
+      //        the finger sits on the flat tail, not in the roll (the tail
+      //        begins r*pi past the crease); the page LANDS FLAT (G* = the
+      //        mirror of G across the spine - as F' reaches it the fold
+      //        sharpens and the sheet lies exactly mirrored, Hong's theta
+      //        -> 90 at the end); the roll fits between the crease and the
+      //        binding (the shift below moves the crease toward the spine).
+      //   A = M - n * r_eff * pi / 2, M = (G + F') / 2: under a 180 wrap the
+      //        paper point s past the crease lands at footprint r*pi - s
+      //        along n from the anchor, so this shift lands G EXACTLY on F';
+      //        at r_eff = 0 it is the plain perpendicular bisector (turn.js).
+      //   Angle = -SG[2] * a: the tail turns over the sheet's FRONT (the +
+      //        normal-axis side, the side Backside View calls front) for
+      //        every axis pair (the wave's v20260822c lesson - the engine's
+      //        "+angle folds toward -(U x V)" is up only for X/Z).
+      // d ~ 0 (the finger on the grab) or a = 0 emits an angle-0 crease: the
+      // pristine gate renders the plain 2D path, like every other mode.
+      static _foldPageCrease(fs, cr, uMin, uMax, vMin, vMax, nSign) {
+        const uR = (uMax - uMin) || 1, vR = (vMax - vMin) || 1;
+        const sp = (fs.pageSpine === 'right' || fs.pageSpine === 'top' || fs.pageSpine === 'bottom') ? fs.pageSpine : 'left';
+        // the spine segment P0-P1 and its inward normal m (into the sheet)
+        const P0 = sp === 'left' ? [uMin, vMin] : sp === 'right' ? [uMax, vMin] : sp === 'bottom' ? [uMin, vMin] : [uMin, vMax];
+        const P1 = sp === 'left' ? [uMin, vMax] : sp === 'right' ? [uMax, vMax] : sp === 'bottom' ? [uMax, vMin] : [uMax, vMax];
+        const m = sp === 'left' ? [1, 0] : sp === 'right' ? [-1, 0] : sp === 'bottom' ? [0, 1] : [0, -1];
+        // v20261025c: the START corner (fixed through the turn) and the finger PATH from one number
+        const j = (sp === 'left' || sp === 'right') ? 0 : 1, k = 1 - j;   // j = across the spine, k = along it
+        const corner = (fs.pageCorner === 'high' || fs.pageCorner === 'mid') ? fs.pageCorner : 'low';
+        const gF = [0, 0]; gF[j] = (sp === 'left' || sp === 'bottom') ? 1 : 0; gF[k] = corner === 'high' ? 1 : (corner === 'mid' ? 0.5 : 0);
+        const G = [uMin + gF[0] * uR, vMin + gF[1] * vR];
+        const p = Math.max(0, Math.min(1, (fs.pageTurn ?? 0) / 100));
+        const swing = fs.pageSwing ?? 0.25, L = Math.max(0, Math.min(1, fs.pageLift ?? 0.5));
+        const h = (G[0] - P0[0]) * m[0] + (G[1] - P0[1]) * m[1];      // G's height above the spine
+        const Sg = [G[0] - m[0] * h, G[1] - m[1] * h];                 // the foot of G on the spine
+        const Gs = [G[0] - 2 * m[0] * h, G[1] - 2 * m[1] * h];         // the landing point: G mirrored across the spine
+        const sDir = corner === 'mid' ? 0 : (corner === 'high' ? -1 : 1); // toward the page's middle along the spine
+        const sLen = Math.hypot(P1[0] - P0[0], P1[1] - P0[1]);
+        const F = [G[0] + p * (Gs[0] - G[0]), G[1] + p * (Gs[1] - G[1])];
+        F[k] += sDir * swing * Math.sin(Math.PI * p) * sLen;
+        // THE CLAMP: along the ray Sg -> F, the farthest point inside both
+        // corner discs. Every disc contains Sg (|C - G|^2 = |C - Sg|^2 + h^2),
+        // so the feasible part of the ray is one interval from Sg and each
+        // disc's exit is the positive root of |q + t w|^2 = R^2.
+        const w = [F[0] - Sg[0], F[1] - Sg[1]];
+        const wl2 = w[0] * w[0] + w[1] * w[1];
+        let tMax = 1;
+        if (wl2 > 1e-24) {
+          for (const C of [P0, P1]) {
+            const q = [Sg[0] - C[0], Sg[1] - C[1]];
+            const R2 = (G[0] - C[0]) * (G[0] - C[0]) + (G[1] - C[1]) * (G[1] - C[1]);
+            const qw = q[0] * w[0] + q[1] * w[1], q2 = q[0] * q[0] + q[1] * q[1];
+            const disc = qw * qw - wl2 * (q2 - R2);
+            const t = disc < 0 ? 0 : (-qw + Math.sqrt(disc)) / wl2;
+            if (t < tMax) tMax = Math.max(0, t);
+          }
+        }
+        const Fc = [Sg[0] + w[0] * tMax, Sg[1] + w[1] * tMax];
+        const clamped = tMax < 1 - 1e-9;
+        const d = Math.hypot(G[0] - Fc[0], G[1] - Fc[1]);
+        const diag = Math.hypot(uR, vR);
+        const page = {
+          G, gF, F, Fc, Gstar: Gs, Sg, spine: [P0, P1], m, j, k, sDir, sLen, clamped, d, rEff: 0, A: null, n: null, angle: 0, img2: null,
+          turn: p, swing, lift: L, corner, synth: null
+        };
+        const flat = { position: gF[0], positionV: gF[1], rotation: 0, angle: 0, radius: 0, pitch: 0, tighten: 0, side: 'right' };
+        if (p < 1e-9 || d < 1e-9 * diag) return { crease: flat, creases: [flat], page };
+        // SWEEP terms (Lift 0): the bisector, the flap holding G
+        const nS = [(G[0] - Fc[0]) / d, (G[1] - Fc[1]) / d];
+        const M = [(G[0] + Fc[0]) / 2, (G[1] + Fc[1]) / 2];
+        // PIVOT terms (Lift 1): the crease ON the spine through G's foot, its normal the spine's inward normal. The
+        // blend weight is L RAMPED over the first fifth of the turn (w = L min(1, p / 0.2)): at p -> 0 the crease sits
+        // at the bisector for every L, so the flap VANISHES and the start is continuous (a fixed (1-L) M + L Sg put
+        // half the page at 90 degrees the moment p left 0 - measured); then the crease retreats to its blended place
+        // the way a lifted page's fold line runs to the spine. The angle is 180 p^L - 180 for the sweep, 180 p for the
+        // pivot, monotone between (a linear blend front-loaded it: 90 + 90 p at L 0.5).
+        const wL = L * Math.min(1, p / 0.2);
+        // THE WHIP (v20261026e, PLAN-page-turn-whip.md; the owner's six-frame sketch of a natural flip): between the
+        // sweep (Lift 0) and the rigid page (Lift 100) the paper's share q is full from Lift 30 to 50 and fades to the
+        // rigid page at 100. In the whip the root is a SHARP hinge on the binding (D6), its angle LAGS the turn (D2),
+        // the body bends toward the landing with the tip leading (D1) and the tip curls first, then hooks back (D3).
+        const smq = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+        const q = smq(L / 0.3) * (1 - smq((L - 0.5) / 0.5));
+        // the ROOT moves to the binding faster than the body and the tip fade in (v20261026f; owner at Lift 18 / Turn 83:
+        // "it looks as if the root is glued to the original side" - with the position, the roll and the flop at the
+        // sweep's 35 % share the crease sat 0.12 short of the binding behind a 0.05 roll and a 10-degree flop hinge, a strip
+        // of page still flat on the start side; measured): qPos is full by Lift 10, so from there the root is a sharp
+        // hinge ON the binding at every Lift and only the sweep itself (Lift 0 .. 10) keeps its strip, roll and flop.
+        const qPos = smq(L / 0.1);
+        const wPos = Math.max(wL, qPos * Math.min(1, p / 0.2));   // the crease goes to the binding (ramped over the first fifth, as the pivot's)
+        let n = [(1 - wPos) * nS[0] + wPos * m[0], (1 - wPos) * nS[1] + wPos * m[1]];
+        const nl = Math.hypot(n[0], n[1]) || 1; n = [n[0] / nl, n[1] / nl];
+        const A0 = [M[0] + wPos * (Sg[0] - M[0]), M[1] + wPos * (Sg[1] - M[1])];   // the unshifted anchor
+        // THE LANDING FLOP (v20261026c, PLAN-page-turn-paper.md section 8; owner: "there is a small radius fold on the
+        // first side all the way until the turn ends - in nature the fold curve should lean to the left side at some
+        // point"). The sweep's binding strip (the paper between the binding and the fold line) stayed flat while it
+        // narrowed to nothing, so the roll stood upright on it to the end. Paper cannot: once the strip is narrower than
+        // 0.3 of the page it hinges at the binding and flops over - phi ramps 0 -> a (smoothstep in the strip's width)
+        // weighted by (1 - w): the sweep's own behaviour, the pivot untouched (its crease is already at the binding).
+        // The roll's bend becomes a - phi, so the tail's direction is unchanged while the bend LEANS over toward the
+        // landing side as the strip rises; at the end the strip lies flat on the landing side and the roll has opened
+        // out. The strip is measured on the SWEEP's own line (M - Sg along the bisector normal), never on the blended
+        // anchor - the pivot narrows that one by design (Lift 50 at Turn 50 read 0.75 and flopped; measured) - and at its
+        // WIDEST point along the binding: a finger clamped by the binding puts the bisector exactly through a spine
+        // corner (that is what the clamp is), so the strip at that corner reads 0 at any Turn (Turn 50 / Swing 2 "landed";
+        // measured) while at the other corner the base is as wide as ever - a strip flops as a whole only when even its
+        // wide end is narrow. The hinge is a third zone of the wrap chain, behind the main crease (s = -D), and a chain
+        // is parallel, so the crease direction is straightened to the spine's FIRST - over strip 0.4 -> 0.3 of the page,
+        // done before the hinge starts - and the hinge lies exactly on the binding: the spine corners never move (P5).
+        // Before that window the finger-on-tail oracle (P3) holds as before.
+        const hAbs = Math.max(Math.abs(h), 1e-9);
+        let Dsw = 0;   // the sweep's binding strip at its widest
+        for (const C of [P0, P1]) Dsw = Math.max(Dsw, (M[0] - C[0]) * nS[0] + (M[1] - C[1]) * nS[1]);
+        const sm = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+        const lamDir = sm(1 - (Dsw - 0.3 * hAbs) / (0.1 * hAbs));   // 0 at 0.4 h, 1 at 0.3 h
+        const lam = sm(1 - Dsw / (0.3 * hAbs));                       // 0 at 0.3 h, 1 at the binding (Turn 100)
+        if (lamDir > 0) { n = [(1 - lamDir) * n[0] + lamDir * m[0], (1 - lamDir) * n[1] + lamDir * m[1]]; const nl2 = Math.hypot(n[0], n[1]) || 1; n = [n[0] / nl2, n[1] / nl2]; }
+        // clearance: the unshifted line's distance to the nearer spine corner
+        // along n - the roll SHIFT (1-L) r pi/2 must fit before the binding
+        // (non-negative after the clamp: a corner on the base side of the
+        // bisector is exactly |C - F'| <= |C - G|). At L = 1 there is no
+        // shift - the bend STARTS at the binding - so no cap.
+        let clear = Infinity;
+        for (const C of [P0, P1]) clear = Math.min(clear, (A0[0] - C[0]) * n[0] + (A0[1] - C[1]) * n[1]);
+        const dLand = Math.hypot(Gs[0] - Fc[0], Gs[1] - Fc[1]);
+        // THE ANGLE (v20261026b): 180 p^(L^0.2) - 180 for the sweep (L = 0), 180 p for the pivot (L = 1), and for every
+        // Lift above a few percent an exponent near 1, so the page passes VERTICAL near Turn 50 (45 at Lift 50) - the
+        // owner's "near straight at 50 % even if Lift is not 100"; v20261026a's 180 p^L had it vertical at Turn 25.
+        const ang = 180 * Math.pow(p, (1 - q) * Math.pow(L, 0.2) + q * 1.5);   // the whip's root LAGS: exponent 1.5 at full q (vertical root near Turn 63; the tip leads, so the page as a whole passes vertical near 50)
+        const aRad = ang * Math.PI / 180;
+        // THE HINGE RADIUS (v20261026b, PLAN-page-turn-paper.md section 7; owner: "the bend radius seems too small - a
+        // corner, not bent paper, near 50 %"). Two radii blended by Lift:
+        //   the SWEEP roll (Lift 0): the Radius under its paper caps - the finger sits on the flat tail (d / pi) and the
+        //   page lands flat (|G* - F'| / pi) - the e-book curl, byte-identical to before;
+        //   the PAPER arc (Lift 1): the radius whose bend zone is exactly as long as the STRIP between the binding and the
+        //   crease (D / a), so the page curves continuously out of the binding and there is no corner anywhere; at Lift 1
+        //   the crease IS the spine (D = 0) and the hinge is sharp - the rigid page of v20261025d - and at the landing
+        //   D -> 0 again (the exact mirror). v20261026a's |cos a| is gone: it shrank the roll toward vertical, which at an
+        //   interior crease (the bend angle is set by the hinge) only turned a bend into a corner - a bend reads as paper
+        //   when its radius is LARGE, not small.
+        const rSweep = Math.min(Math.abs(cr.radius ?? 0), d / Math.PI, dLand / Math.PI);
+        const Dstrip = Math.max(0, (A0[0] - Sg[0]) * n[0] + (A0[1] - Sg[1]) * n[1]);
+        const rPaper = Dstrip / Math.max(aRad, 1e-9);
+        const rBase = (1 - L) * rSweep + L * rPaper;
+        let rEff = rBase;
+        if (wL < 1 - 1e-9) rEff = Math.min(rEff, 2 * Math.max(0, clear) / (Math.PI * (1 - wL)));   // the roll SHIFT must fit before the binding
+        rEff = Math.max(0, rEff);
+        rEff *= (1 - qPos);   // the whip's root is a sharp hinge on the binding (D6): the Radius shapes the sweep's roll only
+        const shift = (1 - wL) * rEff * Math.PI / 2;
+        const A = [A0[0] - n[0] * shift, A0[1] - n[1] * shift];
+        // THE FLOP's hinge angle (v20261026c): the sweep's share of the turn, ramped by the strip; the whip has its root
+        // lag instead, so it fades with q.
+        const phi = (1 - wL) * (1 - qPos) * lam * ang;
+        // THE WHIP's zones (v20261026e). Bend (fs.pageSag, the Sag row relabelled - the stored key and the fdSag track
+        // carry over) is the paper's give, one number: the BODY bends toward the landing by Bend sin(pi p) over the first
+        // 60 % of the free part (the tip leads the root, most at mid-turn); the TIP, over the last 40 %, curls up first
+        // (0.6 Bend sin(pi p / 0.55) to Turn 55 - the corner lifts before the root moves) and then hooks BACK (-Bend
+        // sin(pi (p - 0.55) / 0.45), the S of the sketch's frame 5: the tip trails in the air while the body comes down).
+        // Every term is 0 at Turn 0 and 100 (the pristine sheet, the exact mirror) and scales with q, so Lift 0 (the
+        // sweep) and Lift 100 (the rigid page) never enter - the bit-identity rule. The zones are wrap-chain zones
+        // (PLAN-wrap-chains.md): a zone needs a radius, so the sharp root takes eps = 1e-5 diag inside a chain; a zone
+        // below 0.01 degrees is not emitted. This replaces v20261026a's gravity bow and v20261026d's S, which bent the
+        // paper the other way round (the tip trailing the root; the curvature at the root) - the owner's sketch.
+        const bend = fs.pageSag ?? 40;   // default 40 since v20261026f (60 bowed the page at Turn 50; 40 reads near straight there - the owner's call)
+        const bodyDeg = bend * Math.sin(Math.PI * p) * q;
+        const tipDeg = (p < 0.55 ? 0.6 * bend * Math.sin(Math.PI * p / 0.55) : -bend * Math.sin(Math.PI * (p - 0.55) / 0.45)) * q;
+        let whip = null;
+        if (Math.abs(bodyDeg) >= 0.01 || Math.abs(tipDeg) >= 0.01 || phi >= 0.01) {
+          const rH = Math.max(rEff, 1e-5 * diag);
+          const sStart = rH * Math.abs(aRad);
+          let sMax = -Infinity;
+          for (const C of [[uMin, vMin], [uMax, vMin], [uMax, vMax], [uMin, vMax]]) sMax = Math.max(sMax, (C[0] - A[0]) * n[0] + (C[1] - A[1]) * n[1]);
+          const Lfree = sMax - sStart;
+          if (Lfree > 1e-6 * diag && (Math.abs(bodyDeg) >= 0.01 || Math.abs(tipDeg) >= 0.01)) {
+            const Lb = 0.6 * Lfree, Lt = 0.4 * Lfree;
+            rEff = rH;
+            whip = { s: sStart, L: Lfree, body: bodyDeg, tip: tipDeg, Lb, Lt,
+                     Rb: Math.abs(bodyDeg) >= 0.01 ? Lb / (Math.abs(bodyDeg) * Math.PI / 180) : 0,
+                     Rt: Math.abs(tipDeg) >= 0.01 ? Lt / (Math.abs(tipDeg) * Math.PI / 180) : 0 };
+          }
+          else if (phi >= 0.01) rEff = rH;   // the flop alone also needs the chain (a zone needs a radius)
+        }
+        const Dh = Math.max(0, (A[0] - Sg[0]) * n[0] + (A[1] - Sg[1]) * n[1]);   // the binding strip behind the (shifted) crease
+        const flop = phi >= 0.01 ? { phi, D: Dh } : null;
+        page.rEff = rEff; page.A = A; page.n = n; page.angle = ang; page.wL = wL; page.whip = whip ? { q, s: whip.s, L: whip.L, body: whip.body, tip: whip.tip, Lb: whip.Lb, Lt: whip.Lt } : null; page.q = q; page.qPos = qPos; page.flop = flop;
+        page.rBase = rBase * (1 - qPos); page.strip = Dstrip; page.arc = rEff * Math.abs(aRad); // rBase: the status line compares r_eff against the blended radius, so only the caps report; strip / arc: the probe's coverage
+        const sgn = -(nSign || -1);
+        const rotDeg = Math.atan2(n[1], n[0]) * 180 / Math.PI;
+        // the landing itself (the strip gone - Turn 100 - or the roll with no bend left, phi = a at L 0): the page is ONE
+        // sharp crease on the spine carrying the whole turn, the fold engine, the exact mirror (the bit-identity rule for
+        // the ends; at Turn 100 every Lift lands here, as before the flop)
+        if (lam >= 1 - 1e-9 || (flop && Math.abs(ang - phi) < 0.01)) {
+          const landed = { position: (Sg[0] - uMin) / uR, positionV: (Sg[1] - vMin) / vR, rotation: rotDeg, angle: sgn * ang, radius: 0, pitch: 0, tighten: 0, side: 'right' };
+          page.rEff = 0; page.A = [Sg[0], Sg[1]]; page.img2 = [-Math.abs(h), 0]; page.synth = landed; page.synthAll = [landed];
+          return { crease: landed, creases: [landed], page };
+        }
+        const mainAng = ang - phi;   // the roll's own bend; the tail's direction stays ang (the hinge carries the rest)
+        const crease = {
+          position: (A[0] - uMin) / uR, positionV: (A[1] - vMin) / vR,
+          rotation: rotDeg,
+          angle: sgn * mainAng, radius: rEff, pitch: 0, tighten: 0, side: 'right'
+        };
+        const creases = [crease];
+        if (whip) {   // the whip's body and tip zones (v20261026e); a zone below 0.01 degrees is not emitted
+          if (Math.abs(whip.body) >= 0.01) creases.push({
+            position: (A[0] + n[0] * whip.s - uMin) / uR, positionV: (A[1] + n[1] * whip.s - vMin) / vR,
+            rotation: crease.rotation, angle: sgn * whip.body, radius: whip.Rb, pitch: 0, tighten: 0, side: 'right'
+          });
+          if (Math.abs(whip.tip) >= 0.01) creases.push({
+            position: (A[0] + n[0] * (whip.s + whip.Lb) - uMin) / uR, positionV: (A[1] + n[1] * (whip.s + whip.Lb) - vMin) / vR,
+            rotation: crease.rotation, angle: sgn * whip.tip, radius: whip.Rt, pitch: 0, tighten: 0, side: 'right'
+          });
+        }
+        if (flop) creases.push({   // the binding hinge, behind the main crease (s = -D): its zone starts at the spine
+          position: (Sg[0] - uMin) / uR, positionV: (Sg[1] - vMin) / vR,
+          rotation: crease.rotation, angle: sgn * phi, radius: 1e-5 * diag, pitch: 0, tighten: 0, side: 'right'
+        });
+        // the image of G in the profile plane (x along n from A, y along the sheet normal): the guides draw it as the
+        // paper's corner in the air (the tether) - the wrap's own formulas; through the chain's profile when the sag or
+        // the flop is on
+        {
+          const s = (G[0] - A[0]) * n[0] + (G[1] - A[1]) * n[1];
+          const dD = crease.angle > 0 ? -1 : 1;
+          let x2, y2;
+          if (creases.length > 1) {   // a chain: every emitted zone, read back from the records (the twin's exact data)
+            const zones = creases.map((c, k) => { const P = [uMin + c.position * uR, vMin + c.positionV * vR]; return { sK: (P[0] - A[0]) * n[0] + (P[1] - A[1]) * n[1], r: c.radius, wArc: c.radius * Math.abs(c.angle) * Math.PI / 180, dD: c.angle > 0 ? -1 : 1, idx: k }; });
+            const prof = Path._foldWrapProfile({ wrapZones: zones });
+            const q2 = prof.at(s); x2 = q2.x; y2 = q2.y;
+          } else if (rEff > 1e-9) {
+            const wArc = rEff * aRad, thS = Math.min(s, wArc) / rEff;
+            x2 = rEff * Math.sin(thS); y2 = dD * rEff * (1 - Math.cos(thS));
+            if (s > wArc) { x2 += (s - wArc) * Math.cos(thS); y2 += (s - wArc) * dD * Math.sin(thS); }
+          } else { x2 = s * Math.cos(aRad); y2 = dD * s * Math.sin(aRad); }
+          page.img2 = [x2, y2];
+        }
+        page.synth = crease; page.synthAll = creases; // the generated crease(s) as fractions - what a hand-authored twin must carry (the probe's exactness gate)
+        return { crease, creases, page };
+      }
+
+      // PAGE TURN MIGRATION (v20261025c): a page saved by v20261025a-b carried a
+      // free grab (crease 1's Position U/V) and a finger (pageFingerU/V). The
+      // model is now Start corner + Turn / Swing / Lift: the corner is the
+      // nearest to the grab, Turn the finger's across-spine way, Swing its
+      // along-spine offset over sin(pi p) (0 at the ends), Lift 0 - the sweep,
+      // which is the old generator exactly for the same finger. Returns the
+      // inverse helpers for the key conversion (_foldPageMigrateTracks).
+      static _foldPageInverse(fs) {
+        const sp = (fs.pageSpine === 'right' || fs.pageSpine === 'top' || fs.pageSpine === 'bottom') ? fs.pageSpine : 'left';
+        const j = (sp === 'left' || sp === 'right') ? 0 : 1, k = 1 - j, edge = (sp === 'right' || sp === 'top') ? 1 : 0;
+        const cr = fs.creases && fs.creases[0];
+        const g = [cr ? (cr.position ?? 0.5) : 0.5, cr ? (cr.positionV ?? 0.5) : 0.5];
+        const corner = g[k] < 0.25 ? 'low' : (g[k] > 0.75 ? 'high' : 'mid');
+        const gF = [0, 0]; gF[j] = 1 - edge; gF[k] = corner === 'high' ? 1 : (corner === 'mid' ? 0.5 : 0);
+        const sDir = corner === 'mid' ? 0 : (corner === 'high' ? -1 : 1);
+        const h = gF[j] - edge;
+        // (1e-9 rounding: the field shows a clean number; the finger is reproduced to the ulp, so the old picture is kept)
+        const turnOf = (fAcross) => Math.abs(h) > 1e-12 ? Math.max(0, Math.min(100, Math.round(((gF[j] - fAcross) / (2 * h)) * 100 * 1e9) / 1e9)) : 0;
+        const swingOf = (fAlong, turn) => { const s = Math.sin(Math.PI * turn / 100); return (s < 0.05 || !sDir) ? null : Math.round(sDir * (fAlong - gF[k]) / s * 1e9) / 1e9; };
+        return { j, k, corner, turnOf, swingOf };
+      }
+      static _foldPageMigrate(fs) {
+        if (!fs || fs.mode !== 'page' || fs.pageTurn !== undefined) return false;
+        const inv = Path._foldPageInverse(fs);
+        const cr = fs.creases && fs.creases[0];
+        const fU = fs.pageFingerU ?? (cr ? (cr.position ?? 0.5) : 0.5), fV = fs.pageFingerV ?? (cr ? (cr.positionV ?? 0.5) : 0.5);
+        const f = [fU, fV];
+        fs.pageCorner = inv.corner;
+        fs.pageTurn = inv.turnOf(f[inv.j]);
+        const sw = inv.swingOf(f[inv.k], fs.pageTurn);
+        fs.pageSwing = sw === null ? 0.25 : sw;
+        fs.pageLift = 0;
+        fs._pageFromFinger = true;   // the track conversion reads this once
+        delete fs.pageFingerU; delete fs.pageFingerV;
+        return true;
+      }
+      // the finger tracks of an a-b file become Turn / Swing tracks key for key,
+      // while the grab has no keys of its own (else they stay, listed and
+      // deletable - _foldModeParams keeps keyed tracks of other shapes visible)
+      static _foldPageMigrateTracks(obj, tracks) {
+        const fs = obj && obj.foldSettings;
+        if (!fs || !fs._pageFromFinger) return false;
+        delete fs._pageFromFinger;
+        const objTracks = tracks && tracks.get(obj.id);
+        if (!objTracks) return false;
+        if (objTracks.has('fdPosition') || objTracks.has('fdPositionV')) return false;
+        const inv = Path._foldPageInverse(fs);
+        const across = inv.j === 0 ? 'fdFingerU' : 'fdFingerV', along = inv.j === 0 ? 'fdFingerV' : 'fdFingerU';
+        const aKeys = objTracks.get(across) || [], lKeys = objTracks.get(along) || [];
+        const cr = fs.creases && fs.creases[0];
+        const staticAcross = inv.j === 0 ? (cr ? (cr.position ?? 0.5) : 0.5) : (cr ? (cr.positionV ?? 0.5) : 0.5);
+        const acrossAt = (frame) => { // the across track read linearly at a frame; the static finger without one
+          if (!aKeys.length) return null;
+          const ks = aKeys.slice().sort((a, b) => a.frame - b.frame);
+          if (frame <= ks[0].frame) return ks[0].value;
+          if (frame >= ks[ks.length - 1].frame) return ks[ks.length - 1].value;
+          for (let i = 0; i + 1 < ks.length; i++) if (frame >= ks[i].frame && frame <= ks[i + 1].frame) { const t = (frame - ks[i].frame) / ((ks[i + 1].frame - ks[i].frame) || 1); return ks[i].value + (ks[i + 1].value - ks[i].value) * t; }
+          return null;
+        };
+        if (aKeys.length) objTracks.set('fdTurn', aKeys.map(kf => ({ ...kf, value: inv.turnOf(kf.value) })));
+        if (lKeys.length) {
+          const out = [];
+          for (const kf of lKeys) { const fa = acrossAt(kf.frame); const turn = inv.turnOf(fa === null ? staticAcross : fa); const sw = inv.swingOf(kf.value, turn); if (sw !== null) out.push({ ...kf, value: sw }); }
+          if (out.length) objTracks.set('fdSwing', out);
+        }
+        objTracks.delete('fdFingerU'); objTracks.delete('fdFingerV');
+        return true;
       }
 
       // WAVE (v20260821g, PLAN-fold-wave.md): the crease-chain GENERATOR. A
@@ -58845,7 +59280,7 @@
           ? Path._foldCreaseRoles(fr, eyeL || null, !!fs.forceSplit)
           : null;
         const roleSig = roleInfo ? `|R:${roleInfo.roles.map(r => r[0]).join('')}|DC:${fs.drawCrease ? 1 : 0}${fs.creaseShowAt0 ? 1 : 0}` : '';
-        const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.autoExtent ? 'AE:' + fr.creaseList.map(ck => (ck.extentA ?? 0) + ',' + (ck.extentB ?? 1)).join(';') + '|' : ''}${fs.mode}|${fs.mode === 'wave' ? [fs.waveCount, fs.waveSize, fs.waveShape, fs.waveExtend, fs.wavePaper || 'conserve'].join(',') + '|' : ''}${fs.creases.map(c2 => [c2.position, c2.positionV, c2.rotation, c2.angle, c2.extentA, c2.extentB, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}|${Path.cornersKey(this)}${inhSig}${roleSig}`;
+        const key = `${this.algorithm}|${fs.axisU},${fs.axisV}|${fr.scaleU},${fr.scaleV}|${fr.sideSign}|${fr.A2[0]},${fr.A2[1]}|${fr.dir2[0]},${fr.dir2[1]}|${fr.angle}|${fr.mode},${fr.radius},${fr.pitch},${fr.tighten}|${fs.autoExtent ? 'AE:' + fr.creaseList.map(ck => (ck.extentA ?? 0) + ',' + (ck.extentB ?? 1)).join(';') + '|' : ''}${fs.mode}|${fs.mode === 'wave' ? [fs.waveCount, fs.waveSize, fs.waveShape, fs.waveExtend, fs.wavePaper || 'conserve'].join(',') + '|' : ''}${fs.mode === 'page' ? [fs.pageSpine || 'left', fs.pageCorner || 'low', fs.pageTurn, fs.pageSwing, fs.pageLift, fs.pageSag].join(',') + '|' : ''}${fs.creases.map(c2 => [c2.position, c2.positionV, c2.rotation, c2.angle, c2.extentA, c2.extentB, c2.radius, c2.pitch, c2.tighten, c2.side].join(',')).join(';')}|${(wrapCuts && wrapCuts.length) ? wrapCuts.map(c => c.toFixed(9)).join(',') : ''}|${spSig}|${SurfaceMapper._rcVertsChecksum(this.localVertices)}|${Path.cornersKey(this)}${inhSig}${roleSig}`;
         const fdHit = this._foldCache ? this._foldCache.get(key) : null;
         if (fdHit) return fdHit.val;
 
@@ -63582,8 +64017,15 @@
           const segsU = Math.max(4, ss.cleanSegsU || 32);   // the revolve's Segments: pieces over the whole turn
           const _f0 = frames[0], _fL = frames[frames.length - 1];
           const exTapered = isExtrudeSurface && ((_f0.scaleU ?? _f0.scale ?? 1) !== (_fL.scaleU ?? _fL.scale ?? 1) || (_f0.scaleV ?? _f0.scale ?? 1) !== (_fL.scaleV ?? _fL.scale ?? 1));
-          const strokeFor = (k) => surfPal ? paletteColorAt(surfPal, k, nTurns, ss.paletteMode)
-            : ((ss.useSurfaceColor && ss.surfaceColor) ? ss.surfaceColor : (strokeColor || ((resolvedFill && resolvedFill !== 'none') ? resolvedFill : null)));
+          // THE PAINT (v20261023a, owner: "use the stroke setting and use fill as fill, as in the pen tool"): the stroke is the
+          // style's as it is (none = no stroke; the fill-colour fallback of v20261020a is gone), and each turn carries the
+          // style's FILL under its fill rule - the browser and Illustrator fill the projected region, closing an open chain
+          // with a chord, exactly as a flat open path with a fill is drawn. The Side Color palette goes on the FILL per turn
+          // (coil k filled with colour k; a single side colour fills every turn), the stroke stays the style's - the surface
+          // modes' own split (sides from the palette, outlines from the stroke).
+          const fillFor = (k) => surfPal ? paletteColorAt(surfPal, k, nTurns, ss.paletteMode)
+            : ((ss.useSurfaceColor && ss.surfaceColor) ? ss.surfaceColor : ((resolvedFill && resolvedFill !== 'none') ? resolvedFill : null));
+          const fillRule = _effSurface['fill-rule'] || 'evenodd';
           const at = (seg, t) => {   // a profile segment (cubic or line) at its own t, in profile coordinates
             const w = 1 - t;
             if (seg.p1) { const c = [seg.p0, seg.p1, seg.p2, seg.p3], r = [0, 0, 0]; for (let k = 0; k < 3; k++) r[k] = w * w * w * (c[0][k] || 0) + 3 * w * w * t * (c[1][k] || 0) + 3 * w * t * t * (c[2][k] || 0) + t * t * t * (c[3][k] || 0); return r; }
@@ -63605,14 +64047,14 @@
             const total = lens.reduce((a, b) => a + b, 0); if (!(total > 1e-12)) continue;
             const S0 = [0]; for (let i = 0; i < segs.length; i++) S0.push(S0[i] + lens[i] / total); S0[segs.length] = 1;
             for (let k = 0; k < nTurns; k++) {
-              const stroke = strokeFor(k);
-              if (!stroke) continue;   // a style with neither stroke nor fill paints nothing
+              const stroke = strokeColor, fill = fillFor(k);
+              if (!stroke && !fill) continue;   // a style with neither stroke nor fill paints nothing
               const back = closed ? rev : ((k % 2 === 1) !== rev);   // this lap walks the chain backwards
               const wk = k / N, wEnd = Math.min(1, (k + 1) / N);
               const order = [...segs.keys()]; if (back) order.reverse();
               let d = '', sumZ = 0, nZ = 0, first = true, lastGi = null;
               let pieces = null;   // the bake record being filled (one per subpath per turn)
-              const flush = () => { if (pieces && pieces.length) this._bakeCollect.push({ kind: 'line', turn: k, sub: lastGi, pieces, stroke }); pieces = this._bakeCollect ? [] : null; };   // (v20261020d) the stroke rides along for Bake to Path
+              const flush = () => { if (pieces && pieces.length) this._bakeCollect.push({ kind: 'line', turn: k, sub: lastGi, pieces, stroke, fill }); pieces = this._bakeCollect ? [] : null; };   // (v20261020d) the stroke rides along for Bake to Path; the fill too (v20261023a)
               for (const i of order) {
                 const { seg, gi } = segs[i], sa = S0[i], sb = S0[i + 1];
                 if (!(sb - sa > 1e-12)) continue;
@@ -63649,9 +64091,10 @@
               if (!d || !nZ) continue;
               const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
               el.setAttribute('d', d);
-              el.setAttribute('fill', 'none');   // explicit: suppressRetracedStrokes keeps a fill="none" element's stroke
-              el.setAttribute('stroke', stroke);
-              el.setAttribute('stroke-width', strokeWidth);
+              el.setAttribute('fill', fill || 'none');
+              if (fill) el.setAttribute('fill-rule', fillRule);
+              el.setAttribute('data-line', '1');   // not a face: suppressRetracedStrokes leaves its stroke alone (a ping-pong seen along the depth retraces itself)
+              if (stroke) { el.setAttribute('stroke', stroke); el.setAttribute('stroke-width', strokeWidth); } else el.setAttribute('stroke', 'none');
               faceList.push({ element: el, z: sumZ / nZ });
             }
           }
@@ -79869,8 +80312,9 @@
           const fdRadiusRow = document.getElementById('foldRadiusRow');
           const fdPitchInput = document.getElementById('foldPitchInput');
           const fdPitchRow = document.getElementById('foldPitchRow');
-          const fdMode = (fd && (fd.mode === 'wrap' || fd.mode === 'curl' || fd.mode === 'wave')) ? fd.mode : 'fold';
+          const fdMode = (fd && (fd.mode === 'wrap' || fd.mode === 'curl' || fd.mode === 'wave' || fd.mode === 'page')) ? fd.mode : 'fold';
           const fdWave = fdMode === 'wave'; // WAVE (v20260821g)
+          const fdPage = fdMode === 'page'; // PAGE TURN (v20261025a)
           syncSel(fdModeInput, fdMode);
           if (fdRadiusRow) fdRadiusRow.style.display = (fdMode === 'wrap' || fdMode === 'curl') ? '' : 'none';
           syncSel(fdRadiusInput, fmtDisplay(cr ? (cr.radius ?? 0.5) : 0.5));   // v20261011o: display units (a world length - the wrap's arc is radius x angle)
@@ -79906,8 +80350,8 @@
           {
             const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
             show('foldWaveCountRow', fdWave); show('foldWaveSizeRow', fdWave); show('foldWaveShapeRow', fdWave);
-            show('foldWaveExtendRow', fdWave); show('foldWavePaperRow', fdWave); show('foldWaveInfoRow', fdWave); show('foldSideRow', !fdWave);
-            if (fdRadiusRow) fdRadiusRow.style.display = (fdMode === 'wrap' || fdMode === 'curl' || fdWave) ? '' : 'none';
+            show('foldWaveExtendRow', fdWave); show('foldWavePaperRow', fdWave); show('foldWaveInfoRow', fdWave); show('foldSideRow', !fdWave && !fdPage);
+            if (fdRadiusRow) fdRadiusRow.style.display = (fdMode === 'wrap' || fdMode === 'curl' || fdWave || fdPage) ? '' : 'none';
             syncSel(document.getElementById('foldWaveCountInput'), fd ? (fd.waveCount ?? 3) : 3);
             syncSel(document.getElementById('foldWaveSizeInput'), fd ? (fd.waveSize ?? 0.5) : 0.5);
             syncSel(document.getElementById('foldWaveShapeInput'), (fd && fd.waveShape) || 'up');
@@ -79919,6 +80363,40 @@
               const hgt = Lw * Math.sin(aw), wid = 2 * Lw * Math.cos(aw);
               info.textContent = hgt.toFixed(3) + ' / ' + wid.toFixed(3) + ' per bump';
             }
+          }
+          // PAGE TURN (v20261025a, PLAN-fold-page-turn.md): the Spine select,
+          // the Finger row, the Turn read-out and the Flat / Turned buttons;
+          // Position U/V read as the GRAB point here (the labels say so);
+          // Rotation is derived (hidden) and Side is the flap's (hidden).
+          {
+            const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+            // v20261025c (PLAN-page-turn-polish.md): Spine + Start corner, Turn / Swing / Lift, a status line of its
+            // own; Position U/V, Rotation and Angle are derived here and hide.
+            show('foldPageSpineRow', fdPage); show('foldPageCornerRow', fdPage); show('foldPageInfoRow', fdPage); show('foldPageSwingRow', fdPage);
+            show('foldPageLiftRow', fdPage); show('foldPageSagRow', fdPage); show('foldPageStatusRow', fdPage); show('foldPageBtnRow', fdPage);
+            show('foldRotationRow', !fdPage); show('foldPositionRow', !fdPage); show('foldPositionVRow', !fdPage);
+            if (fdAngleRow) fdAngleRow.style.display = (fdMode === 'curl' || fdPage) ? 'none' : '';
+            const spP = (fd && fd.pageSpine) || 'left';
+            syncSel(document.getElementById('foldPageSpineInput'), spP);
+            const cornerSel = document.getElementById('foldPageCornerInput');
+            if (cornerSel) { // the corner names follow the spine: the outer edge runs along V for a left / right spine, along U otherwise
+              const names = (spP === 'left' || spP === 'right') ? ['Bottom corner (V min)', 'Top corner (V max)'] : ['Left corner (U min)', 'Right corner (U max)'];
+              for (const op of cornerSel.options) { if (op.value === 'low') op.textContent = names[0]; else if (op.value === 'high') op.textContent = names[1]; }
+            }
+            syncSel(cornerSel, (fd && (fd.pageCorner === 'high' || fd.pageCorner === 'mid')) ? fd.pageCorner : 'low');
+            syncSel(document.getElementById('foldPageTurnInput'), fd ? (fd.pageTurn ?? 0) : 0);
+            syncSel(document.getElementById('foldPageSwingInput'), fd ? (fd.pageSwing ?? 0.25) : 0.25);
+            syncSel(document.getElementById('foldPageLiftInput'), fd ? Math.round((fd.pageLift ?? 0.5) * 100) : 50);
+            syncSel(document.getElementById('foldPageSagInput'), fd ? (fd.pageSag ?? 40) : 40);   // PAPER (v20261026a); Bend since v20261026e (the whip's give; default 40 since v20261026f)
+            const info = document.getElementById('foldPageInfo');
+            if (info && fdPage && fd) {
+              const frP = selectedObject.isGroup ? Path._foldGroupFrame(selectedObject) : (selectedObject._foldFrame ? selectedObject._foldFrame() : null);
+              const pgI = frP && frP.page; const rAuth = cr ? Math.abs(cr.radius ?? 0) : 0;
+              const rLift = (pgI && pgI.rBase !== undefined) ? pgI.rBase : rAuth;   // v20261026b: the blended hinge radius is by design - only the caps (binding, landing, the finger) report
+              info.textContent = !pgI ? '' : (pgI.turn <= 1e-9 ? 'flat' : (pgI.turn >= 1 - 1e-9 ? 'landed'
+                : [pgI.clamped ? 'held by the binding' : 'free', pgI.rEff < rLift - 1e-9 ? 'radius ' + fmtDisplay(rLift) + ' → ' + fmtDisplay(pgI.rEff) : ''].filter(Boolean).join(', ')));
+            }
+            ['foldPageFlatBtn', 'foldPageTurnedBtn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = fdDisabled; });
           }
           // MULTI-CREASE list (v20260721a, Fold mode only in v1): rows are
           // rebuilt ONLY when the crease count changes (rebuilding on every
@@ -81317,7 +81795,24 @@
       document.getElementById('foldModeInput')?.addEventListener('change', (e) => {
         fdApply(fd => {
           const v = e.target.value;
-          fd.mode = (v === 'wrap' || v === 'curl' || v === 'wave') ? v : 'fold';
+          fd.mode = (v === 'wrap' || v === 'curl' || v === 'wave' || v === 'page') ? v : 'fold';
+          // PAGE TURN (v20261025a): first entry seeds a visible turn - the
+          // spine on the left, the grab at the outer lower corner, the finger
+          // a third of the way across and a quarter up (the lifted corner
+          // iBooks shows), Angle 180 (lies over flat) and Radius a sixth of
+          // the sheet's shorter extent when it is the untouched 0.5.
+          if (v === 'page') {
+            // v20261025c: Start corner + Turn / Swing / Lift (the finger and the grab are gone)
+            if (fd.pageSpine === undefined) fd.pageSpine = 'left';
+            if (fd.pageCorner === undefined) fd.pageCorner = 'low';
+            if (fd.pageTurn === undefined) fd.pageTurn = 35;
+            if (fd.pageSwing === undefined) fd.pageSwing = 0.25;
+            if (fd.pageLift === undefined) fd.pageLift = 0.5;
+            if (fd.pageSag === undefined) fd.pageSag = 40;   // PAPER (v20261026a); Bend since v20261026e, 40 since v20261026f
+            const c1 = fd.creases && fd.creases[0];
+            const frP = selectedObject && (selectedObject.isGroup ? Path._foldGroupFrame(selectedObject) : selectedObject._foldFrame && selectedObject._foldFrame());
+            if (c1 && (c1.radius === undefined || c1.radius === 0.5) && frP) c1.radius = Math.max(0.01, Math.round(1000 * Math.min(frP.uMax - frP.uMin, frP.vMax - frP.vMin) / 6) / 1000);
+          }
           // WAVE (v20260821g): first entry seeds a visible default - Size at
           // a tenth of the sheet's extent along the crease normal, Angle 45
           // if the crease was flat (a 0-angle wave is the pristine sheet).
@@ -81353,6 +81848,37 @@
       // the ±90° accordion always conserves).
       document.getElementById('foldWavePaperInput')?.addEventListener('change', (e) => {
         fdApply(fd => { const v = e.target.value; fd.wavePaper = v === 'stretch' ? 'stretch' : 'conserve'; });
+      });
+      // PAGE TURN (v20261025a; the model v20261025c, PLAN-page-turn-polish.md): the Spine and the Start corner (enums),
+      // Turn / Swing / Lift (three settings-level tracks, fdTurn / fdSwing / fdLift - the fdWaveSize precedent), Flat /
+      // Turned (Turn 0 / 100). The finger is derived from these - there is no finger field.
+      document.getElementById('foldPageSpineInput')?.addEventListener('change', (e) => {
+        fdApply(fd => { const v = e.target.value; fd.pageSpine = (v === 'right' || v === 'top' || v === 'bottom') ? v : 'left'; });
+      });
+      document.getElementById('foldPageCornerInput')?.addEventListener('change', (e) => {
+        fdApply(fd => { const v = e.target.value; fd.pageCorner = (v === 'high' || v === 'mid') ? v : 'low'; });
+      });
+      document.getElementById('foldPageSwingInput')?.addEventListener('input', (e) => {
+        fdApply(fd => { const v = parseFloat(e.target.value); fd.pageSwing = isFinite(v) ? v : 0.25; }, ['fdSwing']);
+      });
+      document.getElementById('foldPageLiftInput')?.addEventListener('input', (e) => {
+        fdApply(fd => { const v = parseFloat(e.target.value); fd.pageLift = isFinite(v) ? Math.max(0, Math.min(1, v / 100)) : 0.5; }, ['fdLift']);
+      });
+      document.getElementById('foldPageSagInput')?.addEventListener('input', (e) => {   // PAPER (v20261026a): the gravity bow in degrees
+        fdApply(fd => { const v = parseFloat(e.target.value); fd.pageSag = isFinite(v) ? Math.max(0, v) : 40; }, ['fdSag']);
+      });
+      // TURN (v20261025b): the way from the grab to the landing in % - written into the finger's ACROSS-spine coordinate
+      // (F_j = G_j + p (G*_j - G_j)); the along-spine coordinate is kept, so a corner lifted toward the page's middle
+      // stays lifted while it travels. Auto-Key keys the finger tracks, as the fields and the handle do.
+      document.getElementById('foldPageTurnInput')?.addEventListener('input', (e) => {
+        const p = parseFloat(e.target.value); if (!isFinite(p)) return;
+        fdApply((fd) => { fd.pageTurn = Math.max(0, Math.min(100, p)); }, ['fdTurn']);   // v20261025c: Turn IS the stored value
+      });
+      document.getElementById('foldPageFlatBtn')?.addEventListener('click', () => {
+        fdApply((fd) => { fd.pageTurn = 0; }, ['fdTurn']);
+      });
+      document.getElementById('foldPageTurnedBtn')?.addEventListener('click', () => {
+        fdApply((fd) => { fd.pageTurn = 100; }, ['fdTurn']);
       });
       document.getElementById('foldRadiusInput')?.addEventListener('input', (e) => {
         fdApply((fd, cr) => { const v = parseFloat(e.target.value); cr.radius = isFinite(v) ? Math.max(0, fromDisplay(v)) : 0.5; }, ['fdRadius']);   // v20261011o: display units
@@ -81684,7 +82210,7 @@
         if (!ctx || !selectedObject || selectedObject !== ctx.obj) return;
         // AUTO EXTENT (v20260819a): computed spans are not draggable —
         // the anchor still is (and moves the auto span live).
-        if (t.dataset.foldHandle !== 'anchor' && selectedObject.foldSettings && selectedObject.foldSettings.autoExtent) return;
+        if (t.dataset.foldHandle !== 'anchor' && t.dataset.foldHandle !== 'finger' && selectedObject.foldSettings && selectedObject.foldSettings.autoExtent) return;
         _fhDrag = { kind: t.dataset.foldHandle, ci: parseInt(t.dataset.foldIdx, 10) || 0, off: null };
         // GRAB OFFSET (v20260821b): the anchor drag maps the cursor's sheet
         // UV STRAIGHT into position/positionV, so the anchor snaps under the
@@ -81699,9 +82225,13 @@
           // (rounded) or the Both centring, so using it as the grab reference
           // made the start jump on mousedown (owner report).
           const ck0 = ctx.fr.wave ? null : (ctx.fr.creaseList && ctx.fr.creaseList[_fhDrag.ci]);
-          const a0 = ck0 ? ck0.A2 : ctx.fr.A2;
+          const a0 = ctx.fr.page ? ctx.fr.page.G : (ck0 ? ck0.A2 : ctx.fr.A2); // PAGE TURN (v20261025a): the bar sits on the GRAB point, not the derived crease
           const uv0 = _fhSheetUV(e.clientX, e.clientY, ctx);
           if (uv0 && a0) _fhDrag.off = [uv0[0] - a0[0], uv0[1] - a0[1]];
+        }
+        if (_fhDrag.kind === 'finger' && ctx.fr.page) { // PAGE TURN (v20261025a): the dot sits on the CLAMPED finger
+          const uv0 = _fhSheetUV(e.clientX, e.clientY, ctx);
+          if (uv0) _fhDrag.off = [uv0[0] - ctx.fr.page.Fc[0], uv0[1] - ctx.fr.page.Fc[1]];
         }
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -81726,6 +82256,29 @@
             cr.position = pu;
             cr.positionV = pv;
           }, [akN('Position'), akN('PositionV')], { deferPanel: true });   // v20260904r
+        } else if (_fhDrag.kind === 'finger') {
+          // PAGE TURN (v20261025a): the finger - sheet fractions on two
+          // settings-level tracks; within 8 px of the landing point it SNAPS
+          // there EXACTLY (unrounded: the exact flat landing by hand).
+          if (!fr.page) return;
+          let gu = _fhDrag.off ? uv[0] - _fhDrag.off[0] : uv[0];
+          let gv = _fhDrag.off ? uv[1] - _fhDrag.off[1] : uv[1];
+          const ctm = pathHighlightGroup.getScreenCTM();
+          const pxPer = ctm ? Math.hypot(ctm.a, ctm.b) : 1;
+          const scrOf = (q) => { const p = [0, 0, 0]; p[fr.AX[0]] = fr.SG[0] * q[0]; p[fr.AX[1]] = fr.SG[1] * q[1]; p[fr.AX[2]] = fr.wMid; const s = transformVertex(p, ctx.mvp); return s ? [(s[0] * FRAME_SIZE) / 2, (-s[1] * FRAME_SIZE) / 2] : null; };
+          const sa = scrOf([gu, gv]), sb = scrOf(fr.page.Gstar);
+          const snap = !!(sa && sb && Math.hypot(sa[0] - sb[0], sa[1] - sb[1]) * pxPer <= 8);
+          if (snap) { gu = fr.page.Gstar[0]; gv = fr.page.Gstar[1]; }
+          // v20261025c: the dot writes TURN (the cursor's way across the spine) and SWING (its offset along the spine
+          // over sin(pi p) - held near the ends, where the path has no along component by construction)
+          const pg = fr.page;
+          const hG = (pg.G[0] - pg.Sg[0]) * pg.m[0] + (pg.G[1] - pg.Sg[1]) * pg.m[1];
+          const hF = (pg.G[0] - gu) * pg.m[0] + (pg.G[1] - gv) * pg.m[1];
+          const turn = snap ? 100 : Math.max(0, Math.min(100, Math.round(hF / (2 * (hG || 1)) * 1000) / 10));
+          const sn = Math.sin(Math.PI * turn / 100);
+          let swing = null;
+          if (!snap && sn >= 0.05 && pg.sDir) { const F = [gu, gv]; swing = Math.round(((F[pg.k] - pg.G[pg.k]) * pg.sDir / (pg.sLen || 1)) / sn * 1000) / 1000; }
+          fdApply((fd) => { fd.pageTurn = turn; if (swing !== null) fd.pageSwing = swing; }, swing !== null ? ['fdTurn', 'fdSwing'] : ['fdTurn'], { deferPanel: true });
         } else {
           const ck = fr.creaseList && fr.creaseList[ci];
           if (!ck) return;
@@ -88596,7 +89149,12 @@
             // WAVE (v20260821g): the generated chain's lines draw FAINTER
             // (they are not individually editable); the START line (crease
             // 1's anchor - what the bar drags) draws at full weight first.
-            const guideLines = fr.wave
+            // PAGE TURN (v20261025a): the GRAB bar alone (no line through it)
+            // and the derived crease faint; the spine, the finger and the
+            // landing point draw below.
+            const guideLines = fr.page
+              ? [{ A2: fr.A2, dir2: fr.dir2, faint: true }]   // v20261025c: no grab bar - the Start corner is a select
+              : fr.wave
               ? (() => {
                   // WAVE STRETCH (v20260825a): under Paper = Stretch the
                   // corner rulings sit at the profile's FOOTPRINT x, not at
@@ -88624,15 +89182,15 @@
             // fold mode (wrap/curl draw a single line). Anchors that project
             // to the same pixel stack their labels instead of overprinting —
             // the showVertexIndex coincidence trick.
-            const numOn = !fr.wave && (fr.mode === 'fold' || fr.mode === 'wrap') && guideLines.length >= 2;
+            const numOn = !fr.wave && !fr.page && (fr.mode === 'fold' || fr.mode === 'wrap') && guideLines.length >= 2;
             const numSeen = numOn ? new Map() : null;
             guideLines.forEach((ck, li) => {
-              const isCrease = fr.mode === 'fold' && !fr.wave;
-              if (ck.faint) { // WAVE: generated line, no handles
+              const isCrease = fr.mode === 'fold' && !fr.wave && !fr.page;
+              if (ck.faint) { // WAVE / PAGE: generated line, no handles
                 drawGuideLine(ck.A2, ck.dir2, 'foldCreaseGuide_w' + li, 1, 4, 4, 0.45, null, undefined);
                 return;
               }
-              drawGuideLine(ck.A2, ck.dir2, li ? 'foldCreaseGuide_' + li : 'foldCreaseGuide', 1.5, 6, 4, 1,
+              if (!ck.barOnly) drawGuideLine(ck.A2, ck.dir2, li ? 'foldCreaseGuide_' + li : 'foldCreaseGuide', 1.5, 6, 4, 1,
                 isCrease ? [ck.extentA ?? 0, ck.extentB ?? 1] : null, // CREASE EXTENT (v20260818d)
                 isCrease ? li : undefined); // v20260818g: tick handles carry the crease index
               // ANCHOR HANDLE (v20260818g): a draggable handle at the crease
@@ -88748,6 +89306,64 @@
             } else if (fr.mode === 'wrap' && fr.wArc > 1e-9) {
               drawGuideLine([fr.A2[0] + fr.n2[0] * fr.wArc, fr.A2[1] + fr.n2[1] * fr.wArc],
                 fr.dir2, 'foldCreaseGuideEnd', 1, 3, 3, 0.55);
+            }
+            // PAGE TURN (v20261025a, PLAN-fold-page-turn.md): the SPINE edge at
+            // full weight (no handle - the binding), the FINGER as a draggable
+            // dot (the halo pattern; data-fold-handle 'finger' writes
+            // pageFingerU/V), the LANDING point hollow (the finger snaps to
+            // it), and when the binding clamped the finger, the authored
+            // finger hollow-dashed and tethered to where the paper let it go.
+            if (fr.page) {
+              const pg = fr.page;
+              const sDir = [pg.spine[1][0] - pg.spine[0][0], pg.spine[1][1] - pg.spine[0][1]];
+              const sLen = Math.hypot(sDir[0], sDir[1]) || 1;
+              drawGuideLine(pg.spine[0], [sDir[0] / sLen, sDir[1] / sLen], 'foldCreaseGuideSpine', 2.5, 10, 4, 1, null, undefined);
+              const scr = (q) => { const p = [0, 0, 0]; p[fr.AX[0]] = fr.SG[0] * q[0]; p[fr.AX[1]] = fr.SG[1] * q[1]; p[fr.AX[2]] = fr.wMid; const s = transformVertex(p, guideMVP); return s ? [(s[0] * FRAME_SIZE) / 2, (-s[1] * FRAME_SIZE) / 2] : null; };
+              const circ = (sid, c, r, fill, stroke, w, op, dash) => {
+                const el = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                el.id = sid; el.setAttribute('cx', c[0]); el.setAttribute('cy', c[1]); el.setAttribute('r', r / scale);
+                el.setAttribute('fill', fill); el.setAttribute('stroke', stroke); el.setAttribute('stroke-width', w / scale);
+                if (op !== undefined) el.setAttribute('opacity', op);
+                if (dash) el.setAttribute('stroke-dasharray', dash);
+                el.style.pointerEvents = 'none'; pathHighlightGroup.appendChild(el); return el;
+              };
+              const sF = scr(pg.Fc), sLand = scr(pg.Gstar), sRaw = pg.clamped ? scr(pg.F) : null;
+              if (sLand) circ('foldCreaseGuideLand', sLand, 4.5, 'none', _highlightColor, 1.5, 0.7);
+              if (sRaw && sF) {
+                const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                ln.id = 'foldCreaseGuideFingerTether';
+                ln.setAttribute('x1', sRaw[0]); ln.setAttribute('y1', sRaw[1]); ln.setAttribute('x2', sF[0]); ln.setAttribute('y2', sF[1]);
+                ln.setAttribute('stroke', _highlightColor); ln.setAttribute('stroke-width', 1 / scale);
+                ln.setAttribute('stroke-dasharray', `${3 / scale} ${3 / scale}`); ln.setAttribute('stroke-opacity', 0.6);
+                ln.style.pointerEvents = 'none'; pathHighlightGroup.appendChild(ln);
+                circ('foldCreaseGuideFingerRaw', sRaw, 5, 'none', _highlightColor, 1.5, 0.6, `${2 / scale} ${2 / scale}`);
+              }
+              // v20261025c: the paper's corner IN THE AIR (Lift > 0) - the image of the start corner under the wrap,
+              // tethered to the finger's footprint, so the pull point and the lifted corner read as one
+              if (sF && pg.img2 && pg.lift > 1e-9 && pg.A && pg.n) {
+                const p3 = [0, 0, 0];
+                p3[fr.AX[0]] = fr.SG[0] * (pg.A[0] + pg.n[0] * pg.img2[0]);
+                p3[fr.AX[1]] = fr.SG[1] * (pg.A[1] + pg.n[1] * pg.img2[0]);
+                p3[fr.AX[2]] = fr.wMid + fr.SG[2] * pg.img2[1];
+                const s3 = transformVertex(p3, guideMVP);
+                if (s3) {
+                  const sI = [(s3[0] * FRAME_SIZE) / 2, (-s3[1] * FRAME_SIZE) / 2];
+                  const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                  ln.id = 'foldCreaseGuideFingerAirTether';
+                  ln.setAttribute('x1', sF[0]); ln.setAttribute('y1', sF[1]); ln.setAttribute('x2', sI[0]); ln.setAttribute('y2', sI[1]);
+                  ln.setAttribute('stroke', _highlightColor); ln.setAttribute('stroke-width', 1 / scale);
+                  ln.setAttribute('stroke-dasharray', `${2 / scale} ${3 / scale}`); ln.setAttribute('stroke-opacity', 0.5);
+                  ln.style.pointerEvents = 'none'; pathHighlightGroup.appendChild(ln);
+                  circ('foldCreaseGuideFingerAir', sI, 4, 'none', _highlightColor, 1.5, 0.8);
+                }
+              }
+              if (sF) {
+                circ('foldCreaseGuideFinger_bg', sF, 8, 'var(--overlay-halo)', 'none', 0);
+                circ('foldCreaseGuideFinger', sF, 6, _highlightColor, 'none', 0);
+                const hit = circ('foldCreaseGuideFinger_hit', sF, 12, '#000', 'none', 0, 0);
+                hit.style.pointerEvents = 'all'; hit.style.cursor = 'move';
+                hit.dataset.foldHandle = 'finger'; hit.dataset.foldIdx = 0;
+              }
             }
           }
         }
@@ -101189,7 +101805,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         // GROUP EXTRUDE (v20260719b): merge over ctor defaults (absent field = old behavior)
         if (data.extrudeSettings) obj.extrudeSettings = { ...obj.extrudeSettings, ...data.extrudeSettings };
         // GROUP FOLD (v20260721g, stage G2): ctor default is null — restore whole
-        if (data.foldSettings) obj.foldSettings = JSON.parse(JSON.stringify(data.foldSettings));
+        if (data.foldSettings) { obj.foldSettings = JSON.parse(JSON.stringify(data.foldSettings)); Path._foldPageMigrate(obj.foldSettings); }   // PAGE TURN (v20261025c): a-b files
       } else {
         // Path
         obj = new Path(
@@ -101259,6 +101875,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       // merges over the default crease shape (absent field = default).
       if (data.foldSettings && obj.foldSettings) {
         obj.foldSettings = { ...obj.foldSettings, ...data.foldSettings };
+        Path._foldPageMigrate(obj.foldSettings);   // PAGE TURN (v20261025c): a page saved by v20261025a-b (finger + grab) becomes corner + Turn / Swing / Lift
         // v20260720n migration: files saved by v20260720m carry 'plane'
         // instead of the axis pair — map it (XY→X,Y | YZ→Y,Z | ZX→Z,X).
         if (obj.foldSettings.plane && !data.foldSettings.axisU) {
@@ -101515,6 +102132,8 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       // Restore Animation Timeline
       if (data.animation && typeof tlDeserialize === 'function') {
         tlDeserialize(data.animation);
+        // PAGE TURN (v20261025c): an a-b file's finger tracks become Turn / Swing tracks (the objects are restored above)
+        { const _walk = (list) => { for (const o of list) { if (o.foldSettings) Path._foldPageMigrateTracks(o, animationTimeline.tracks); if (o.isGroup && o.children) _walk(o.children); } }; _walk(sceneObjects); }
         // v20260812p: the "re-enable the panel if the scene has keyframes" call
         // is GONE. It existed to rescue a user who had ticked the experiment
         // off, which is no longer reachable — and it had never run anyway, since
@@ -105128,6 +105747,12 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       { prop: 'fdScaleU', label: 'Scale U', fsKey: 'scaleU', precision: 2, step: 0.1 },
       { prop: 'fdScaleV', label: 'Scale V', fsKey: 'scaleV', precision: 2, step: 0.1 },
       { prop: 'fdWaveSize', label: 'Wave Size', fsKey: 'waveSize', precision: 3, step: 0.05 }, // WAVE (v20260821g)
+      { prop: 'fdTurn', label: 'Turn %', fsKey: 'pageTurn', precision: 1, step: 1 },        // PAGE TURN (v20261025c): the one number
+      { prop: 'fdSwing', label: 'Swing', fsKey: 'pageSwing', precision: 3, step: 0.05 },
+      { prop: 'fdLift', label: 'Lift', fsKey: 'pageLift', precision: 2, step: 0.05 },
+      { prop: 'fdSag', label: 'Bend', fsKey: 'pageSag', precision: 1, step: 5 },          // PAPER (v20261026a): the gravity bow; the whip's give since v20261026e (the key and the track name stay)
+      { prop: 'fdFingerU', label: 'Finger U (v20261025a-b)', fsKey: 'pageFingerU', precision: 3, step: 0.01 }, // kept so a stale a-b track lists and deletes; files convert on load
+      { prop: 'fdFingerV', label: 'Finger V (v20261025a-b)', fsKey: 'pageFingerV', precision: 3, step: 0.01 },
       { prop: 'fdPosition', label: 'Position U', foldKey: 'position', precision: 2, step: 0.01 },
       { prop: 'fdPositionV', label: 'Position V', foldKey: 'positionV', precision: 2, step: 0.01 }, // 2D anchor (v20260817d)
       { prop: 'fdExtentA', label: 'Extent A', foldKey: 'extentA', precision: 2, step: 0.01 }, // segment creases (v20260818d)
@@ -105206,7 +105831,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
     const _foldModeParams = (obj, objTracks) => {
       const all = _foldDynamicParams(obj);
       const fs = obj && obj.foldSettings;
-      const mode = fs && (fs.mode === 'wrap' || fs.mode === 'curl' || fs.mode === 'wave') ? fs.mode : 'fold';
+      const mode = fs && (fs.mode === 'wrap' || fs.mode === 'curl' || fs.mode === 'wave' || fs.mode === 'page') ? fs.mode : 'fold';
       const keyOf = (d) => d.fsKey || d.foldKey;
       const top = (d) => d.creaseIdx === undefined; // crease 1 / settings-level
       const ok = (d) => {
@@ -105215,6 +105840,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         if (mode === 'fold') return ['position', 'positionV', 'extentA', 'extentB', 'rotation', 'angle'].includes(k);
         if (mode === 'wrap') return top(d) ? ['position', 'positionV', 'rotation', 'angle', 'radius'].includes(k) : ['position', 'positionV', 'angle', 'radius'].includes(k);
         if (mode === 'curl') return top(d) && ['position', 'positionV', 'rotation', 'angle', 'radius', 'pitch', 'tighten'].includes(k);
+        if (mode === 'page') return top(d) && ['pageTurn', 'pageSwing', 'pageLift', 'pageSag', 'radius'].includes(k); // PAGE TURN (v20261025c; Sag v20261026a): Turn, Swing, Lift, Sag, the curl; the grab, the angle and the finger are derived
         return top(d) && ['position', 'positionV', 'rotation', 'angle', 'radius', 'waveSize'].includes(k); // wave
       };
       return all.filter(d => d && (ok(d) || (objTracks && objTracks.has(d.prop))));
@@ -105560,6 +106186,10 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         { id: 'foldScaleUInput', prop: 'fdScaleU' },
         { id: 'foldScaleVInput', prop: 'fdScaleV' },
         { id: 'foldWaveSizeInput', prop: 'fdWaveSize' },
+        { id: 'foldPageTurnInput', prop: 'fdTurn' },   // PAGE TURN (v20261025c)
+        { id: 'foldPageSwingInput', prop: 'fdSwing' },
+        { id: 'foldPageLiftInput', prop: 'fdLift', fmt: v => String(Math.round(v * 100)) },
+        { id: 'foldPageSagInput', prop: 'fdSag' },   // PAPER (v20261026a)
         { id: 'foldPositionInput', prop: 'fdPosition' },
         { id: 'foldPositionVInput', prop: 'fdPositionV' },
         { id: 'foldExtentAInput', prop: 'fdExtentA' },

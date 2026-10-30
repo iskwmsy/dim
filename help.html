@@ -151,7 +151,7 @@
 
   <p style="font-size:11px;font-weight:600;color:var(--text-main);margin:0 0 4px;">dim / 3D Application based on SVG for
     graphic designers</p>
-  <p style="font-size:11px;color:var(--text-help-muted);margin:0 0 2px;">v20261026f</p>
+  <p style="font-size:11px;color:var(--text-help-muted);margin:0 0 2px;">v20261031g</p>
   <p style="font-size:11px;color:var(--text-help-muted);margin:0 0 0;">&copy; 2026 Masaya Ishikawa</p>
 
   <!-- ===== Keyboard Shortcuts ===== -->
@@ -259,7 +259,7 @@
     </tr>
     <tr>
       <td><kbd>I</kbd></td>
-      <td>Light tool (shown while Settings &rsaquo; <em>Lights (experimental)</em> is on) &mdash; click the workplane to place a light there, raised toward the camera; see <em>Lights (experimental)</em>.</td>
+      <td>Light tool &mdash; click the workplane to place a light there, raised toward the camera; see <em>Lights</em>.</td>
     </tr>
     <tr>
       <td><kbd>H</kbd></td>
@@ -339,7 +339,7 @@
     <!-- TEXT TOOL (experimental) -->
     <tr>
       <td><kbd>T</kbd></td>
-      <td>Text tool &mdash; loads a font file (.ttf, .otf, .ttc, .woff) and sets the text as paths. Not supported, so a font that "does not load" is one of these: .woff2, variable CFF2 outlines, ligatures and other substitutions, right-to-left scripts; composite glyphs are matched by point and may misalign. Outline such text in Illustrator and paste it.</td>
+      <td>Text tool &mdash; loads a font file (.ttf, .otf, .ttc, .woff) and sets the text as paths. Not supported, so a font that "does not load" is one of these: .woff2, variable CFF2 outlines, ligatures and other substitutions, right-to-left scripts; composite glyphs are matched by point and may misalign. Outline such text in Illustrator and paste it. A character the font does not have draws nothing (it keeps its space) instead of a box, and the panel says how many there are.</td>
     </tr>
     <!-- /TEXT TOOL -->
     <tr>
@@ -477,6 +477,18 @@
     <tr>
       <td>Trash (Clear)</td>
       <td>Deletes the selected keyframe(s); with none selected, the focused track's keyframes; with no focus, the entire animation (asks first). A track that goes away takes its Loop Before / After with it and puts the object back at its rest value &mdash; including the pivot's hidden shift; Clear all also resets Hold Framing. All three are undoable with <kbd>⌥</kbd> <kbd>Z</kbd>.</td>
+    </tr>
+    <tr>
+      <td><kbd>⌘</kbd> / <kbd>Ctrl</kbd> + scroll, pinch</td>
+      <td>Zoom the ruler and the tracks around the frame under the pointer. A plain scroll over the ruler (or the strip above it), a sideways scroll or <kbd>⇧</kbd> + scroll over the tracks pans; a plain scroll over the tracks still scrolls the rows.</td>
+    </tr>
+    <tr>
+      <td>Length, All, Range</td>
+      <td>The row above the ruler. <em>Length</em> is how long the timeline is: 360 frames by default, up to 7200 (saved with the scene). Shortening it past a keyframe asks first; the keyframe is kept and comes back when the timeline is long enough again. <em>All</em> shows the whole timeline, <em>Range</em> the play range.</td>
+    </tr>
+    <tr>
+      <td>The overview strip</td>
+      <td>Beside Length: the whole timeline with every keyframe as a tick, the play range and the playhead. The box is the part the ruler and the tracks show: drag it to pan, drag an edge to zoom, click outside it to move it there, double-click to show everything. During playback a zoomed view turns the page when the playhead reaches its edge; a typed frame or a jump to a keyframe brings it into view.</td>
     </tr>
     <tr>
       <td><kbd>⇧</kbd> + scrub</td>
@@ -829,8 +841,8 @@
 
   <h2>3D Settings &mdash; Extrude, Revolve, Sweep, Loft</h2>
   <p style="font-size:12px;line-height:1.5;margin:4px 0 10px;">
-    The <b>3D Settings</b> tab gives a flat path a solid. One modifier is on at a time (an enabled Extrusion wins over
-    Revolve, Revolve over Sweep, Sweep over Loft); each has its own <em>Render Settings</em> block (below). A group carries
+    The <b>3D Settings</b> tab gives a flat path a solid. One modifier is on at a time: ticking one turns the others off
+    (a file saved with two keeps the order Extrusion, Revolve, Sweep, Loft until one is ticked); each has its own <em>Render Settings</em> block (below). A group carries
     an Extrusion of its own that reaches every path inside it (<em>Override Children</em> makes the group's settings win
     over a child's). Every number here is keyframable; the modes and the colours are not.
   </p>
@@ -873,9 +885,10 @@
     <tr>
       <td><b>Side Color</b> (a revolve's <em>Ribbon Color</em>, a sweep's or loft's <em>Surface Color</em>)</td>
       <td>The colour of the sides, with a <em>Palette</em>: <em>Add Color</em> gives the sides several colours, one per
-          authored segment of the profile (<em>Cycle</em>) or blended across them (<em>Interpolate</em>). In Layer, Mesh and
-          Stacks the palette runs along the depth instead, one colour per layer. Caps are never palette-coloured: Fill or
-          the first side colour. With no side colour set and no stroke, a new extrusion shades its sides from the fill by
+          authored segment of the profile (<em>Cycle</em>), blended across them from the first colour to the last (<em>Interpolate</em>), or blended round and back to the first (<em>Loop</em>, for a closed run: no seam). In Layer, Mesh and
+          Stacks the palette runs along the depth instead, one colour per layer. A cap set to <em>Fill</em> takes the object's fill; a cap set to
+          <em>Side</em> takes the palette's colour at its own end in Layer and Mesh (the first at the start, the last at the
+          end) and the first colour in Clean. With no side colour set and no stroke, a new extrusion shades its sides from the fill by
           itself.</td>
     </tr>
     <tr>
@@ -890,11 +903,13 @@
     </tr>
     <tr>
       <td>Bake to Faces</td>
-      <td>At the bottom of an extrusion's Render Settings: replaces the extrusion by a group of plain faces as the
+      <td>At the bottom of a Revolve, Sweep or Loft in <b>Mesh</b>, <b>Layer</b> or <b>Stacks</b>: replaces the object by a group of plain faces
+          (its cells, layers or stacks, and the caps), the surface as authored, whatever the camera. Clean, Silhouette and Exact do not bake: their faces are cut at the
+          camera's horizon. And at the bottom of an extrusion's Render Settings, in every mode, a group of plain faces as the
           current render mode draws them (Clean: the two caps, every straight side as a plane, every curved side as a band
           that keeps rendering as a curved face; Mesh / Layer / Stacks: their own cells, layers or slabs). Every face edits
           on its own. The Shape tool's shapes bake the same way. In <b>Line</b> the button reads <em>Bake to Path</em> and
-          leaves ONE plain 3D path, not a group (the revolve's Line rows carry the same button).</td>
+          leaves ONE plain 3D path, not a group (the revolve's and the sweep's Line rows carry the same button).</td>
     </tr>
   </table>
 
@@ -929,12 +944,12 @@
           puts a station at each of the profile's anchor heights instead of spacing them evenly (the Count greys).</td>
     </tr>
     <tr>
-      <td><b>Line</b> (extrude, revolve)</td>
+      <td><b>Line</b> (extrude, revolve, sweep)</td>
       <td>The path itself pushed through the depth as one stroked curve: the first vertex at depth 0 (or the start angle),
           the last at the depth (or the end of the turn), every point in between by its distance along the path - a circle
           extruded becomes one coil of a spring, a vertical line revolved a helix. No caps and no sides: each turn is one path
           with the style's stroke and the style's fill, as a flat path is drawn - the fill is the projected region (an open
-          path closed by a chord), painted turn over turn in depth order. With Side Color on, the palette fills each turn
+          path closed by a chord), painted turn over turn in depth order. Under <em>Scene Z-Sort</em> the stroke of each turn is cut into its near and far arcs, so a coil round a cube passes in front of it and behind it, from any height of camera, and each arc takes its place from the real depth of the surface under it. This is paint order only: a Line that passes through a solid is placed to within a short piece of the crossing, a flat path sorts by its middle, and with the Masks row off the arcs sort by their middle too. With Side Color on, the palette fills each turn
           (coil k in colour k) and the stroke stays the style's. <em>Turns</em> traces the path that many times along
           the way - a closed path laps (a spring of N coils), an open one goes back and forth; fractions allowed, and the
           number animates. <em>Flat</em> (0 to 1) keeps that much of the path, from its start, flat - at depth 0, or at the
@@ -944,11 +959,13 @@
           more of the shape arrives - a line hitting a wall. Below 0 (down to -10) the path floats away from the plane: in Trim the
           whole line shifts away by that much of the depth (past the depth, or on round the axis), in Stretch its start lifts
           while its end stays at the depth.
+          On a <b>sweep</b> the rail is the depth: a shape written along any curve (a circle laps round the rail, a coil round a bent rod), and in Trim what
+          passes the rail's end lies flat there, in the rail's last frame.
           <em>Reverse</em> starts from the last vertex. <em>Join Subpaths</em> treats a compound path as one line, in order:
           the depth keeps climbing from one subpath to the next (the pen lifts between them); off, each subpath is its own
           line over the full depth. The Side Color palette colours each turn. For a
-          revolve the <em>Segments</em> row sets how finely the curve is pieced. Not a Boolean operand; casts no shadow.
-          <em>Bake to Path</em> (the extrude's bake button, and a button of its own in the revolve's Line rows) turns the
+          revolve or a sweep the <em>Segments</em> row sets how finely the curve is pieced. Not a Boolean operand; casts no shadow.
+          <em>Bake to Path</em> (the extrude's bake button, and a button of its own in the revolve's and the sweep's Line rows) turns the
           Line into one plain 3D path - every turn of every subpath its own open curve, the stroke as drawn, no fill -
           a real space curve that works as a Sweep rail or a Motion Path target (a spring from a circle, then a square
           swept along it). Undo brings the Line back.</td>
@@ -982,8 +999,8 @@
       <td><b>Spline Flow</b></td>
       <td>The <em>Bend Along</em> checkbox turns it on: the art bends along the <em>Target Path</em>. <em>Offset</em> slides it along the path as a fraction of the path's
           length (0 to 1, not a distance; <em>H</em> is the offset across it), so one keyframed Offset runs text along a
-          curve at a constant speed. <em>Overflow</em> says what happens past the ends: <em>None</em>, <em>Clip</em> (cut
-          off), <em>Clip &amp; Warp</em> (the piece that leaves one end comes in at the other), <em>Overflow</em> (continues
+          curve at a constant speed. <em>Overflow</em> says what happens past the ends: <em>None</em> (the art's centre stops at
+          the end and the rest runs straight on past it), <em>Clip</em> (cut off), <em>Clip &amp; Warp</em> (the piece that leaves one end comes in at the other), <em>Overflow</em> (continues
           straight along the end tangent), <em>Around</em> (wraps round a closed path). <em>Repeat</em> lays copies along
           the path with a <em>Gap</em>, or <em>Fit</em> spreads the copies evenly over the whole length. <em>Match Target</em>
           (on) gives the art the target path's own position, rotation and scale; off, it bends from the target's origin
@@ -1071,14 +1088,14 @@
     </tr>
     <tr>
       <td><b>Page Turn</b></td>
-      <td>The page of a book turned from one corner. <em>Spine</em> is the bound edge (the paper there never moves); <em>Start</em>
+      <td>The page of a book turned from one corner. <em>Spine</em> is the bound edge (the paper there never moves), or <em>Line</em>, a spine anywhere on the sheet: Position U / V and Rotation place it, the half behind it stays flat, for a spread or a card; <em>Start</em>
           is where the turn begins on the outer edge, a corner or the edge's middle, and it stays put through the turn.
           <em>Turn %</em> is the one number to animate: 0 the flat page, 100 the page landed on the other side, exactly mirrored.
           <em>Swing</em> bends the corner's path toward the page's middle on its way over (0 for a straight sweep), and
           <em>Lift</em> sets how the page rises: 0 is the e-book look (a fold line crosses the page and the turned part lies over
           it, face down, so a group turned this way shows its backing layer, see Backside), 100 is a rigid page swinging on its spine
-          (standing straight up at 50); between, bent paper that curves out of the binding and passes vertical near 50. <em>Radius</em> is the curl of the e-book look: it belongs to the sweep,
-          fades with Lift, and tightens by itself at the first lift and at the landing. A risen page behaves like paper:
+          (standing straight up at 50); between, bent paper that curves out of the binding and passes vertical near 50. The page leaves the e-book look gradually over the first few percent, so a keyed Lift starts without a snap. <em>Radius</em> is the curl of the e-book look: it belongs to the sweep,
+          fades with Lift (the field greys from Lift 10, where it does nothing), and tightens by itself at the first lift and at the landing. A risen page behaves like paper:
           its corner roll and its bow both vanish when it stands vertical (Turn 50 at Lift 100, earlier at a lower Lift), and
           <em>Bend</em> is the paper's give, in degrees: as the page flips the body bends ahead of the root toward the
           landing side (the corner leads, the root lags), the corner curls up first and, past halfway, hooks back while
@@ -1124,7 +1141,10 @@
     <tr>
       <td>Stroke</td>
       <td>Colour, width (in the display unit), <em>Opacity</em>, <em>Ends</em> (the join: Miter / Round / Bevel, with <em>M. Clip</em> and <em>Arcs</em> as the SVG 2 variants Illustrator
-          may not read; the cap: Butt / Round / Square) and <em>Dash</em> (dash gap dash gap, in stroke units; empty is solid).</td>
+          may not read; the cap: Butt / Round / Square), <em>Limit</em> (shown for the miter joins: how far a sharp corner may spike
+          before it is beveled, as a multiple of the stroke width &mdash; 4 is SVG&rsquo;s default, 10 Illustrator&rsquo;s; a pasted
+          Illustrator stroke keeps its own, every exported piece carries it, and it does not change when the stroke width scales)
+          and <em>Dash</em> (dash gap dash gap, in stroke units; empty is solid).</td>
     </tr>
     <tr>
       <td>Trim %</td>
@@ -1238,7 +1258,7 @@
     </tr>
     <tr>
       <td>Snap to Point / Move Coincident Points</td>
-      <td><em>Snap to Point</em> snaps a dragged object or vertex onto another anchor. <em>Move Coincident Points</em> moves
+      <td><em>Snap to Point</em> snaps a dragged object or vertex onto another anchor, and the corner, centre or point a shape tool (polygon, star, ellipse, 3D shape, spiral, cycloid, Lissajous, text, doodle, light) is drawn from or to; on a shape tool the point is taken where it meets the drawing plane, so the shape stays on its workplane. <em>Move Coincident Points</em> moves
           every vertex that sits exactly on the dragged one together with it (two subpaths meeting at a point stay
           joined). Both are in the Pen drawer too.</td>
     </tr>
@@ -1312,9 +1332,9 @@
     </tr>
   </table>
 
-  <h2>Lights (experimental)</h2>
+  <h2>Lights</h2>
   <p style="font-size:12px;line-height:1.5;margin:4px 0 10px;">
-    Turn on Settings &rsaquo; <em>Lights (experimental)</em>, press <kbd>I</kbd> and click the workplane: a light is placed
+    Press <kbd>I</kbd> and click the workplane: a light is placed
     there, raised toward the camera, and selected. Lit faces take a shade by the angle they make with the light, and the
     light casts a <b>vector shadow</b> onto the workplane and onto the flat faces of other objects. Everything stays
     vector: a shadow is a path, black at an opacity, and a soft edge exports as a stack of offset copies that Illustrator
@@ -1335,9 +1355,17 @@
     </tr>
     <tr>
       <td>Color / Intensity / Ambient</td>
-      <td>The light's colour tints what it lights; Intensity 0&ndash;2 (1 = full). Ambient is the scene's, under the
+      <td>The light's colour tints what it lights; Intensity 0&ndash;2 (1 = full). At 0 it shades nothing and still casts: a shadow-only light. Ambient is the scene's, under the
           tab's <em>Scene</em> heading and again in the Workplane Settings panel while a light is in the scene: the share
           of its colour a face keeps where no light reaches it (one value for the whole scene).</td>
+    </tr>
+    <tr>
+      <td>Spot Light</td>
+      <td>A point light that shines in a cone along its local +Z axis, aimed like a directional or a panel light (Aim, or rotate it). <em>Cone Angle</em> is the cone's full angle; <em>Cone Softness</em> fades the shading toward its edge. A shade is one colour per face, read at the face's centre, so a large face is lit or not as a whole. The spot's shadow is cut to the cone with a hard edge, whatever the softness; Blur still softens the shadow's outline. Both numbers are animatable.</td>
+    </tr>
+    <tr>
+      <td>Falloff, Range</td>
+      <td>A point or a panel light can fade with distance: <em>Inverse</em> is Range / distance, <em>Inverse Square</em> its square, so at Range the light has its typed Intensity, nearer it is brighter and farther dimmer. None (the default) is the same at any distance; a directional light has no distance and no such row. Range is animatable. A shadow does not change with it. Selected, the light draws a faint dashed ring at Range; the ring is never exported.</td>
     </tr>
     <tr>
       <td>Shadows / Shadow Opacity / Shadow Color / Blur / Softness</td>
@@ -1355,7 +1383,7 @@
     <tr>
       <td>Receivers</td>
       <td>Where the shadow lands: the workplane and the flat faces of other objects, the workplane only, or the objects
-          only. Curved surfaces (revolves, sweeps) cast shadows but do not receive them yet.</td>
+          only. Curved surfaces (revolves, sweeps) and folded paths, a turning page among them, cast shadows but do not receive them yet: for a page's shadow on what lies under it, put a next page there.</td>
     </tr>
     <tr>
       <td>Style tab: Lit / Cast Shadows / Receive Shadows</td>
@@ -1366,7 +1394,7 @@
       <td>What shades and casts</td>
       <td>Flat paths, extrusions (caps and sides), mesh surfaces, revolves and sweeps (their Clean and More Simple Sides
           pieces shade; they cast through a sampled surface). A path with holes casts its holes. Lofts, fold / wrap / curl
-          and mapped objects neither shade nor cast yet; a Holdout casts and never receives.</td>
+          and mapped objects neither shade nor cast yet; a Holdout casts and never receives. A Line is a stroke: it neither casts nor receives.</td>
     </tr>
     <tr>
       <td>Timeline</td>
@@ -1419,8 +1447,8 @@
           are the same set without the typing.</td>
     </tr>
     <tr>
-      <td>Camera Match (experimental)<br>Import Photo / Show Photo / Opacity / Include Photo in Export</td>
-      <td>Shown when Settings &rsaquo; <em>Camera Match (experimental)</em> is on. <em>Import Photo</em> puts a photograph
+      <td>Camera Match<br>Import Photo / Show Photo / Opacity / Include Photo in Export</td>
+      <td><em>Import Photo</em> puts a photograph
           behind the scene as the selected camera's backplate: letterboxed in the frame with its long side at 960, following
           the frame's zoom and pan (not the camera), under the grid. Each camera has its own; a duplicate shares it.
           <em>Show Photo</em> hides it without removing it; <kbd>Tab</kbd> does not hide it (it is part of the picture, unlike
@@ -1570,19 +1598,6 @@
       <td>Each is described under <em>Workplane &amp; Other</em>.</td>
     </tr>
     <tr>
-      <td>Camera Match (experimental)</td>
-      <td>Off by default. Adds a <em>Camera Match</em> section to the Camera panel (see <em>Camera panel and the canvas camera
-          HUD</em>): a photograph behind the scene as a camera's backplate. Lines drawn over the photo solve the camera that took it
-          (<em>Match Camera</em>, in the same section). While the switch is off the section, the matches and every photo
-          are hidden, and nothing is removed from the scene.</td>
-    </tr>
-    <tr>
-      <td>Lights (experimental)</td>
-      <td>Off by default. Shows the Light tool (<kbd>I</kbd>) and makes every light in the scene shade and cast; see
-          <em>Lights (experimental)</em>. While the switch is off the lights stay in the scene and in the file, and the
-          picture is exactly the one without them.</td>
-    </tr>
-    <tr>
       <td>Scale Strokes</td>
       <td>In the Transform tab: the Scale tool scales the stroke width and the dash pattern with the object, as
           Illustrator's Scale Strokes &amp; Effects does, and bakes the new width (an animated scale does not animate the
@@ -1602,8 +1617,8 @@
     <code>&lt;g&gt;</code>. What imports:
   </p>
   <table>
-    <tr><td><b>Exactly</b></td><td>paths, rects (incl. rounded), circles, ellipses, lines, polygons, polylines; groups, layers, <code>&lt;switch&gt;</code> (Illustrator&rsquo;s &ldquo;Preserve Editing&rdquo; export), <code>&lt;a&gt;</code>, nested <code>&lt;svg&gt;</code>; transforms; fill and stroke colours, opacity (layer opacity reaches its children), fill rule, stroke width, caps, joins, dashes; clipping masks (you choose Clip or Ignore; Ignore keeps the mask outline as a dashed path)</td></tr>
-    <tr><td><b>Approximately</b></td><td><code>&lt;use&gt;</code> / symbols (instanced as plain groups; a symbol&rsquo;s own viewBox is not applied); gradients (flat fill of the first stop colour); patterns (mid grey); a clip drawn with curves (clipped along its control polygon)</td></tr>
+    <tr><td><b>Exactly</b></td><td>paths, rects (incl. rounded), circles, ellipses, lines, polygons, polylines; groups, layers, <code>&lt;switch&gt;</code> (Illustrator&rsquo;s &ldquo;Preserve Editing&rdquo; export), <code>&lt;a&gt;</code>, nested <code>&lt;svg&gt;</code>; transforms; fill and stroke colours, opacity (layer opacity reaches its children), fill rule, stroke width, caps, joins, the miter limit, dashes; <code>currentColor</code> (black, as in a standalone SVG); arcs, including a minifier&rsquo;s packed flags (<code>a5 5 0 0110 0</code>); clipping masks (you choose Clip or Ignore; a mask inside a mask clips to where both overlap; Ignore keeps every mask outline, holes included, as a dashed path)</td></tr>
+    <tr><td><b>Approximately</b></td><td><code>&lt;use&gt;</code> / symbols (instanced as plain groups; a symbol&rsquo;s own viewBox is not applied); gradients (flat fill of the first stop colour); patterns (mid grey); a clip drawn with curves (each curve followed in 16 straight steps)</td></tr>
     <tr><td><b>Not at all</b></td><td>text (outline it in Illustrator first), images, masks (<code>&lt;mask&gt;</code>), filters, blend modes other than the element&rsquo;s own</td></tr>
   </table>
   <p style="font-size:12px;line-height:1.5;margin:4px 0 10px;">
@@ -1643,6 +1658,24 @@
     animation export writes one <code>frame_NNNN</code> layer per frame, each
     self-contained (its clipping masks are renamed per frame); a camera photo included in the export goes in once, as a
     bottom <em>Background</em> layer with the paper, not once per frame.
+  </p>
+  <p style="font-size:12px;line-height:1.5;margin:4px 0 10px;">
+    <b>The frame of the file</b> (Data panel). <em>Export Background</em> (on by default) paints the background
+    rectangle; off, the 1000&nbsp;&times;&nbsp;1000 rectangle is still in the file, in the same place, unfilled and named
+    <em>dim frame</em> &mdash; the box to align a paste by. <em>Clip Export to Frame</em> (on by default) wraps the scene in
+    one clipping mask the size of that frame, so a plain <kbd>&#8984;</kbd> <kbd>V</kbd> in Illustrator always has the
+    frame&rsquo;s box and lands centred (without it, the hidden-part masks can reach past the paper and move the paste); the
+    picture inside the frame is the same. Art outside the paper is hidden until you release that one mask
+    (Object &rsaquo; Clipping Mask &rsaquo; Release). The stereo export already has its own window and takes no second mask.
+    <em>Clean Illustrator Structure</em> (on by default) leaves out dim&rsquo;s two wrapper groups, so the objects land
+    straight in Illustrator&rsquo;s Layer&nbsp;1, each named exactly as in the Scene panel &mdash; spaces, punctuation and
+    Japanese included (off, a paste arrives as <em>mainGroup &rsaquo; pathGroup &rsaquo; obj1</em>). The picture is the same.
+    Pasted back into dim, a Clean file keeps the names too, and so does a file Illustrator saved.
+    <em>One Illustrator Layer per Object</em> (off by default) makes each top-level object a layer of its own in Illustrator,
+    named as in the Scene panel, with the paper in a <em>Background</em> layer; with the frame clip on, each layer gets its own.
+    It is best for File &rsaquo; Open (a plain paste puts everything into the current layer unless Illustrator&rsquo;s
+    <em>Paste Remembers Layers</em> is on), and it is not used for the stereo export or the multi-layer animation export.
+    All four settings are remembered.
   </p>
 
   <h2>Workplane &amp; Other</h2>

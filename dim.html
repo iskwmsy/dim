@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261031j -->
+<!-- dim v20261031o -->
 
 <!--
   MIT License
@@ -4143,6 +4143,17 @@
       stroke-width: 1;
     }
 
+    /* ALIGN (experimental, v20261031k): the drawer's Align block - per axis a letter, three align and three distribute
+       icon buttons on the tree's bar; the key line; the key object's outline on the canvas. Tokens only. */
+    .align-row { display: flex; align-items: center; gap: 6px; }
+    .align-row .align-bar { flex: 1; margin-top: 0; padding: 2px 0; }
+    .align-axis { flex: 0 0 14px; text-align: center; font-size: var(--font-size-label); font-weight: 600; color: var(--text-secondary); }
+    .align-key { font-size: var(--font-size-small); color: var(--text-muted); padding: 2px var(--row-padding-h); white-space: nowrap; overflow: clip visible; text-overflow: ellipsis; }
+    #alignGapsBar .ui-btn-small { display: flex; align-items: center; justify-content: center; gap: 4px; }
+    #alignOrientBar .ui-btn-small { padding-left: 4px; padding-right: 4px; font-size: var(--font-size-small); }   /* four words in a 260 px bar (v20261031n) */
+    .align-gap-letter { font-size: var(--font-size-label); font-weight: 600; }
+    #pathHighlightGroup path.align-key-outline { opacity: .45; pointer-events: none; }
+
 
 
     .tree-type-icon {
@@ -7420,6 +7431,13 @@
           <label for="gizmoColorCb" class="ui-checkbox-label" title="Highlight a gizmo control in its own hue (red / green / blue, yellow / cyan / magenta) when you hover or drag it, instead of the accent color.">Colored Gizmo Highlight</label>
           <input type="checkbox" id="gizmoColorCb" class="ui-checkbox" />
         </div>
+        <!-- ALIGN (experimental, v20261031k, _plans/PLAN-align-tool.md) - the gate. Off = the Align block of the V / A tool
+             drawer is hidden and the key object draws plain; no file depends on it. Removable by marker sweep (grep "ALIGN" / "/ALIGN"). -->
+        <div class="prop-row prop-inline" id="alignRow">
+          <label for="alignCb" class="ui-checkbox-label" title="Experimental. Adds an Align block to the Select (V) and Direct Select (A) tool drawer: align the selected objects' bounds, anchors or origins - or the selected anchor points - to the selection, the key object, the workplane, the world origin or the camera target, along the gizmo's axes; distribute them; space them. The key object (the last shift-clicked) draws with a heavier outline.">Align (experimental)</label>
+          <input type="checkbox" id="alignCb" class="ui-checkbox" />
+        </div>
+        <!-- /ALIGN -->
 
         <!-- COLOR PICKER -->
         <div class="prop-row prop-inline" id="customColorPickerRow">
@@ -7651,6 +7669,53 @@
               <button id="moveCancelBtn" title="Discard this tool session - the object returns to where it started" class="ui-btn mr-1">Cancel</button>
               <button id="moveSubmitBtn" title="Commit this tool session as one history entry" class="ui-btn ui-btn-primary">Submit</button>
             </div>
+
+            <!-- ALIGN (experimental, v20261031k, _plans/PLAN-align-tool.md): Align and Distribute in 3D - the block the
+                 Align engine (grep "--- ALIGN") fills; hidden until Settings > Align (experimental) is on. Under A the
+                 header reads Align Anchors and the Extent and Gaps rows hide. Removable by marker sweep. -->
+            <div id="alignSection" style="display:none;">
+              <hr class="ui-hr" />
+              <div class="ui-header-small" id="alignHeader">Align</div>
+              <div class="xyz-row">
+                <label for="alignToSelect" title="What the selection aligns to">Align To</label>
+                <div class="xyz-inputs">
+                  <select id="alignToSelect" title="Selection: the bounds of everything selected. Key Object: the last object you shift-clicked - it stays put. Workplane: rest on / centre on / hang under the plane along its normal, the grid origin's axes in the plane. World Origin and Camera Target: that point. The axes are the gizmo's (W).">
+                    <option value="selection" selected>Selection</option>
+                    <option value="key">Key Object</option>
+                    <option value="workplane">Workplane</option>
+                    <option value="world">World Origin</option>
+                    <option value="cameraTarget">Camera Target</option>
+                  </select>
+                </div>
+              </div>
+              <div class="xyz-row" id="alignExtentRow">
+                <label for="alignExtentSelect" title="What counts as an object's edge">Extent</label>
+                <div class="xyz-inputs">
+                  <select id="alignExtentSelect" title="Bounds: the body the object draws (an extrusion's depth included; a revolve or a sweep sampled; a loft, a fold or a mapped path by its control points). Anchor: the pivot point. Origin: the object's own origin.">
+                    <option value="bounds" selected>Bounds</option>
+                    <option value="anchor">Anchor</option>
+                    <option value="origin">Origin</option>
+                  </select>
+                </div>
+              </div>
+              <div class="align-key" id="alignKeyLine">Key object: none</div>
+              <div id="alignGrid"></div>
+              <div id="alignGapsRows">
+                <div class="xyz-row">
+                  <label for="alignSpacingInput" title="The gap the Gaps buttons leave between the objects' bounds; empty = equal gaps inside the current extent">Spacing</label>
+                  <div class="xyz-inputs">
+                    <input type="number" id="alignSpacingInput" step="0.1" placeholder="auto" />
+                  </div>
+                </div>
+                <div class="tree-action-bar align-bar" id="alignGapsBar"></div>
+              </div>
+              <!-- ORIENT (S3, v20261031n): turn the selected objects' frames to the key object's, the workplane's, the camera's or the world's -->
+              <div id="alignOrientRows">
+                <div class="align-key" id="alignOrientLabel" title="Turn each selected object so its frame matches the target; it spins in place about its anchor">Orient to</div>
+                <div class="tree-action-bar align-bar" id="alignOrientBar"></div>
+              </div>
+            </div>
+            <!-- /ALIGN -->
 
             <!-- FLATTEN SECTION. Under V the whole selected path(s); under A
                  (v20260914zzl) the SELECTED VERTICES only - setTool swaps the
@@ -13794,6 +13859,7 @@
           // v20260914zzl: under A the Flatten buttons act on the selected vertices
           const fh = document.getElementById('flattenHeader');
           if (fh) fh.textContent = tool === 'directSelect' ? 'Flatten Selected Vertices' : 'Flatten Path';
+          try { Align.syncUI(); } catch (e) { }   // ALIGN (experimental): the block's rows follow the tool (V objects / A anchors)
         } else {
           moveSettingsContainer.style.display = 'none';
         }
@@ -20674,6 +20740,7 @@
       // the quick-access mirror (v20260921za)
       const qs = document.getElementById('qsGizmoSelect');
       if (qs) { if (qs.value !== gizmoMode) qs.value = gizmoMode; const off = !GIZMO_MODE_TOOLS.includes(tool); if (qs.disabled !== off) qs.disabled = off; }
+      try { Align.syncUI(); } catch (e) { }   // ALIGN (experimental): the axis letters follow the gizmo mode
     }
 
     // --- GIZMO ORIENTATION BASIS (v20260811a) -------------------------------
@@ -73587,6 +73654,8 @@
         pathElement.setAttribute('fill', 'none');
         pathElement.setAttribute('stroke', accentColor);
         pathHighlightGroup.appendChild(pathElement);
+        // ALIGN (experimental, v20261031k, D5): the KEY object - the primary, while several are selected - draws a heavier outline, Illustrator's cue
+        try { if (Align.keyOutlineFor(targetObject)) { const k = pathElement.cloneNode(false); k.setAttribute('class', 'align-key-outline'); k.setAttribute('stroke-width', '3'); k.setAttribute('vector-effect', 'non-scaling-stroke'); pathHighlightGroup.appendChild(k); } } catch (e) { }
 
         // --- B-Spline control polygon cage & Bezier handle lines ---
         // Only show in directSelect (A) or pen tool — too cluttered for V tool
@@ -79285,6 +79354,7 @@
     const updatePropertiesPanel = () => {
       updateCornerRows();               // ROUND CORNERS S4: the Corners rows follow the vertex selection
       updateRotatePivotRowVisibility(); // Multi Rotate Pivot depends on selection count
+      try { Align.syncUI(); } catch (e) { }   // ALIGN (experimental): the buttons and the key line follow the selection
       syncGizmoModeUI();                // Gizmo (W) <select> ← gizmoMode (v20260811e)
 
       const wpSelect = document.getElementById('workplaneSelect');
@@ -98819,6 +98889,527 @@
       }
     };
 
+    // --- ALIGN (experimental) --- (v20261031k, _plans/PLAN-align-tool.md). ALIGN AND DISTRIBUTE IN 3D - Illustrator's
+    // Align panel for objects (the V tool) and anchor points (the A tool). Three choices and a verb: the AXES are the
+    // gizmo's (W: World / Local = the KEY object's frame / Workplane / Camera; D2), ALIGN TO picks the reference
+    // (the Selection's bounds, the Key Object = the primary selectedObject which stays put, the Workplane - rest on /
+    // centre on / hang under along its normal, the grid origin's lines in the plane (D6) -, the World Origin, the
+    // Camera Target; D3), EXTENT says what an object's edge is (Bounds = the body it DRAWS, Anchor = the pivot point,
+    // Origin = the local origin; D4). Align min / centre / max per axis; Distribute edges or centres equally; Gaps =
+    // Distribute Spacing (an exact gap or equal gaps within the current extent; the key object, or the lowest, stays;
+    // D9). Every extent and reference is WORLD; the write is parent-space through _worldDeltaToParent (the Move
+    // panel's rule); ONE labelled undo entry per click (the Cmd+G shape: pushUndoState() to commit drift, mutate,
+    // pushUndoState(label)); Auto-Key on posX / Y / Z. Nothing in the data model changes - Align only writes
+    // `position` (and a vertex's localVertices under A) - so the feature is removable by marker sweep: this block,
+    // the `// ALIGN` line tags, the `<!-- ALIGN -->` markup pairs, the Settings row. Gate: Settings > Align
+    // (experimental), default OFF (the Text tool / Lights pattern of v20260812p / v20261019c).
+    //
+    // THE WORLD EXTENT OF A BODY (plan §4) - no helper existed; every extent reader in the file read the flat
+    // profile's control points. Tier A, exact: a flat path's cubics (the exact extrema along each axis - the
+    // derivative's roots, the Stacks solver's method), an extrude's two end profiles through the rail the draw builds
+    // (generateLinearRail + _extrudeEnds; the body of a straight rail is the hull of its ends, so its extreme along
+    // any axis is on one of them), a group as the union of its rows, a light as its anchor. Tier B, sampled: a revolve
+    // or a sweep through the light's rail (_lightRailOf / _lightSweepPt, v20261019k) at ALIGN_CURVE_STATIONS
+    // stations. Tier C, the control points through the world matrix (contains the curve; may over-estimate): a loft,
+    // a fold, a mapped path, and a curved body whose rail cannot be built. `approx` says which; the tooltip reads it.
+    const ALIGN_DEFAULT_ON = false;
+    let alignEnabled = ALIGN_DEFAULT_ON;              // the gate; set by setAlignEnabled (Settings), never written elsewhere
+    const ALIGN_CURVE_STATIONS = 48;
+    const setAlignEnabled = (on) => {
+      alignEnabled = !!on;
+      const sec = document.getElementById('alignSection');
+      if (sec) sec.style.display = alignEnabled ? '' : 'none';
+      try { Align.syncUI(); } catch (e) { }
+      if (typeof requestRender === 'function') requestRender();   // the key outline (D5) follows the gate
+    };
+    const Align = {
+      prefs: { to: 'selection', extent: 'bounds' },   // session preferences (DOM state, like rotatePivotMode): never serialized, never undoable
+      WHICH: ['min', 'mid', 'max'],
+      // ---------------------------------------------------------------- pure
+      // the columns of a basis matrix as unit world axes (gizmoBasis / workplaneGizmoBasis store the images of the canonical axes in the columns)
+      colAxes(M) { return [0, 1, 2].map(i => vectorNormalize([M[0][i], M[1][i], M[2][i]])); },
+      // the exact [lo, hi] of a 1-D cubic Bezier with control values a, b, c, d over t in [0, 1]: the ends plus the real roots of the derivative
+      cubicExtrema1D(a, b, c, d) {
+        let lo = Math.min(a, d), hi = Math.max(a, d);
+        // B'(t) = 3 [ (b - a)(1 - t)^2 + 2 (c - b)(1 - t) t + (d - c) t^2 ]  ->  A t^2 + B t + C with
+        const A = -a + 3 * b - 3 * c + d, B = 2 * (a - 2 * b + c), C = b - a;
+        const eat = (t) => { if (!(t > 0 && t < 1)) return; const u = 1 - t, v = u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d; if (v < lo) lo = v; if (v > hi) hi = v; };
+        if (Math.abs(A) < 1e-12) { if (Math.abs(B) > 1e-12) eat(-C / B); }
+        else { const D = B * B - 4 * A * C; if (D >= 0) { const s = Math.sqrt(D); eat((-B + s) / (2 * A)); eat((-B - s) / (2 * A)); } }
+        return [lo, hi];
+      },
+      // { lo[3], hi[3] } of a sample set { pts: [[x,y,z]], cubics: [[p0,p1,p2,p3]] } along three unit axes - every point and every cubic projected onto each axis
+      extentOfSamples(S, axes) {
+        const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+        for (let i = 0; i < 3; i++) {
+          const a = axes[i];
+          for (const p of (S.pts || [])) { const v = vectorDot(p, a); if (v < lo[i]) lo[i] = v; if (v > hi[i]) hi[i] = v; }
+          for (const c of (S.cubics || [])) { const e = this.cubicExtrema1D(vectorDot(c[0], a), vectorDot(c[1], a), vectorDot(c[2], a), vectorDot(c[3], a)); if (e[0] < lo[i]) lo[i] = e[0]; if (e[1] > hi[i]) hi[i] = e[1]; }
+        }
+        return isFinite(lo[0]) ? { lo, hi } : null;
+      },
+      unionOf(exts) {
+        const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+        for (const e of exts) { if (!e) continue; for (let i = 0; i < 3; i++) { if (e.lo[i] < lo[i]) lo[i] = e.lo[i]; if (e.hi[i] > hi[i]) hi[i] = e.hi[i]; } }
+        return isFinite(lo[0]) ? { lo, hi } : null;
+      },
+      edge(e, which, i) { return which === 'min' ? e.lo[i] : which === 'max' ? e.hi[i] : (e.lo[i] + e.hi[i]) / 2; },
+      // DISTRIBUTE: the chosen edge of every item equally spaced between the first and the last (sorted by that edge). items: [{ v }] -> [{ idx, d }] in sorted order
+      solveDistribute(values) {
+        const order = values.map((v, idx) => ({ v, idx })).sort((p, q) => p.v - q.v), n = order.length;
+        if (n < 3) return order.map(o => ({ idx: o.idx, d: 0 }));
+        const v0 = order[0].v, step = (order[n - 1].v - v0) / (n - 1);
+        return order.map((o, k) => ({ idx: o.idx, d: v0 + step * k - o.v }));
+      },
+      // GAPS (Distribute Spacing): items sorted by their centre; the anchor item stays, the others fan out from it so every gap between
+      // bounds is `gap` - a number, or null = equal gaps inside the current extent (the lowest item is then the anchor). -> [{ idx, d }]
+      solveGaps(ranges, gap, anchorIdx) {
+        const order = ranges.map((r, idx) => ({ lo: r[0], hi: r[1], idx })).sort((p, q) => (p.lo + p.hi) - (q.lo + q.hi)), n = order.length;
+        if (n < 2) return order.map(o => ({ idx: o.idx, d: 0 }));
+        let g = gap, a = order.findIndex(o => o.idx === anchorIdx);
+        if (!(typeof g === 'number' && isFinite(g))) {
+          const span = Math.max(...order.map(o => o.hi)) - Math.min(...order.map(o => o.lo)), widths = order.reduce((s, o) => s + (o.hi - o.lo), 0);
+          g = (span - widths) / (n - 1); a = 0;
+        }
+        if (a < 0) a = 0;
+        const d = new Array(n).fill(0);
+        for (let k = a + 1; k < n; k++) { const prevHi = order[k - 1].hi + d[k - 1]; d[k] = prevHi + g - order[k].lo; }
+        for (let k = a - 1; k >= 0; k--) { const nextLo = order[k + 1].lo + d[k + 1]; d[k] = nextLo - g - order[k].hi; }
+        return order.map((o, k) => ({ idx: o.idx, d: d[k] }));
+      },
+      // -------------------------------------------------------- the app side
+      // THE LETTERS OF A WORKPLANE'S ROWS ARE WORLD LETTERS (v20261031m, owner: "UVN is not immediately recognizable"): each
+      // axis of the plane's frame takes the letter of the world axis it runs along, in the plane's own order - the floor
+      // (XZ) reads X Z Y, the front (XY) X Y Z, the side (YZ) Z Y X - and the normal is the last row. A tilted plane (a camera
+      // plane, a custom one) takes the NEAREST world letter, each letter once (greedy, the best fit first), and `approx` marks
+      // it so the tooltip says "nearest World Y". Only the words change: the axes are the same vectors.
+      worldLettersOf(axes) {
+        const L = ['X', 'Y', 'Z'], out = new Array(3).fill(null), approx = new Array(3).fill(false), used = new Set();
+        const cand = []; for (let i = 0; i < 3; i++) for (let k = 0; k < 3; k++) cand.push({ i, k, d: Math.abs(axes[i][k] || 0) });
+        cand.sort((p, q) => q.d - p.d);
+        for (const c of cand) { if (out[c.i] !== null || used.has(c.k)) continue; out[c.i] = L[c.k]; used.add(c.k); approx[c.i] = c.d < 0.999999; }
+        return { labels: out, approx };
+      },
+      // the frame: three unit WORLD axes, their letters, and the reference point when the target is a point or a plane
+      frameOf(to, subject) {
+        if (to === 'workplane') {
+          const b = getGridBasis(), X = vectorNormalize(b.u), Y = vectorNormalize(vectorScale(b.v, -1)), Z = vectorNormalize(vectorCross(X, Y));   // the workplaneGizmoBasis construction: Z = cross, never b.n (the camera modes negate n)
+          const wp = getWorkingPlane(), w = this.worldLettersOf([X, Y, Z]);
+          return { to, axes: [X, Y, Z], labels: w.labels, approx: w.approx, plane: true, P: wp.point.slice(0, 3) };
+        }
+        if (to === 'world') return { to, axes: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], labels: ['X', 'Y', 'Z'], P: [0, 0, 0] };
+        const s = subject || selectedObject, mode = gizmoEffectiveMode(s), axes = this.colAxes(gizmoBasis(s));
+        const w = mode === 'workplane' ? this.worldLettersOf(axes) : null;
+        const labels = w ? w.labels : (mode === 'camera' ? ['X', 'Y', 'Depth'] : ['X', 'Y', 'Z']);
+        return { to, axes, labels, approx: w ? w.approx : null, plane: mode === 'workplane', P: to === 'cameraTarget' ? activeCamera.target.slice(0, 3) : null, mode };
+      },
+      // the WORLD samples of what an object draws: { pts, cubics, approx }
+      _flatSamples(o, W, out) {
+        const segs = o.getSegments ? o.getSegments() : [];
+        const w = (p) => pointApplyMatrix(p, W);
+        for (const s of segs) {
+          if (s.type === 'C') out.cubics.push([w(s.p0), w(s.p1), w(s.p2), w(s.p3)]);
+          else if (s.type === 'Q') { const p0 = s.p0, p1 = s.p1, p2 = s.p2; out.cubics.push([w(p0), w(vectorAdd(p0, vectorScale(vectorSubtract(p1, p0), 2 / 3))), w(vectorAdd(p2, vectorScale(vectorSubtract(p1, p2), 2 / 3))), w(p2)]); }
+          else if (s.pStart && s.pEnd) { out.pts.push(w(s.pStart), w(s.pEnd)); }
+        }
+        if (!segs.length) for (const v of (o.localVertices || [])) if (v) out.pts.push(w(v));
+      },
+      _controlSamples(o, W, out) { for (const v of (o.localVertices || [])) if (v) out.pts.push(pointApplyMatrix(v, W)); out.approx = true; },
+      // an extrude's end profiles: the draw's own rail (drawExtrudeAsMesh builds it with these arguments), the profile through its first and last frame with the
+      // per-frame taper of sweepPoint's extrude branch (the plane perpendicular to the vector, v20260907e) - an affine map per frame, so a cubic stays a cubic
+      _extrudeSamples(o, es, W, out) {
+        const v = es.vector || { x: 0, y: 0, z: -1 }, depth = es.depth ?? 1, xe = _extrudeEnds(es);
+        const rail = SurfaceMapper.generateLinearRail(v, depth, es.symmetric || false, xe.startU, xe.endU, xe.startU, xe.startV, xe.endU, xe.endV);
+        const frames = rail._frameData, n = rail.vector;
+        const map = (fr) => {
+          const sU = fr.scaleU !== undefined ? fr.scaleU : 1, sV = fr.scaleV !== undefined ? fr.scaleV : 1;
+          let basis = null;
+          if (sU !== 1 || sV !== 1) { const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]); const ref = (ax <= ay && ax <= az) ? [1, 0, 0] : ((ay <= ax && ay <= az) ? [0, 1, 0] : [0, 0, 1]); const vv = vectorNormalize(vectorCross(ref, n)); basis = { vv, u: vectorCross(n, vv) }; }
+          return (pp) => {
+            let q;
+            if (basis) { const pu = vectorDot(pp, basis.u) * sU, pv = vectorDot(pp, basis.vv) * sV, pn = vectorDot(pp, n); q = [basis.u[0] * pu + basis.vv[0] * pv + n[0] * pn, basis.u[1] * pu + basis.vv[1] * pv + n[1] * pn, basis.u[2] * pu + basis.vv[2] * pv + n[2] * pn]; }
+            else q = [pp[0], pp[1], pp[2] || 0];
+            return pointApplyMatrix(vectorAdd(fr.pos, q), W);
+          };
+        };
+        const local = { pts: [], cubics: [] }, I = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]];
+        this._flatSamples(o, I, local);
+        for (const fr of [frames[0], frames[frames.length - 1]]) { const m = map(fr); for (const p of local.pts) out.pts.push(m(p)); for (const c of local.cubics) out.cubics.push(c.map(m)); }
+      },
+      // a revolve or a sweep through the light's rail: the flattened profile at ALIGN_CURVE_STATIONS stations (Tier B)
+      _curvedSamples(o, out) {
+        const R = (typeof _lightRailOf === 'function') ? _lightRailOf(o) : null; if (!R) return false;
+        const polys = _lightFlatten(o.getSegments()); if (!polys.length) return false;
+        const N = Math.max(ALIGN_CURVE_STATIONS, +(o.revolveSettings && o.revolveSettings.enabled && o.revolveSettings.segments) || 0);
+        for (let i = 0; i <= N; i++) { const fr = SurfaceMapper.getFrameAtU(R.frames, i / N); if (!fr) return false; for (const poly of polys) for (const pp of poly) out.pts.push(_lightSweepPt(fr, pp, R)); }
+        out.approx = true; return true;
+      },
+      samplesOf(o, out) {
+        out = out || { pts: [], cubics: [], approx: false };
+        if (!o || o.visible === false) return out;
+        if (o.isGroup) { for (const c of _lightRowsOf(o)) this.samplesOf(c, out); return out; }
+        const W = o.getWorldMatrix();
+        if (_isLightObj(o) || !o.localVertices || !o.localVertices.length) { out.pts.push(getPivotAnchorWorld(o)); return out; }
+        const es = o._effExtrude || o.extrudeSettings, rs = o.revolveSettings, sw = o.sweepSettings, ls = o.loftSettings, sc = o.surfaceConstraint;
+        const mapped = !!(sc && ((sc.active && sc.targetId) || (sc.surfaceMapping && sc.surfaceMapping.enabled)));
+        if (mapped || (ls && ls.enabled) || (typeof _lightFoldRoot === 'function' && _lightFoldRoot(o))) { this._controlSamples(o, W, out); return out; }   // Tier C
+        if ((rs && rs.enabled) || (sw && sw.enabled)) { if (!this._curvedSamples(o, out)) this._controlSamples(o, W, out); return out; }   // Tier B
+        if (es && es.enabled) { this._extrudeSamples(o, es, W, out); return out; }   // Tier A
+        this._flatSamples(o, W, out); return out;                                     // Tier A
+      },
+      extentOf(o, axes, mode) {
+        if (mode === 'anchor') return this.extentOfSamples({ pts: [getPivotAnchorWorld(o)] }, axes);
+        if (mode === 'origin') return this.extentOfSamples({ pts: [_worldPositionOf(o)] }, axes);
+        const S = this.samplesOf(o); const e = this.extentOfSamples(S, axes); if (e) e.approx = !!S.approx; return e;
+      },
+      // the objects a click moves: the selection minus a descendant of another selected object (it moves with its ancestor), minus the ones with no
+      // world place of their own (a motion-path rider, a 2D Mode layer) - each skipped with its reason. key = the primary, when it is a subject
+      subjects() {
+        const sel = (selectedObjects && selectedObjects.length) ? selectedObjects : (selectedObject ? [selectedObject] : []), set = new Set(sel);
+        const objs = [], skipped = [];
+        for (const o of sel) {
+          if (!o) continue;
+          let desc = false; for (let p = o.parent; p; p = p.parent) if (set.has(p)) { desc = true; break; }
+          if (desc) continue;
+          if (o.motionPathSettings && o.motionPathSettings.enabled && o.motionPathSettings.targetId) skipped.push({ o, why: 'rides a motion path' });
+          else if (isIn2DMode(o)) skipped.push({ o, why: 'is a 2D Mode layer' });
+          else objs.push(o);
+        }
+        return { objs, skipped, key: objs.includes(selectedObject) ? selectedObject : null };
+      },
+      vertexMode() { return currentTool === 'directSelect'; },
+      // the A tool's subjects: the selected vertices (coincident points expanded when that option is on), the key anchor = selectedVertexInfo
+      vertexSubjects() {
+        let verts = (selectedVertices && selectedVertices.length) ? selectedVertices.slice() : (selectedVertexInfo ? [selectedVertexInfo] : []);
+        verts = verts.filter(v => v && v.object && v.object.localVertices && v.object.localVertices[v.vertexIndex]);
+        if (moveCoincidentPoints && verts.length) verts = expandCoincidentVertices(verts);
+        const same = (a, b) => a && b && a.object === b.object && a.vertexIndex === b.vertexIndex;
+        const key = selectedVertexInfo ? (verts.find(v => same(v, selectedVertexInfo)) || null) : null;
+        return { verts, key };
+      },
+      // { ok, reason } for a verb - the ONE predicate the buttons' affordance and the act both read
+      status(kind) {
+        if (!alignEnabled) return { ok: false, reason: 'Align is off (Settings).' };
+        const to = this.prefs.to;
+        if (this.vertexMode()) {
+          const { verts, key } = this.vertexSubjects(), n = verts.length;
+          if (!n) return { ok: false, reason: 'select anchor points with the A tool first.' };
+          if (kind === 'gaps') return { ok: false, reason: 'anchors have no width to space.' };
+          if (kind === 'distribute' && n < 3) return { ok: false, reason: 'Distribute needs three or more anchors.' };
+          if (to === 'selection' && n < 2 && kind === 'align') return { ok: false, reason: 'Align to Selection needs two or more anchors.' };
+          if (to === 'key' && !key) return { ok: false, reason: 'no key anchor - the last anchor you shift-click is the key.' };
+          if (to === 'key' && n < 2 && kind === 'align') return { ok: false, reason: 'Align to Key Anchor needs a second anchor.' };
+          return { ok: true, n };
+        }
+        const { objs, key } = this.subjects(), n = objs.length;
+        if (!n) return { ok: false, reason: 'nothing selected.' };
+        if (kind === 'distribute' && n < 3) return { ok: false, reason: 'Distribute needs three or more objects.' };
+        if (kind === 'gaps' && n < 2) return { ok: false, reason: 'Gaps need two or more objects.' };
+        if (to === 'selection' && n < 2 && kind === 'align') return { ok: false, reason: 'Align to Selection needs two or more objects.' };
+        if (to === 'key' && !key) return { ok: false, reason: 'no key object - the last object you shift-click is the key.' };
+        if (to === 'key' && n < 2 && kind === 'align') return { ok: false, reason: 'Align to Key Object needs a second object.' };
+        return { ok: true, n };
+      },
+      _begin() { if (currentTool === 'select' || currentTool === 'directSelect') resetMoveToolSession(); pushUndoState(); },
+      _end(label, skipped) {
+        pushUndoState(label);
+        if (currentTool === 'select' || currentTool === 'directSelect') resetMoveToolSession();   // the session re-arms at the new place (runOriginBake's rule)
+        updatePropertiesPanel(); requestRender();
+        this._notice(skipped, null);
+      },
+      // the skipped objects' reasons, else the fallback (nothing moved: "already there") - shown whether or not anything else moved
+      _skipText(skipped) { return (skipped && skipped.length) ? skipped.map(s => '"' + s.o.name + '" ' + s.why).join('; ') + ' - left where ' + (skipped.length > 1 ? 'they are' : 'it is') + '.' : ''; },
+      _notice(skipped, fallback) {
+        if (skipped && skipped.length) showAppNotice('Align: ' + this._skipText(skipped), { kind: 'warn', ms: 5000 });
+        else if (fallback) showAppNotice(fallback, { ms: 2500 });
+      },
+      _moveObj(o, dWorld) {
+        o.position = vectorAdd(o.position, _worldDeltaToParent(o, dWorld));
+        notifyPathUpdated(o);
+        if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(o), ['posX', 'posY', 'posZ']);
+      },
+      // the three verbs on OBJECTS. axis 0..2 of the frame; which min | mid | max; gap (gaps only): a number or null
+      run(kind, axis, which, gap) {
+        if (this.vertexMode()) return this.runVertices(kind, axis, which);
+        const S = this.subjects();
+        const st = this.status(kind); if (!st.ok) { showAppNotice('Align: ' + st.reason + (S.skipped.length ? ' ' + this._skipText(S.skipped) : ''), { kind: 'warn', ms: 5000 }); return false; }   // a refusal names the skipped too, or "needs a second object" would hide why there is none
+        const to = this.prefs.to, mode = this.prefs.extent, F = this.frameOf(to, S.key || selectedObject), a = F.axes[axis], L = F.labels[axis];
+        const exts = S.objs.map(o => this.extentOf(o, F.axes, mode));
+        if (exts.some(e => !e)) { showAppNotice('Align: an object has no extent.', { kind: 'warn', ms: 4000 }); return false; }
+        const moves = [];   // [{ o, d }] along a
+        if (kind === 'align') {
+          let ref;
+          if (to === 'selection') ref = this.edge(this.unionOf(exts), which, axis);
+          else if (to === 'key') ref = this.edge(exts[S.objs.indexOf(S.key)], which, axis);
+          else ref = vectorDot(F.P, a);
+          S.objs.forEach((o, i) => { if (to === 'key' && o === S.key) return; moves.push({ o, d: ref - this.edge(exts[i], which, axis) }); });
+        } else if (kind === 'distribute') {
+          for (const r of this.solveDistribute(exts.map(e => this.edge(e, which, axis)))) moves.push({ o: S.objs[r.idx], d: r.d });
+        } else {
+          const anchor = (to === 'key' && S.key) ? S.objs.indexOf(S.key) : -1;
+          for (const r of this.solveGaps(exts.map(e => [e.lo[axis], e.hi[axis]]), gap, anchor)) moves.push({ o: S.objs[r.idx], d: r.d });
+        }
+        if (!moves.some(m => Math.abs(m.d) > 1e-9)) { this._notice(S.skipped, 'Align: already there.'); return false; }
+        this._begin();
+        for (const m of moves) if (Math.abs(m.d) > 1e-12) this._moveObj(m.o, vectorScale(a, m.d));
+        this._end((kind === 'align' ? 'Align ' : kind === 'distribute' ? 'Distribute ' : 'Space ') + L + (kind === 'gaps' ? '' : ' ' + which) + (kind === 'align' ? ' to ' + this.toName(to) : ''), S.skipped);
+        return true;
+      },
+      // the A tool: the same verbs on anchor points - a vertex's extent is its world position; the write is the Move panel's vertex rule
+      // (_vertexDeltaMatrix: the whole world matrix's inverse); a bezier anchor's handles ride it when Move Handles with Anchor is on
+      runVertices(kind, axis, which) {
+        const st = this.status(kind); if (!st.ok) { showAppNotice('Align: ' + st.reason, { kind: 'warn', ms: 4000 }); return false; }
+        const to = this.prefs.to, { verts, key } = this.vertexSubjects(), F = this.frameOf(to, key ? key.object : (verts[0] && verts[0].object)), a = F.axes[axis], L = F.labels[axis];
+        const world = verts.map(v => pointApplyMatrix(v.object.localVertices[v.vertexIndex], v.object.getWorldMatrix()));
+        const vals = world.map(p => vectorDot(p, a));
+        const moves = [];
+        if (kind === 'align') {
+          let ref;
+          if (to === 'selection') ref = which === 'min' ? Math.min(...vals) : which === 'max' ? Math.max(...vals) : (Math.min(...vals) + Math.max(...vals)) / 2;
+          else if (to === 'key') ref = vals[verts.indexOf(key)];
+          else ref = vectorDot(F.P, a);
+          verts.forEach((v, i) => { if (to === 'key' && v === key) return; moves.push({ v, d: ref - vals[i] }); });
+        } else {
+          for (const r of this.solveDistribute(vals)) moves.push({ v: verts[r.idx], d: r.d });
+        }
+        if (!moves.some(m => Math.abs(m.d) > 1e-9)) { showAppNotice('Align: already there.', { ms: 2500 }); return false; }
+        const handles = !!(document.getElementById('dsMoveHandlesCb') || {}).checked;
+        const movedKey = new Set(verts.map(v => v.object.id + '_' + v.vertexIndex));
+        this._begin();
+        const touched = new Set();
+        for (const m of moves) {
+          if (!(Math.abs(m.d) > 1e-12)) continue;
+          const o = m.v.object, vi = m.v.vertexIndex, inv = _vertexDeltaMatrix(o); if (!inv) continue;
+          const dl = vectorApplyMatrix(vectorScale(a, m.d), inv);
+          o.localVertices[vi] = vectorAdd(o.localVertices[vi], dl);
+          if (handles && o.algorithm === 'bezier') for (const ci of bezierAnchorCompanions(o, vi)) if (!movedKey.has(o.id + '_' + ci)) o.localVertices[ci] = vectorAdd(o.localVertices[ci], dl);
+          touched.add(o);
+        }
+        for (const o of touched) notifyPathUpdated(o);
+        for (const v of verts) if (v.worldPosition) v.worldPosition = pointApplyMatrix(v.object.localVertices[v.vertexIndex], v.object.getWorldMatrix());
+        this._end((kind === 'align' ? 'Align anchors ' : 'Distribute anchors ') + L + ' ' + which, []);
+        return true;
+      },
+      toName(to) { return to === 'selection' ? 'selection' : to === 'key' ? (this.vertexMode() ? 'key anchor' : 'key object') : to === 'workplane' ? 'workplane' : to === 'world' ? 'world origin' : 'camera target'; },
+      // ---- ORIENT (S3, v20261031n; D7 answered 2026-10-31: build it). Turn each selected object so its FRAME equals the target's,
+      // spinning in place about its anchor: the local matrix is T(anchor) . R . shape . T(-pivot), so a new R alone turns the object
+      // about the anchor and `position` stays. Targets: the key object's world rotation (parentWorldRotation . rotationMatrix - the
+      // Transform panel's rotation, the pivot rotation left aside), the workplane frame (workplaneGizmoBasis: X = u, Y = -v, Z = the
+      // normal - the frame a pasted object has on the plane, so a box oriented to the floor reads X -90 like one drawn there), the
+      // camera frame (cameraGizmoBasis: Z toward the eye - the object's XY faces the viewer, Face Camera baked for this pose), the
+      // world (identity). The write is the object's LOCAL rotation R' = Pw^-1 . R_target (Pw = the parent chain's rotation, the
+      // Local basis' approximation under a parent's scale / shear); rotationEuler follows; Auto-Key rotX / Y / Z. The pivot
+      // rotation, the scale and the shear are untouched. Not for anchors (no frame), nor a 2D Mode layer (no world frame).
+      ORIENT_TARGETS: ['key', 'workplane', 'camera', 'world'],
+      orientTarget(target, key) {
+        if (target === 'world') return createIdentityMatrix();
+        if (target === 'workplane') return workplaneGizmoBasis();
+        if (target === 'camera') return cameraGizmoBasis();
+        if (!key) return null;
+        const pR = parentWorldRotation(key); return pR ? matrixMultiply(pR, key.rotationMatrix) : key.rotationMatrix;
+      },
+      orientStatus(target) {
+        if (!alignEnabled) return { ok: false, reason: 'Align is off (Settings).' };
+        if (this.vertexMode()) return { ok: false, reason: 'anchors have no frame to orient.' };
+        const { objs, key } = this.subjects(), n = objs.length;
+        if (!n) return { ok: false, reason: 'nothing selected.' };
+        if (target === 'key' && !key) return { ok: false, reason: 'no key object - the last object you shift-click is the key.' };
+        if (target === 'key' && n < 2) return { ok: false, reason: 'Orient to Key Object needs a second object.' };
+        return { ok: true, n };
+      },
+      orient(target) {
+        const S = this.subjects();
+        const st = this.orientStatus(target); if (!st.ok) { showAppNotice('Orient: ' + st.reason + (S.skipped.length ? ' ' + this._skipText(S.skipped) : ''), { kind: 'warn', ms: 5000 }); return false; }
+        const RT = this.orientTarget(target, S.key); if (!RT) return false;
+        const writes = [];
+        for (const o of S.objs) {
+          if (target === 'key' && o === S.key) continue;
+          const pR = parentWorldRotation(o), inv = pR ? matrixInverse(pR) : null;
+          const Rn = (pR && inv) ? matrixMultiply(inv, RT) : RT;
+          let same = true; for (let i = 0; i < 3 && same; i++) for (let j = 0; j < 3; j++) if (Math.abs(Rn[i][j] - o.rotationMatrix[i][j]) > 1e-9) { same = false; break; }
+          if (!same) writes.push({ o, Rn });
+        }
+        if (!writes.length) { this._notice(S.skipped, 'Orient: already there.'); return false; }
+        this._begin();
+        for (const w of writes) {
+          w.o.rotationMatrix = w.Rn.map(r => r.slice()); w.o.rotationEuler = matrixToEuler(w.o.rotationMatrix);
+          notifyPathUpdated(w.o);
+          if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(w.o), ['rotX', 'rotY', 'rotZ']);
+        }
+        this._end('Orient to ' + (target === 'key' ? 'key object' : target), S.skipped);
+        return true;
+      },
+      // ------------------------------------------------------------------ UI
+      // the drawer's Align block (markup: #alignSection). The grid is built once: per axis one row - the letter, three align buttons, three
+      // distribute buttons; a Spacing field and three Gaps buttons under it. The letters are LIVE (syncUI rewrites them from the frame).
+      ICONS: {
+        min: '<line x1="3.5" y1="3" x2="3.5" y2="17"/><rect x="5.5" y="5.5" width="10" height="3"/><rect x="5.5" y="11.5" width="6" height="3"/>',
+        mid: '<line x1="10" y1="3" x2="10" y2="17"/><rect x="5" y="5.5" width="10" height="3"/><rect x="7" y="11.5" width="6" height="3"/>',
+        max: '<line x1="16.5" y1="3" x2="16.5" y2="17"/><rect x="4.5" y="5.5" width="10" height="3"/><rect x="8.5" y="11.5" width="6" height="3"/>',
+        dmin: '<rect x="2.5" y="6" width="2" height="8"/><rect x="8.5" y="6" width="4" height="8"/><rect x="14.5" y="6" width="3" height="8"/><line x1="2.5" y1="3.5" x2="2.5" y2="4.5"/><line x1="8.5" y1="3.5" x2="8.5" y2="4.5"/><line x1="14.5" y1="3.5" x2="14.5" y2="4.5"/>',
+        dmid: '<rect x="3" y="6" width="2" height="8"/><rect x="8" y="6" width="4" height="8"/><rect x="14.5" y="6" width="3" height="8"/><line x1="4" y1="3.5" x2="4" y2="4.5"/><line x1="10" y1="3.5" x2="10" y2="4.5"/><line x1="16" y1="3.5" x2="16" y2="4.5"/>',
+        dmax: '<rect x="3.5" y="6" width="2" height="8"/><rect x="7.5" y="6" width="4" height="8"/><rect x="14.5" y="6" width="3" height="8"/><line x1="5.5" y1="3.5" x2="5.5" y2="4.5"/><line x1="11.5" y1="3.5" x2="11.5" y2="4.5"/><line x1="17.5" y1="3.5" x2="17.5" y2="4.5"/>',
+        gaps: '<rect x="2.5" y="6" width="3" height="8"/><rect x="8.5" y="6" width="3" height="8"/><rect x="14.5" y="6" width="3" height="8"/><line x1="6.5" y1="10" x2="7.5" y2="10"/><line x1="12.5" y1="10" x2="13.5" y2="10"/>',
+      },
+      _svg(body) { return '<svg class="icon-20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">' + body + '</svg>'; },
+      buildUI() {
+        const grid = document.getElementById('alignGrid'); if (!grid || grid.childElementCount) return;
+        for (let ax = 0; ax < 3; ax++) {
+          const row = document.createElement('div'); row.className = 'align-row';
+          const letter = document.createElement('span'); letter.className = 'align-axis'; letter.dataset.axis = String(ax); letter.textContent = 'XYZ'[ax]; row.appendChild(letter);
+          for (const kind of ['align', 'distribute']) {
+            const bar = document.createElement('div'); bar.className = 'tree-action-bar align-bar';
+            for (const which of this.WHICH) {
+              const b = document.createElement('button'); b.type = 'button'; b.className = 'ui-btn ui-btn-small'; b.dataset.kind = kind; b.dataset.axis = String(ax); b.dataset.which = which;
+              b.innerHTML = this._svg(this.ICONS[(kind === 'align' ? '' : 'd') + which]);
+              b.addEventListener('click', (e) => { e.preventDefault(); this.run(kind, ax, which); });
+              bar.appendChild(b);
+            }
+            row.appendChild(bar);
+          }
+          grid.appendChild(row);
+        }
+        const gaps = document.getElementById('alignGapsBar');
+        if (gaps) for (let ax = 0; ax < 3; ax++) {
+          const b = document.createElement('button'); b.type = 'button'; b.className = 'ui-btn ui-btn-small'; b.dataset.kind = 'gaps'; b.dataset.axis = String(ax);
+          b.innerHTML = this._svg(this.ICONS.gaps) + '<span class="align-gap-letter">' + 'XYZ'[ax] + '</span>';
+          b.addEventListener('click', (e) => { e.preventDefault(); const inp = document.getElementById('alignSpacingInput'), raw = inp ? inp.value.trim() : ''; const g = raw === '' ? null : fromDisplay(parseFloat(raw)); this.run('gaps', ax, null, (g === null || !isFinite(g)) ? null : g); });
+          gaps.appendChild(b);
+        }
+        const orient = document.getElementById('alignOrientBar');
+        if (orient) for (const tg of this.ORIENT_TARGETS) {
+          const b = document.createElement('button'); b.type = 'button'; b.className = 'ui-btn ui-btn-small'; b.dataset.orient = tg;
+          b.textContent = tg === 'key' ? 'Key' : tg === 'workplane' ? 'Workplane' : tg === 'camera' ? 'Camera' : 'World';
+          b.addEventListener('click', (e) => { e.preventDefault(); this.orient(tg); });
+          orient.appendChild(b);
+        }
+        const toSel = document.getElementById('alignToSelect'), exSel = document.getElementById('alignExtentSelect');
+        if (toSel) toSel.addEventListener('change', () => { this.prefs.to = toSel.value; this.syncUI(); });
+        if (exSel) exSel.addEventListener('change', () => { this.prefs.extent = exSel.value; this.syncUI(); });
+        this._retitle(this.frameOf('world'));   // every button titled from the start, gate on or off (ui_polish U6a reads the boot state)
+        this.syncUI();
+      },
+      // the buttons' words and disabled state for a frame; without statuses (at build) the titles alone
+      _retitle(F, stA, stD, stG, withOrient) {
+        const sec = document.getElementById('alignSection'); if (!sec) return;
+        sec.querySelectorAll('button[data-kind]').forEach(b => {
+          const kind = b.dataset.kind, st = kind === 'align' ? stA : kind === 'distribute' ? stD : stG, ax = +b.dataset.axis;
+          if (st) b.disabled = !st.ok;
+          b.title = this._sideWords(F, ax, b.dataset.which, kind) + (st && !st.ok ? ' - ' + st.reason : '');
+        });
+        const words = { key: 'Orient to the key object: turn each selected object so its frame equals the key\'s rotation (the key stays)', workplane: 'Orient to the workplane: the object\'s X along the plane\'s U, Y up the plane, Z along its normal - as a shape drawn on it', camera: 'Orient to the camera: the object\'s XY faces the viewer, Z toward the eye (Face Camera, baked for this view)', world: 'Orient to the world: rotation 0, 0, 0' };
+        sec.querySelectorAll('button[data-orient]').forEach(b => {
+          const st = withOrient ? this.orientStatus(b.dataset.orient) : null;
+          if (st) b.disabled = !st.ok;
+          b.title = words[b.dataset.orient] + '. The object spins in place about its anchor; position, pivot, scale and shear stay' + (st && !st.ok ? ' - ' + st.reason : '');
+        });
+      },
+      // the words of a button, in the frame: "Align the lowest edge (World Y) to the selection"
+      _sideWords(F, ax, which, kind) {
+        const L = F.labels[ax], wp = F.to === 'workplane';
+        const planeAx = F.plane ? (ax === 2 ? 'its normal' : 'its ' + 'UV'[ax]) + (F.approx && F.approx[ax] ? ', nearest World ' + L : '') : '';   // v20261031m: the letter is the world axis the plane's axis runs along
+        const edge = which === 'min' ? 'lowest' : which === 'max' ? 'highest' : 'centre', along = ' along ' + (F.to === 'world' ? 'World ' : F.to === 'workplane' ? 'the workplane\'s ' : (F.mode === 'world' ? 'World ' : F.mode === 'local' ? 'the key object\'s ' : F.mode === 'workplane' ? 'the workplane\'s ' : 'the camera\'s ')) + L + (planeAx ? ' (' + planeAx + ')' : '');
+        if (kind === 'distribute') return 'Distribute: the ' + (which === 'mid' ? 'centres' : edge + ' edges') + ' equally spaced' + along + ' (the first and the last stay)';
+        if (kind === 'gaps') return 'Gaps: equal space between the objects' + along + ' - the Spacing value, or equal gaps inside the current extent (the ' + (this.prefs.to === 'key' ? 'key' : 'lowest') + ' stays)';
+        if (wp && ax === 2) return which === 'min' ? 'Rest on the workplane (the lowest point on the plane, along its normal' + (F.approx && F.approx[2] ? ', nearest World ' + L : ' = World ' + L) + ')' : which === 'max' ? 'Hang under the workplane (the highest point on the plane)' : 'Centre on the workplane';
+        return 'Align the ' + edge + (which === 'mid' ? '' : ' edge') + along + ' to the ' + this.toName(this.prefs.to) + (wp ? '\'s axis' : '');
+      },
+      syncUI() {
+        const sec = document.getElementById('alignSection'); if (!sec) return;
+        sec.style.display = alignEnabled ? '' : 'none';
+        if (!alignEnabled) return;
+        const vm = this.vertexMode();
+        const toSel = document.getElementById('alignToSelect'), exSel = document.getElementById('alignExtentSelect');
+        if (toSel && toSel.value !== this.prefs.to) toSel.value = this.prefs.to;
+        if (toSel) { const ko = toSel.querySelector('option[value="key"]'); if (ko) ko.textContent = vm ? 'Key Anchor' : 'Key Object'; }
+        if (exSel && exSel.value !== this.prefs.extent) exSel.value = this.prefs.extent;
+        const exRow = document.getElementById('alignExtentRow'); if (exRow) exRow.style.display = vm ? 'none' : '';
+        const gapRows = document.getElementById('alignGapsRows'); if (gapRows) gapRows.style.display = vm ? 'none' : '';
+        const hdr = document.getElementById('alignHeader'); if (hdr) hdr.textContent = vm ? 'Align Anchors' : 'Align';
+        let F; try { F = this.frameOf(this.prefs.to, vm ? (selectedVertexInfo ? selectedVertexInfo.object : null) : (this.subjects().key || selectedObject)); } catch (e) { F = this.frameOf('world'); }
+        sec.querySelectorAll('.align-axis').forEach(el => { el.textContent = F.labels[+el.dataset.axis]; });
+        sec.querySelectorAll('.align-gap-letter').forEach((el, i) => { el.textContent = F.labels[i]; });
+        const key = document.getElementById('alignKeyLine');
+        if (key) {
+          if (vm) { const { key: kv } = this.vertexSubjects(); key.textContent = kv ? ('Key anchor: #' + kv.vertexIndex + ' of ' + kv.object.name) : 'Key anchor: none (shift-click the key anchor last)'; }
+          else { const S = this.subjects(); key.textContent = S.key && S.objs.length > 1 ? ('Key object: ' + S.key.name) : (S.objs.length > 1 ? 'Key object: none' : 'Key object: select two or more (the last shift-clicked is the key)'); }
+        }
+        this._retitle(F, this.status('align'), this.status('distribute'), this.status('gaps'), true);
+        const orRows = document.getElementById('alignOrientRows'); if (orRows) orRows.style.display = vm ? 'none' : '';
+      },
+      // the KEY object's outline (D5): drawPathHighlight draws the primary heavier while several objects are selected and the gate is on
+      keyOutlineFor(o) {
+        if (!alignEnabled || !selectedObjects || selectedObjects.length < 2 || !selectedObject) return false;
+        for (let p = o; p; p = p.parent) if (p === selectedObject) return true;
+        return false;
+      },
+      // the fourteenth console suite: the pure solvers, the extent of a cubic, the frames
+      selfTest() {
+        let pass = 0, fail = 0; const t = (name, ok) => { if (ok) pass++; else { fail++; console.error('Align.selfTest FAIL: ' + name); } };
+        const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
+        // 1-3 the exact extrema of a cubic against a dense sample
+        const dense = (a, b, c, d) => { let lo = Infinity, hi = -Infinity; for (let i = 0; i <= 4000; i++) { const s = i / 4000, u = 1 - s, v = u * u * u * a + 3 * u * u * s * b + 3 * u * s * s * c + s * s * s * d; lo = Math.min(lo, v); hi = Math.max(hi, v); } return [lo, hi]; };
+        for (const [i, cv] of [[0, 0, 3, -3, 0], [1, 0, 1, 1, 0], [2, 1, 2, 3, 4], [3, 0, -5, 5, 0], [4, 2, 2, 2, 2]].entries()) { const e = this.cubicExtrema1D(cv[1], cv[2], cv[3], cv[4]), dd = dense(cv[1], cv[2], cv[3], cv[4]); t('cubic extrema ' + i, near(e[0], dd[0], 1e-6) && near(e[1], dd[1], 1e-6)); }
+        // 4 a unit square's corners along a 45-degree axis set
+        const s2 = Math.SQRT1_2, ax45 = [[s2, s2, 0], [-s2, s2, 0], [0, 0, 1]];
+        const sq = this.extentOfSamples({ pts: [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]] }, ax45);
+        t('square along 45 deg: [0, sqrt2] x [-s2, s2] x [0, 0]', near(sq.lo[0], 0) && near(sq.hi[0], Math.SQRT2) && near(sq.lo[1], -s2) && near(sq.hi[1], s2) && near(sq.lo[2], 0) && near(sq.hi[2], 0));
+        // 5 a cubic bulging past its chord is read at the bulge, not the control hull
+        const bulge = this.extentOfSamples({ cubics: [[[0, 0, 0], [0, 2, 0], [1, 2, 0], [1, 0, 0]]] }, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+        t('a cubic\'s y extent is its bulge 1.5, not the hull\'s 2', near(bulge.hi[1], 1.5) && near(bulge.lo[1], 0) && near(bulge.lo[0], 0) && near(bulge.hi[0], 1));
+        // 6 union, edge
+        const U = this.unionOf([{ lo: [0, 0, 0], hi: [1, 1, 1] }, { lo: [2, -1, 0], hi: [3, 0, 5] }]);
+        t('union', near(U.lo[0], 0) && near(U.hi[0], 3) && near(U.lo[1], -1) && near(U.hi[1], 1) && near(U.hi[2], 5) && near(this.edge(U, 'mid', 0), 1.5));
+        // 7-8 distribute: first and last stay, the rest equally spaced, selection order irrelevant
+        const D = this.solveDistribute([10, 0, 7, 3]);
+        t('distribute 4: first / last 0, the middle to 10/3 and 20/3', D.length === 4 && near(D[0].d, 0) && near(D[3].d, 0) && near(3 + D.find(r => r.idx === 3).d, 10 / 3) && near(7 + D.find(r => r.idx === 2).d, 20 / 3));
+        t('distribute 2: nothing moves', this.solveDistribute([1, 5]).every(r => near(r.d, 0)));
+        // 9-11 gaps: auto = equal gaps inside the extent, the lowest stays; a value with the key as anchor fans out from the key
+        const G = this.solveGaps([[0, 1], [6, 7], [2, 4]], null, -1);
+        t('gaps auto: widths 1 + 2 + 1 in a span 7 = two gaps of 1.5; the lowest and the highest stay, the middle moves to 2.5', near(G[0].d, 0) && near(2 + G.find(r => r.idx === 2).d, 2.5) && near(6 + G.find(r => r.idx === 1).d, 6));
+        const G2 = this.solveGaps([[0, 1], [5, 6], [2, 4]], 0.5, 1);
+        t('gaps 0.5 about the key (idx 1): the key stays, the item below ends 0.5 under it, the next under that', near(G2.find(r => r.idx === 1).d, 0) && near(4 + G2.find(r => r.idx === 2).d, 4.5) && near(1 + G2.find(r => r.idx === 0).d, 2.5 - 0.5));
+        const G3 = this.solveGaps([[0, 1], [3, 4]], 2, 0);
+        t('gaps 2 about the lowest: [0,1] stays, [3,4] -> [3,4]', near(G3.find(r => r.idx === 1).d, 0));
+        // 12 the frames are orthonormal and right-handed
+        try {
+          const keep = activeWorkplane.mode, keepOff = activeWorkplane.offset;
+          const want = { horizontal: 'XZY', vertical: 'XYZ', side: 'ZYX' };   // v20261031m: world letters in the plane's order
+          for (const m of ['horizontal', 'vertical', 'side']) { activeWorkplane.mode = m; const F = this.frameOf('workplane'); const [X, Y, Z] = F.axes, c = vectorCross(X, Y); t('workplane frame ' + m + ' orthonormal right-handed, letters ' + want[m], near(vectorDot(X, Y), 0) && near(vectorDot(X, Z), 0) && near(vectorDot(c, Z), 1) && F.labels.join('') === want[m] && !F.approx.some(Boolean)); }
+          const tilted = this.worldLettersOf([[0.8, 0.6, 0], [-0.6, 0.8, 0], [0, 0, 1]]);
+          t('a tilted plane: the nearest world letters, each once, marked approx', tilted.labels.join('') === 'XYZ' && tilted.approx[0] && tilted.approx[1] && !tilted.approx[2]);
+          activeWorkplane.mode = keep; activeWorkplane.offset = keepOff;
+          const W = this.frameOf('world'); t('world frame = identity', near(W.axes[0][0], 1) && near(W.axes[1][1], 1) && near(W.axes[2][2], 1) && W.P.every(x => x === 0));
+        } catch (e) { t('frames (threw: ' + e.message + ')', false); }
+        // 13 the extrude end frames: an untapered rail's end profile is the profile shifted by the vector x depth
+        try {
+          const es = { enabled: true, depth: 2, vector: { x: 0, y: 0, z: -1 }, symmetric: false }, I = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]];
+          const fake = { localVertices: [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], getSegments() { return [{ type: 'L', pStart: [0, 0, 0], pEnd: [1, 0, 0] }, { type: 'L', pStart: [1, 0, 0], pEnd: [1, 1, 0] }, { type: 'L', pStart: [1, 1, 0], pEnd: [0, 1, 0] }, { type: 'L', pStart: [0, 1, 0], pEnd: [0, 0, 0] }]; } };
+          const out = { pts: [], cubics: [], approx: false }; this._extrudeSamples(fake, es, I, out);
+          const e = this.extentOfSamples(out, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+          t('extrude depth 2 along -Z: z in [-2, 0], x and y in [0, 1]', near(e.lo[2], -2) && near(e.hi[2], 0) && near(e.lo[0], 0) && near(e.hi[0], 1) && near(e.hi[1], 1));
+          const es2 = { enabled: true, depth: 2, vector: { x: 0, y: 0, z: -1 }, symmetric: true, scaleBack: 0.5 };
+          const out2 = { pts: [], cubics: [], approx: false }; this._extrudeSamples(fake, es2, I, out2);
+          const e2 = this.extentOfSamples(out2, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+          t('symmetric, back tapered 0.5: z in [-1, 1], the wide end still reaches x = 1', near(e2.lo[2], -1) && near(e2.hi[2], 1) && near(e2.hi[0], 1));
+        } catch (e) { t('extrude samples (threw: ' + e.message + ')', false); }
+        // 14 orient: the world target is the identity; the workplane target's columns are the frame's axes; a target's inverse-parent write round-trips
+        try {
+          const RW = this.orientTarget('world'); t('orient world = identity', near(RW[0][0], 1) && near(RW[1][1], 1) && near(RW[2][2], 1) && near(RW[0][1], 0));
+          const keep = activeWorkplane.mode; activeWorkplane.mode = 'horizontal'; const RP = this.orientTarget('workplane'); activeWorkplane.mode = keep;
+          t('orient to the floor: Z = world Y (the normal), Y = -Z, X = X', near(RP[1][2], 1) && near(RP[2][1], -1) && near(RP[0][0], 1));
+          const P = matrixFromEuler([0, 40, 0]), inv = matrixInverse(P), Rn = matrixMultiply(inv, RP), back = matrixMultiply(P, Rn);
+          let ok = true; for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if (!near(back[i][j], RP[i][j])) ok = false;
+          t('a child under a parent turned 40 deg: Pw . (Pw^-1 . R_target) = R_target', ok);
+        } catch (e) { t('orient (threw: ' + e.message + ')', false); }
+        console.log('Align.selfTest: ' + pass + '/' + (pass + fail) + (fail ? ' FAIL' : ' ALL PASS'));
+        return fail === 0;
+      },
+    };
+    // the drawer block is built once the DOM is there (the script runs at the end of the body, so it is)
+    try { Align.buildUI(); } catch (e) { console.warn('Align.buildUI', e); }
+    // --- /ALIGN ---
+
     // WORKPLANE FROM CAMERA (v20260811j: lifted verbatim out of the Shift+G keydown
     // branch, where it was the only copy). Freezes the CURRENT view direction into
     // `frozenCameraNormal` — `camera-target-origin` reads the frozen value, never the
@@ -101796,6 +102387,14 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         const cb = document.getElementById('gizmoColorCb');
         if (cb) { cb.checked = _gcOn; cb.addEventListener('change', () => { apply(cb.checked); saveSettings({ gizmoColor: cb.checked }); }); }
       }
+      // ALIGN (experimental, v20261031k): the gate, persisted; absent = OFF (the Lights pattern of v20261019c)
+      {
+        let _alOn = false;
+        try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); _alOn = s.align === true; } catch (e) { }
+        setAlignEnabled(_alOn);
+        const cb = document.getElementById('alignCb');
+        if (cb) { cb.checked = _alOn; cb.addEventListener('change', () => { setAlignEnabled(cb.checked); saveSettings({ align: cb.checked }); }); }
+      }
 
       // COLOR PICKER (v20260921g): Settings > Custom color picker - an experiment, default OFF, until v20260921m; DEFAULT
       // ON since. Consumers read ColorPicker.enabled, never the checkbox's DOM state (the v20260812p feature-gate
@@ -102167,6 +102766,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           ExportFrame.layers = false; { const c = document.getElementById('layersPerObjectCb'); if (c) c.checked = false; }     // One Illustrator Layer per Object: OFF (v20261030zg)
           DragReadout.setEnabled(true); { const c = document.getElementById('dragReadoutCb'); if (c) c.checked = true; }        // Drag Readout: ON
           document.documentElement.removeAttribute('data-gizmo'); { const c = document.getElementById('gizmoColorCb'); if (c) c.checked = false; }   // Colored Gizmo Highlight: OFF
+          setAlignEnabled(ALIGN_DEFAULT_ON); { const c = document.getElementById('alignCb'); if (c) c.checked = ALIGN_DEFAULT_ON; }   // ALIGN (experimental): OFF
           if (scaleStrokesWithObject) { scaleStrokesWithObject = false; ScaleStyle.restore(); ScaleStyle.disarm(); syncStrokeWidthInputs(); }   // Scale Strokes: OFF (the widths put back, as the checkbox does)
           { const c = document.getElementById('scaleStrokesCb'); if (c) c.checked = false; }
 

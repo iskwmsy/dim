@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261031o -->
+<!-- dim v20261103b -->
 
 <!--
   MIT License
@@ -1278,6 +1278,44 @@
       padding-left: 12px;
       opacity: 0.7;
       font-size: var(--font-size-small);
+    }
+
+    /* CONTEXT MENU (v20261102b, PLAN-standard-verbs S2): #contextMenu is a .tool-flyout built by Commands.openMenu. A section
+       heading row of the paper menu ("View", "Workplane") in the panel headers' small muted label; a disabled item at half
+       strength with no hover (background-color, the longhand - the shorthand resets background-image, the v20261011 lesson);
+       the house separator .ui-hr tightened to the row gap. Tokens only. */
+    .tool-flyout .flyout-heading {
+      padding: 6px 10px 2px 6px;
+      font-size: var(--font-size-small);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      user-select: none;
+    }
+    .tool-flyout .ui-hr {
+      margin: 2px 0;
+    }
+    .tool-flyout button:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+    .tool-flyout button:disabled:hover {
+      background-color: transparent;
+      color: var(--text-secondary);
+    }
+    #contextMenu {
+      min-width: 190px;
+      /* (v20261102f) above the timeline row (500), its handle and the curve editor (501) and the Camera Subwindow (502): opened
+         low on the paper, the .tool-flyout's 200 slid the last rows under the timeline (Look At Selection, the theme crop);
+         below the colour picker (99980), the notices and the modal scrim */
+      z-index: 600;
+      /* (v20261102h) the sectioned object menu is ~30 rows: on a short window it scrolls inside itself rather than leaving the top */
+      max-height: calc(100vh - 8px);
+      overflow-y: auto;
+    }
+    #contextMenu > * {
+      flex-shrink: 0;   /* the flyout is a flex column: under the max-height the rows SHRANK (19.7 px, measured at 500 px) instead of scrolling */
     }
 
     .tool-panel-label {
@@ -4045,8 +4083,27 @@
       box-shadow: var(--focus-ring);
     }
 
-    .scene-tree-item:hover {
+    .scene-tree-item:hover,
+    .scene-tree-item.hover {   /* .hover (v20261103a): the row of the object hovered on the canvas - the same tint as the pointer's own */
       background-color: var(--tint-hover);
+    }
+
+    /* HOVER AND DRILL (v20261103a): the hover outline - the selection outline's lighter sibling (1 px at .55 of the accent ink,
+       whatever the zoom) - and the rename field that replaces a tree name on a double-click. */
+    #hoverHighlightGroup path.hover-outline {
+      fill: none;
+      stroke: var(--accent-ink);
+      stroke-opacity: .55;
+      stroke-width: 1;
+      vector-effect: non-scaling-stroke;
+      pointer-events: none;
+    }
+    .scene-tree-item input.tree-rename {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: calc(var(--row-h-list) - 4px);
+      padding: 0 4px;
+      font: inherit;
     }
 
     .scene-tree-item.selected {
@@ -6196,6 +6253,9 @@
            selects nothing. Belt and braces beside the isPlaying gate in
            RenderCache.active(). -->
       <g id="renderCacheGroup" style="display: none; pointer-events: none;"></g>
+      <!-- HOVER AND DRILL (v20261103a): the outline of the object a click would select. Under the selection's group; never a
+           target (the pointer resolves THROUGH it); stripped from every export beside #pathHighlightGroup. -->
+      <g id="hoverHighlightGroup" style="pointer-events: none;"></g>
       <g id="pathHighlightGroup"></g>
       <g id="selectionGizmoGroup"></g>
       <path id="penPreviewPath" fill="none" stroke="var(--accent-ink)" stroke-opacity="0.4" stroke-width="1.5"
@@ -6389,6 +6449,8 @@
   <div id="penFlyout" class="tool-flyout" hidden role="menu" aria-label="Pen modes"></div>
   <!-- BOOLEAN: the four operations of a row (Union / Subtract / Intersect, and the Drill since v20261005a), built by BooleanUI.openFlyout -->
   <div id="booleanFlyout" class="tool-flyout" hidden role="menu" aria-label="Boolean operation"></div>
+  <!-- CONTEXT MENU (v20261102b, PLAN-standard-verbs S2): the right button's menu on the canvas and the Scene Objects list, built by Commands.openMenu from the Commands table -->
+  <div id="contextMenu" class="tool-flyout" hidden role="menu" aria-label="Context menu"></div>
   <div id="toolToolbar">
     <button data-tool="select" class="active" title="Select (V)">
       <svg viewBox="0 0 20 20" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
@@ -6664,7 +6726,7 @@
               <polygon points="4.65 17 14.32 17 16.68 11.34 7.01 11.34 4.65 17" />
             </svg>
           </button>
-          <button id="pasteSVGBtn" title="Paste from Clipboard - SVG as paths: copy in Illustrator, paste here" class="ui-btn ui-btn-small">
+          <button id="pasteSVGBtn" title="Paste from Clipboard - SVG as paths: copy in Illustrator, paste here; an object copied in dim comes back as the object with Paste Object" class="ui-btn ui-btn-small" data-cmd="paste">
             <svg class="icon-20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="13.67 5.5 15.5 5.5 15.5 17 5.83 17 5.83 5.5 7.67 5.5" />
               <path d="M12.33,4.67c0-.92-.75-1.67-1.67-1.67s-1.67.75-1.67,1.67v.17h-1.33v2.17h6v-2.17h-1.33v-.17Z" />
@@ -6673,7 +6735,7 @@
               <circle cx="10.67" cy="4.75" r=".33" />
             </svg>
           </button>
-          <button id="copySVGBtn" title="Copy to Clipboard - the view as SVG: paste straight into Illustrator" class="ui-btn ui-btn-small">
+          <button id="copySVGBtn" title="Copy to Clipboard - the whole view as SVG, selection or not: paste straight into Illustrator" class="ui-btn ui-btn-small" data-cmd="copyView">
             <svg class="icon-20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="13.67 5.5 15.5 5.5 15.5 17 5.83 17 5.83 5.5 7.67 5.5" />
               <path d="M12.33,4.67c0-.92-.75-1.67-1.67-1.67s-1.67.75-1.67,1.67v.17h-1.33v2.17h6v-2.17h-1.33v-.17Z" />
@@ -6981,6 +7043,17 @@
         </div>
         <div class="prop-row prop-row-plain">
           <button id="resetZoomBtn" title="Put the zoom back to the reference - the orthographic zoom, or the perspective distance that matches it" class="ui-btn ui-btn-wide">Reset Zoom</button>
+        </div>
+        <!-- FRAME (v20261102f, PLAN-frame-selection-261102): the titles end with the key, written by Commands.retitle() from the table.
+             Two rows: three in one row clipped "Frame Selection" at the panel's width (measured in the theme crop) -->
+        <div id="frameActions" class="mgmt-actions">
+          <div class="flex-row-gap">
+            <button id="frameSelectionBtn" data-cmd="frameSel" title="Put the selection in the frame and make it the orbit centre - nothing selected frames everything" class="ui-btn ui-btn-small">Frame Selection</button>
+            <button id="frameAllBtn" data-cmd="frameAll" title="Put every visible object in the frame (the lights left out)" class="ui-btn ui-btn-small">Frame All</button>
+          </div>
+          <div class="flex-row-gap">
+            <button id="lookAtBtn" data-cmd="lookAt" title="Turn the camera to the selection's centre and orbit about it - the distance stays" class="ui-btn ui-btn-small">Look At Selection</button>
+          </div>
         </div>
         <!-- CAMERA SUBWINDOW toggle (Phase 2). Hosted here rather than on the
              main toolbar because the feature is camera-scoped and this section
@@ -7438,6 +7511,12 @@
           <input type="checkbox" id="alignCb" class="ui-checkbox" />
         </div>
         <!-- /ALIGN -->
+        <!-- HOVER AND DRILL (v20261103a, _plans/PLAN-hover-and-drill-261102.md) - the gate, default ON (D4). Off = no hover outline,
+             no tree / canvas pointing, no double-click on the canvas or on a tree name: the app as it was before. -->
+        <div class="prop-row prop-inline" id="hoverDrillRow">
+          <label for="hoverDrillCb" class="ui-checkbox-label" title="On by default. Under the Select (V) and Direct Select (A) tools, outline the object a click would select as the pointer moves over it; point the Scene Objects list and the canvas at each other on hover; double-click an object to enter its group or edit its points (double-click under Direct Select goes back to Select); double-click a name in the Scene Objects list to rename it. Off = none of these.">Hover and Drill</label>
+          <input type="checkbox" id="hoverDrillCb" class="ui-checkbox" checked />
+        </div>
 
         <!-- COLOR PICKER -->
         <div class="prop-row prop-inline" id="customColorPickerRow">
@@ -8890,21 +8969,21 @@
       <div class="collapsible-body" id="cb-scene-objects">
         <!-- Primary actions: icon buttons (above tree) -->
         <div class="tree-action-bar">
-          <button id="moveUpBtn" class="ui-btn ui-btn-small" title="Move Up">
+          <button id="moveUpBtn" class="ui-btn ui-btn-small" title="Bring Forward" data-cmd="forward">
             <svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"
               stroke-linejoin="round">
               <line x1="15" y1="28" x2="15" y2="2" />
               <polyline points="5.81 11.19 15 2 24.19 11.19" />
             </svg>
           </button>
-          <button id="moveDownBtn" class="ui-btn ui-btn-small" title="Move Down">
+          <button id="moveDownBtn" class="ui-btn ui-btn-small" title="Send Backward" data-cmd="backward">
             <svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"
               stroke-linejoin="round">
               <line x1="15" y1="2" x2="15" y2="28" />
               <polyline points="24.19 18.81 15 28 5.81 18.81" />
             </svg>
           </button>
-          <button id="duplicateBtn" class="ui-btn ui-btn-small" title="Duplicate">
+          <button id="duplicateBtn" class="ui-btn ui-btn-small" title="Duplicate" data-cmd="duplicate">
             <svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"
               stroke-linejoin="round">
               <line stroke-miterlimit="10" x1="15.75" y1="15.75" x2="15.75" y2="10.75" />
@@ -8913,7 +8992,7 @@
               <polyline points="9.75 8 9.75 4 24.25 4 24.25 22 20.25 22" />
             </svg>
           </button>
-          <button id="removeObjectBtn" class="ui-btn ui-btn-small ui-btn-danger" title="Remove">
+          <button id="removeObjectBtn" class="ui-btn ui-btn-small ui-btn-danger" title="Remove" data-cmd="delete">
             <svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
               <path stroke-miterlimit="10"
                 d="M8.25,10.5v12.75c0,1.24,1.01,2.25,2.25,2.25h9c1.24,0,2.25-1.01,2.25-2.25v-12.75" />
@@ -8927,9 +9006,9 @@
         <ul id="sceneTree"></ul>
         <!-- Secondary actions -->
         <div class="flex-row-gap my-1">
-          <button id="groupBtn" title="Put the selected objects into a new group" class="ui-btn ui-btn-small">Group</button>
-          <button id="ungroupBtn" title="Dissolve the selected groups into their children" class="ui-btn ui-btn-small">Ungroup</button>
-          <!-- BOOLEAN --><button id="booleanBtn" class="ui-btn ui-btn-small" style="display: none;" title="Make a Boolean of the selection: the bottom object is the base, the others act on it (Cmd + B)">Boolean</button>
+          <button id="groupBtn" title="Put the selected objects into a new group" class="ui-btn ui-btn-small" data-cmd="group">Group</button>
+          <button id="ungroupBtn" title="Dissolve the selected group into its children" class="ui-btn ui-btn-small" data-cmd="ungroup">Ungroup</button>
+          <!-- BOOLEAN --><button id="booleanBtn" class="ui-btn ui-btn-small" style="display: none;" title="Make a Boolean of the selection: the bottom object is the base, the others act on it" data-cmd="boolean">Boolean</button>
         </div>
 
 
@@ -11899,6 +11978,7 @@
     const vertexGizmoGroup = document.getElementById('vertexGizmoGroup');
     const penPreviewPath = document.getElementById('penPreviewPath');
     const pathHighlightGroup = document.getElementById('pathHighlightGroup');
+    const hoverHighlightGroup = document.getElementById('hoverHighlightGroup');   // HOVER AND DRILL (v20261103a)
     const axisIndicatorGroup = document.getElementById('axisIndicatorGroup');
     const pathGroup = document.getElementById('pathGroup');
     const svgNS = 'http://www.w3.org/2000/svg';
@@ -12094,6 +12174,74 @@
         updateCameraPanel();
         requestRender();
       });
+    }
+
+    // --- FRAME SELECTION / FRAME ALL / LOOK AT --- (v20261102f, _plans/PLAN-frame-selection-261102.md S2). Put the selection
+    // (or the whole scene) in the frame and make it the orbit centre - Dimension's F / Shift+F, Blender's Numpad-period / Home.
+    // THE BOUNDS: the union of the objects' WORLD extents (WorldExtent - what each object DRAWS: an extrude's ends, a revolve's
+    // sampled body; a loft / fold / mapped path by its control points, so a little loose) along the world axes; centre c = the
+    // box's middle, radius r = half its diagonal (a sphere that holds the box from every direction), floored at FRAME_MIN_R so a
+    // light or a point never puts the camera on top of it. THE CAMERA: the active one, refused with a notice while it is locked
+    // (the view keys' rule; the presets are locked); the direction and the up are kept, the target moves to c. Perspective
+    // (the camera's OWN projection, never the global mirror - the v20261030b lesson): the paper is a square (aspect 1), so a
+    // sphere of radius r fits at d = r / sin(fov / 2), times FRAME_MARGIN. Orthographic / oblique: the projection is
+    // createOrthographicMatrix(-size, size, ...) with size = orthoZoom, so orthoZoom IS the half-extent: r x FRAME_MARGIN, the
+    // distance kept (the Cabinet shear can leave a deep body's sheared corner outside - accepted, the plan's oblique note).
+    // Look At moves the target alone (the distance and the direction stay). The write is position / orthoZoom DIRECTLY, as
+    // faceWorkplane writes them - never through updateCameraFromInput (Keep Size would compensate the FOV and undo the frame).
+    // Undo: pushCameraUndoState() first, the view keys' discrete shape. No tlAutoKeyCamera: navigation never creates camera
+    // tracks (the view keys do not either); an animated camera snaps back on the next scrub, as after a view key (D4: no
+    // refusal). initialTarget (the Reset Truck baseline) is untouched, so Truck / Pedestal read the move as a Space-truck does.
+    const FRAME_MARGIN = 1.15;   // a little paper around what is framed
+    const FRAME_MIN_R = 0.5;     // the smallest radius a frame uses (world units): a light alone, a vertex-less path
+    const FRAME_AXES = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    // the objects a frame reads: minus a descendant of another listed object (its ancestor covers it), minus a 2D Mode layer
+    // (no world place - Align.subjects' rule); a motion-path rider IS framed (its world matrix carries the path's anchor)
+    const _frameSubjects = (list) => {
+      const set = new Set(list), objs = [], skipped = [];
+      for (const o of list) {
+        if (!o) continue;
+        let desc = false; for (let p = o.parent; p; p = p.parent) if (set.has(p)) { desc = true; break; }
+        if (desc) continue;
+        if (isIn2DMode(o)) skipped.push(o); else objs.push(o);
+      }
+      return { objs, skipped };
+    };
+    // Frame All's objects (D1): every visible top-level object but the lights (a lamp far from the art would widen the frame)
+    const _frameAllObjects = () => sceneObjects.filter(o => o && o.visible !== false && !_isLightObj(o));
+    const _frameSelected = () => (selectedObjects && selectedObjects.length) ? selectedObjects.slice() : (selectedObject ? [selectedObject] : []);
+    // the world box of the objects a frame would read, or null (the menu's predicates and the verb read the same)
+    const frameExtentOf = (list) => WorldExtent.unionOf(_frameSubjects(list).objs.map(o => WorldExtent.extentOf(o, FRAME_AXES)));
+    const frameObjects = (objs, opts) => {
+      const o = opts || {}, cam = activeCamera;
+      if (cam.lock) { showAppNotice(cam.name + ' is locked - nothing was framed', { kind: 'warn' }); return false; }
+      const list = o.all ? _frameAllObjects() : (objs || []);
+      const ext = frameExtentOf(list);
+      if (!ext) {
+        if (o.all) { pushCameraUndoState(); cam.reset(); updateCameraPanel(); requestRender(); return true; }   // nothing in the scene: the home pose (the 0 key's order: the push first)
+        showAppNotice(_frameSubjects(list).skipped.length ? 'Nothing to frame - a 2D Mode layer has no place in the 3D view' : 'Nothing to frame', { kind: 'info' });
+        return false;
+      }
+      const c = [0, 1, 2].map(i => (ext.lo[i] + ext.hi[i]) / 2);
+      const r = Math.max(FRAME_MIN_R, vectorLength(vectorSubtract(ext.hi, ext.lo)) / 2);
+      pushCameraUndoState();
+      const off = vectorSubtract(cam.position, cam.target), dist = vectorLength(off);
+      const dir = dist > 1e-12 ? vectorScale(off, 1 / dist) : [0, 0, 1];
+      cam.target = c;
+      if (o.lookOnly) cam.position = vectorAdd(c, off);
+      else if ((cam.projectionType || projectionType) === 'perspective') cam.position = vectorAdd(c, vectorScale(dir, r / Math.sin(cam.fovRadians / 2) * FRAME_MARGIN));
+      else { cam.orthoZoom = r * FRAME_MARGIN; cam.position = vectorAdd(c, vectorScale(dir, dist)); }
+      updateCameraPanel();
+      requestRender();
+      return true;
+    };
+    // the verbs: Frame Selection falls back to Frame All when nothing is selected (Dimension's rule; the Shift+2 key)
+    const frameSelection = () => { const sel = _frameSelected(); return sel.length ? frameObjects(sel) : frameObjects(null, { all: true }); };
+    const frameAll = () => frameObjects(null, { all: true });
+    const lookAtSelection = () => frameObjects(_frameSelected(), { lookOnly: true });
+    for (const [id, fn] of [['frameSelectionBtn', frameSelection], ['frameAllBtn', frameAll], ['lookAtBtn', lookAtSelection]]) {
+      const b = document.getElementById(id);
+      if (b) b.addEventListener('click', () => fn());
     }
 
     const scaleStrokeZoomCheckbox = document.getElementById('scaleStrokeZoomCheckbox');
@@ -17541,6 +17689,14 @@
       return null;
     };
 
+    // (v20261102i) THE RE-EDIT SESSION'S TOKEN. While a primitive is re-edited the 3D Shape drawer's fields ARE the session's
+    // values - captureCurrentPrimitiveData reads them when the session ends - and primitiveData is the PRE-edit value until then.
+    // PanelAnim.sync wrote an animated param's stored value into its field whenever the field was not focused, so a typed Ring
+    // went back to the old number at the next sync (the chrome belt, ~0.3-0.5 s after leaving the field, measured) and the end of
+    // the session captured the old number: the edit lost, nothing auto-keyed (torus_pyramid R2's intermittent FAIL). A field
+    // edited in THIS session carries this token (PanelAnim's input listener) and sync leaves its value alone; a new session
+    // makes a new token, so an older stamp never matches.
+    let _primEditToken = null;
     const enterPrimitiveEditMode = (obj) => {
       if (!obj || !obj.primitiveData) return;
       const pd = obj.primitiveData;
@@ -17591,6 +17747,7 @@
       // Set as pending for editing
       pendingPolygon = obj;
       pendingPolygon._isReEditing = true; // Flag: don't recalculate position
+      _primEditToken = { obj };   // (v20261102i) a fresh session: the drawer fields this session edits are stamped with it (PanelAnim.sync)
       activePath = obj;
 
       // Save pre-edit state for undo (not _preCreationSceneState since object already exists)
@@ -21349,6 +21506,12 @@
 
     // --- Vertex Selection State ---
     let hoveredVertexInfo = null;
+    // HOVER AND DRILL (v20261103a, PLAN-hover-and-drill-261102): the object a click would select under the pointer (V / A tools)
+    // or the object of the Scene Objects row under it (v20261103a). Written only by setHoveredObject; drawn by drawHoverHighlight.
+    // The gate is Settings > Hover and Drill: hoverDrillEnabled is set only by setHoverDrillEnabled (D4: default ON).
+    let hoveredObject = null;
+    const HOVER_DRILL_DEFAULT_ON = true;
+    let hoverDrillEnabled = HOVER_DRILL_DEFAULT_ON;
     let selectedVertexInfo = null;
     let dragStartVertexPosition = null;
     let dragStartWorldPosition = null;
@@ -29716,7 +29879,7 @@
         } else els = document.elementsFromPoint(x, y);
         for (const el of els) {
           if (skip && (el === skip || skip.contains(el))) continue;
-          if (el.closest && el.closest('#selectionGizmoGroup, #pathHighlightGroup')) continue;
+          if (el.closest && el.closest('#selectionGizmoGroup, #pathHighlightGroup, #hoverHighlightGroup')) continue;
           if (el.tagName === 'INPUT' && el.type === 'color') return this.normHex(el.value);
           if (el.classList && el.classList.contains('cp-cell') && el.dataset && el.dataset.cpHex) return this.normHex(el.dataset.cpHex);
           if (typeof SVGGeometryElement !== 'undefined' && el instanceof SVGGeometryElement) {
@@ -73542,6 +73705,83 @@
 
 
 
+    // THE OUTLINE OF ONE PATH (v20261103a, PLAN-hover-and-drill S1): the d of the selection outline - the path's own points through
+    // its MVP (resolveObjectMVP: VP_2D for a 2D Mode object), curve-aware for the non-linear algorithms - lifted out of
+    // drawPathHighlight's loop unchanged so the hover outline (drawHoverHighlight) draws the SAME geometry. From GEOMETRY, not by
+    // cloning the drawn DOM: a z-sorted object's own <g> is empty.
+    const _outlineDataFor = (targetObject, mvpMatrix) => {
+      // Use computePreviewPathData for non-linear algorithms to draw actual curves
+      const algo = targetObject.algorithm || 'linear';
+      let pathData = '';
+
+      if (algo !== 'linear' && targetObject.subPathData) {
+        // Build curve-aware path data per subpath using computePreviewPathData
+        targetObject.subPathData.forEach(subPath => {
+          if (subPath.count === 0) return;
+          const subVerts = targetObject.localVertices.slice(subPath.start, subPath.start + subPath.count);
+          pathData += computePreviewPathData(subVerts, algo, subPath.closed, mvpMatrix);
+        });
+      } else if (targetObject.subPathData) {
+        // Linear: original polyline logic
+        targetObject.subPathData.forEach(subPath => {
+          const endIndex = subPath.start + subPath.count;
+          let subLastPointVisible = false;
+
+          for (let i = subPath.start; i < endIndex; i++) {
+            if (i >= targetObject.localVertices.length) break;
+
+            const tv = transformVertex(targetObject.localVertices[i], mvpMatrix);
+
+            if (tv) {
+              const x = (tv[0] * FRAME_SIZE) / 2;
+              const y = (-tv[1] * FRAME_SIZE) / 2;
+
+              if (!subLastPointVisible) {
+                pathData += `M ${x} ${y} `;
+              } else {
+                pathData += `L ${x} ${y} `;
+              }
+              subLastPointVisible = true;
+            } else {
+              subLastPointVisible = false;
+            }
+          }
+
+          if (subPath.closed && subPath.count > 1) {
+            const firstTv = transformVertex(targetObject.localVertices[subPath.start], mvpMatrix);
+            if (firstTv && subLastPointVisible) {
+              pathData += 'Z ';
+            }
+          }
+        });
+      } else {
+        // Fallback for objects without subPathData (Legacy)
+        let lastPointVisible = false;
+        for (let i = 0; i < targetObject.localVertices.length; i++) {
+          const tv = transformVertex(targetObject.localVertices[i], mvpMatrix);
+          if (tv) {
+            const x = (tv[0] * FRAME_SIZE) / 2;
+            const y = (-tv[1] * FRAME_SIZE) / 2;
+            if (!lastPointVisible) {
+              pathData += `M ${x} ${y} `;
+            } else {
+              pathData += `L ${x} ${y} `;
+            }
+            lastPointVisible = true;
+          } else {
+            lastPointVisible = false;
+          }
+        }
+        if (targetObject.loop && targetObject.localVertices.length > 1) {
+          const firstTv = transformVertex(targetObject.localVertices[0], mvpMatrix);
+          if (firstTv && lastPointVisible) {
+            pathData += 'Z';
+          }
+        }
+      }
+      return pathData;
+    };
+
     const drawPathHighlight = (vpMatrix, mainScale, accentColor) => {
       while (pathHighlightGroup.firstChild) {
         pathHighlightGroup.removeChild(pathHighlightGroup.firstChild);
@@ -73578,76 +73818,9 @@
         // (The hand-built T·R·S fallback went v20261016n: every object has getWorldMatrix.)
         const mvpMatrix = resolveObjectMVP(targetObject, vpMatrix);
 
-        // --- Phase 1: Algorithm-aware curve highlight ---
-        // Use computePreviewPathData for non-linear algorithms to draw actual curves
+        // --- Phase 1: Algorithm-aware curve highlight --- (the d: _outlineDataFor, v20261103a - the hover outline draws it too)
         const algo = targetObject.algorithm || 'linear';
-        let pathData = '';
-
-        if (algo !== 'linear' && targetObject.subPathData) {
-          // Build curve-aware path data per subpath using computePreviewPathData
-          targetObject.subPathData.forEach(subPath => {
-            if (subPath.count === 0) return;
-            const subVerts = targetObject.localVertices.slice(subPath.start, subPath.start + subPath.count);
-            pathData += computePreviewPathData(subVerts, algo, subPath.closed, mvpMatrix);
-          });
-        } else if (targetObject.subPathData) {
-          // Linear: original polyline logic
-          targetObject.subPathData.forEach(subPath => {
-            const endIndex = subPath.start + subPath.count;
-            let subLastPointVisible = false;
-
-            for (let i = subPath.start; i < endIndex; i++) {
-              if (i >= targetObject.localVertices.length) break;
-
-              const tv = transformVertex(targetObject.localVertices[i], mvpMatrix);
-
-              if (tv) {
-                const x = (tv[0] * FRAME_SIZE) / 2;
-                const y = (-tv[1] * FRAME_SIZE) / 2;
-
-                if (!subLastPointVisible) {
-                  pathData += `M ${x} ${y} `;
-                } else {
-                  pathData += `L ${x} ${y} `;
-                }
-                subLastPointVisible = true;
-              } else {
-                subLastPointVisible = false;
-              }
-            }
-
-            if (subPath.closed && subPath.count > 1) {
-              const firstTv = transformVertex(targetObject.localVertices[subPath.start], mvpMatrix);
-              if (firstTv && subLastPointVisible) {
-                pathData += 'Z ';
-              }
-            }
-          });
-        } else {
-          // Fallback for objects without subPathData (Legacy)
-          let lastPointVisible = false;
-          for (let i = 0; i < targetObject.localVertices.length; i++) {
-            const tv = transformVertex(targetObject.localVertices[i], mvpMatrix);
-            if (tv) {
-              const x = (tv[0] * FRAME_SIZE) / 2;
-              const y = (-tv[1] * FRAME_SIZE) / 2;
-              if (!lastPointVisible) {
-                pathData += `M ${x} ${y} `;
-              } else {
-                pathData += `L ${x} ${y} `;
-              }
-              lastPointVisible = true;
-            } else {
-              lastPointVisible = false;
-            }
-          }
-          if (targetObject.loop && targetObject.localVertices.length > 1) {
-            const firstTv = transformVertex(targetObject.localVertices[0], mvpMatrix);
-            if (firstTv && lastPointVisible) {
-              pathData += 'Z';
-            }
-          }
-        }
+        const pathData = _outlineDataFor(targetObject, mvpMatrix);
 
         const pathElement = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         pathElement.setAttribute('d', pathData);
@@ -73747,6 +73920,164 @@
         }
       });
       BooleanDraw.ghost(pathHighlightGroup, vpMatrix, accentColor);   // BOOLEAN (v20260928e): the selected operand, whole, dashed
+    };
+
+    // --- HOVER AND DRILL (v20261103a, _plans/PLAN-hover-and-drill-261102.md) ---------------------------------------------------
+    // The canvas says what a click will select before the click (Figma's hover outline, Illustrator's Object Highlighting); the
+    // Scene Objects list and the canvas point at each other; a double-click goes INTO a group or into point editing; a double-click
+    // on a tree name renames it. Gate: Settings > Hover and Drill (D4: default ON - the owner wanted the switch; the review ranked
+    // this a polish feature every reference app has, so on is the plan's reading). Off = every entry point returns at its head
+    // and the app is the one before.
+    //   - The hover NEVER asks for a scene draw: no requestRender() on a hover change. The guides section of _renderFrame runs on
+    //     every rAF, before the _mustDraw gate, and draws the outline from geometry into #hoverHighlightGroup; the outline is
+    //     rebuilt only when its key moves (the object, the VP, the canvas size, a dirty signal, the frame).
+    //   - What the outline shows is what a click selects BY CONSTRUCTION: both read resolveClickObject (the two-chains lesson).
+    const setHoverDrillEnabled = (on) => {
+      hoverDrillEnabled = !!on;
+      if (!hoverDrillEnabled) { hoveredObject = null; drawHoverHighlight.clear(); _syncTreeHover(); }
+    };
+    // ONE writer of hoveredObject. No render request (see above).
+    const setHoveredObject = (obj) => {
+      const h = hoverDrillEnabled ? (obj || null) : null;
+      if (h === hoveredObject) return;
+      hoveredObject = h;
+      _syncTreeHover();
+    };
+    // Drawable as a hover: still in the scene, nothing on its chain hidden, not (inside) the selection - the selection outline is
+    // the heavier sibling and two cues on one object say nothing more.
+    const _hoverDrawable = (o) => {
+      let top = o, guard = 0;
+      for (let p = o; p && guard++ < 256; p = p.parent) {
+        if (p.visible === false || selectedObjects.includes(p)) return false;
+        top = p;
+      }
+      return sceneObjects.includes(top);
+    };
+    const drawHoverHighlight = (vpMatrix) => {
+      const o = hoveredObject;
+      if (!hoverDrillEnabled || !o || dragMode !== 'none' || RenderCache._presenting || !_hoverDrawable(o)) { drawHoverHighlight.clear(); return; }
+      const key = o.id + '|' + vpMatrix.map(r => r.join(',')).join(';') + '|' + width + 'x' + height + '|' + _hoverSceneGen + '|' + animationTimeline.currentFrame;
+      if (key === drawHoverHighlight._key) return;   // the scene did not move: the outline is still right
+      const t0 = performance.now();
+      while (hoverHighlightGroup.firstChild) hoverHighlightGroup.removeChild(hoverHighlightGroup.firstChild);
+      const leaves = [];
+      const walk = (x) => { if (!x || x.visible === false) return; if (x.isGroup) { (x.children || []).forEach(walk); return; } if (!_isLightObj(x)) leaves.push(x); };
+      walk(o);
+      // ONE path for the whole hover (every leaf's outline in one d): one stroke style, so one node draws it - the Earth's 147 leaves
+      // as 147 nodes measured 2.8 - 3.1 ms a build, the DOM's share of it
+      let d = '';
+      for (const leaf of leaves) d += _outlineDataFor(leaf, resolveObjectMVP(leaf, vpMatrix));
+      if (d) {
+        const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        el.setAttribute('d', d);
+        el.setAttribute('class', 'hover-outline');
+        hoverHighlightGroup.appendChild(el);
+      }
+      drawHoverHighlight._key = key;
+      drawHoverHighlight.builds++;
+      drawHoverHighlight.lastMs = performance.now() - t0;
+    };
+    drawHoverHighlight._key = null; drawHoverHighlight.builds = 0; drawHoverHighlight.lastMs = 0;
+    drawHoverHighlight.clear = () => {
+      if (drawHoverHighlight._key === null && !hoverHighlightGroup.firstChild) return;
+      while (hoverHighlightGroup.firstChild) hoverHighlightGroup.removeChild(hoverHighlightGroup.firstChild);
+      drawHoverHighlight._key = null;
+    };
+
+    // S2 (v20261103a): the row of the hovered object carries .hover - or, inside a folded group, the deepest row that exists (the
+    // outermost folded ancestor: the cue lands where the .has-hidden-selection dot does). Rows are found by data-obj-id on demand;
+    // updateTreeView rebuilds the list from scratch and calls this at its end.
+    const _treeRowOf = (obj) => {
+      const tree = document.getElementById('sceneTree');
+      if (!tree || !obj || obj.id == null) return null;
+      return tree.querySelector('li.scene-tree-item[data-obj-id="' + CSS.escape(String(obj.id)) + '"]');
+    };
+    const _syncTreeHover = () => {
+      const tree = document.getElementById('sceneTree');
+      if (!tree) return;
+      tree.querySelectorAll('.scene-tree-item.hover').forEach(r => r.classList.remove('hover'));
+      if (!hoverDrillEnabled || !hoveredObject) return;
+      let guard = 0;
+      for (let p = hoveredObject; p && guard++ < 256; p = p.parent) {
+        const r = _treeRowOf(p);
+        if (r) { r.classList.add('hover'); return; }
+      }
+    };
+
+    // S4 (v20261103a): RENAME IN THE TREE. The row's name becomes a field; Enter or a click elsewhere (blur) commits, Esc cancels.
+    // The commit is #objectNameInput's own path - its value set, its input and change events dispatched, exactly what typing
+    // there does (the uniquifier, the coalesced undo, the tree and the timeline re-synced): ONE writer of a name. A rebuild of the
+    // list while the field is open (a selection change) drops it with the old name.
+    const _treeBeginRename = (obj) => {
+      if (!hoverDrillEnabled || !obj) return;
+      const li = _treeRowOf(obj);
+      const span = li && li.querySelector('.tree-item-name');
+      if (!span) return;
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'ui-input tree-rename';
+      inp.value = obj.name || '';
+      inp.spellcheck = false;
+      li.setAttribute('draggable', 'false');   // a drag that selects text in the field must not move the row
+      span.replaceWith(inp);
+      let done = false;
+      // a press anywhere outside the field commits it: the panels keep the focus on a press (measured - a click on the list's empty
+      // part left the field open), so blur alone does not say "elsewhere"
+      const onDocDown = (e) => { if (e.target !== inp) finish(true); };
+      const finish = (commit) => {
+        if (done) return;
+        done = true;
+        document.removeEventListener('mousedown', onDocDown, true);
+        if (commit && inp.value !== (obj.name || '')) {
+          if (selectedObject !== obj) setSelectedObject(obj);
+          const f = document.getElementById('objectNameInput');
+          if (f && selectedObject === obj) {
+            f.value = inp.value;
+            f.dispatchEvent(new Event('input', { bubbles: true }));
+            f.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
+        if (inp.isConnected) updateTreeView();   // the span back (a commit has already rebuilt the list)
+      };
+      inp.addEventListener('keydown', (e) => {
+        e.stopPropagation();   // the app's keys (Delete, the tool letters) never see the field's
+        if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+      });
+      // blur commits - a tick later: Chrome fires blur when a rebuild REMOVES the focused field (measured: a programmatic updateTreeView
+      // committed), and committing inside that rebuild would run a second updateTreeView in the middle of the first
+      inp.addEventListener('blur', () => setTimeout(() => finish(true), 0));
+      document.addEventListener('mousedown', onDocDown, true);
+      for (const t of ['mousedown', 'click', 'dblclick', 'contextmenu']) inp.addEventListener(t, (e) => e.stopPropagation());   // the row's click re-selects
+      inp.focus();
+      inp.select();
+    };
+
+    // S3 (v20261103a): DOUBLE-CLICK ON THE CANVAS. A double-click is two full clicks: the first selected what resolveClickObject
+    // answers, so this only goes one step further. V: on a group, the leaf under the pointer (Figma's drill-in, the Select Child
+    // resolver); on a path, or the leaf already selected, Direct Select on it. A: on the selection's body, back to V (D1). Paper,
+    // a vertex, a gizmo, the other tools and every drawing gesture: nothing (bubbling; the corner widgets' capture listener stops
+    // its own double-clicks first).
+    const _onCanvasDblClick = (e) => {
+      if (!hoverDrillEnabled || !e || e.button !== 0) return;
+      if (e.target && e.target.dataset && e.target.dataset.cornerWidget) return;
+      // the element under the pointer NOW: the first click selected and redrew, and a z-sorted group recommits its faces - the
+      // event's target is then their common ancestor, the group's <g>, where the leaf cannot be read (measured: the drill-in selected
+      // the group). One pointer, one hit, as the next press would see it.
+      const t = document.elementFromPoint(e.clientX, e.clientY) || e.target;
+      if (CamMatchSession.active || pendingPolygon || RenderCache._presenting || dragMode !== 'none') return;
+      if (currentTool !== 'select' && currentTool !== 'directSelect') return;
+      if (currentTool === 'directSelect' && hoveredVertexInfo) return;
+      const sel = resolveClickObject({ target: t, metaKey: e.metaKey, ctrlKey: e.ctrlKey });
+      if (!sel) return;
+      if (currentTool === 'select') {
+        const leaf = findDeepObjectByElement(t) || sel;
+        if (sel.isGroup && leaf !== sel) { setSelectedObject(leaf); }
+        else { if (selectedObject !== leaf || selectedObjects.length !== 1) setSelectedObject(leaf); setTool('directSelect'); }
+      } else if (selectedObjects.includes(sel)) {
+        setTool('select');
+      } else return;
+      e.preventDefault();
     };
 
 
@@ -77490,7 +77821,7 @@
       const text = clipboardData.getData('text');
 
       console.log("Paste detected. Length:", text.length);
-      handleSVGPaste(text);
+      pasteClipboardText(text, { asPaths: true });   // (v20261102a) a plain paste (the Edit menu, the trackpad) is the paths route
     });
 
     // --- Keyboard Shortcuts ---
@@ -78517,6 +78848,7 @@
       const renderTreeItem = (container, obj, level = 0) => {
         const li = document.createElement('li');
         li.className = 'scene-tree-item';
+        li.dataset.objId = obj.id;   // HOVER AND DRILL (v20261103a): the row of an object, found on demand (_treeRowOf)
 
         // Indentation (still dynamic because depth is variable)
         li.style.paddingLeft = `${level * 15 + 5}px`;
@@ -78639,6 +78971,26 @@
           if (currentTool === 'pen' || currentTool === 'polygon' || currentTool === 'star') {
             adoptSelectionAsActivePath();
           }
+        });
+
+        // CONTEXT MENU (v20261102b): the right button on a row - the row's object, selected first (Shift adds), the row menu (no
+        // Select Child: the row IS the child; no Paste). stopPropagation because rows nest and the list's empty part has its own.
+        li.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!selectedObjects.includes(obj)) setSelectedObject(obj, !!e.shiftKey);
+          Commands.openMenu(e.clientX, e.clientY, Commands.TREE_ITEMS, { obj, leaf: null });
+        });
+
+        // HOVER AND DRILL S4 (v20261103a): a double-click on the NAME renames (D3: the icon and the rest of the row keep the parametric
+        // re-edit below; a plain path's icon does nothing). Bound on the span itself, not delegated: the double-click's first click
+        // re-selects and rebuilds the list, and the event is still delivered to this span's listeners; _treeBeginRename finds the
+        // live row by id. Off = no stop, the row's handler runs as before.
+        nameSpan.addEventListener('dblclick', (e) => {
+          if (!hoverDrillEnabled) return;
+          e.stopPropagation();
+          e.preventDefault();
+          _treeBeginRename(obj);
         });
 
         // Double-click to enter parametric re-edit mode
@@ -78940,6 +79292,7 @@
           || sceneTree.querySelector('.scene-tree-item.has-hidden-selection');
         if (row) row.scrollIntoView({ block: 'nearest' });
       }
+      _syncTreeHover();   // HOVER AND DRILL (v20261103a): the rebuild dropped the .hover class
     };
 
     const setSelectedObject = (obj, multiSelect = false) => {
@@ -83634,6 +83987,7 @@
     const duplicateObject = (obj, opts) => {
       if (!obj) return null;
       const nameFor = (o) => {
+        if (opts && opts.keepNames && opts.taken) return ensureUniqueName(o.name, opts.taken);   // PASTE OBJECT (v20261102a): the name as copied where it is free, the scene's own ' 2' rule beside its original
         const base = o.name + " Copy";
         if (opts && opts.uniqueNames && opts.taken) {
           const n = ensureUniqueName(base, opts.taken);
@@ -89804,8 +90158,9 @@
     // A DIRECT render() call (harnesses, dimCorpusHash, Mode2D.selfTest)
     // always draws — only the rAF callback passes { loop: true }.
     let sceneDirty = true;
+    let _hoverSceneGen = 0;   // HOVER AND DRILL (v20261103a): counts the dirty signals - the hover outline's cache key (drawHoverHighlight)
     const requestRender = (fromLoop) => {
-      if (fromLoop !== true) sceneDirty = true;
+      if (fromLoop !== true) { sceneDirty = true; _hoverSceneGen++; }
       if (renderInProgress) {
         // A render is already running (awaiting GPU). The continuous rAF loop at
         // the end of render() re-schedules the next frame, so just return.
@@ -90124,6 +90479,8 @@
         drawVertexGizmos(vpMatrix, scale, _highlightColor);
         pathHighlightGroup.style.display = 'block';
         drawPathHighlight(vpMatrix, scale, _highlightColor);
+        hoverHighlightGroup.style.display = 'block';
+        drawHoverHighlight(vpMatrix);   // HOVER AND DRILL (v20261103a): cached - rebuilt only when its key moves
 
         // Snap-to-point indicator — remove previous, draw new if needed
         const oldSnapIndicator = document.getElementById('snapIndicatorCircle');
@@ -90515,6 +90872,7 @@
         else selectionGizmoGroup.style.display = 'none';
         vertexGizmoGroup.style.display = 'none';
         pathHighlightGroup.style.display = 'none';
+        hoverHighlightGroup.style.display = 'none';   // HOVER AND DRILL (v20261103a): guides off, no hover
         try { DragReadout.hidePills(); } catch (e) { }   // THE PILL LAYER (v20260921n): guides off = DragReadout.draw is not called, so its pills are put away here
       }
 
@@ -92290,6 +92648,20 @@
       }
       return null;
     };
+    // WHAT A CLICK SELECTS HERE (v20261103a, PLAN-hover-and-drill S1): the V-tool branch of _onMouseDownInner's three lines, lifted out
+    // unchanged and CALLED by it, so the hover outline (_onMouseMoveInner) and the click agree by construction - not by a copy. The
+    // hit's outermost object; the leaf under Select Child or a Cmd / Ctrl-held press (_isDeepSelectClick); the A tool keeps what
+    // findObjectByElement found. No lock rule: a locked object is selectable on the canvas today.
+    const resolveClickObject = (event) => {
+      let clickedObject = findObjectByElement(event.target, sceneObjects);
+      if (!clickedObject) return null;
+      if (_isDeepSelectClick(event)) {
+        clickedObject = findDeepObjectByElement(event.target) || clickedObject;
+      } else if (currentTool !== 'directSelect') {
+        while (clickedObject.parent) clickedObject = clickedObject.parent;
+      }
+      return clickedObject;
+    };
 
     // CONTINUOUS DRAG S2 (v20260915a): the canvas drags. The real handler runs
     // first (it has early returns and sets dragMode before each), then the
@@ -92315,6 +92687,11 @@
       return false;
     };
     const onMouseDown = (event) => {
+      // THE RIGHT BUTTON BELONGS TO THE MENU (v20261102a, PLAN-standard-verbs S1): a right press used to run the whole left-press
+      // chain - it selected the face and started a translate drag (measured, S0). At the TOP, before _onMouseDownInner, so
+      // neither of the two chains that answer dragMode 'translate' sees it; a Camera Match session keeps its own press.
+      if (event && event.button === 2 && !CamMatchSession.active) return;
+      setHoveredObject(null);   // HOVER AND DRILL (v20261103a): a press ends the hover; the next move resolves it again
       _onMouseDownInner(event);
       _confirmPendingTransform();
       if (event && event.isTrusted && _relayContinuousMode(dragMode)) DragRelay.arm(event, 'arrow');
@@ -93405,24 +93782,15 @@
         // 3. Object Selection / Body Drag Logic
         if (!handledByGizmo) {
 
-          let clickedObject = findObjectByElement(event.target, sceneObjects);
-
-          // Normalize Selection Target
-          if (clickedObject) {
-            // SELECT CHILD (v20260807p; both selection tools since v20260807q):
-            // the actual hit LEAF, via the shared checkbox or a momentary
-            // Cmd/Ctrl-click. findObjectByElement above returns the OUTERMOST
-            // container whatever the tool, so this needs its own resolver — see
-            // findDeepObjectByElement. Without it the A tool lands in the
-            // else-if below, falls through, and keeps that outermost container:
-            // the historic behaviour, and NOT the leaf its comment claimed.
-            if (_isDeepSelectClick(event)) {
-              clickedObject = findDeepObjectByElement(event.target) || clickedObject;
-            } else if (currentTool !== 'directSelect') {
-              // Select/Rotate/Scale -> Select Root
-              while (clickedObject.parent) clickedObject = clickedObject.parent;
-            }
-          }
+          // Normalize Selection Target - resolveClickObject (v20261103a: the hover outline reads the same function).
+          // SELECT CHILD (v20260807p; both selection tools since v20260807q):
+          // the actual hit LEAF, via the shared checkbox or a momentary
+          // Cmd/Ctrl-click. findObjectByElement returns the OUTERMOST
+          // container whatever the tool, so this needs its own resolver — see
+          // findDeepObjectByElement. Without it the A tool falls through and
+          // keeps that outermost container: the historic behaviour, and NOT
+          // the leaf its comment claimed. Select/Rotate/Scale -> Select Root.
+          let clickedObject = resolveClickObject(event);
 
           if (clickedObject) {
             if (event.shiftKey) {
@@ -93502,6 +93870,13 @@
         hoveredVertexInfo = findHoveredVertex(event.clientX, event.clientY, vpMatrix);
       } else if (dragMode !== 'none') {
         hoveredVertexInfo = null;
+      }
+      // HOVER AND DRILL S1 (v20261103a): what a click here would select - resolveClickObject, the click's own resolver. Nothing over
+      // an A-tool vertex (its own hover wins), during a drag, while a cached animation presents clones or a Camera Match session
+      // owns the paper. NO requestRender(): the guides draw the outline on the next frame without a scene draw.
+      if (hoverDrillEnabled) {
+        setHoveredObject(((currentTool === 'select' || currentTool === 'directSelect') && dragMode === 'none' && !hoveredVertexInfo
+          && !RenderCache._presenting && !CamMatchSession.active) ? resolveClickObject(event) : null);
       }
 
       // Track hovered gizmo axis for color feedback
@@ -97586,6 +97961,23 @@
     };
     const generateSVGString = (opts) => {
       _exportLossy = null;
+      // COPY SELECTION (v20261102a, PLAN-standard-verbs S1b): opts.only = a Set of scene objects the file keeps - each with its
+      // descendants and its ancestors' wrappers; everything else leaves the clone. Marked on the LIVE tree before the clone,
+      // because the clone keeps attributes and not expandos: an object's own <g> where it is in the tree, and - under Scene
+      // Z-Sort, where the root commits a top-level object's faces straight into #pathGroup and EVICTS its <g> - every element a
+      // Path stamped _dimPickOwner. The marks leave the live tree right after the clone (a data- attribute for a few ms; no
+      // frame is drawn in between). The masks of a removed face are simply not converted: the clip conversion drops every
+      // mrm / mrg / mrc it did not use, so the kept object ships clipped by what stood in front of it, as the view shows it.
+      let _onlyMarked = null;
+      if (opts && opts.only instanceof Set && opts.only.size) {
+        _onlyMarked = [];
+        const all = []; const walk = (o) => { if (!o) return; all.push(o); if (o.children) o.children.forEach(walk); }; sceneObjects.forEach(walk);
+        const underOnly = (o) => { for (let t = o; t; t = t.parent) if (opts.only.has(t)) return true; return false; };
+        const overOnly = new Set(); for (const m of opts.only) for (let p = m.parent; p; p = p.parent) overOnly.add(p);
+        for (const o of all) if (!underOnly(o) && !overOnly.has(o) && o.svgElement && pathGroup.contains(o.svgElement)) _onlyMarked.push(o.svgElement);
+        for (const el of pathGroup.querySelectorAll('*')) { const own = el._dimPickOwner; if (own && !underOnly(own)) _onlyMarked.push(el); }
+        for (const el of _onlyMarked) el.setAttribute('data-dim-omit', '1');
+      }
       const exportSVG = document.createElementNS(svgNS, 'svg');
       exportSVG.setAttribute('xmlns', svgNS);
       exportSVG.setAttribute('width', FRAME_SIZE);
@@ -97594,6 +97986,11 @@
 
       const clonedGroup = mainGroup.cloneNode(true);
       clonedGroup.removeAttribute('transform');
+      if (_onlyMarked) {   // COPY SELECTION (v20261102a): the marked elements leave the clone; the live tree is unmarked at once
+        for (const el of clonedGroup.querySelectorAll('[data-dim-omit]')) el.remove();
+        for (const el of _onlyMarked) el.removeAttribute('data-dim-omit');
+        _onlyMarked = null;
+      }
       // CAMERA MATCH (v20261018zg): the camera's photo is a child of #mainGroup and rode into every export since v20261018x -
       // against decision D3 (never exported unless "Include Photo in Export" asks). The LIVE element is always stripped from
       // the clone: it shows the MAIN camera's photo, and the camera being exported here is activeCamera, which SubView's
@@ -97769,7 +98166,7 @@
       // axis gizmo never exports. The hidden-element sweep above already
       // dropped the lines of the inactive grid planes, so what ships is what
       // the canvas shows.
-      const idsToRemove = ['vertexGizmoGroup', 'pathHighlightGroup', 'targetGizmoGroup', 'selectionGizmoGroup', 'refImageGroup',
+      const idsToRemove = ['vertexGizmoGroup', 'pathHighlightGroup', 'hoverHighlightGroup' /* HOVER AND DRILL (v20261103a) */, 'targetGizmoGroup', 'selectionGizmoGroup', 'refImageGroup',
         'gizmoGroup',
         'camMatchHandles' /* CAMERA-MATCH (v20261030j): a session's handles sit in #mainGroup, shown - a Cmd+C mid-session shipped them */,
         'rasterHelperViewImage' /* RASTER HELPER — the aligned debug overlay never exports */];
@@ -98071,6 +98468,10 @@
         exportSVG.appendChild(guide);
       }
       if (_layers) _layerExportTree(exportSVG);   // v20261030zg (S3)
+      // COPY SELECTION (v20261102a, S1b): dim's own record rides the file as its LAST node, an XML comment - every XML reader
+      // (Illustrator, Inkscape, a browser, dim's own importer) skips it; only Paste Object reads it. Passed by
+      // copySelectionToClipboard alone: the view copy, the file and the sequence exports are byte-identical to before.
+      if (opts && typeof opts.payload === 'string' && opts.payload) exportSVG.appendChild(document.createComment(opts.payload));
 
       const serializer = new XMLSerializer();
       return serializer.serializeToString(exportSVG);
@@ -98101,6 +98502,412 @@
       _exportLossyNotice('was copied to the clipboard');   // v20260914zh
     };
 
+    // --- COPY SELECTION / PASTE OBJECT (v20261102a, PLAN-standard-verbs-261102 S1b; owner's D5 / D6) -----------------
+    // The clipboard holds the OBJECT when it was copied inside dim, and stops holding it the moment something else is
+    // copied - with no memory slot: the clipboard TEXT carries dim's record. Cmd+C with a selection (v20261102d; Cmd+Shift+C
+    // in v20261102a-c) writes ONE text, the SVG of the
+    // selected objects (the picture Illustrator pastes, with the frame rect as the view copy has it) with the serialised
+    // objects appended inside it as an XML comment  <!--dim-clip:1:<base64 of UTF-8 JSON>-->  (base64 because an XML
+    // comment may not hold `--`, a name can; UTF-8 first because btoa throws on a Japanese name). Cmd+Shift+V reads the
+    // text, finds the comment and rebuilds the OBJECTS (ids fresh, through duplicateObject; the tracks, rest values and
+    // loop modes under the new ids); no comment - an Illustrator copy, a web icon - and it refuses with a notice. Cmd+C
+    // stays the whole view and Cmd+V stays today's paste (the SVG importer, flat paths, whatever the text holds).
+    const DIM_CLIP_VERSION = 1;
+    const DIM_CLIP_RE = /<!--dim-clip:(\d+):([A-Za-z0-9+/=]+)-->/;
+    const _dimClipPayload = (objs) => {
+      const ids = []; const walk = (o) => { ids.push(o.id); if (o.children) o.children.forEach(walk); }; objs.forEach(walk);
+      const idSet = new Set(ids);
+      const p = { v: DIM_CLIP_VERSION, build: ((([...document.childNodes].find(n => n.nodeType === 8) || {}).data) || '').trim(),
+        objects: objs.map(o => serializeObject(o, { prune: true })), tracks: {}, originalValues: {}, loopModes: {} };
+      if (typeof animationTimeline !== 'undefined') {
+        // the three maps _copyAnimTracks copies (Hold Framing and the pending pose are not copied there either, for the reasons it gives)
+        for (const id of ids) { const t = animationTimeline.tracks.get(id); if (!t) continue; p.tracks[id] = {}; for (const [prop, kfs] of t) p.tracks[id][prop] = JSON.parse(JSON.stringify(kfs)); }
+        for (const [key, val] of _tlOriginalValues) { const sep = key.indexOf('::'); if (sep >= 0 && idSet.has(key.slice(0, sep))) p.originalValues[key] = Array.isArray(val) ? [...val] : val; }
+        for (const [key, val] of _tlLoopModes) { const sep = key.indexOf('::'); if (sep >= 0 && idSet.has(key.slice(0, sep))) p.loopModes[key] = { ...val }; }
+      }
+      return btoa(unescape(encodeURIComponent(JSON.stringify(p))));
+    };
+    const copySelectionToClipboard = async () => {
+      const top = _cmdTopMost();
+      if (!top.length) return;
+      await RenderCache.withLiveTree();   // the live tree, as copySVGToClipboard
+      const svgString = generateSVGString({ only: new Set(top), payload: 'dim-clip:' + DIM_CLIP_VERSION + ':' + _dimClipPayload(top) });
+      try {
+        await navigator.clipboard.writeText(svgString);
+        console.log('SVG of the selection copied to the clipboard (' + top.length + ' object' + (top.length === 1 ? '' : 's') + ')');
+        const originalBg = document.body.style.backgroundColor;
+        document.body.style.backgroundColor = 'var(--flash-ok)';
+        setTimeout(() => { document.body.style.backgroundColor = originalBg; }, 200);
+      } catch (err) {
+        console.error('Failed to copy the selection:', err);
+      }
+      _exportLossyNotice('selection was copied to the clipboard');
+    };
+    // the tracks / rest values / loop modes of a payload under the NEW ids (the mirror of _copyAnimTracks, read from the payload)
+    const _pasteAnimTracks = (p, idMap) => {
+      if (typeof animationTimeline === 'undefined' || !p || !idMap) return;
+      for (const [oldId, newId] of idMap) {
+        const t = p.tracks && p.tracks[oldId];
+        if (t && typeof t === 'object') { const m = new Map(); for (const [prop, kfs] of Object.entries(t)) if (Array.isArray(kfs)) m.set(prop, JSON.parse(JSON.stringify(kfs))); if (m.size) animationTimeline.tracks.set(newId, m); }
+        const prefix = oldId + '::';
+        if (p.originalValues && typeof p.originalValues === 'object') for (const [key, val] of Object.entries(p.originalValues)) if (key.startsWith(prefix)) _tlOriginalValues.set(newId + '::' + key.slice(prefix.length), Array.isArray(val) ? [...val] : val);
+        if (p.loopModes && typeof p.loopModes === 'object') for (const [key, val] of Object.entries(p.loopModes)) if (key.startsWith(prefix) && val && typeof val === 'object') _tlLoopModes.set(newId + '::' + key.slice(prefix.length), { ...val });
+      }
+    };
+    // stage -> duplicate (fresh ids, keepNames) -> destroy the stage -> the ROOT (D8) -> remapRefs -> the tracks -> select; in place (D9).
+    // deserializeObject keeps the id VERBATIM, and a second object with a live object's id collides in the tracks and in the
+    // DOM (the v20260726m measurement) - the stage is never pushed into the scene; its <g> (the constructor appends it) goes
+    // with destroy().
+    const pasteDimPayload = (p) => {
+      if (!p || !Array.isArray(p.objects) || !p.objects.length) { showAppNotice('The copied dim record holds no object', { kind: 'warn' }); return false; }
+      const hasTracks = !!(p.tracks && typeof p.tracks === 'object' && Object.keys(p.tracks).length);
+      pushUndoState();   // commit earlier drift; the labelled entry follows the write (the Cmd+G pattern)
+      if (hasTracks && typeof pushAnimUndoState === 'function') pushAnimUndoState();   // the animation entry must hold the paste only (importScene's rule)
+      const taken = _collectSceneNames();
+      const copies = [];
+      for (const data of p.objects) {
+        let staged = null;
+        try {
+          staged = deserializeObject(data);
+          const idMap = new Map();
+          const copy = duplicateObject(staged, { uniqueNames: true, keepNames: true, taken, pairs: [], idMap });
+          if (copy) {
+            sceneObjects.push(copy);
+            remapRefs(copy, idMap);   // references INSIDE the copy follow the new ids; one pointing outside keeps the dangling id (the readers null-guard)
+            _pasteAnimTracks(p, idMap);
+            copies.push(copy);
+          }
+        } catch (err) {
+          console.error('[paste] a copied object could not be rebuilt:', err);
+        } finally {
+          if (staged && staged.destroy) { try { staged.destroy(); } catch (e) { } }
+        }
+      }
+      if (!copies.length) { showAppNotice('The copied dim record could not be rebuilt - ' + Commands.keyText('⌘V') + ' pastes it as paths', { kind: 'warn' }); updateTreeView(); requestRender(); return false; }
+      if (typeof tlRenderTracks === 'function' && typeof tlExpanded !== 'undefined' && tlExpanded) tlRenderTracks();
+      updateTreeView(); updatePropertiesPanel(); requestRender();
+      // the labelled push BEFORE the selection change (setSelectedObject re-syncs the baseline); the animation entry paired
+      // to the scene entry when the payload carried tracks, so one Cmd+Z takes both back (the bakeOrigin pairing)
+      const top = (h) => h[h.length - 1], s0 = top(sceneUndoHistory);
+      pushUndoState(copies.length > 1 ? 'Paste objects' : 'Paste object');
+      if (hasTracks && top(sceneUndoHistory) !== s0 && typeof pushAnimUndoState === 'function') {
+        const a0 = top(animUndoHistory);
+        pushAnimUndoState(copies.length > 1 ? 'Paste objects' : 'Paste object');
+        if (top(animUndoHistory) !== a0) top(sceneUndoHistory)._animPair = top(animUndoHistory);
+      }
+      setSelectedObject(copies[0], false);
+      for (let i = 1; i < copies.length; i++) setSelectedObject(copies[i], true);
+      return true;
+    };
+    // THE ONE CLIPBOARD-TEXT ENTRY. opts.asPaths (Cmd+V, the Paste button, the menu's Paste, the window paste event): the SVG
+    // importer, today's route byte for byte. opts.object (Cmd+Shift+V, the menu's Paste Object): the record, or a notice.
+    const pasteClipboardText = (text, opts) => {
+      if (opts && opts.object) {
+        const m = DIM_CLIP_RE.exec(text || '');
+        if (!m) { showAppNotice('Nothing copied in dim - ' + Commands.keyText('⌘V') + ' pastes the clipboard as paths', { kind: 'warn' }); return false; }
+        if (+m[1] !== DIM_CLIP_VERSION) { showAppNotice('This copy came from a newer dim - ' + Commands.keyText('⌘V') + ' pastes it as paths', { kind: 'warn' }); return false; }
+        let p = null;
+        try { p = JSON.parse(decodeURIComponent(escape(atob(m[2])))); }
+        catch (err) { console.warn('[paste] the dim record could not be read:', err); showAppNotice('The copied dim record could not be read - ' + Commands.keyText('⌘V') + ' pastes it as paths', { kind: 'warn' }); return false; }
+        return pasteDimPayload(p);
+      }
+      return handleSVGPaste(text);
+    };
+    const pasteFromClipboard = (opts) => navigator.clipboard.readText().then(text => { if (text) pasteClipboardText(text, opts); }).catch(err => console.error('Failed to read clipboard:', err));
+
+    // --- COMMANDS (v20261102a, PLAN-standard-verbs-261102 S1) --------------------------------------------------------
+    // ONE table of the app's verbs. The entries with a `key` are DISPATCHED from it by onKeyDown (the new shortcuts Cmd+D /
+    // Cmd+A / Cmd+] / Cmd+[ / Cmd+Opt+] / Cmd+Opt+[ / Cmd+Shift+H / Cmd+Shift+L and the four clipboard keys); the verbs that
+    // already had a key (Delete, Esc, Cmd+G, Cmd+Shift+G, Cmd+B, the view digits, G, Tab, ?) keep their onKeyDown cases and
+    // are listed with `key: null` for the context menu (S2), the buttons' tooltips (retitle) and the palette (plan 5) - their
+    // `run` bodies are COPIES of those cases, undo shape included, so the menu and the key cannot disagree. `when` is the ONE
+    // predicate of the affordance and the act (the Align rule): run() refuses silently when it is false. Top level, above
+    // _keyIs, on purpose (a const of a closure is unreachable from a top-level handler - the Lights lesson, v20261011n);
+    // every name inside is resolved at call time. `keys` is the display form; keyText() writes Ctrl / Alt / Shift off a Mac.
+    const _cmdSel = () => (selectedObjects && selectedObjects.length) ? selectedObjects : (selectedObject ? [selectedObject] : []);
+    const _cmdHasSel = () => _cmdSel().length > 0;
+    const _cmdSelCount = () => _cmdSel().length;
+    // the TOP-MOST selected (duplicateSelection's filter): a selected child of a selected group rides with its ancestor
+    const _cmdTopMost = () => { const sel = _cmdSel(); const selSet = new Set(sel); const under = (o) => { let p = o.parent; while (p) { if (selSet.has(p)) return true; p = p.parent; } return false; }; return sel.filter(o => o && !under(o)); };
+    const _cmdAllHidden = () => { const s = _cmdSel(); return s.length > 0 && s.every(o => o.visible === false); };
+    const _cmdAllLocked = () => { const s = _cmdSel(); return s.length > 0 && s.every(o => !!o.lock); };
+    // Cmd+A under V: every visible, unlocked, non-light TOP-LEVEL object (D1: a light is placed by its tool and a locked object
+    // is Illustrator's rule - neither is grabbed with the art); under A with a Path selected: every vertex of that path
+    const _cmdSelectAllCandidates = () => sceneObjects.filter(o => o && o.visible !== false && !o.lock && !_isLightObj(o));
+    const _cmdVertexSubject = () => (currentTool === 'directSelect' && selectedObject && !selectedObject.isGroup && Array.isArray(selectedObject.localVertices) && selectedObject.localVertices.length) ? selectedObject : null;
+    const _cmdCanSelectAll = () => !!_cmdVertexSubject() || _cmdSelectAllCandidates().length > 0;
+    const _cmdSelectAll = () => {
+      const vs = _cmdVertexSubject();
+      if (vs) {
+        // the A-tool marquee's entry shape ({ object, vertexIndex, worldPosition }): the Delete key, Align and _tlCommitVertexEdit read it
+        const wm = vs.getWorldMatrix(); const list = [];
+        for (let i = 0; i < vs.localVertices.length; i++) list.push({ object: vs, vertexIndex: i, worldPosition: pointApplyMatrix(vs.localVertices[i], wm) });
+        selectedVertices = expandCoincidentVertices(list);
+        selectedVertexInfo = selectedVertices[selectedVertices.length - 1] || null;
+        if (typeof updateVertexOperationsUI === 'function') updateVertexOperationsUI();
+        updatePropertiesPanel();
+        requestRender();
+        return;
+      }
+      const cands = _cmdSelectAllCandidates();
+      if (!cands.length) return;
+      setSelectedObject(null);   // clear FIRST, and never pass an object twice: setSelectedObject(o, true) TOGGLES membership
+      setSelectedObject(cands[0], false);
+      for (let i = 1; i < cands.length; i++) setSelectedObject(cands[i], true);
+    };
+    // Bring Forward / Send Backward / Bring to Front / Send to Back on the top-most selected, per parent (D2: the two tree
+    // buttons route here and gain the multi-selection). `forward` walks the subjects from the highest index down and `backward`
+    // from the lowest up, each one slot, never past another subject, so two adjacent selected objects do not swap with each
+    // other; `front` / `back` splice them out in order and push / unshift. The DOM sync is moveSelection's, once per parent,
+    // then the Boolean hook (a Boolean's rows are ordered: the bottom is the base). ONE labelled entry; nothing moved = nothing pushed.
+    const _CMD_REORDER_LABEL = { forward: 'Bring forward', backward: 'Send backward', front: 'Bring to front', back: 'Send to back' };
+    const _cmdReorder = (where) => {
+      const subjects = _cmdTopMost();
+      if (!subjects.length || !_CMD_REORDER_LABEL[where]) return false;
+      const byParent = new Map();
+      for (const o of subjects) { const p = o.parent || null; if (!byParent.has(p)) byParent.set(p, []); byParent.get(p).push(o); }
+      pushUndoState();   // commit drift; the labelled entry follows the write
+      let moved = false;
+      for (const [parent, objs] of byParent) {
+        const list = parent ? parent.children : sceneObjects;
+        const set = new Set(objs);
+        const idx = objs.map(o => list.indexOf(o)).filter(i => i >= 0).sort((a, b) => a - b);
+        if (!idx.length) continue;
+        const before = list.slice();
+        if (where === 'forward') {
+          for (let k = idx.length - 1; k >= 0; k--) { const i = idx[k]; if (i + 1 < list.length && !set.has(list[i + 1])) { const t = list[i]; list[i] = list[i + 1]; list[i + 1] = t; } }
+        } else if (where === 'backward') {
+          for (let k = 0; k < idx.length; k++) { const i = idx[k]; if (i > 0 && !set.has(list[i - 1])) { const t = list[i]; list[i] = list[i - 1]; list[i - 1] = t; } }
+        } else {
+          const picked = idx.map(i => list[i]);
+          for (const o of picked) list.splice(list.indexOf(o), 1);
+          if (where === 'front') list.push(...picked); else list.unshift(...picked);
+        }
+        if (!before.some((o, i) => o !== list[i])) continue;
+        moved = true;
+        if (parent) syncSvgOrder(parent);
+        else sceneObjects.forEach((obj) => { if (obj.svgElement && obj.svgElement.parentNode) obj.svgElement.parentNode.appendChild(obj.svgElement); });
+        BooleanUI.rowsChanged(parent);   // BOOLEAN (v20260928b): the base is the bottom row
+      }
+      if (!moved) return false;
+      updateTreeView();
+      requestRender();
+      pushUndoState(_CMD_REORDER_LABEL[where]);
+      return true;
+    };
+    // Hide / Show and Lock / Unlock on every selected object, the tree glyphs' own expressions and labels (History reads the same
+    // whether the glyph or the key did it); a mixed selection hides all when any is visible and shows all when all are hidden
+    // (lock the same way); the selection and the gizmo are kept, as the eye glyph keeps them
+    const _cmdToggle = (field) => {
+      const sel = _cmdSel();
+      if (!sel.length) return false;
+      pushUndoState();
+      if (field === 'visible') { const show = _cmdAllHidden(); for (const o of sel) o.visible = show ? true : false; }
+      else { const lock = !_cmdAllLocked(); for (const o of sel) o.lock = lock; }
+      updateTreeView();
+      updatePropertiesPanel();
+      requestRender();
+      pushUndoState(field === 'visible' ? 'Toggle visibility' : 'Toggle lock');
+      return true;
+    };
+    const Commands = {
+      list: [
+        // --- the object verbs ---
+        { id: 'selectAll', label: 'Select All', keys: '⌘A', key: { k: 'a', meta: true }, when: () => _cmdCanSelectAll(), reason: 'Nothing to select', run: () => _cmdSelectAll() },
+        { id: 'deselect', label: 'Deselect', keys: 'Esc', key: null, when: () => _cmdHasSel(), reason: 'Nothing is selected', run: () => setSelectedObject(null) },
+        { id: 'duplicate', label: 'Duplicate', keys: '⌘D', key: { k: 'd', meta: true }, when: () => _cmdHasSel(), run: () => { pushUndoState(); duplicateSelection(); } },
+        { id: 'delete', label: 'Delete', keys: '⌫', key: null, when: () => _cmdHasSel(), run: () => deleteSelection() },
+        { id: 'group', label: 'Group', keys: '⌘G', key: null, when: () => _cmdHasSel(), run: () => { pushUndoState(); groupSelectedObjects(); } },
+        // ungroupSelectedObjects takes the PRIMARY only (and may refuse, async): the predicate reads the same object
+        { id: 'ungroup', label: 'Ungroup', keys: '⌘⇧G', key: null, when: () => !!(selectedObject && selectedObject.isGroup), reason: 'Select a group', run: () => { pushUndoState(); ungroupSelectedObjects(); } },
+        { id: 'boolean', label: 'Make Boolean', keys: '⌘B', key: null, when: () => !!(BooleanUI.enabled && (_cmdSelCount() >= 2 || (selectedObject && selectedObject.isGroup))), reason: 'Select two or more objects, or a group', run: () => BooleanUI.make() },   // BOOLEAN
+        { id: 'forward', label: 'Bring Forward', keys: '⌘]', key: { code: 'BracketRight', meta: true }, when: () => _cmdHasSel(), run: () => _cmdReorder('forward') },
+        { id: 'backward', label: 'Send Backward', keys: '⌘[', key: { code: 'BracketLeft', meta: true }, when: () => _cmdHasSel(), run: () => _cmdReorder('backward') },
+        { id: 'toFront', label: 'Bring to Front', keys: '⌘⌥]', key: { code: 'BracketRight', meta: true, alt: true }, when: () => _cmdHasSel(), run: () => _cmdReorder('front') },
+        { id: 'toBack', label: 'Send to Back', keys: '⌘⌥[', key: { code: 'BracketLeft', meta: true, alt: true }, when: () => _cmdHasSel(), run: () => _cmdReorder('back') },
+        { id: 'toggleHide', label: () => _cmdAllHidden() ? 'Show' : 'Hide', keys: '⌘⇧H', key: { k: 'h', meta: true, shift: true }, when: () => _cmdHasSel(), run: () => _cmdToggle('visible') },
+        { id: 'toggleLock', label: () => _cmdAllLocked() ? 'Unlock' : 'Lock', keys: '⌘⇧L', key: { k: 'l', meta: true, shift: true }, when: () => _cmdHasSel(), run: () => _cmdToggle('lock') },
+        // the leaf under the pointer when the menu opened over a group (S2: Commands._ctx.leaf); listed only then
+        { id: 'selectChild', label: 'Select Child', keys: '⌘-click', key: null, menuOnly: true, when: () => !!(Commands._ctx && Commands._ctx.leaf), run: () => { const l = Commands._ctx && Commands._ctx.leaf; if (l) setSelectedObject(l, false); } },
+        // --- the clipboard (S1b; D6: Cmd+V the picture, Cmd+Shift+V the object) ---
+        // COPY (v20261102d, the owner's polish; the Illustrator reading D5 had named): Cmd+C copies the SELECTION when there is
+        // one - the selected objects' SVG with the frame rect and dim's record, what Paste Object reads - and the whole view
+        // when there is none; Cmd+Shift+C is the whole view whatever is selected (the Data panel's Copy button). A copy changes
+        // nothing, so both pass while a creation is pending (dispatchKey).
+        { id: 'copy', label: 'Copy', keys: '⌘C', key: { k: 'c', meta: true }, when: () => true, run: () => _cmdHasSel() ? copySelectionToClipboard() : copySVGToClipboard() },
+        { id: 'copyView', label: 'Copy View as SVG', keys: '⌘⇧C', key: { k: 'c', meta: true, shift: true }, when: () => true, run: () => copySVGToClipboard() },
+        { id: 'paste', label: 'Paste', keys: '⌘V', key: { k: 'v', meta: true }, when: () => true, run: () => pasteFromClipboard({ asPaths: true }) },
+        { id: 'pasteObject', label: 'Paste Object', keys: '⌘⇧V', key: { k: 'v', meta: true, shift: true }, when: () => true, run: () => pasteFromClipboard({ object: true }) },
+        // --- the view (display entries: the onKeyDown digit cases stay; the bodies are theirs, pushCameraUndoState first) ---
+        { id: 'viewFront', label: 'Front', keys: '1', key: null, group: 'view', when: () => !activeCamera.lock, reason: 'The camera is locked', run: () => { pushCameraUndoState(); activeCamera.setView('front'); requestRender(); } },
+        { id: 'viewSide', label: 'Side', keys: '3', key: null, group: 'view', when: () => !activeCamera.lock, reason: 'The camera is locked', run: () => { pushCameraUndoState(); activeCamera.setView('side'); requestRender(); } },
+        { id: 'viewTop', label: 'Top', keys: '7', key: null, group: 'view', when: () => !activeCamera.lock, reason: 'The camera is locked', run: () => { pushCameraUndoState(); activeCamera.setView('top'); requestRender(); } },
+        { id: 'viewInvert', label: 'Invert View', keys: '9', key: null, group: 'view', when: () => !activeCamera.lock, reason: 'The camera is locked', run: () => { pushCameraUndoState(); activeCamera.invertView(); requestRender(); } },
+        { id: 'viewFace', label: 'Face Workplane', keys: '⇧1', key: null, group: 'view', when: () => !activeCamera.lock, reason: 'The camera is locked', run: () => { pushCameraUndoState(); faceWorkplane(); requestRender(); } },
+        { id: 'viewProj', label: () => projectionType === 'perspective' ? 'Orthographic' : 'Perspective', keys: '5', key: null, group: 'view', when: () => !activeCamera.lock, reason: 'The camera is locked', run: () => {
+          pushCameraUndoState();
+          if (projectionType === 'perspective') {
+            const radius = vectorLength(vectorSubtract(activeCamera.position, activeCamera.target));
+            activeCamera.orthoZoom = Math.tan(activeCamera.fovRadians / 2) * radius;
+            projectionType = 'orthographic';
+          } else {
+            projectionType = 'perspective';
+          }
+          activeCamera.projectionType = projectionType;
+          requestRender();
+        } },
+        { id: 'viewReset', label: 'Reset View', keys: '0', key: null, group: 'view', when: () => !activeCamera.lock, reason: 'The camera is locked', run: () => { pushCameraUndoState(); activeCamera.reset(); requestRender(); } },
+        // FRAME (v20261102f, plan 2): display entries like the view keys' - Shift+2 is an onKeyDown case by event.code (the JIS
+        // layout), so `key` is null here; one Shift+2 is Frame Selection with a selection and Frame All without. The predicates
+        // read the extent the verb reads (a 2D Mode layer or a hidden object alone has nothing to frame).
+        { id: 'frameSel', label: 'Frame Selection', keys: '⇧2', key: null, group: 'view', when: () => !activeCamera.lock && !!frameExtentOf(_cmdSel()), reason: () => activeCamera.lock ? activeCamera.name + ' is locked' : 'Nothing selected to frame', run: () => frameObjects(_cmdSel()) },
+        { id: 'frameAll', label: 'Frame All', keys: '⇧2', key: null, group: 'view', when: () => !activeCamera.lock && !!frameExtentOf(_frameAllObjects()), reason: () => activeCamera.lock ? activeCamera.name + ' is locked' : 'Nothing in the scene to frame', run: () => frameAll() },
+        { id: 'lookAt', label: 'Look At Selection', keys: '', key: null, group: 'view', when: () => !activeCamera.lock && !!frameExtentOf(_cmdSel()), reason: () => activeCamera.lock ? activeCamera.name + ' is locked' : 'Nothing selected to look at', run: () => lookAtSelection() },
+        // --- the workplane ---
+        { id: 'wpCycle', label: 'Next Standard Plane', keys: 'G', key: null, group: 'workplane', when: () => true, run: () => {
+          pushUndoState();
+          const standardModes = ['vertical', 'horizontal', 'side'];
+          let nextIndex = standardModes.indexOf(activeWorkplane.mode) + 1;
+          if (nextIndex >= standardModes.length || nextIndex === 0 && !standardModes.includes(activeWorkplane.mode)) nextIndex = 0;
+          activeWorkplane.mode = standardModes[nextIndex];
+          activeWorkplane.offset = 0;
+          const wpInput = document.getElementById('custom-offset-z-field');
+          if (wpInput) wpInput.value = "0.00";
+          updatePropertiesPanel();
+          requestRender();
+          pushUndoState('Change workplane mode');
+        } },
+        { id: 'wpFromCam', label: 'Workplane from Camera', keys: '⇧G', key: null, group: 'workplane', when: () => true, run: () => setWorkplaneFromCamera() },
+        { id: 'wpFromSel', label: 'Workplane from Selection', keys: '⌥G', key: null, group: 'workplane', when: () => _cmdHasSel(), run: () => setWorkplaneFromSelection() },
+        // --- the app ---
+        { id: 'guides', label: () => showGuides ? 'Hide Guides' : 'Show Guides', keys: 'Tab', key: null, group: 'app', when: () => true, run: () => { showGuides = !showGuides; requestRender(); } },
+        { id: 'help', label: 'Keyboard Shortcuts', keys: '?', key: null, group: 'app', when: () => true, run: () => toggleHelpWindow() },
+      ],
+      _ctx: null,   // the context of an open menu (S2): { obj, leaf }
+      // THE MENUS (v20261102b, S2): ids, '-' a separator, '#Label' a section heading; an id the table lacks (plan 2's frameSel /
+      // frameAll) is skipped; a menuOnly entry (Select Child) is listed only while its predicate holds. The HIT decides which menu
+      // opens, the SELECTION decides what is enabled. The 2 / 4 / 6 / 8 rotate steps are not items (D11).
+      // SECTIONED (v20261102h, the owner: "categorize the context menu when selected like the no selection version"): the object and
+      // row menus carry headings as the paper menu's View / Workplane do - Edit, Group, Arrange, Object, View, Workplane (View before
+      // Workplane, the paper menu's order); a heading replaces the separator that stood between Copy / Paste Object and Duplicate / Delete
+      OBJECT_ITEMS: ['#Edit', 'copy', 'pasteObject', 'duplicate', 'delete', '-', '#Group', 'group', 'ungroup', 'boolean', '-', '#Arrange', 'forward', 'backward', 'toFront', 'toBack', '-', '#Object', 'toggleHide', 'toggleLock', 'selectChild', '-', '#View', 'frameSel', 'lookAt', '-', '#Workplane', 'wpFromSel'],
+      TREE_ITEMS: ['#Edit', 'copy', 'duplicate', 'delete', '-', '#Group', 'group', 'ungroup', 'boolean', '-', '#Arrange', 'forward', 'backward', 'toFront', 'toBack', '-', '#Object', 'toggleHide', 'toggleLock', '-', '#View', 'frameSel', 'lookAt', '-', '#Workplane', 'wpFromSel'],
+      PAPER_ITEMS: ['paste', 'pasteObject', 'copyView', '-', 'selectAll', 'deselect', '-', '#View', 'viewFront', 'viewSide', 'viewTop', 'viewInvert', 'viewFace', 'viewProj', 'viewReset', 'frameAll', '-', '#Workplane', 'wpCycle', 'wpFromCam', 'wpFromSel', '-', 'guides', 'help'],
+      _menuEl() { return document.getElementById('contextMenu'); },
+      isMenuOpen() { const el = this._menuEl(); return !!(el && !el.hidden); },
+      _hot(b) { const el = this._menuEl(); if (el) el.querySelectorAll('button').forEach(x => x.classList.toggle('hot', x === b)); },
+      openMenu(x, y, items, ctx) {
+        const el = this._menuEl();
+        if (!el) return false;
+        this.closeMenu();
+        this._ctx = ctx || null;
+        el.innerHTML = '';
+        const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        let first = null, any = false, pendingSep = false;
+        const sep = () => { if (!pendingSep || !any) { pendingSep = false; return; } const hr = document.createElement('div'); hr.className = 'ui-hr'; hr.setAttribute('role', 'separator'); el.appendChild(hr); pendingSep = false; };
+        for (const it of items) {
+          if (it === '-') { pendingSep = true; continue; }
+          if (typeof it === 'string' && it[0] === '#') { sep(); const h = document.createElement('div'); h.className = 'flyout-heading'; h.setAttribute('role', 'presentation'); h.textContent = it.slice(1); el.appendChild(h); any = true; continue; }
+          const c = this.byId(it);
+          if (!c) continue;
+          const on = this.enabled(it);
+          if (c.menuOnly && !on) continue;
+          sep();
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.setAttribute('role', 'menuitem');
+          b.dataset.cmdId = it;
+          b.innerHTML = '<span>' + esc(this.labelOf(it)) + '</span><span class="flyout-key">' + esc(this.keyText(c.keys)) + '</span>';
+          if (!on) { b.disabled = true; b.title = this.reasonOf(it); }
+          b.addEventListener('click', () => { this.closeMenu(); this.run(it); });   // close FIRST: a run rebuilds the tree and the panels
+          b.addEventListener('pointerenter', () => this._hot(b));
+          b.addEventListener('focus', () => this._hot(b));
+          el.appendChild(b);
+          any = true;
+          if (on && !first) first = b;
+        }
+        el.hidden = false;
+        const w = el.offsetWidth, h = el.offsetHeight;   // the pen flyout's clamp, both axes
+        el.style.left = Math.max(4, Math.min(x, window.innerWidth - w - 4)) + 'px';
+        el.style.top = Math.max(4, Math.min(y, window.innerHeight - h - 4)) + 'px';
+        if (first) first.focus();
+        return true;
+      },
+      closeMenu() {
+        const el = this._menuEl();
+        if (!el || el.hidden) return;
+        if (document.activeElement && el.contains(document.activeElement)) document.activeElement.blur();   // a focused button makes Tab travel the forms (U12)
+        el.hidden = true;
+        el.innerHTML = '';   // a closed menu holds no buttons: the untitled-button census (U6) counted its stale rows
+        this._ctx = null;
+      },
+      // the two permanent listeners (registered below, in capture, BEFORE the app's own capture-phase keydown handler of init):
+      // a press outside closes; Esc closes WITHOUT reaching the app (its Esc would deselect what was just right-clicked),
+      // arrows move the focus among the enabled items, Enter / Space run the focused one, any other key closes and passes
+      _menuPointer(e) { const el = this._menuEl(); if (!el || el.hidden) return; if (!el.contains(e.target)) this.closeMenu(); },
+      _menuKey(e) {
+        const el = this._menuEl();
+        if (!el || el.hidden) return;
+        const items = [...el.querySelectorAll('button:not(:disabled)')];
+        const i = items.indexOf(document.activeElement);
+        if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); this.closeMenu(); return; }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopImmediatePropagation(); if (!items.length) return; items[e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length].focus(); return; }
+        if (e.key === 'Enter' || e.key === ' ') { if (i >= 0) { e.preventDefault(); e.stopImmediatePropagation(); items[i].click(); } return; }
+        if (e.key === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); this.closeMenu(); return; }
+        this.closeMenu();
+      },
+      isMac: /Mac|iPhone|iPad|iPod/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || ''),
+      byId(id) { for (const c of this.list) if (c.id === id) return c; return null; },
+      enabled(id) { const c = this.byId(id); if (!c) return false; try { return !!c.when(); } catch (e) { return false; } },
+      labelOf(id) { const c = this.byId(id); if (!c) return ''; try { return typeof c.label === 'function' ? c.label() : c.label; } catch (e) { return typeof c.label === 'string' ? c.label : c.id; } },
+      keysOf(id) { const c = this.byId(id); return c ? c.keys : ''; },
+      reasonOf(id) { const c = this.byId(id); if (!c) return ''; const r = typeof c.reason === 'function' ? c.reason() : c.reason; return r || 'Select an object'; },
+      // the display form: on a Mac the symbols as written; elsewhere Ctrl+ / Alt+ / Shift+ (a Windows hand is not told to press a key it has not got)
+      keyText(keys) { if (!keys) return ''; if (this.isMac) return keys; return String(keys).replace(/⌘-/g, 'Ctrl-').replace(/⌘/g, 'Ctrl+').replace(/⌥/g, 'Alt+').replace(/⇧/g, 'Shift+'); },
+      run(id) {
+        const c = this.byId(id);
+        if (!c || !this.enabled(id)) return false;
+        try { c.run(); } catch (err) { console.error('[Commands] ' + id + ' failed:', err); }
+        return true;
+      },
+      // a Cmd+D mid-creation would duplicate a half-drawn path: refused while a shape or pen creation is pending and while a
+      // Camera Match session owns the keys - everything but the two copies, which change nothing
+      _creationPending() { return !!(pendingPolygon || (currentTool === 'pen' && activePath && activePath._preCreationSceneState) || CamMatchSession.active); },
+      // true when the event named a command of this table (ran or refused): the caller prevents the default and returns.
+      // The modifier SET must match exactly (Cmd+] never fires on Cmd+Opt+], Cmd+C never on Cmd+Shift+C); letters through
+      // _keyIs (the Caps Lock rule of v20261030k), the brackets through event.code (layout-safe, the trim keys' precedent -
+      // a bare bracket carries no modifier and never reaches here).
+      dispatchKey(ev) {
+        if (!ev) return false;
+        const meta = !!(ev.metaKey || ev.ctrlKey), shift = !!ev.shiftKey, alt = !!ev.altKey;
+        for (const c of this.list) {
+          const k = c.key;
+          if (!k) continue;
+          if (meta !== !!k.meta || shift !== !!k.shift || alt !== !!k.alt) continue;
+          if (k.code ? ev.code !== k.code : !_keyIs(ev, k.k)) continue;
+          if (c.id !== 'copy' && c.id !== 'copyView' && this._creationPending()) return true;
+          this.run(c.id);
+          return true;
+        }
+        return false;
+      },
+      // every element with data-cmd="<id>" gets  title = <its own sentence> (<the table's keys>)  - written from the table, so a
+      // tooltip can never drift from the binding (help.html's table drifted once, v20260718k); the base sentence is kept on the
+      // element so a second call rewrites rather than appends
+      retitle() {
+        for (const el of document.querySelectorAll('[data-cmd]')) {
+          const c = this.byId(el.dataset.cmd);
+          if (!c) continue;
+          if (el.dataset.cmdTitle === undefined) el.dataset.cmdTitle = el.getAttribute('title') || '';
+          const base = el.dataset.cmdTitle;
+          el.title = c.keys ? (base ? base + ' ' : '') + '(' + this.keyText(c.keys) + ')' : base;   // a verb with no key (Look At, v20261102f) keeps its sentence alone
+        }
+      },
+    };
+    document.addEventListener('pointerdown', (e) => Commands._menuPointer(e), true);   // CONTEXT MENU (v20261102b): arrow wrappers, never a bare reference (the TDZ trap)
+    window.addEventListener('keydown', (e) => Commands._menuKey(e), true);
+    window.addEventListener('resize', () => Commands.closeMenu());
+    window.addEventListener('blur', () => Commands.closeMenu());
     // (v20261030k) A Command-letter shortcut by the LETTER, case-blind: KeyboardEvent.key honours Caps Lock ('C'), so with it on
     // Cmd+S / C / V / K and Cmd+Z / Shift+Cmd+Z did nothing (and the browser's own copy ran). Not event.code: that is the
     // physical key and would move the shortcuts on a non-QWERTY layout (Cmd+G / B / Opt+Z use code on purpose already).
@@ -98214,23 +99021,14 @@
         return;
       }
 
+      // COMMANDS (v20261102a): the table's keys - Cmd+D / A / ] / [ / Opt+] / Opt+[ / Shift+H / Shift+L and the four clipboard
+      // keys (Cmd+C / Cmd+Shift+C / Cmd+V / Cmd+Shift+V; the Cmd+C and Cmd+V cases that stood here ignored shiftKey, so
+      // Cmd+Shift+C copied the view by accident - measured, S0). BEFORE the Cmd+S case: one dispatch, no ordering hazard.
+      if (Commands.dispatchKey(event)) { event.preventDefault(); return; }
+
       if ((event.metaKey || event.ctrlKey) && _keyIs(event, 's')) {
         event.preventDefault();
         saveSceneToStorage({ announce: true });   // v20260914zn
-        return;
-      }
-
-      if ((event.metaKey || event.ctrlKey) && _keyIs(event, 'c')) {
-        event.preventDefault();
-        copySVGToClipboard();
-        return;
-      }
-
-      if ((event.metaKey || event.ctrlKey) && _keyIs(event, 'v')) {
-        event.preventDefault();
-        navigator.clipboard.readText().then(text => {
-          if (text) handleSVGPaste(text);
-        }).catch(err => console.error('Failed to read clipboard:', err));
         return;
       }
 
@@ -98439,8 +99237,18 @@
           }
         }
 
-        // Block Camera Shortcuts if locked
-        if (activeCamera.lock && ['1', '3', '7', '9', '0', '5', '2', '4', '6', '8', '!'].includes(event.key)) {
+        // FRAME (v20261102f): Shift+2 = Frame Selection (Frame All when nothing is selected). By event.code, never event.key:
+        // the key reads '@' on a US layout and '"' on the owner's JIS one. Shift+1 stays Face Workplane ('!' on both; D3).
+        const _frameKey = event.code === 'Digit2' && event.shiftKey;
+
+        // Block Camera Shortcuts if locked (the frame by code; frameObjects names the locked camera in a notice)
+        if (activeCamera.lock && (['1', '3', '7', '9', '0', '5', '2', '4', '6', '8', '!'].includes(event.key) || _frameKey)) {
+          if (_frameKey) { event.preventDefault(); frameSelection(); }
+          return;
+        }
+        if (_frameKey) {
+          event.preventDefault();
+          frameSelection();
           return;
         }
 
@@ -98889,45 +99697,21 @@
       }
     };
 
-    // --- ALIGN (experimental) --- (v20261031k, _plans/PLAN-align-tool.md). ALIGN AND DISTRIBUTE IN 3D - Illustrator's
-    // Align panel for objects (the V tool) and anchor points (the A tool). Three choices and a verb: the AXES are the
-    // gizmo's (W: World / Local = the KEY object's frame / Workplane / Camera; D2), ALIGN TO picks the reference
-    // (the Selection's bounds, the Key Object = the primary selectedObject which stays put, the Workplane - rest on /
-    // centre on / hang under along its normal, the grid origin's lines in the plane (D6) -, the World Origin, the
-    // Camera Target; D3), EXTENT says what an object's edge is (Bounds = the body it DRAWS, Anchor = the pivot point,
-    // Origin = the local origin; D4). Align min / centre / max per axis; Distribute edges or centres equally; Gaps =
-    // Distribute Spacing (an exact gap or equal gaps within the current extent; the key object, or the lowest, stays;
-    // D9). Every extent and reference is WORLD; the write is parent-space through _worldDeltaToParent (the Move
-    // panel's rule); ONE labelled undo entry per click (the Cmd+G shape: pushUndoState() to commit drift, mutate,
-    // pushUndoState(label)); Auto-Key on posX / Y / Z. Nothing in the data model changes - Align only writes
-    // `position` (and a vertex's localVertices under A) - so the feature is removable by marker sweep: this block,
-    // the `// ALIGN` line tags, the `<!-- ALIGN -->` markup pairs, the Settings row. Gate: Settings > Align
-    // (experimental), default OFF (the Text tool / Lights pattern of v20260812p / v20261019c).
+    // --- WORLD EXTENT --- (v20261102e, PLAN-frame-selection-261102 S1). The world extent of what an object DRAWS, lifted
+    // MOVED, not copied, out of the ALIGN block (v20261031k), where it was born: Frame Selection / Frame All (S2) read it too,
+    // and a standing verb must not depend on a feature behind a Settings gate that a marker sweep removes. Align keeps one-line
+    // delegations, so every Align caller, Align.selfTest() and align_probe read the same functions they read before.
     //
-    // THE WORLD EXTENT OF A BODY (plan §4) - no helper existed; every extent reader in the file read the flat
+    // THE WORLD EXTENT OF A BODY (PLAN-align-tool §4) - no helper existed before Align; every extent reader in the file read the flat
     // profile's control points. Tier A, exact: a flat path's cubics (the exact extrema along each axis - the
     // derivative's roots, the Stacks solver's method), an extrude's two end profiles through the rail the draw builds
     // (generateLinearRail + _extrudeEnds; the body of a straight rail is the hull of its ends, so its extreme along
     // any axis is on one of them), a group as the union of its rows, a light as its anchor. Tier B, sampled: a revolve
-    // or a sweep through the light's rail (_lightRailOf / _lightSweepPt, v20261019k) at ALIGN_CURVE_STATIONS
+    // or a sweep through the light's rail (_lightRailOf / _lightSweepPt, v20261019k) at CURVE_STATIONS
     // stations. Tier C, the control points through the world matrix (contains the curve; may over-estimate): a loft,
     // a fold, a mapped path, and a curved body whose rail cannot be built. `approx` says which; the tooltip reads it.
-    const ALIGN_DEFAULT_ON = false;
-    let alignEnabled = ALIGN_DEFAULT_ON;              // the gate; set by setAlignEnabled (Settings), never written elsewhere
-    const ALIGN_CURVE_STATIONS = 48;
-    const setAlignEnabled = (on) => {
-      alignEnabled = !!on;
-      const sec = document.getElementById('alignSection');
-      if (sec) sec.style.display = alignEnabled ? '' : 'none';
-      try { Align.syncUI(); } catch (e) { }
-      if (typeof requestRender === 'function') requestRender();   // the key outline (D5) follows the gate
-    };
-    const Align = {
-      prefs: { to: 'selection', extent: 'bounds' },   // session preferences (DOM state, like rotatePivotMode): never serialized, never undoable
-      WHICH: ['min', 'mid', 'max'],
-      // ---------------------------------------------------------------- pure
-      // the columns of a basis matrix as unit world axes (gizmoBasis / workplaneGizmoBasis store the images of the canonical axes in the columns)
-      colAxes(M) { return [0, 1, 2].map(i => vectorNormalize([M[0][i], M[1][i], M[2][i]])); },
+    const WorldExtent = {
+      CURVE_STATIONS: 48,   // Tier B's stations (was ALIGN_CURVE_STATIONS); the revolve's Segments when more
       // the exact [lo, hi] of a 1-D cubic Bezier with control values a, b, c, d over t in [0, 1]: the ends plus the real roots of the derivative
       cubicExtrema1D(a, b, c, d) {
         let lo = Math.min(a, d), hi = Math.max(a, d);
@@ -98954,6 +99738,105 @@
         return isFinite(lo[0]) ? { lo, hi } : null;
       },
       edge(e, which, i) { return which === 'min' ? e.lo[i] : which === 'max' ? e.hi[i] : (e.lo[i] + e.hi[i]) / 2; },
+      // the WORLD samples of what an object draws: { pts, cubics, approx }
+      _flatSamples(o, W, out) {
+        const segs = o.getSegments ? o.getSegments() : [];
+        const w = (p) => pointApplyMatrix(p, W);
+        for (const s of segs) {
+          if (s.type === 'C') out.cubics.push([w(s.p0), w(s.p1), w(s.p2), w(s.p3)]);
+          else if (s.type === 'Q') { const p0 = s.p0, p1 = s.p1, p2 = s.p2; out.cubics.push([w(p0), w(vectorAdd(p0, vectorScale(vectorSubtract(p1, p0), 2 / 3))), w(vectorAdd(p2, vectorScale(vectorSubtract(p1, p2), 2 / 3))), w(p2)]); }
+          else if (s.pStart && s.pEnd) { out.pts.push(w(s.pStart), w(s.pEnd)); }
+        }
+        if (!segs.length) for (const v of (o.localVertices || [])) if (v) out.pts.push(w(v));
+      },
+      _controlSamples(o, W, out) { for (const v of (o.localVertices || [])) if (v) out.pts.push(pointApplyMatrix(v, W)); out.approx = true; },
+      // an extrude's end profiles: the draw's own rail (drawExtrudeAsMesh builds it with these arguments), the profile through its first and last frame with the
+      // per-frame taper of sweepPoint's extrude branch (the plane perpendicular to the vector, v20260907e) - an affine map per frame, so a cubic stays a cubic
+      _extrudeSamples(o, es, W, out) {
+        const v = es.vector || { x: 0, y: 0, z: -1 }, depth = es.depth ?? 1, xe = _extrudeEnds(es);
+        const rail = SurfaceMapper.generateLinearRail(v, depth, es.symmetric || false, xe.startU, xe.endU, xe.startU, xe.startV, xe.endU, xe.endV);
+        const frames = rail._frameData, n = rail.vector;
+        const map = (fr) => {
+          const sU = fr.scaleU !== undefined ? fr.scaleU : 1, sV = fr.scaleV !== undefined ? fr.scaleV : 1;
+          let basis = null;
+          if (sU !== 1 || sV !== 1) { const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]); const ref = (ax <= ay && ax <= az) ? [1, 0, 0] : ((ay <= ax && ay <= az) ? [0, 1, 0] : [0, 0, 1]); const vv = vectorNormalize(vectorCross(ref, n)); basis = { vv, u: vectorCross(n, vv) }; }
+          return (pp) => {
+            let q;
+            if (basis) { const pu = vectorDot(pp, basis.u) * sU, pv = vectorDot(pp, basis.vv) * sV, pn = vectorDot(pp, n); q = [basis.u[0] * pu + basis.vv[0] * pv + n[0] * pn, basis.u[1] * pu + basis.vv[1] * pv + n[1] * pn, basis.u[2] * pu + basis.vv[2] * pv + n[2] * pn]; }
+            else q = [pp[0], pp[1], pp[2] || 0];
+            return pointApplyMatrix(vectorAdd(fr.pos, q), W);
+          };
+        };
+        const local = { pts: [], cubics: [] }, I = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]];
+        this._flatSamples(o, I, local);
+        for (const fr of [frames[0], frames[frames.length - 1]]) { const m = map(fr); for (const p of local.pts) out.pts.push(m(p)); for (const c of local.cubics) out.cubics.push(c.map(m)); }
+      },
+      // a revolve or a sweep through the light's rail: the flattened profile at CURVE_STATIONS stations (Tier B)
+      _curvedSamples(o, out) {
+        const R = (typeof _lightRailOf === 'function') ? _lightRailOf(o) : null; if (!R) return false;
+        const polys = _lightFlatten(o.getSegments()); if (!polys.length) return false;
+        const N = Math.max(this.CURVE_STATIONS, +(o.revolveSettings && o.revolveSettings.enabled && o.revolveSettings.segments) || 0);
+        for (let i = 0; i <= N; i++) { const fr = SurfaceMapper.getFrameAtU(R.frames, i / N); if (!fr) return false; for (const poly of polys) for (const pp of poly) out.pts.push(_lightSweepPt(fr, pp, R)); }
+        out.approx = true; return true;
+      },
+      samplesOf(o, out) {
+        out = out || { pts: [], cubics: [], approx: false };
+        if (!o || o.visible === false) return out;
+        if (o.isGroup) { for (const c of _lightRowsOf(o)) this.samplesOf(c, out); return out; }
+        const W = o.getWorldMatrix();
+        if (_isLightObj(o) || !o.localVertices || !o.localVertices.length) { out.pts.push(getPivotAnchorWorld(o)); return out; }
+        const es = o._effExtrude || o.extrudeSettings, rs = o.revolveSettings, sw = o.sweepSettings, ls = o.loftSettings, sc = o.surfaceConstraint;
+        const mapped = !!(sc && ((sc.active && sc.targetId) || (sc.surfaceMapping && sc.surfaceMapping.enabled)));
+        if (mapped || (ls && ls.enabled) || (typeof _lightFoldRoot === 'function' && _lightFoldRoot(o))) { this._controlSamples(o, W, out); return out; }   // Tier C
+        if ((rs && rs.enabled) || (sw && sw.enabled)) { if (!this._curvedSamples(o, out)) this._controlSamples(o, W, out); return out; }   // Tier B
+        if (es && es.enabled) { this._extrudeSamples(o, es, W, out); return out; }   // Tier A
+        this._flatSamples(o, W, out); return out;                                     // Tier A
+      },
+      extentOf(o, axes, mode) {
+        if (mode === 'anchor') return this.extentOfSamples({ pts: [getPivotAnchorWorld(o)] }, axes);
+        if (mode === 'origin') return this.extentOfSamples({ pts: [_worldPositionOf(o)] }, axes);
+        const S = this.samplesOf(o); const e = this.extentOfSamples(S, axes); if (e) e.approx = !!S.approx; return e;
+      },
+    };
+
+    // --- ALIGN (experimental) --- (v20261031k, _plans/PLAN-align-tool.md). ALIGN AND DISTRIBUTE IN 3D - Illustrator's
+    // Align panel for objects (the V tool) and anchor points (the A tool). Three choices and a verb: the AXES are the
+    // gizmo's (W: World / Local = the KEY object's frame / Workplane / Camera; D2), ALIGN TO picks the reference
+    // (the Selection's bounds, the Key Object = the primary selectedObject which stays put, the Workplane - rest on /
+    // centre on / hang under along its normal, the grid origin's lines in the plane (D6) -, the World Origin, the
+    // Camera Target; D3), EXTENT says what an object's edge is (Bounds = the body it DRAWS, Anchor = the pivot point,
+    // Origin = the local origin; D4). Align min / centre / max per axis; Distribute edges or centres equally; Gaps =
+    // Distribute Spacing (an exact gap or equal gaps within the current extent; the key object, or the lowest, stays;
+    // D9). Every extent and reference is WORLD; the write is parent-space through _worldDeltaToParent (the Move
+    // panel's rule); ONE labelled undo entry per click (the Cmd+G shape: pushUndoState() to commit drift, mutate,
+    // pushUndoState(label)); Auto-Key on posX / Y / Z. Nothing in the data model changes - Align only writes
+    // `position` (and a vertex's localVertices under A) - so the feature is removable by marker sweep: this block,
+    // the `// ALIGN` line tags, the `<!-- ALIGN -->` markup pairs, the Settings row. Gate: Settings > Align
+    // (experimental), default OFF (the Text tool / Lights pattern of v20260812p / v20261019c).
+    //
+    // THE WORLD EXTENT OF A BODY - the tiers (A exact, B sampled, C control points) are documented at WorldExtent, directly
+    // above this block (v20261102e: lifted out so Frame Selection does not depend on this experiment).
+    const ALIGN_DEFAULT_ON = false;
+    let alignEnabled = ALIGN_DEFAULT_ON;              // the gate; set by setAlignEnabled (Settings), never written elsewhere
+    const setAlignEnabled = (on) => {
+      alignEnabled = !!on;
+      const sec = document.getElementById('alignSection');
+      if (sec) sec.style.display = alignEnabled ? '' : 'none';
+      try { Align.syncUI(); } catch (e) { }
+      if (typeof requestRender === 'function') requestRender();   // the key outline (D5) follows the gate
+    };
+    const Align = {
+      prefs: { to: 'selection', extent: 'bounds' },   // session preferences (DOM state, like rotatePivotMode): never serialized, never undoable
+      WHICH: ['min', 'mid', 'max'],
+      // ---------------------------------------------------------------- pure
+      // the columns of a basis matrix as unit world axes (gizmoBasis / workplaneGizmoBasis store the images of the canonical axes in the columns)
+      colAxes(M) { return [0, 1, 2].map(i => vectorNormalize([M[0][i], M[1][i], M[2][i]])); },
+      // THE EXTENT (v20261102e): the pure extent solvers and the samplers live in WorldExtent, directly above this block (Frame
+      // Selection reads them too); these delegate, so every caller here, selfTest and align_probe are unchanged
+      cubicExtrema1D(a, b, c, d) { return WorldExtent.cubicExtrema1D(a, b, c, d); },
+      extentOfSamples(S, axes) { return WorldExtent.extentOfSamples(S, axes); },
+      unionOf(exts) { return WorldExtent.unionOf(exts); },
+      edge(e, which, i) { return WorldExtent.edge(e, which, i); },
       // DISTRIBUTE: the chosen edge of every item equally spaced between the first and the last (sorted by that edge). items: [{ v }] -> [{ idx, d }] in sorted order
       solveDistribute(values) {
         const order = values.map((v, idx) => ({ v, idx })).sort((p, q) => p.v - q.v), n = order.length;
@@ -99003,65 +99886,13 @@
         const labels = w ? w.labels : (mode === 'camera' ? ['X', 'Y', 'Depth'] : ['X', 'Y', 'Z']);
         return { to, axes, labels, approx: w ? w.approx : null, plane: mode === 'workplane', P: to === 'cameraTarget' ? activeCamera.target.slice(0, 3) : null, mode };
       },
-      // the WORLD samples of what an object draws: { pts, cubics, approx }
-      _flatSamples(o, W, out) {
-        const segs = o.getSegments ? o.getSegments() : [];
-        const w = (p) => pointApplyMatrix(p, W);
-        for (const s of segs) {
-          if (s.type === 'C') out.cubics.push([w(s.p0), w(s.p1), w(s.p2), w(s.p3)]);
-          else if (s.type === 'Q') { const p0 = s.p0, p1 = s.p1, p2 = s.p2; out.cubics.push([w(p0), w(vectorAdd(p0, vectorScale(vectorSubtract(p1, p0), 2 / 3))), w(vectorAdd(p2, vectorScale(vectorSubtract(p1, p2), 2 / 3))), w(p2)]); }
-          else if (s.pStart && s.pEnd) { out.pts.push(w(s.pStart), w(s.pEnd)); }
-        }
-        if (!segs.length) for (const v of (o.localVertices || [])) if (v) out.pts.push(w(v));
-      },
-      _controlSamples(o, W, out) { for (const v of (o.localVertices || [])) if (v) out.pts.push(pointApplyMatrix(v, W)); out.approx = true; },
-      // an extrude's end profiles: the draw's own rail (drawExtrudeAsMesh builds it with these arguments), the profile through its first and last frame with the
-      // per-frame taper of sweepPoint's extrude branch (the plane perpendicular to the vector, v20260907e) - an affine map per frame, so a cubic stays a cubic
-      _extrudeSamples(o, es, W, out) {
-        const v = es.vector || { x: 0, y: 0, z: -1 }, depth = es.depth ?? 1, xe = _extrudeEnds(es);
-        const rail = SurfaceMapper.generateLinearRail(v, depth, es.symmetric || false, xe.startU, xe.endU, xe.startU, xe.startV, xe.endU, xe.endV);
-        const frames = rail._frameData, n = rail.vector;
-        const map = (fr) => {
-          const sU = fr.scaleU !== undefined ? fr.scaleU : 1, sV = fr.scaleV !== undefined ? fr.scaleV : 1;
-          let basis = null;
-          if (sU !== 1 || sV !== 1) { const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]); const ref = (ax <= ay && ax <= az) ? [1, 0, 0] : ((ay <= ax && ay <= az) ? [0, 1, 0] : [0, 0, 1]); const vv = vectorNormalize(vectorCross(ref, n)); basis = { vv, u: vectorCross(n, vv) }; }
-          return (pp) => {
-            let q;
-            if (basis) { const pu = vectorDot(pp, basis.u) * sU, pv = vectorDot(pp, basis.vv) * sV, pn = vectorDot(pp, n); q = [basis.u[0] * pu + basis.vv[0] * pv + n[0] * pn, basis.u[1] * pu + basis.vv[1] * pv + n[1] * pn, basis.u[2] * pu + basis.vv[2] * pv + n[2] * pn]; }
-            else q = [pp[0], pp[1], pp[2] || 0];
-            return pointApplyMatrix(vectorAdd(fr.pos, q), W);
-          };
-        };
-        const local = { pts: [], cubics: [] }, I = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]];
-        this._flatSamples(o, I, local);
-        for (const fr of [frames[0], frames[frames.length - 1]]) { const m = map(fr); for (const p of local.pts) out.pts.push(m(p)); for (const c of local.cubics) out.cubics.push(c.map(m)); }
-      },
-      // a revolve or a sweep through the light's rail: the flattened profile at ALIGN_CURVE_STATIONS stations (Tier B)
-      _curvedSamples(o, out) {
-        const R = (typeof _lightRailOf === 'function') ? _lightRailOf(o) : null; if (!R) return false;
-        const polys = _lightFlatten(o.getSegments()); if (!polys.length) return false;
-        const N = Math.max(ALIGN_CURVE_STATIONS, +(o.revolveSettings && o.revolveSettings.enabled && o.revolveSettings.segments) || 0);
-        for (let i = 0; i <= N; i++) { const fr = SurfaceMapper.getFrameAtU(R.frames, i / N); if (!fr) return false; for (const poly of polys) for (const pp of poly) out.pts.push(_lightSweepPt(fr, pp, R)); }
-        out.approx = true; return true;
-      },
-      samplesOf(o, out) {
-        out = out || { pts: [], cubics: [], approx: false };
-        if (!o || o.visible === false) return out;
-        if (o.isGroup) { for (const c of _lightRowsOf(o)) this.samplesOf(c, out); return out; }
-        const W = o.getWorldMatrix();
-        if (_isLightObj(o) || !o.localVertices || !o.localVertices.length) { out.pts.push(getPivotAnchorWorld(o)); return out; }
-        const es = o._effExtrude || o.extrudeSettings, rs = o.revolveSettings, sw = o.sweepSettings, ls = o.loftSettings, sc = o.surfaceConstraint;
-        const mapped = !!(sc && ((sc.active && sc.targetId) || (sc.surfaceMapping && sc.surfaceMapping.enabled)));
-        if (mapped || (ls && ls.enabled) || (typeof _lightFoldRoot === 'function' && _lightFoldRoot(o))) { this._controlSamples(o, W, out); return out; }   // Tier C
-        if ((rs && rs.enabled) || (sw && sw.enabled)) { if (!this._curvedSamples(o, out)) this._controlSamples(o, W, out); return out; }   // Tier B
-        if (es && es.enabled) { this._extrudeSamples(o, es, W, out); return out; }   // Tier A
-        this._flatSamples(o, W, out); return out;                                     // Tier A
-      },
-      extentOf(o, axes, mode) {
-        if (mode === 'anchor') return this.extentOfSamples({ pts: [getPivotAnchorWorld(o)] }, axes);
-        if (mode === 'origin') return this.extentOfSamples({ pts: [_worldPositionOf(o)] }, axes);
-        const S = this.samplesOf(o); const e = this.extentOfSamples(S, axes); if (e) e.approx = !!S.approx; return e;
-      },
+      // the WORLD samples of what an object draws (WorldExtent, v20261102e)
+      _flatSamples(o, W, out) { return WorldExtent._flatSamples(o, W, out); },
+      _controlSamples(o, W, out) { return WorldExtent._controlSamples(o, W, out); },
+      _extrudeSamples(o, es, W, out) { return WorldExtent._extrudeSamples(o, es, W, out); },
+      _curvedSamples(o, out) { return WorldExtent._curvedSamples(o, out); },
+      samplesOf(o, out) { return WorldExtent.samplesOf(o, out); },
+      extentOf(o, axes, mode) { return WorldExtent.extentOf(o, axes, mode); },
       // the objects a click moves: the selection minus a descendant of another selected object (it moves with its ancestor), minus the ones with no
       // world place of their own (a motion-path rider, a 2D Mode layer) - each skipped with its reason. key = the primary, when it is a subject
       subjects() {
@@ -101833,6 +102664,43 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       }, true); // true = capture phase
       window.addEventListener('keyup', onKeyUp);
       svg.addEventListener('mousedown', onMouseDown);
+      // CONTEXT MENU (v20261102b, PLAN-standard-verbs S2): the right button on the paper. ALWAYS prevented (the browser's menu never
+      // opens over the paper); no menu while a Camera Match session owns the button, while a shape or pen creation is pending, or
+      // mid-drag. The hit is resolved as the left press resolves it (findObjectByElement, the deep resolver under Select Child or a
+      // Cmd-held press - ctrlKey is the Mac's right-click itself and is not read), selected first when it is not already in the
+      // selection (Shift adds); over empty paper the paper menu.
+      svg.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        if (CamMatchSession.active) return;   // CAMERA-MATCH: its overlay owns the right button
+        if (pendingPolygon || (currentTool === 'pen' && activePath && activePath._preCreationSceneState)) return;
+        if (dragMode !== 'none') return;
+        let hit = findObjectByElement(e.target, sceneObjects), leaf = null;
+        if (hit) {
+          const deep = findDeepObjectByElement(e.target);
+          if (_isDeepSelectClick({ metaKey: e.metaKey })) hit = deep || hit;
+          else if (currentTool !== 'directSelect') { while (hit.parent) hit = hit.parent; }
+          if (hit.isGroup && deep && deep !== hit) leaf = deep;
+          if (!selectedObjects.includes(hit)) setSelectedObject(hit, !!e.shiftKey);
+          Commands.openMenu(e.clientX, e.clientY, Commands.OBJECT_ITEMS, { obj: hit, leaf });
+        } else {
+          Commands.openMenu(e.clientX, e.clientY, Commands.PAPER_ITEMS, {});
+        }
+      });
+      // HOVER AND DRILL S2 (v20261103a): the list points at the canvas - ONE delegated pair on #sceneTree (the rows are rebuilt from
+      // innerHTML by ~56 callers; a listener per row would die with them). Over a row: its object is the hover; leaving the rows
+      // (the Scene row, the empty part, out of the list): none. The canvas -> row direction is _syncTreeHover.
+      {
+        const tree = document.getElementById('sceneTree');
+        const rowObj = (n) => { const li = n && n.closest ? n.closest('li.scene-tree-item[data-obj-id]') : null; return li ? findObjectById(li.dataset.objId) : null; };
+        if (tree) {
+          tree.addEventListener('mouseover', (e) => { if (hoverDrillEnabled && dragMode === 'none') setHoveredObject(rowObj(e.target)); });
+          tree.addEventListener('mouseout', (e) => { if (hoverDrillEnabled && !rowObj(e.relatedTarget)) setHoveredObject(null); });
+        }
+      }
+      // ... and the paper: the pointer leaving it ends the hover; a double-click drills in (S3, bubbling - after the corner widgets' capture)
+      svg.addEventListener('mouseleave', () => { if (hoverDrillEnabled) setHoveredObject(null); });
+      svg.addEventListener('dblclick', (e) => _onCanvasDblClick(e));
+      { const tree = document.getElementById('sceneTree'); if (tree) tree.addEventListener('contextmenu', (e) => { e.preventDefault(); Commands.openMenu(e.clientX, e.clientY, Commands.PAPER_ITEMS, {}); }); }   // the EMPTY part of the list: the paper menu (the rows stop their own)
       svg.addEventListener('mousemove', onMouseMove);
       svg.addEventListener('mouseup', onMouseUp);
       // A RELEASE ANYWHERE ENDS A CANVAS DRAG (v20260914k). mouseup was bound on
@@ -101862,8 +102730,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         moveUpBtn.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          pushUndoState();
-          moveSelection(1);
+          Commands.run('forward');   // (v20261102a, D2) the table's verb: the multi-selection too; was pushUndoState(); moveSelection(1)
         });
       }
 
@@ -101892,8 +102759,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         moveDownBtn.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          pushUndoState();
-          moveSelection(-1);
+          Commands.run('backward');   // (v20261102a, D2) the table's verb: the multi-selection too; was pushUndoState(); moveSelection(-1)
         });
       }
 
@@ -102032,6 +102898,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         activateObjTab('sub-transform');
       };
       initObjTabs();
+      Commands.retitle();   // COMMANDS (v20261102a): the verb buttons' tooltips carry the table's keys
 
       // --- Custom Number Input Spinners (v20260517c) ---
       const initCustomSpinners = (root = document) => {
@@ -102394,6 +103261,14 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         setAlignEnabled(_alOn);
         const cb = document.getElementById('alignCb');
         if (cb) { cb.checked = _alOn; cb.addEventListener('change', () => { setAlignEnabled(cb.checked); saveSettings({ align: cb.checked }); }); }
+      }
+      // HOVER AND DRILL (v20261103a): the gate, persisted; absent = HOVER_DRILL_DEFAULT_ON (D4: on)
+      {
+        let _hdOn = HOVER_DRILL_DEFAULT_ON;
+        try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); if (typeof s.hoverDrill === 'boolean') _hdOn = s.hoverDrill; } catch (e) { }
+        setHoverDrillEnabled(_hdOn);
+        const cb = document.getElementById('hoverDrillCb');
+        if (cb) { cb.checked = _hdOn; cb.addEventListener('change', () => { setHoverDrillEnabled(cb.checked); saveSettings({ hoverDrill: cb.checked }); }); }
       }
 
       // COLOR PICKER (v20260921g): Settings > Custom color picker - an experiment, default OFF, until v20260921m; DEFAULT
@@ -102767,6 +103642,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           DragReadout.setEnabled(true); { const c = document.getElementById('dragReadoutCb'); if (c) c.checked = true; }        // Drag Readout: ON
           document.documentElement.removeAttribute('data-gizmo'); { const c = document.getElementById('gizmoColorCb'); if (c) c.checked = false; }   // Colored Gizmo Highlight: OFF
           setAlignEnabled(ALIGN_DEFAULT_ON); { const c = document.getElementById('alignCb'); if (c) c.checked = ALIGN_DEFAULT_ON; }   // ALIGN (experimental): OFF
+          setHoverDrillEnabled(HOVER_DRILL_DEFAULT_ON); { const c = document.getElementById('hoverDrillCb'); if (c) c.checked = HOVER_DRILL_DEFAULT_ON; }   // HOVER AND DRILL (v20261103a): ON
           if (scaleStrokesWithObject) { scaleStrokesWithObject = false; ScaleStyle.restore(); ScaleStyle.disarm(); syncStrokeWidthInputs(); }   // Scale Strokes: OFF (the widths put back, as the checkbox does)
           { const c = document.getElementById('scaleStrokesCb'); if (c) c.checked = false; }
 
@@ -103122,12 +103998,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       pasteSVGBtn.addEventListener('click', async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        try {
-          const text = await navigator.clipboard.readText();
-          if (text) handleSVGPaste(text);
-        } catch (err) {
-          console.error('Failed to read clipboard:', err);
-        }
+        await pasteFromClipboard({ asPaths: true });   // (v20261102a) the one clipboard entry; the paths route, as before
       });
     }
 
@@ -108071,6 +108942,15 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         // the Depth: a legacy six-face cuboid group's own cbDepth, else the extrusion's (a Path cuboid, a cylinder, a cone, a pyramid)
         { id: 'shape3dDepth', prop: (o) => { const t = _primTypeOf(o); return (t === 'cuboid' && o.isGroup) ? 'cbDepth' : (['cuboid', 'cylinder', 'cone', 'pyramid'].includes(t) ? 'exDepth' : null); }, fmt: v => fmtDisplay(v) },
       ];
+      // (v20261102i) a drawer field the user edits during a re-edit is stamped with the session's token - typed, scrubbed or set by its pill
+      // (all three dispatch input) - and sync below keeps its value; see _primEditToken
+      for (const f of PRIM_FIELDS) {
+        const el = document.getElementById(f.id);
+        if (!el) continue;
+        const stamp = () => { if (_primEditToken && pendingPolygon === _primEditToken.obj && pendingPolygon._isReEditing) el._primEditToken = _primEditToken; };
+        el.addEventListener('input', stamp);
+        el.addEventListener('change', stamp);
+      }
       const OBJ_FIELDS = [
         // Transform (updatePropertiesPanel)
         { id: 'posXInput', prop: 'posX', fmt: v => fmtDisplay(v) },
@@ -108303,7 +109183,8 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           const p = drawerObj ? f.prop(drawerObj) : null;
           const st = p ? stateOf(key, p, drawerObj) : 0;
           apply(el, st);
-          if (st) writeValue(el, key, p, f.fmt, null);
+          const edited = !!(drawerObj && _primEditToken && _primEditToken.obj === drawerObj && el._primEditToken === _primEditToken);   // (v20261102i) the session's own value: kept
+          if (st && !edited) writeValue(el, key, p, f.fmt, null);
         }
         // Fold creases 2..N: dynamic rows, prop = 'fd' + (idx+1) + CapKey.
         const list = document.getElementById('foldCreaseList');

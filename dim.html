@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261103b -->
+<!-- dim v20261105a -->
 
 <!--
   MIT License
@@ -4089,8 +4089,21 @@
     }
 
     /* HOVER AND DRILL (v20261103a): the hover outline - the selection outline's lighter sibling (1 px at .55 of the accent ink,
-       whatever the zoom) - and the rename field that replaces a tree name on a double-click. */
-    #hoverHighlightGroup path.hover-outline {
+       whatever the zoom) - and the rename field that replaces a tree name on a double-click. Any element (v20261104e, P-H3): a light's hover
+       is a CIRCLE - under the path-only selector it took the default black fill and hid the glyph (the first crop showed it). */
+    /* FRAME (v20261104f, P-F5): the target cross after a Frame / Look At - the accent ink, 1.5 px whatever the zoom, fading over FRAME_MARK_MS */
+    #frameMarkGroup .frame-mark {
+      fill: none;
+      stroke: var(--accent-ink);
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      vector-effect: non-scaling-stroke;
+      pointer-events: none;
+      animation: frameMarkFade 600ms ease-in forwards;
+    }
+    @keyframes frameMarkFade { from { opacity: 1; } to { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { #frameMarkGroup .frame-mark { animation: none; } }
+    #hoverHighlightGroup .hover-outline {
       fill: none;
       stroke: var(--accent-ink);
       stroke-opacity: .55;
@@ -4205,11 +4218,20 @@
     .align-row { display: flex; align-items: center; gap: 6px; }
     .align-row .align-bar { flex: 1; margin-top: 0; padding: 2px 0; }
     .align-axis { flex: 0 0 14px; text-align: center; font-size: var(--font-size-label); font-weight: 600; color: var(--text-secondary); }
+    .align-axis.is-approx { letter-spacing: -1.5px; }   /* ALIGN (v20261104f, A7): "≈X" measured 15 px in the 14 px slot - the approx mark tucked in, the slot kept (DEF-A1's rule: nothing spills under the first button) */
     .align-key { font-size: var(--font-size-small); color: var(--text-muted); padding: 2px var(--row-padding-h); white-space: nowrap; overflow: clip visible; text-overflow: ellipsis; }
     #alignGapsBar .ui-btn-small { display: flex; align-items: center; justify-content: center; gap: 4px; }
     #alignOrientBar .ui-btn-small { padding-left: 4px; padding-right: 4px; font-size: var(--font-size-small); }   /* four words in a 260 px bar (v20261031n) */
     .align-gap-letter { font-size: var(--font-size-label); font-weight: 600; }
     #pathHighlightGroup path.align-key-outline { opacity: .45; pointer-events: none; }
+    /* ALIGN (v20261104d, PLAN-polish-four-features-261104 A0 / A4 / A5): the hover GHOST - where a button would put the selection, before
+       the click: the profile outline at the destination (the hover outline's look, dashed) and the destination's extent box (fainter,
+       finer dash); the Key line wraps when it carries a reason; the key object's row in the Scene Objects tree reads in the accent ink
+       (the primary's row is already bold, .active). Tokens only. */
+    #alignGhostGroup path.align-ghost { fill: none; stroke: var(--accent-ink); stroke-opacity: .55; stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+    #alignGhostGroup path.align-ghost-box { fill: none; stroke: var(--accent-ink); stroke-opacity: .35; stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+    .align-key.is-reason { white-space: normal; }
+    .scene-tree-item.is-key .tree-item-name { color: var(--accent-ink); }
 
 
 
@@ -5347,6 +5369,8 @@
       height: var(--control-h-compact);   /* (v20261030za) the ruler row's height: room for the 20 px house buttons */
       min-height: var(--control-h-compact);
       border-bottom: 1px solid var(--border-light);
+      overflow: hidden;   /* (v20261104g) the same gutter as the ruler row: one right edge for the strip, the ruler and the rows */
+      scrollbar-gutter: stable;
     }
     .tl-overview-label {
       width: var(--tl-label-w);
@@ -5406,6 +5430,10 @@
       height: var(--control-h-compact);
       min-height: var(--control-h-compact);
       border-bottom: 1px solid var(--border-light);
+      /* (v20261104g) the tracks container's gutter, so the ruler is exactly as wide as the tracks area - see
+         .tl-tracks-container. scrollbar-gutter needs a scroll container: hidden scrolls nothing (both cells fit). */
+      overflow: hidden;
+      scrollbar-gutter: stable;
     }
 
     .tl-track-label-spacer {
@@ -5432,6 +5460,14 @@
       display: flex;
       flex: 1;
       overflow-y: auto;
+      /* (v20261104g) ONE FRAME GRID: the ruler converts frames with tlRuler.clientWidth, the tracks place keys with
+         tlTracksArea.clientWidth read while tlRenderTracks has just emptied the rows, and the drags / marquee / razor read
+         the live area. With a CLASSIC scrollbar (macOS "Automatic" turns classic while a non-gesture mouse is connected)
+         the rows' overflow took 15 px off the area AFTER the keys were placed: keys at 1332 px of a 1317 px area, the
+         ruler 1332, a drag at 1317 - a key dragged landed off its tick. The gutter is reserved always (the width no longer
+         flips with the rows) and the ruler and overview rows reserve the same one, so all three widths are one. Overlay
+         scrollbars reserve nothing: that layout is unchanged. */
+      scrollbar-gutter: stable;
     }
 
     .tl-track-labels {
@@ -6253,6 +6289,13 @@
            selects nothing. Belt and braces beside the isPlaying gate in
            RenderCache.active(). -->
       <g id="renderCacheGroup" style="display: none; pointer-events: none;"></g>
+      <!-- FRAME (v20261104f, PLAN-polish-four-features-261104 P-F5): the target cross a Frame / Look At leaves for 600 ms. Never a target;
+           stripped from every export beside #hoverHighlightGroup; hidden with the guides. -->
+      <g id="frameMarkGroup" style="pointer-events: none;"></g>
+      <!-- ALIGN (v20261104d, PLAN-polish-four-features-261104 A0): the hover ghost - where an Align button would put the selection.
+           Under the hover outline, which stays directly under the selection's group (hover_drill H1). Never a target; stripped from every export beside #hoverHighlightGroup. -->
+      <g id="alignGhostGroup" style="pointer-events: none;"></g>
+      <!-- /ALIGN -->
       <!-- HOVER AND DRILL (v20261103a): the outline of the object a click would select. Under the selection's group; never a
            target (the pointer resolves THROUGH it); stripped from every export beside #pathHighlightGroup. -->
       <g id="hoverHighlightGroup" style="pointer-events: none;"></g>
@@ -6618,7 +6661,7 @@
     </button>
     <!-- /LIGHT -->
     <div style="flex:1"></div>
-    <button id="helpBtn" title="Help (?)">
+    <button id="helpBtn" title="Help" data-cmd="help">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="10" cy="10" r="8" />
         <circle fill="currentColor" stroke="none" cx="10.07" cy="14.65" r=".35" />
@@ -6695,7 +6738,7 @@
           <input class="hidden" type="file" id="importSceneInput" accept=".json" aria-label="Scene file to import" />
         </div>
         <div class="prop-row prop-row-plain">
-          <button id="saveSceneBtn" title="Save the scene in this browser (Cmd+S) - Export Scene is the one that writes a file" class="ui-btn ui-btn-wide">Save Scene (⌘S)</button>
+          <button id="saveSceneBtn" data-cmd="save" title="Save the scene in this browser - Export Scene is the one that writes a file" class="ui-btn ui-btn-wide">Save Scene (⌘S)</button>
         </div>
         <div class="prop-row prop-row-plain">
           <button id="revertSceneBtn" class="ui-btn ui-btn-wide" title="Replace the open scene with the saved slot (the last Save / autosave). Asks first; one undo brings the open scene back.">Reload Saved</button>
@@ -7300,12 +7343,12 @@
              These buttons are the verbs, and they call the SAME two functions the
              keyboard shortcuts call, so panel and keyboard cannot drift. -->
         <div class="flex-row-gap" style="padding: 0 var(--row-padding-h) var(--space-sm);">
-          <button id="wpFromCameraBtn" class="ui-btn ui-btn-small"
-            title="Freeze the workplane to the current camera direction. Re-run any time to re-capture from a new view. Shortcut: Shift + G">
+          <button id="wpFromCameraBtn" class="ui-btn ui-btn-small" data-cmd="wpFromCam"
+            title="Freeze the workplane to the current camera direction. Re-run any time to re-capture from a new view.">
             From Camera
           </button>
-          <button id="wpFromSelectionBtn" class="ui-btn ui-btn-small"
-            title="Derive the workplane from the current selection (vertex basis under Direct Select, otherwise the object's own plane). Shortcut: Alt + G">
+          <button id="wpFromSelectionBtn" class="ui-btn ui-btn-small" data-cmd="wpFromSel"
+            title="Derive the workplane from the current selection (vertex basis under Direct Select, otherwise the object's own plane).">
             From Selection
           </button>
         </div>
@@ -7516,6 +7559,12 @@
         <div class="prop-row prop-inline" id="hoverDrillRow">
           <label for="hoverDrillCb" class="ui-checkbox-label" title="On by default. Under the Select (V) and Direct Select (A) tools, outline the object a click would select as the pointer moves over it; point the Scene Objects list and the canvas at each other on hover; double-click an object to enter its group or edit its points (double-click under Direct Select goes back to Select); double-click a name in the Scene Objects list to rename it. Off = none of these.">Hover and Drill</label>
           <input type="checkbox" id="hoverDrillCb" class="ui-checkbox" checked />
+        </div>
+        <!-- CAMERA FLY (v20261105a, PLAN-polish-four-features-261104 P-F1) - the gate of the eased view change, default ON. Off = every
+             view change jumps to its pose as before; nothing in a scene depends on it. -->
+        <div class="prop-row prop-inline" id="viewFlyRow">
+          <label for="viewFlyCb" class="ui-checkbox-label" title="On by default. A view change - Frame Selection, Frame All, Look At, the Front / Side / Top / Invert / Reset view keys, Face Workplane, Reset Zoom, Reset Truck / Pedestal - flies the camera to its new view over a fifth of a second instead of jumping to it. A drag, a wheel, a scrub, an undo or another view change during the fly ends it at its destination first. Off = the camera jumps, as before. The system's Reduce Motion setting also turns it off.">Animate View Changes</label>
+          <input type="checkbox" id="viewFlyCb" class="ui-checkbox" checked />
         </div>
 
         <!-- COLOR PICKER -->
@@ -12095,22 +12144,149 @@
         const cam = selectedCamera || activeCamera;
         if (cam.lock) return;
         pushCameraUndoState();
-        const displacement = vectorSubtract(cam.target, cam.initialTarget);
-        cam.position = vectorSubtract(cam.position, displacement);
-        cam.target = [...cam.initialTarget];
-        // AUTO-KEY (v20260721q): reset is a deliberate truck/pedestal edit
-        if (typeof tlAutoKeyProps === 'function' && cam === activeCamera) tlAutoKeyProps('__camera__', ['truck', 'pedestal']);
+        CameraFly.run(cam, () => {   // CAMERA FLY (v20261105a): the write below is the end pose; the auto-key inside reads it
+          const displacement = vectorSubtract(cam.target, cam.initialTarget);
+          cam.position = vectorSubtract(cam.position, displacement);
+          cam.target = [...cam.initialTarget];
+          // AUTO-KEY (v20260721q): reset is a deliberate truck/pedestal edit
+          if (typeof tlAutoKeyProps === 'function' && cam === activeCamera) tlAutoKeyProps('__camera__', ['truck', 'pedestal']);
+        });
         requestRender();
       });
     }
+
+    // --- CAMERA FLY --- (v20261105a, PLAN-polish-four-features-261104 P-F1; owner 2026-11-04: "implement an animation inbetween on
+    // changing the view ... an option (default on) in the settings panel checkbox" - D2, decided SNAP in v20261104f, is YES now and
+    // generalised to every view change). ONE engine for every camera verb that writes a WHOLE pose at once: the frame verbs
+    // (frameObjects), the view keys and their Commands copies (Front / Side / Top / Invert / Reset view), Face Workplane, Reset Zoom,
+    // Reset Truck / Pedestal. THE SHAPE: `CameraFly.run(cam, write)` - the verb's closed form runs NOW on the live camera exactly as it
+    // always did (its result IS the end pose; no closed form changed), the camera is put back to the start, and the frames in between
+    // are written from _renderFrame's tick (before the subwindow seam and the draw, so each frame draws the pose it computed) over
+    // FRAME_FLY_MS with the ease 1 - (1 - u)^3, time-based (a heavy scene drops frames, not the destination); the last tick writes
+    // the END pose's own arrays, so a fly ends bit-for-bit where the snap ended. THE PATH: the target lerped; the distance
+    // |position - target| and orthoZoom in LOG space (a uniform zoom feel); the ORIENTATION as one quaternion SLERP of the camera's
+    // frame (right, screen up, back = position - target) - Blender's smooth_view - so Front to Back (the 9 key) turns through the side
+    // about the screen up, never through the target, the distance kept; Front to Top is a pure tilt; Back to Top (frames 180 degrees
+    // apart about the diagonal) is ONE tumble rather than a tilt with a twist (the first cut slerped the direction and rolled the up
+    // separately: it twisted 180 degrees there). The up is handled as the SCREEN up (the up's part across the view, a unit vector -
+    // createLookAtMatrix uses nothing else; the Top view's own up lies along the view to 1e-5, and carrying it would hand the lookAt
+    // its [1, 0, 0] fallback mid-way); the end writes the pose's own up. The projection type, and orthoZoom with it, SNAP
+    // (the 5 key: the old orthoZoom was never seen under perspective) - the rest of such a write flies. THE UNDO: unchanged - the verb
+    // pushes once BEFORE it writes (pushCameraUndoState(label)), its change is the next push's diff; nothing is pushed per frame.
+    // ANY OTHER CAMERA WRITE ENDS A FLY AT ITS DESTINATION FIRST (`settle`): every camera-undo push and flush (an orbit / zoom / truck
+    // drag's mousedown, the wheel, the 2 4 6 8 keys, the panel's fields, the subwindow's bars, undo / redo), the timeline's two camera
+    // writers (tlApplyFrame, _tlWritePropertyValue), restoreCameraFromState, importScene, resetCamerasToDefault, the export - so no
+    // half-pose is ever left behind and a second verb's push diffs the first's WHOLE move. NEVER STARTED (the write snaps, as
+    // v20261104a's playback refusal): while the timeline plays with a camera track (that track rewrites the pose every frame), during
+    // a camera drag (_cameraDragPending), under prefers-reduced-motion, with the Settings box off (`cameraFlyEnabled`, set only by
+    // setCameraFlyEnabled; Settings > Animate View Changes, `dim-settings.viewFly`, default ON), or when the write moved nothing.
+    // A camera on its own target (no direction) snaps too. The camera the verb names flies in ITS view: the Camera panel's buttons
+    // fly selectedCamera (P-F2) - the main view does not move, the subwindow showing it does. Gate: frame_probe.mjs G12-G18.
+    const FRAME_FLY_MS = 220;   // tried 180 / 220 / 250 in the Browser pane: 180 reads as a jump with a tail, 250 lags a second key; 220 (D2's "~200")
+    const CAMERA_FLY_DEFAULT_ON = true;
+    let cameraFlyEnabled = CAMERA_FLY_DEFAULT_ON;
+    let _flyReducedMotion = null;
+    const CameraFly = {
+      _run: null,   // { cam, t0, from, to, d0, d1, q0, q1 }
+      get active() { return !!this._run; },
+      _pose: (cam) => ({ position: cam.position.slice(0, 3), target: cam.target.slice(0, 3), up: cam.up.slice(0, 3), orthoZoom: cam.orthoZoom, fovDegrees: cam.fovDegrees, projectionType: cam.projectionType }),
+      _put: (cam, p) => { cam.position = p.position.slice(); cam.target = p.target.slice(); cam.up = p.up.slice(); cam.orthoZoom = p.orthoZoom; cam.fovDegrees = p.fovDegrees; cam.projectionType = p.projectionType; },
+      _same: (a, b) => ['position', 'target', 'up'].every(k => a[k].every((v, i) => v === b[k][i])) && a.orthoZoom === b.orthoZoom && a.fovDegrees === b.fovDegrees && a.projectionType === b.projectionType,
+      // the unit quaternion [x, y, z, w] of the frame whose columns are right r, up e, back n (Shepperd's branches)
+      _quat: (r, e, n) => {
+        const m00 = r[0], m01 = e[0], m02 = n[0], m10 = r[1], m11 = e[1], m12 = n[1], m20 = r[2], m21 = e[2], m22 = n[2], tr = m00 + m11 + m22;
+        if (tr > 0) { const S = Math.sqrt(tr + 1) * 2; return [(m21 - m12) / S, (m02 - m20) / S, (m10 - m01) / S, S / 4]; }
+        if (m00 > m11 && m00 > m22) { const S = Math.sqrt(1 + m00 - m11 - m22) * 2; return [S / 4, (m01 + m10) / S, (m02 + m20) / S, (m21 - m12) / S]; }
+        if (m11 > m22) { const S = Math.sqrt(1 + m11 - m00 - m22) * 2; return [(m01 + m10) / S, S / 4, (m12 + m21) / S, (m02 - m20) / S]; }
+        const S = Math.sqrt(1 + m22 - m00 - m11) * 2; return [(m02 + m20) / S, (m12 + m21) / S, S / 4, (m10 - m01) / S];
+      },
+      // the shortest arc from a to b at t (b negated when the arcs face away; a near-parallel pair lerps)
+      _slerp: (a, b, t) => {
+        let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+        if (d < 0) { b = b.map(v => -v); d = -d; }
+        let wa, wb;
+        if (d > 0.9995) { wa = 1 - t; wb = t; } else { const th = Math.acos(Math.min(1, d)), st = Math.sin(th); wa = Math.sin((1 - t) * th) / st; wb = Math.sin(t * th) / st; }
+        const q = [a[0] * wa + b[0] * wb, a[1] * wa + b[1] * wb, a[2] * wa + b[2] * wb, a[3] * wa + b[3] * wb], l = Math.hypot(q[0], q[1], q[2], q[3]) || 1;
+        return q.map(v => v / l);
+      },
+      // v turned by the unit quaternion q: v + 2 w (u x v) + 2 u x (u x v)
+      _turn: (q, v) => { const u = [q[0], q[1], q[2]], w = q[3], c1 = vectorCross(u, v), c2 = vectorCross(u, c1); return [v[0] + 2 * (w * c1[0] + c2[0]), v[1] + 2 * (w * c1[1] + c2[1]), v[2] + 2 * (w * c1[2] + c2[2])]; },
+      // the screen up: the unit part of `up` across the unit direction n (any perpendicular when up lies along the view)
+      _screenUp(up, n) {
+        let e = vectorSubtract(up, vectorScale(n, vectorDot(up, n)));
+        if (vectorLength(e) < 1e-9) { const a = Math.abs(n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]; e = vectorSubtract(a, vectorScale(n, vectorDot(a, n))); }
+        return vectorNormalize(e);
+      },
+      // may this camera fly now? (the refusals above)
+      may(cam) {
+        if (!cameraFlyEnabled || !cam || _cameraDragPending) return false;
+        if (_flyReducedMotion === null) _flyReducedMotion = (typeof matchMedia === 'function') ? matchMedia('(prefers-reduced-motion: reduce)') : false;
+        if (_flyReducedMotion && _flyReducedMotion.matches) return false;
+        if (typeof animationTimeline !== 'undefined' && animationTimeline.isPlaying && cam === activeCamera) {
+          const tr = animationTimeline.tracks.get('__camera__');
+          if (tr && [...tr.values()].some(k => Array.isArray(k) && k.length)) return false;
+        }
+        return true;
+      },
+      // run a whole-pose write: `write` is the verb's own code, unchanged; returns true when a fly started (false = it snapped)
+      run(cam, write) {
+        this.settle();
+        if (!this.may(cam)) { write(); return false; }
+        const from = this._pose(cam);
+        write();
+        const to = this._pose(cam);
+        if (to.projectionType !== from.projectionType) { from.projectionType = to.projectionType; from.orthoZoom = to.orthoZoom; }   // the part that snaps
+        if (this._same(from, to)) return false;
+        const o0 = vectorSubtract(from.position, from.target), o1 = vectorSubtract(to.position, to.target), d0 = vectorLength(o0), d1 = vectorLength(o1);
+        if (!(d0 > 1e-12) || !(d1 > 1e-12)) return false;   // no direction to turn: the write stands as a snap
+        const n0 = vectorScale(o0, 1 / d0), n1 = vectorScale(o1, 1 / d1), e0 = this._screenUp(from.up, n0), e1 = this._screenUp(to.up, n1);
+        const q0 = this._quat(vectorCross(e0, n0), e0, n0), q1 = this._quat(vectorCross(e1, n1), e1, n1);   // right = up x back
+        this._put(cam, from);   // back to the start: the frames are written from here
+        this._run = { cam, t0: performance.now(), from, to, d0, d1, q0, q1 };
+        this._after(cam);
+        return true;
+      },
+      // the pose at `now` (from _renderFrame, before the draw; a direct render() ticks too)
+      tick(now) {
+        const r = this._run; if (!r) return false;
+        const u = Math.min(1, (now - r.t0) / FRAME_FLY_MS);
+        if (u >= 1) { this.settle(); return true; }
+        const s = 1 - Math.pow(1 - u, 3), cam = r.cam, q = this._slerp(r.q0, r.q1, s);
+        const n = this._turn(q, [0, 0, 1]);   // the frame's back column = the direction position - target
+        cam.target = vectorLerp(r.from.target, r.to.target, s);
+        cam.position = vectorAdd(cam.target, vectorScale(n, r.d0 * Math.pow(r.d1 / r.d0, s)));
+        cam.up = this._turn(q, [0, 1, 0]);   // the frame's up column: the screen up, a unit vector across the view
+        cam.orthoZoom = (r.from.orthoZoom > 0 && r.to.orthoZoom > 0) ? r.from.orthoZoom * Math.pow(r.to.orthoZoom / r.from.orthoZoom, s) : r.from.orthoZoom + (r.to.orthoZoom - r.from.orthoZoom) * s;
+        cam.fovDegrees = r.from.fovDegrees + (r.to.fovDegrees - r.from.fovDegrees) * s;
+        this._after(cam);
+        return true;
+      },
+      // end a fly AT ITS DESTINATION now (the end pose's own arrays); true when there was one
+      settle() {
+        const r = this._run; if (!r) return false;
+        this._run = null;
+        this._put(r.cam, r.to);
+        this._after(r.cam);
+        return true;
+      },
+      _after(cam) {
+        if (typeof updateCameraPanel === 'function') { try { updateCameraPanel(); } catch (e) { } }
+        if (cam === activeCamera) requestRender();
+        else if (typeof SubView !== 'undefined' && SubView && SubView.markDirty) SubView.markDirty();
+      }
+    };
+    const setCameraFlyEnabled = (on) => { cameraFlyEnabled = !!on; if (!cameraFlyEnabled) CameraFly.settle(); };
+    // --- /CAMERA FLY ---
 
     // --- Face Workplane ---
     // (v20261030e) A LOCKED camera is left alone (six presets are locked by design; the button rewrote them - the 1 key's
     // switch was already guarded); the camera keeps its own DISTANCE (a fixed 17.32 dollied every camera there);
     // `camera-target` faces the live camera's plane (it fell to the default +Z); object-local composes the parent chain's
     // rotation (workplaneModelMatrix's plane for a nested child); the panel follows.
-    const faceWorkplane = () => {
-      if (activeCamera.lock) return;
+    // `cam` (v20261104b, P-F2): the Camera panel's button turns the camera the panel SHOWS (selectedCamera); the Shift+1 key and the menu the
+    // active one. The workplane's own definition (camera-target mode: the active camera's plane) still reads activeCamera.
+    const faceWorkplane = (cam = activeCamera) => {
+      if (cam.lock) return;
       // Determine normal and up based on activeWorkplane.mode
       const mode = activeWorkplane.mode;
       let normal = [0, 0, 1]; // Default
@@ -12145,9 +12321,11 @@
         up = vectorNormalize(vectorCross(normal, activeWorkplane.right));
       }
 
-      const dist = vectorLength(vectorSubtract(activeCamera.position, activeCamera.target)) || 17.32;
-      activeCamera.position = vectorAdd(activeCamera.target, vectorScale(normal, dist));
-      activeCamera.up = up;
+      const dist = vectorLength(vectorSubtract(cam.position, cam.target)) || 17.32;
+      CameraFly.run(cam, () => {   // CAMERA FLY (v20261105a): the write below is the end pose
+        cam.position = vectorAdd(cam.target, vectorScale(normal, dist));
+        cam.up = up;
+      });
       if (typeof updateCameraPanel === 'function') updateCameraPanel();
       requestRender();
     };
@@ -12155,22 +12333,26 @@
     const faceWorkplaneBtn = document.getElementById('faceWorkplaneBtn');
     if (faceWorkplaneBtn) {
       faceWorkplaneBtn.addEventListener('click', () => {
-        if (activeCamera.lock) return;   // v20261030e: before the undo push
+        const cam = selectedCamera || activeCamera;   // v20261104b (P-F2): the camera the panel shows, as Reset Truck / Pedestal reads it
+        if (cam.lock) return;   // v20261030e: before the undo push
         pushCameraUndoState();
-        faceWorkplane();
+        faceWorkplane(cam);
       });
     }
 
     const resetZoomBtn = document.getElementById('resetZoomBtn');
     if (resetZoomBtn) {
       resetZoomBtn.addEventListener('click', () => {
-        if (activeCamera.lock) return;   // v20261030e: a locked camera is not re-zoomed
+        const cam = selectedCamera || activeCamera;   // v20261104b (P-F2): the camera the panel shows
+        if (cam.lock) return;   // v20261030e: a locked camera is not re-zoomed
         pushCameraUndoState();
-        activeCamera.orthoZoom = REFERENCE_ORTHO_ZOOM;
-        // For perspective, move camera to reference distance
-        const refDist = REFERENCE_ORTHO_ZOOM / Math.tan(activeCamera.fovRadians / 2);
-        const dir = vectorNormalize(vectorSubtract(activeCamera.position, activeCamera.target));
-        activeCamera.position = vectorAdd(activeCamera.target, vectorScale(dir, refDist));
+        CameraFly.run(cam, () => {   // CAMERA FLY (v20261105a): the write below is the end pose
+          cam.orthoZoom = REFERENCE_ORTHO_ZOOM;
+          // For perspective, move camera to reference distance
+          const refDist = REFERENCE_ORTHO_ZOOM / Math.tan(cam.fovRadians / 2);
+          const dir = vectorNormalize(vectorSubtract(cam.position, cam.target));
+          cam.position = vectorAdd(cam.target, vectorScale(dir, refDist));
+        });
         updateCameraPanel();
         requestRender();
       });
@@ -12212,36 +12394,121 @@
     const _frameSelected = () => (selectedObjects && selectedObjects.length) ? selectedObjects.slice() : (selectedObject ? [selectedObject] : []);
     // the world box of the objects a frame would read, or null (the menu's predicates and the verb read the same)
     const frameExtentOf = (list) => WorldExtent.unionOf(_frameSubjects(list).objs.map(o => WorldExtent.extentOf(o, FRAME_AXES)));
+    // the words for a list with nothing to frame (v20261104b): a selection that IS there but hidden says so (it read "Nothing to frame" while
+    // the row was plainly selected); `none` is the caller's sentence for an empty list
+    const _frameHiddenSel = (list) => { const s = _frameSubjects(list || []).objs; return s.length > 0 && s.every(o => o.visible === false); };
+    const _frameEmptyText = (list, none) => _frameHiddenSel(list) ? 'The selection is hidden' : none;
+    // THE FIT (v20261104b, PLAN-polish-four-features-261104 F0, the owner's note "Frame Selection should fit the BLUE frame guide"; D1 the
+    // camera-aligned box). The Frame Guide is the user's crop (the export writes the same rect), centred in the square paper with half-extents
+    // gx = fgw / FRAME_SIZE, gy = fgh / FRAME_SIZE in NDC (16:9 = 0.96 x 0.54; no guide = 1 x 1). The subjects are measured along the CAMERA's
+    // basis - right, upO = dir x right, dir = (position - target) / |..| - by WorldExtent.extentOfSamples (exact cubic extrema along any axis), so
+    // the box is [hx, hy, hz] about its centre c in that frame. Its nearest corners (+/-hx, +/-hy, +hz) sit at depth d - hz, so every corner is
+    // inside gx / FRAME_MARGIN, gy / FRAME_MARGIN when
+    //   perspective:        d = hz + FRAME_MARGIN * max(hx / (t * gx), hy / (t * gy)),  t = tan(fov / 2)  (the paper is square: aspect 1)
+    //   ortho / oblique:    orthoZoom = FRAME_MARGIN * max(hx / gx, hy / gy), the distance kept
+    // - closed form, no iteration, and the limiting side touches the margin exactly. The margin is ONE constant on the LATERAL term only (the
+    // sphere fit's d x 1.15 inflated the depth too). max(hx, hy) is floored at FRAME_MIN_R. THE TRADE-OFF (D1): the box is VIEW-DEPENDENT - it is
+    // tight for this direction, so after an orbit a body framed tight can cross the frame (the old sphere never did); the box was chosen because
+    // a sphere wastes exactly what a 16:9 / 9:16 guide is for (a 16:9 card face-on filled 43 % of the guide's width; the box fills 1 / 1.15).
+    // THE TIER C FALLBACK: a fold, a loft or a mapped path is measured by its CONTROL points (WorldExtent's tierC) - a fold's sheet is flat in its
+    // control points, so the box has no thickness along the sheet normal and a raised flap is NOT contained (a 2 x 2 sheet folded 90 degrees:
+    // the flap's far corner is exactly r = 1.414 from the centre). Such a selection takes the cube of the world box's half-diagonal r about the
+    // world centre (hx = hy = hz = r), which holds the sphere that holds the body from every direction. Tier B (a revolve or a sweep, a close
+    // sample of the drawn body) keeps the box.
     const frameObjects = (objs, opts) => {
-      const o = opts || {}, cam = activeCamera;
+      const o = opts || {}, cam = o.cam || activeCamera;   // { cam } (v20261104b): the Camera panel's buttons frame the camera the panel SHOWS (P-F2)
+      const guide = o.guide !== undefined ? o.guide : _currentFrameGuide;
       if (cam.lock) { showAppNotice(cam.name + ' is locked - nothing was framed', { kind: 'warn' }); return false; }
+      // PLAYBACK WITH A CAMERA TRACK (v20261104a, DEF-F2): tlApplyFrame writes the pose from the track on every frame, so a frame was undone
+      // within one frame and still cost a camera-undo entry - refused, as the subwindow's bars refuse (_animatedNow). At rest it frames (D4).
+      const camTrack = animationTimeline.isPlaying && animationTimeline.tracks.get('__camera__');
+      if (camTrack && [...camTrack.values()].some(k => Array.isArray(k) && k.length)) { showAppNotice('The camera is animated - pause the playback to frame', { kind: 'info' }); return false; }
       const list = o.all ? _frameAllObjects() : (objs || []);
-      const ext = frameExtentOf(list);
+      // P-F4 (v20261104f): `points` - world points (the selected anchors under A) framed in place of objects: one sample set, no subject
+      const ptsS = (Array.isArray(o.points) && o.points.length) ? { pts: o.points.map(p => p.slice(0, 3)) } : null;
+      const ext = ptsS ? WorldExtent.extentOfSamples(ptsS, FRAME_AXES) : frameExtentOf(list);
+      const label = o.all ? 'Frame All' : o.lookOnly ? 'Look At' : 'Frame Selection';   // P-F7 (v20261104f): History names the verb
       if (!ext) {
-        if (o.all) { pushCameraUndoState(); cam.reset(); updateCameraPanel(); requestRender(); return true; }   // nothing in the scene: the home pose (the 0 key's order: the push first)
-        showAppNotice(_frameSubjects(list).skipped.length ? 'Nothing to frame - a 2D Mode layer has no place in the 3D view' : 'Nothing to frame', { kind: 'info' });
+        if (o.all) { pushCameraUndoState(label); CameraFly.run(cam, () => cam.reset()); updateCameraPanel(); requestRender(); return true; }   // nothing in the scene: the home pose (the 0 key's order: the push first; the fly of v20261105a)
+        showAppNotice(_frameSubjects(list).skipped.length ? 'Nothing to frame - a 2D Mode layer has no place in the 3D view' : _frameEmptyText(list, 'Nothing to frame'), { kind: 'info' });
         return false;
       }
-      const c = [0, 1, 2].map(i => (ext.lo[i] + ext.hi[i]) / 2);
-      const r = Math.max(FRAME_MIN_R, vectorLength(vectorSubtract(ext.hi, ext.lo)) / 2);
-      pushCameraUndoState();
+      const subj = ptsS ? [] : _frameSubjects(list).objs;
       const off = vectorSubtract(cam.position, cam.target), dist = vectorLength(off);
       const dir = dist > 1e-12 ? vectorScale(off, 1 / dist) : [0, 0, 1];
-      cam.target = c;
-      if (o.lookOnly) cam.position = vectorAdd(c, off);
-      else if ((cam.projectionType || projectionType) === 'perspective') cam.position = vectorAdd(c, vectorScale(dir, r / Math.sin(cam.fovRadians / 2) * FRAME_MARGIN));
-      else { cam.orthoZoom = r * FRAME_MARGIN; cam.position = vectorAdd(c, vectorScale(dir, dist)); }
+      // A LIGHT ALONE, OR A POINT (P-F3, D8): a light's extent is its anchor and its glyph is 6 px at any distance, so a fit flew the camera to
+      // 2 units of a dot (FRAME_MIN_R) where the next wheel notch is 0.001 - every subject a light, or a box with no size, is LOOK AT instead
+      const degenerate = Math.max(ext.hi[0] - ext.lo[0], ext.hi[1] - ext.lo[1], ext.hi[2] - ext.lo[2]) <= 1e-9;
+      const lookOnly = !!o.lookOnly || degenerate || (subj.length > 0 && subj.every(s => _isLightObj(s)));   // (v20261104f: a points frame has no subject - [].every is true)
+      let c = [0, 1, 2].map(i => (ext.lo[i] + ext.hi[i]) / 2), hx, hy, hz;
+      if (!lookOnly) {
+        const r = Math.max(FRAME_MIN_R, vectorLength(vectorSubtract(ext.hi, ext.lo)) / 2);
+        const right = cam.getRightVector(), upO = vectorNormalize(vectorCross(dir, right));
+        const samples = ptsS ? [ptsS] : subj.map(s => WorldExtent.samplesOf(s)), tierC = samples.some(S => !!S.tierC);   // sampled once (a revolve is 48 stations)
+        // the box along the camera's basis; a basis that is not orthonormal (getRightVector's degenerate fallback: up along the view) takes the sphere too
+        const box = (!tierC && Math.abs(vectorDot(right, dir)) < 1e-9 && vectorLength(upO) > 0.5) ? WorldExtent.unionOf(samples.map(S => WorldExtent.extentOfSamples(S, [right, upO, dir]))) : null;
+        if (box) {
+          const m = [0, 1, 2].map(i => (box.lo[i] + box.hi[i]) / 2);
+          c = [0, 1, 2].map(i => right[i] * m[0] + upO[i] * m[1] + dir[i] * m[2]);
+          hx = (box.hi[0] - box.lo[0]) / 2; hy = (box.hi[1] - box.lo[1]) / 2; hz = (box.hi[2] - box.lo[2]) / 2;
+          const lat = Math.max(hx, hy);
+          if (lat < FRAME_MIN_R) { if (lat > 1e-12) { hx *= FRAME_MIN_R / lat; hy *= FRAME_MIN_R / lat; } else hx = hy = FRAME_MIN_R; }
+        } else hx = hy = hz = r;   // Tier C: the cube about the sphere of the world box (the comment above)
+      }
+      // the guide of THIS camera ('photo' reads its own letterbox); no guide (none, or a photo guide without a backplate) = the whole paper
+      const fg = _frameGuideSize(guide, cam), gx = fg ? fg[0] / FRAME_SIZE : 1, gy = fg ? fg[1] / FRAME_SIZE : 1;
+      pushCameraUndoState(label);
+      CameraFly.run(cam, () => {   // CAMERA FLY (v20261105a): the closed form below is the END pose; the fly interpolates to it (a snap with the setting off)
+        cam.target = c;
+        if (lookOnly) cam.position = vectorAdd(c, off);
+        else if ((cam.projectionType || projectionType) === 'perspective') {
+          const t = Math.tan(cam.fovRadians / 2);
+          cam.position = vectorAdd(c, vectorScale(dir, hz + FRAME_MARGIN * Math.max(hx / (t * gx), hy / (t * gy))));
+        } else { cam.orthoZoom = FRAME_MARGIN * Math.max(hx / gx, hy / gy); cam.position = vectorAdd(c, vectorScale(dir, dist)); }
+      });
+      if (cam === activeCamera) _frameMark = { target: c.slice(0, 3), until: performance.now() + FRAME_MARK_MS };   // P-F5 (v20261104f): where the orbit centre went
       updateCameraPanel();
       requestRender();
       return true;
     };
-    // the verbs: Frame Selection falls back to Frame All when nothing is selected (Dimension's rule; the Shift+2 key)
-    const frameSelection = () => { const sel = _frameSelected(); return sel.length ? frameObjects(sel) : frameObjects(null, { all: true }); };
-    const frameAll = () => frameObjects(null, { all: true });
-    const lookAtSelection = () => frameObjects(_frameSelected(), { lookOnly: true });
+    // THE TARGET CROSS (v20261104f, PLAN-polish-four-features-261104 P-F5). Nothing showed where the orbit centre went after a Frame or a Look At
+    // (getCameraOrbitalState reports truck / pedestal only; a move along the view is in no readout). A cross at the new target in the guides layer
+    // for FRAME_MARK_MS, fading (CSS), then removed - the light's foot cross, larger, in the accent ink. Drawn in _renderFrame's guides section (every
+    // rAF, before the _mustDraw gate): ONE node whose d follows the VP (an orbit during the fade keeps it on the target; a rebuilt node would
+    // restart the fade). Hidden with the guides; stripped from the export with the hover groups; the active camera's frames only.
+    const FRAME_MARK_MS = 600;
+    let _frameMark = null;   // { target: [x, y, z], until: performance.now() ms }
+    const drawFrameMark = (vpMatrix) => {
+      const g = document.getElementById('frameMarkGroup'); if (!g) return;
+      const m = _frameMark, now = performance.now();
+      if (!m || now > m.until) { if (g.firstChild) g.replaceChildren(); if (m) _frameMark = null; return; }
+      const t = transformVertex(m.target, vpMatrix);
+      if (!t) { if (g.firstChild) g.replaceChildren(); return; }
+      const H = FRAME_SIZE / 2, x = t[0] * H, y = -t[1] * H, c = 9 / getViewScale(), f = (n) => n.toFixed(2);
+      const d = `M${f(x - c)} ${f(y)}L${f(x + c)} ${f(y)}M${f(x)} ${f(y - c)}L${f(x)} ${f(y + c)}`;
+      let el = g.firstChild;
+      if (!el || el.dataset.frameMarkUntil !== String(m.until)) {   // a NEW frame restarts the fade: a fresh node
+        g.replaceChildren();
+        el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        el.setAttribute('class', 'frame-mark'); el.setAttribute('data-frame-mark', '1'); el.dataset.frameMarkUntil = String(m.until);
+        g.appendChild(el);
+      }
+      if (el.getAttribute('d') !== d) el.setAttribute('d', d);
+    };
+    drawFrameMark.hide = () => { const g = document.getElementById('frameMarkGroup'); if (g && g.firstChild) g.replaceChildren(); };
+    // the verbs: Frame Selection falls back to Frame All when nothing is selected (Dimension's rule; the Shift+2 key). `opts` passes { cam, guide }
+    // through (v20261104b): the key and the menu frame the ACTIVE camera, the Camera panel's buttons the camera the panel shows (P-F2)
+    // P-F4 (v20261104f): under Direct Select with anchors selected, Shift+2 frames THOSE POINTS (their RAW buffer positions through the owner's world
+    // matrix - the points the A tool shows), not the whole path
+    const _frameSelectedPoints = () => (currentTool === 'directSelect' && selectedVertices && selectedVertices.length) ? selectedVertices.map(v => { const o = v && v.object; const lv = o && o.localVertices && o.localVertices[v.vertexIndex]; return lv ? pointApplyMatrix(lv, o.getWorldMatrix()) : null; }).filter(Boolean) : [];
+    const frameSelection = (opts) => { const pts = _frameSelectedPoints(); if (pts.length) return frameObjects(null, { ...(opts || {}), points: pts }); const sel = _frameSelected(); return sel.length ? frameObjects(sel, opts) : frameObjects(null, { ...(opts || {}), all: true }); };
+    const frameAll = (opts) => frameObjects(null, { ...(opts || {}), all: true });
+    const lookAtSelection = (opts) => frameObjects(_frameSelected(), { ...(opts || {}), lookOnly: true });
+    // P-F2 (v20261104b): the panel shows selectedCamera (btnResetTruckPedestal and the Truck / Pedestal fields act on it), and these buttons acted on
+    // activeCamera - with Camera 2 selected in the list they moved Camera 1
     for (const [id, fn] of [['frameSelectionBtn', frameSelection], ['frameAllBtn', frameAll], ['lookAtBtn', lookAtSelection]]) {
       const b = document.getElementById(id);
-      if (b) b.addEventListener('click', () => fn());
+      if (b) b.addEventListener('click', () => fn({ cam: selectedCamera || activeCamera }));
     }
 
     const scaleStrokeZoomCheckbox = document.getElementById('scaleStrokeZoomCheckbox');
@@ -15953,18 +16220,27 @@
     };
 
     // --- Camera Undo Push (diff-based) ---
-    const pushCameraUndoState = () => {
+    // THE PENDING LABEL (v20261104f, PLAN-polish-four-features-261104 P-F7). A camera verb pushes BEFORE it writes (the view keys' shape), so its
+    // push diffs the drift before it and its OWN change is captured by the NEXT push (or the flush an undo runs). `label` is held in
+    // _cameraNextLabel and attached to the diff the next push creates; History's summarizeDiffs(..., true) reads `_label` first - so a frame read
+    // "Camera orbit" (position + target) and now reads "Frame Selection". A push with no label leaves none pending; the import's re-baseline drops it.
+    let _cameraNextLabel = null;
+    const _takeCameraLabel = (diffs) => { if (_cameraNextLabel && diffs && diffs.length) diffs._label = _cameraNextLabel; _cameraNextLabel = null; };
+    const pushCameraUndoState = (label) => {
+      CameraFly.settle();   // CAMERA FLY (v20261105a): a fly in progress ends at its destination before this push diffs (so the previous verb's entry holds its whole move)
       renderCacheEpoch++;   // ANIMATION RENDER CACHE: undo:camera
       const current = captureCameraState();
       if (_lastCameraState) {
         const diffs = computeDiff(_lastCameraState, current);
-        if (diffs.length === 0) return;
+        if (diffs.length === 0) { _cameraNextLabel = label || null; return; }
+        _takeCameraLabel(diffs);   // P-F7: the drift before this push is the PREVIOUS labelled verb's change
         cameraUndoHistory.push(diffs);
         if (cameraUndoHistory.length > HISTORY_MAX) cameraUndoHistory.shift();
         cameraRedoHistory.length = 0;
       }
       _lastCameraState = deepClone(current);
       _cameraCoalesceBeforeState = null;
+      _cameraNextLabel = label || null;   // P-F7 (v20261104f): this verb's own change is the next push's diff
       _scheduleHistoryUpdate();
     };
 
@@ -15972,6 +16248,7 @@
     // push, cap, baseline, clear". `clearRedo` is true for a timer firing and the background-colour pick (a new
     // edit), false for the undo / redo preambles (performUndo relies on the flush never touching redo).
     const _commitCameraCoalesced = (clearRedo) => {
+      CameraFly.settle();   // CAMERA FLY (v20261105a)
       if (!_cameraCoalesceBeforeState) return false;
       const current = captureCameraState();
       const diffs = computeDiff(_cameraCoalesceBeforeState, current);
@@ -15985,6 +16262,7 @@
       return diffs.length > 0;
     };
     const pushCameraUndoStateCoalesced = (delay = 300) => {
+      CameraFly.settle();   // CAMERA FLY (v20261105a): a drag / wheel / step / field edit during a fly starts from its destination
       renderCacheEpoch++;   // ANIMATION RENDER CACHE: undo:camera-coalesced
       if (!_cameraCoalesceBeforeState && !_cameraCoalesceTimer) {
         if (_flushCameraOutstanding()) cameraRedoHistory.length = 0;   // v20260904e — see the scene twin
@@ -16049,6 +16327,9 @@
       selectedVertexInfo = null;
       selectedVertices = [];
       hoveredVertexInfo = null;
+      // HOVER AND DRILL (v20261104a, DEF-H1): the hover is a DEAD object now - the reborn one keeps its id, so _syncTreeHover lit its row
+      // while _hoverDrawable refused the outline by identity; the next mousemove hovers the reborn one
+      hoveredObject = null; drawHoverHighlight.clear();
       // Restore Background Color
       if (state.backgroundColor) {
         const bgInput = document.getElementById('bgColorInput');
@@ -16091,6 +16372,7 @@
     };
 
     const restoreCameraFromState = (state) => {
+      CameraFly.settle();   // CAMERA FLY (v20261105a): the cameras are rebuilt below - no fly may hold one of the old ones
       if (state.list && Array.isArray(state.list)) {
         // Full cameras list format
         cameras.length = 0;
@@ -16157,10 +16439,12 @@
     };
 
     const _flushCameraOutstanding = () => {
+      CameraFly.settle();   // CAMERA FLY (v20261105a): an undo's preamble ends the fly first, so the flush carries the whole move
       const current = captureCameraState();
       if (_lastCameraState) {
         const diffs = computeDiff(_lastCameraState, current);
         if (diffs.length > 0) {
+          _takeCameraLabel(diffs);   // P-F7 (v20261104f): the flush (an undo's preamble, a coalesced push's start) carries the pending label too
           cameraUndoHistory.push(diffs);
           if (cameraUndoHistory.length > HISTORY_MAX) cameraUndoHistory.shift();
           _lastCameraState = deepClone(current);
@@ -29879,7 +30163,7 @@
         } else els = document.elementsFromPoint(x, y);
         for (const el of els) {
           if (skip && (el === skip || skip.contains(el))) continue;
-          if (el.closest && el.closest('#selectionGizmoGroup, #pathHighlightGroup, #hoverHighlightGroup')) continue;
+          if (el.closest && el.closest('#selectionGizmoGroup, #pathHighlightGroup, #hoverHighlightGroup, #alignGhostGroup' /* ALIGN (v20261104d) */ + ', #frameMarkGroup' /* FRAME (v20261104f) */)) continue;
           if (el.tagName === 'INPUT' && el.type === 'color') return this.normHex(el.value);
           if (el.classList && el.classList.contains('cp-cell') && el.dataset && el.dataset.cpHex) return this.normHex(el.dataset.cpHex);
           if (typeof SVGGeometryElement !== 'undefined' && el instanceof SVGGeometryElement) {
@@ -72014,6 +72298,7 @@
     // shared by reference across the file, so this MUTATES rather than
     // reassigns — the same discipline restoreCameraFromState follows.
     const resetCamerasToDefault = () => {
+      CameraFly.settle();   // CAMERA FLY (v20261105a)
       cameras.length = 0;
       buildDefaultCameras().forEach(c => cameras.push(c));
       activeCamera = cameras[0];
@@ -73807,6 +74092,7 @@
       }
 
       if (targetObjects.length === 0) return;
+      let alignKey = null; try { alignKey = Align.keyObject(); } catch (e) { }   // ALIGN (v20261104a, DEF-A4): the key, once per pass
 
       targetObjects.forEach(targetObject => {
 
@@ -73828,7 +74114,7 @@
         pathElement.setAttribute('stroke', accentColor);
         pathHighlightGroup.appendChild(pathElement);
         // ALIGN (experimental, v20261031k, D5): the KEY object - the primary, while several are selected - draws a heavier outline, Illustrator's cue
-        try { if (Align.keyOutlineFor(targetObject)) { const k = pathElement.cloneNode(false); k.setAttribute('class', 'align-key-outline'); k.setAttribute('stroke-width', '3'); k.setAttribute('vector-effect', 'non-scaling-stroke'); pathHighlightGroup.appendChild(k); } } catch (e) { }
+        try { if (alignKey && Align.keyOutlineFor(targetObject, alignKey)) { const k = pathElement.cloneNode(false); k.setAttribute('class', 'align-key-outline'); k.setAttribute('stroke-width', '3'); k.setAttribute('vector-effect', 'non-scaling-stroke'); pathHighlightGroup.appendChild(k); } } catch (e) { }
 
         // --- B-Spline control polygon cage & Bezier handle lines ---
         // Only show in directSelect (A) or pen tool — too cluttered for V tool
@@ -73955,13 +74241,29 @@
     };
     const drawHoverHighlight = (vpMatrix) => {
       const o = hoveredObject;
-      if (!hoverDrillEnabled || !o || dragMode !== 'none' || RenderCache._presenting || !_hoverDrawable(o)) { drawHoverHighlight.clear(); return; }
+      // P-H5 (v20261104e): no hover during live playback - the key carries the frame, so a resting pointer rebuilt the outline on every frame
+      if (!hoverDrillEnabled || !o || dragMode !== 'none' || RenderCache._presenting || animationTimeline.isPlaying || !_hoverDrawable(o)) { drawHoverHighlight.clear(); return; }
       const key = o.id + '|' + vpMatrix.map(r => r.join(',')).join(';') + '|' + width + 'x' + height + '|' + _hoverSceneGen + '|' + animationTimeline.currentFrame;
       if (key === drawHoverHighlight._key) return;   // the scene did not move: the outline is still right
       const t0 = performance.now();
       while (hoverHighlightGroup.firstChild) hoverHighlightGroup.removeChild(hoverHighlightGroup.firstChild);
+      // P-H3 (v20261104e): a LIGHT has no outline - its cue is a ring round the glyph's disc (r * 1.8, the ring _lightDraw draws for a beam
+      // that points at the eye), at the light's anchor through the same VP
+      if (_isLightObj(o)) {
+        const tl = transformVertex([0, 0, 0], matrixMultiply(vpMatrix, o.getWorldMatrix()));
+        if (tl) {
+          const el = document.createElementNS('http://www.w3.org/2000/svg', 'circle'), H = FRAME_SIZE / 2;
+          el.setAttribute('cx', (tl[0] * H).toFixed(2)); el.setAttribute('cy', (-tl[1] * H).toFixed(2));
+          el.setAttribute('r', (LIGHT_GLYPH_PX * 1.8 / getViewScale()).toFixed(2));
+          el.setAttribute('class', 'hover-outline');
+          hoverHighlightGroup.appendChild(el);
+        }
+        drawHoverHighlight._key = key; drawHoverHighlight.builds++; drawHoverHighlight.lastMs = performance.now() - t0;
+        return;
+      }
       const leaves = [];
-      const walk = (x) => { if (!x || x.visible === false) return; if (x.isGroup) { (x.children || []).forEach(walk); return; } if (!_isLightObj(x)) leaves.push(x); };
+      // P-H4 (v20261104e): a selected leaf inside the hovered group is skipped - the selection outline already draws it, heavier
+      const walk = (x) => { if (!x || x.visible === false) return; if (x.isGroup) { (x.children || []).forEach(walk); return; } if (!_isLightObj(x) && !selectedObjects.includes(x)) leaves.push(x); };
       walk(o);
       // ONE path for the whole hover (every leaf's outline in one d): one stroke style, so one node draws it - the Earth's 147 leaves
       // as 147 nodes measured 2.8 - 3.1 ms a build, the DOM's share of it
@@ -74016,6 +74318,7 @@
       const inp = document.createElement('input');
       inp.type = 'text';
       inp.className = 'ui-input tree-rename';
+      inp.setAttribute('aria-label', 'Rename ' + (obj.name || 'object'));   // P-H8 (v20261104e). The History entry needs no label: the classifier reads it "Rename <name>" (measured)
       inp.value = obj.name || '';
       inp.spellcheck = false;
       li.setAttribute('draggable', 'false');   // a drag that selects text in the field must not move the row
@@ -74058,8 +74361,12 @@
     // resolver); on a path, or the leaf already selected, Direct Select on it. A: on the selection's body, back to V (D1). Paper,
     // a vertex, a gizmo, the other tools and every drawing gesture: nothing (bubbling; the corner widgets' capture listener stops
     // its own double-clicks first).
+    // v20261104e (PLAN-polish-four-features-261104): Shift keeps the multi-selection its two clicks built (P-H7 - the drill's setSelectedObject
+    // dropped it); a LIGHT has no points, so it is not sent to Direct Select (P-H3); a PARAMETRIC primitive re-edits as its tree row's
+    // double-click does (P-H2 - Direct Select on it led to "Bake to Path?" on the first press)
     const _onCanvasDblClick = (e) => {
       if (!hoverDrillEnabled || !e || e.button !== 0) return;
+      if (e.shiftKey) return;   // P-H7
       if (e.target && e.target.dataset && e.target.dataset.cornerWidget) return;
       // the element under the pointer NOW: the first click selected and redrew, and a z-sorted group recommits its faces - the
       // event's target is then their common ancestor, the group's <g>, where the leaf cannot be read (measured: the drill-in selected
@@ -74070,8 +74377,13 @@
       if (currentTool === 'directSelect' && hoveredVertexInfo) return;
       const sel = resolveClickObject({ target: t, metaKey: e.metaKey, ctrlKey: e.ctrlKey });
       if (!sel) return;
+      if (_isLightObj(sel)) return;   // P-H3
       if (currentTool === 'select') {
         const leaf = findDeepObjectByElement(t) || sel;
+        // P-H2: the primitive the two clicks selected re-edits - the tree row's double-click, the same test (a legacy Cuboid GROUP and a Text
+        // object are primitives there too); a primitive INSIDE a group is reached by the drill first (one step per double-click: the first
+        // selects it, the next - the depth kept, P-H1 - re-edits it)
+        if (sel.primitiveData) { enterPrimitiveEditMode(sel); e.preventDefault(); return; }
         if (sel.isGroup && leaf !== sel) { setSelectedObject(leaf); }
         else { if (selectedObject !== leaf || selectedObjects.length !== 1) setSelectedObject(leaf); setTool('directSelect'); }
       } else if (selectedObjects.includes(sel)) {
@@ -78840,6 +79152,7 @@
       // the content got shorter.
       const _keepScroll = sceneTree.scrollTop;
       sceneTree.innerHTML = '';
+      let _alignKeyRow = null; try { _alignKeyRow = Align.keyObject(); } catch (e) { }   // ALIGN (v20261104d, A5): the key, once per rebuild
 
       const clearDragClasses = (el) => {
         el.classList.remove('drag-above', 'drag-below', 'drag-into');
@@ -78945,6 +79258,7 @@
         if (selectedObject === obj) {
           li.classList.add('active');
         }
+        if (_alignKeyRow === obj) li.classList.add('is-key');   // ALIGN (v20261104d, A5): the key object's row - the name in the accent ink
 
         // v20260728s: a FOLDED group hiding the selection says so, instead of
         // the selection silently having no row (see _treeSubtreeHasSelection).
@@ -90235,6 +90549,7 @@
       // requests a render. Only the two exporters raise this flag (grep
       // _exportHold = true).
       if (SubView._exportHold) { renderInProgress = false; requestRender(true); return; }
+      if (CameraFly.active) CameraFly.tick(performance.now());   // CAMERA FLY (v20261105a): this frame's pose, before the subwindow seam and the draw
       const _lapT0 = performance.now();
       const _camPose = (c) => c ? (c.position.join(',') + '|' + c.target.join(',') + '|' + c.up.join(',') + '|' + c.fovDegrees + '|' + c.orthoZoom + '|' + c.projectionType + '|' + c.obliqueAngle + '|' + c.obliqueScale + '|' + c.name + '|' + c.lock) : '-';
       // THE SETTLE HASH IS TAKEN BEFORE THE SUBWINDOW PASS (v20260904o). It
@@ -90481,6 +90796,8 @@
         drawPathHighlight(vpMatrix, scale, _highlightColor);
         hoverHighlightGroup.style.display = 'block';
         drawHoverHighlight(vpMatrix);   // HOVER AND DRILL (v20261103a): cached - rebuilt only when its key moves
+        try { drawAlignGhost(vpMatrix); } catch (e) { }   // ALIGN (v20261104d, A0): the hover ghost - cached the same way, never a scene draw
+        try { drawFrameMark(vpMatrix); } catch (e) { }   // FRAME (v20261104f, P-F5): the target cross, while it lasts
 
         // Snap-to-point indicator — remove previous, draw new if needed
         const oldSnapIndicator = document.getElementById('snapIndicatorCircle');
@@ -90873,6 +91190,8 @@
         vertexGizmoGroup.style.display = 'none';
         pathHighlightGroup.style.display = 'none';
         hoverHighlightGroup.style.display = 'none';   // HOVER AND DRILL (v20261103a): guides off, no hover
+        try { drawAlignGhost.hide(); } catch (e) { }   // ALIGN (v20261104d, A0): guides off, no ghost
+        try { drawFrameMark.hide(); } catch (e) { }   // FRAME (v20261104f, P-F5): guides off, no cross
         try { DragReadout.hidePills(); } catch (e) { }   // THE PILL LAYER (v20260921n): guides off = DragReadout.draw is not called, so its pills are put away here
       }
 
@@ -92652,6 +92971,21 @@
     // unchanged and CALLED by it, so the hover outline (_onMouseMoveInner) and the click agree by construction - not by a copy. The
     // hit's outermost object; the leaf under Select Child or a Cmd / Ctrl-held press (_isDeepSelectClick); the A tool keeps what
     // findObjectByElement found. No lock rule: a locked object is selectable on the canvas today.
+    // THE DRILL DEPTH IS KEPT (v20261104e, PLAN-polish-four-features-261104 P-H1, D7): under the Hover and Drill gate, when the selection
+    // is INSIDE the outermost hit (a double-click drilled into a group), the click resolves to the hit's ancestor at the selection's depth -
+    // the selected leaf itself when the pointer is on it, its sibling when on a sibling - instead of the group: one click no longer undoes
+    // the drill-in (Figma / Illustrator isolation). A hit outside the selection's top-level object resets the depth. The hover reads this
+    // function too, so the outline and the click still agree by construction. Gate off = the line before.
+    const _isAncestorOf = (a, o) => { for (let p = o ? o.parent : null, g = 0; p && g++ < 256; p = p.parent) if (p === a) return true; return false; };
+    const _drillDepthHit = (top, el) => {
+      const s = selectedObject;
+      if (!hoverDrillEnabled || !s || !_isAncestorOf(top, s)) return null;
+      const leaf = findDeepObjectByElement(el); if (!leaf) return null;
+      const chain = []; for (let p = leaf, g = 0; p && g++ < 256; p = p.parent) { chain.unshift(p); if (p === top) break; }
+      if (chain[0] !== top) return null;
+      let depth = 0; for (let p = s; p && p !== top; p = p.parent) depth++;
+      return chain[Math.min(depth, chain.length - 1)];
+    };
     const resolveClickObject = (event) => {
       let clickedObject = findObjectByElement(event.target, sceneObjects);
       if (!clickedObject) return null;
@@ -92659,6 +92993,7 @@
         clickedObject = findDeepObjectByElement(event.target) || clickedObject;
       } else if (currentTool !== 'directSelect') {
         while (clickedObject.parent) clickedObject = clickedObject.parent;
+        clickedObject = _drillDepthHit(clickedObject, event.target) || clickedObject;   // P-H1 (v20261104e)
       }
       return clickedObject;
     };
@@ -93874,7 +94209,9 @@
       // HOVER AND DRILL S1 (v20261103a): what a click here would select - resolveClickObject, the click's own resolver. Nothing over
       // an A-tool vertex (its own hover wins), during a drag, while a cached animation presents clones or a Camera Match session
       // owns the paper. NO requestRender(): the guides draw the outline on the next frame without a scene draw.
-      if (hoverDrillEnabled) {
+      // P-H6 (v20261104e): an open context menu FREEZES the hover (Illustrator's) - the menu is HTML over the paper, no scrim, so the outline kept
+      // following the pointer to objects the menu does not act on
+      if (hoverDrillEnabled && !Commands.isMenuOpen()) {
         setHoveredObject(((currentTool === 'select' || currentTool === 'directSelect') && dragMode === 'none' && !hoveredVertexInfo
           && !RenderCache._presenting && !CamMatchSession.active) ? resolveClickObject(event) : null);
       }
@@ -97960,6 +98297,7 @@
       });
     };
     const generateSVGString = (opts) => {
+      CameraFly.settle();   // CAMERA FLY (v20261105a): the file reads the camera at its destination, never mid-flight
       _exportLossy = null;
       // COPY SELECTION (v20261102a, PLAN-standard-verbs S1b): opts.only = a Set of scene objects the file keeps - each with its
       // descendants and its ancestors' wrappers; everything else leaves the clone. Marked on the LIVE tree before the clone,
@@ -98166,7 +98504,7 @@
       // axis gizmo never exports. The hidden-element sweep above already
       // dropped the lines of the inactive grid planes, so what ships is what
       // the canvas shows.
-      const idsToRemove = ['vertexGizmoGroup', 'pathHighlightGroup', 'hoverHighlightGroup' /* HOVER AND DRILL (v20261103a) */, 'targetGizmoGroup', 'selectionGizmoGroup', 'refImageGroup',
+      const idsToRemove = ['vertexGizmoGroup', 'pathHighlightGroup', 'hoverHighlightGroup' /* HOVER AND DRILL (v20261103a) */, 'alignGhostGroup' /* ALIGN (v20261104d) */, 'frameMarkGroup' /* FRAME (v20261104f, P-F5) */, 'targetGizmoGroup', 'selectionGizmoGroup', 'refImageGroup',
         'gizmoGroup',
         'camMatchHandles' /* CAMERA-MATCH (v20261030j): a session's handles sit in #mainGroup, shown - a Cmd+C mid-session shipped them */,
         'rasterHelperViewImage' /* RASTER HELPER — the aligned debug overlay never exports */];
@@ -98604,7 +98942,8 @@
     const pasteClipboardText = (text, opts) => {
       if (opts && opts.object) {
         const m = DIM_CLIP_RE.exec(text || '');
-        if (!m) { showAppNotice('Nothing copied in dim - ' + Commands.keyText('⌘V') + ' pastes the clipboard as paths', { kind: 'warn' }); return false; }
+        // P-V8 (v20261104e): the sentence follows what IS there - plain text has no SVG for Cmd+V to paste either (it said "pastes the clipboard as paths")
+        if (!m) { showAppNotice(/<svg[\s>]/i.test(text || '') ? 'Nothing copied in dim - ' + Commands.keyText('⌘V') + ' pastes the clipboard as paths' : 'The clipboard holds no SVG - Paste Object reads a copy made in dim (' + Commands.keyText('⌘C') + ')', { kind: 'warn' }); return false; }
         if (+m[1] !== DIM_CLIP_VERSION) { showAppNotice('This copy came from a newer dim - ' + Commands.keyText('⌘V') + ' pastes it as paths', { kind: 'warn' }); return false; }
         let p = null;
         try { p = JSON.parse(decodeURIComponent(escape(atob(m[2])))); }
@@ -98613,7 +98952,8 @@
       }
       return handleSVGPaste(text);
     };
-    const pasteFromClipboard = (opts) => navigator.clipboard.readText().then(text => { if (text) pasteClipboardText(text, opts); }).catch(err => console.error('Failed to read clipboard:', err));
+    // P-V8 (v20261104e): Paste Object on an EMPTY clipboard says so (it did nothing, silently); the paths route keeps its silence (the paste event's own path)
+    const pasteFromClipboard = (opts) => navigator.clipboard.readText().then(text => { if (text) pasteClipboardText(text, opts); else if (opts && opts.object) showAppNotice('The clipboard is empty', { kind: 'info' }); }).catch(err => console.error('Failed to read clipboard:', err));
 
     // --- COMMANDS (v20261102a, PLAN-standard-verbs-261102 S1) --------------------------------------------------------
     // ONE table of the app's verbs. The entries with a `key` are DISPATCHED from it by onKeyDown (the new shortcuts Cmd+D /
@@ -98710,8 +99050,65 @@
       pushUndoState(field === 'visible' ? 'Toggle visibility' : 'Toggle lock');
       return true;
     };
+    // UNDO / REDO AT THE HEAD OF THE MENUS (v20261104e, PLAN-polish-four-features-261104 P-V3, D3 - Illustrator's first rows). The bodies are COPIES
+    // of the Cmd+Z / Cmd+Shift+Z cases of init's capture-phase keydown (the table's rule: the key and the menu cannot disagree) - priority 1 a
+    // transform tool's session with a delta is CANCELLED, priority 2 the Pen tool's undo re-syncs activePath, priority 3 the history. The label is
+    // the entry's own (its _label, else History's classifier): "Undo Duplicate object", "Undo Move Path_A" - History itself prefixes a labelled
+    // addition with "Add" (its column reads "Add Duplicate object"); the menu names the act.
+    const _CMD_TOOL_SESSION = { select: 'Move', directSelect: 'Move', rotate: 'Rotate', scale: 'Scale', pivot: 'Pivot', extrude: 'Extrude', shear: 'Shear' };
+    const _cmdToolSessionDelta = () => { try { return !!_CMD_TOOL_SESSION[currentTool] && toolSessionHasDelta(); } catch (e) { return false; } };
+    const _cmdEntryText = (t) => t ? (t._label ? t._label.charAt(0).toUpperCase() + t._label.slice(1) : summarizeDiffs(t, false)) : '';
+    const _cmdCanUndo = () => !!pendingPolygon || _cmdToolSessionDelta() || !!_sceneCoalesceTimer || sceneUndoHistory.length > 0;
+    const _cmdUndoLabel = () => pendingPolygon ? 'Undo Shape' : _cmdToolSessionDelta() ? 'Undo ' + _CMD_TOOL_SESSION[currentTool] : ('Undo ' + _cmdEntryText(sceneUndoHistory[sceneUndoHistory.length - 1])).trim();
+    const _cmdRedoLabel = () => ('Redo ' + _cmdEntryText(sceneRedoHistory[sceneRedoHistory.length - 1])).trim();
+    const _cmdFindById = (id, objects) => { for (const o of objects) { if (o.id === id) return o; if (o.isGroup && o.children) { const f = _cmdFindById(id, o.children); if (f) return f; } } return null; };
+    const _cmdUndo = () => {
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') document.activeElement.blur();
+      if (_cmdToolSessionDelta()) {   // priority 1 (the key's isToolActive && toolSessionHasDelta())
+        if ((currentTool === 'select' || currentTool === 'directSelect') && moveToolSession) moveCancelBtn.click();
+        else if (currentTool === 'rotate' && rotateToolSession) rotateCancelBtn.click();
+        else if (currentTool === 'scale' && scaleToolSession) scaleCancelBtn.click();
+        else if (currentTool === 'pivot' && pivotToolSession) pivotCancelBtn.click();
+        else if (currentTool === 'extrude' && extrudeToolSession) extrudeCancelBtn.click();
+        else if (currentTool === 'shear' && shearToolSession) shearCancelBtn.click();
+        return;
+      }
+      if (currentTool === 'pen') {   // priority 2
+        const prevId = activePath ? activePath.id : null;
+        performUndo();
+        if (prevId) {
+          activePath = _cmdFindById(prevId, sceneObjects);
+          if (activePath) { selectedObject = activePath; selectedObjects = [activePath]; updatePropertiesPanel(); updateStylePanel(); _lastSceneState = deepClone(captureSceneState()); }
+          else { activePath = null; selectedObject = null; selectedObjects = []; }
+        }
+        updateTreeView();
+        requestRender();
+        return;
+      }
+      performUndo();   // priority 3
+    };
+    const _cmdRedo = () => {
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') document.activeElement.blur();
+      performRedo();
+      if (currentTool === 'pen' && activePath) {
+        const restored = _cmdFindById(activePath.id, sceneObjects);
+        if (restored) { activePath = restored; selectedObject = restored; selectedObjects = [restored]; updatePropertiesPanel(); updateStylePanel(); _lastSceneState = deepClone(captureSceneState()); }
+        else activePath = null;
+      }
+      updateTreeView();
+      requestRender();
+    };
+    // RENAME / EDIT POINTS (v20261104e, P-V7): the gestures of v20261103a as verbs - the menu is where a verb is learned. Rename opens the
+    // Scene Objects row's field (it needs the row: a folded group's child or a closed panel greys it with the way there)
+    const _cmdRenameRow = () => (hoverDrillEnabled && _cmdSelCount() === 1 && selectedObject) ? _treeRowOf(selectedObject) : null;
+    const _cmdEditPointsSubject = () => (selectedObject && !selectedObject.isGroup && !_isLightObj(selectedObject) && Array.isArray(selectedObject.localVertices) && selectedObject.localVertices.length) ? selectedObject : null;
+    const _cmdLockedText = () => activeCamera.name + ' is locked';   // P-V10 (v20261104e): the ten View rows name the camera, one form
     const Commands = {
       list: [
+        // --- the history (v20261104e, P-V3): display entries - the keys stay init's capture-phase cases; group 'history' so the creation gate
+        // (_pendingRefuses) leaves them alone: the key's own priorities handle a pending shape and the Pen (an undo CANCELS a pending shape)
+        { id: 'undo', label: () => _cmdUndoLabel(), keys: '⌘Z', key: null, group: 'history', when: () => _cmdCanUndo(), reason: 'Nothing to undo', run: () => _cmdUndo() },
+        { id: 'redo', label: () => _cmdRedoLabel(), keys: '⌘⇧Z', key: null, group: 'history', when: () => sceneRedoHistory.length > 0, reason: 'Nothing to redo', run: () => _cmdRedo() },
         // --- the object verbs ---
         { id: 'selectAll', label: 'Select All', keys: '⌘A', key: { k: 'a', meta: true }, when: () => _cmdCanSelectAll(), reason: 'Nothing to select', run: () => _cmdSelectAll() },
         { id: 'deselect', label: 'Deselect', keys: 'Esc', key: null, when: () => _cmdHasSel(), reason: 'Nothing is selected', run: () => setSelectedObject(null) },
@@ -98729,6 +99126,9 @@
         { id: 'toggleLock', label: () => _cmdAllLocked() ? 'Unlock' : 'Lock', keys: '⌘⇧L', key: { k: 'l', meta: true, shift: true }, when: () => _cmdHasSel(), run: () => _cmdToggle('lock') },
         // the leaf under the pointer when the menu opened over a group (S2: Commands._ctx.leaf); listed only then
         { id: 'selectChild', label: 'Select Child', keys: '⌘-click', key: null, menuOnly: true, when: () => !!(Commands._ctx && Commands._ctx.leaf), run: () => { const l = Commands._ctx && Commands._ctx.leaf; if (l) setSelectedObject(l, false); } },
+        // P-V7 (v20261104e): Rename = the tree's double-click on the name (the row's field); Edit Points = the A key on a path
+        { id: 'rename', label: 'Rename', keys: '', key: null, when: () => !!_cmdRenameRow(), reason: () => !hoverDrillEnabled ? 'Turn on Settings > Hover and Drill to rename in the list' : _cmdSelCount() !== 1 ? 'Select one object' : 'Show the object in Scene Objects to rename it', run: () => _treeBeginRename(selectedObject) },
+        { id: 'editPoints', label: 'Edit Points', keys: 'A', key: null, when: () => !!_cmdEditPointsSubject() && currentTool !== 'directSelect', reason: () => currentTool === 'directSelect' && _cmdEditPointsSubject() ? 'Already editing points (V goes back)' : 'Select a path', run: () => setTool('directSelect') },
         // --- the clipboard (S1b; D6: Cmd+V the picture, Cmd+Shift+V the object) ---
         // COPY (v20261102d, the owner's polish; the Illustrator reading D5 had named): Cmd+C copies the SELECTION when there is
         // one - the selected objects' SVG with the frame rect and dim's record, what Paste Object reads - and the whole view
@@ -98739,13 +99139,13 @@
         { id: 'paste', label: 'Paste', keys: '⌘V', key: { k: 'v', meta: true }, when: () => true, run: () => pasteFromClipboard({ asPaths: true }) },
         { id: 'pasteObject', label: 'Paste Object', keys: '⌘⇧V', key: { k: 'v', meta: true, shift: true }, when: () => true, run: () => pasteFromClipboard({ object: true }) },
         // --- the view (display entries: the onKeyDown digit cases stay; the bodies are theirs, pushCameraUndoState first) ---
-        { id: 'viewFront', label: 'Front', keys: '1', key: null, group: 'view', when: () => !activeCamera.lock, reason: 'The camera is locked', run: () => { pushCameraUndoState(); activeCamera.setView('front'); requestRender(); } },
-        { id: 'viewSide', label: 'Side', keys: '3', key: null, group: 'view', when: () => !activeCamera.lock, reason: 'The camera is locked', run: () => { pushCameraUndoState(); activeCamera.setView('side'); requestRender(); } },
-        { id: 'viewTop', label: 'Top', keys: '7', key: null, group: 'view', when: () => !activeCamera.lock, reason: 'The camera is locked', run: () => { pushCameraUndoState(); activeCamera.setView('top'); requestRender(); } },
-        { id: 'viewInvert', label: 'Invert View', keys: '9', key: null, group: 'view', when: () => !activeCamera.lock, reason: 'The camera is locked', run: () => { pushCameraUndoState(); activeCamera.invertView(); requestRender(); } },
-        { id: 'viewFace', label: 'Face Workplane', keys: '⇧1', key: null, group: 'view', when: () => !activeCamera.lock, reason: 'The camera is locked', run: () => { pushCameraUndoState(); faceWorkplane(); requestRender(); } },
-        { id: 'viewProj', label: () => projectionType === 'perspective' ? 'Orthographic' : 'Perspective', keys: '5', key: null, group: 'view', when: () => !activeCamera.lock, reason: 'The camera is locked', run: () => {
-          pushCameraUndoState();
+        { id: 'viewFront', label: 'Front', keys: '1', key: null, group: 'view', when: () => !activeCamera.lock, reason: _cmdLockedText, run: () => { pushCameraUndoState('Front view'); CameraFly.run(activeCamera, () => activeCamera.setView('front')); requestRender(); } },   // CAMERA FLY (v20261105a): the view entries fly like the keys
+        { id: 'viewSide', label: 'Side', keys: '3', key: null, group: 'view', when: () => !activeCamera.lock, reason: _cmdLockedText, run: () => { pushCameraUndoState('Side view'); CameraFly.run(activeCamera, () => activeCamera.setView('side')); requestRender(); } },
+        { id: 'viewTop', label: 'Top', keys: '7', key: null, group: 'view', when: () => !activeCamera.lock, reason: _cmdLockedText, run: () => { pushCameraUndoState('Top view'); CameraFly.run(activeCamera, () => activeCamera.setView('top')); requestRender(); } },
+        { id: 'viewInvert', label: 'Invert View', keys: '9', key: null, group: 'view', when: () => !activeCamera.lock, reason: _cmdLockedText, run: () => { pushCameraUndoState('Invert view'); CameraFly.run(activeCamera, () => activeCamera.invertView()); requestRender(); } },
+        { id: 'viewFace', label: 'Face Workplane', keys: '⇧1', key: null, group: 'view', when: () => !activeCamera.lock, reason: _cmdLockedText, run: () => { pushCameraUndoState('Face workplane'); faceWorkplane(); requestRender(); } },
+        { id: 'viewProj', label: () => projectionType === 'perspective' ? 'Orthographic' : 'Perspective', keys: '5', key: null, group: 'view', when: () => !activeCamera.lock, reason: _cmdLockedText, run: () => {
+          pushCameraUndoState(projectionType === 'perspective' ? 'Orthographic' : 'Perspective');
           if (projectionType === 'perspective') {
             const radius = vectorLength(vectorSubtract(activeCamera.position, activeCamera.target));
             activeCamera.orthoZoom = Math.tan(activeCamera.fovRadians / 2) * radius;
@@ -98756,13 +99156,13 @@
           activeCamera.projectionType = projectionType;
           requestRender();
         } },
-        { id: 'viewReset', label: 'Reset View', keys: '0', key: null, group: 'view', when: () => !activeCamera.lock, reason: 'The camera is locked', run: () => { pushCameraUndoState(); activeCamera.reset(); requestRender(); } },
+        { id: 'viewReset', label: 'Reset View', keys: '0', key: null, group: 'view', when: () => !activeCamera.lock, reason: _cmdLockedText, run: () => { pushCameraUndoState('Reset view'); CameraFly.run(activeCamera, () => activeCamera.reset()); requestRender(); } },
         // FRAME (v20261102f, plan 2): display entries like the view keys' - Shift+2 is an onKeyDown case by event.code (the JIS
         // layout), so `key` is null here; one Shift+2 is Frame Selection with a selection and Frame All without. The predicates
         // read the extent the verb reads (a 2D Mode layer or a hidden object alone has nothing to frame).
-        { id: 'frameSel', label: 'Frame Selection', keys: '⇧2', key: null, group: 'view', when: () => !activeCamera.lock && !!frameExtentOf(_cmdSel()), reason: () => activeCamera.lock ? activeCamera.name + ' is locked' : 'Nothing selected to frame', run: () => frameObjects(_cmdSel()) },
-        { id: 'frameAll', label: 'Frame All', keys: '⇧2', key: null, group: 'view', when: () => !activeCamera.lock && !!frameExtentOf(_frameAllObjects()), reason: () => activeCamera.lock ? activeCamera.name + ' is locked' : 'Nothing in the scene to frame', run: () => frameAll() },
-        { id: 'lookAt', label: 'Look At Selection', keys: '', key: null, group: 'view', when: () => !activeCamera.lock && !!frameExtentOf(_cmdSel()), reason: () => activeCamera.lock ? activeCamera.name + ' is locked' : 'Nothing selected to look at', run: () => lookAtSelection() },
+        { id: 'frameSel', label: 'Frame Selection', keys: '⇧2', key: null, group: 'view', when: () => !activeCamera.lock && !!frameExtentOf(_cmdSel()), reason: () => activeCamera.lock ? _cmdLockedText() : _frameEmptyText(_cmdSel(), 'Nothing selected to frame'), run: () => frameSelection() },   // v20261104e: frameSelection - the Shift+2 verb (P-F4 anchors under A)
+        { id: 'frameAll', label: 'Frame All', keys: () => _cmdSel().length ? '' : '⇧2', key: null, group: 'view', when: () => !activeCamera.lock && !!frameExtentOf(_frameAllObjects()), reason: () => activeCamera.lock ? _cmdLockedText() : 'Nothing in the scene to frame', run: () => frameAll() },
+        { id: 'lookAt', label: 'Look At Selection', keys: '', key: null, group: 'view', when: () => !activeCamera.lock && !!frameExtentOf(_cmdSel()), reason: () => activeCamera.lock ? _cmdLockedText() : _frameEmptyText(_cmdSel(), 'Nothing selected to look at'), run: () => lookAtSelection() },
         // --- the workplane ---
         { id: 'wpCycle', label: 'Next Standard Plane', keys: 'G', key: null, group: 'workplane', when: () => true, run: () => {
           pushUndoState();
@@ -98782,6 +99182,8 @@
         // --- the app ---
         { id: 'guides', label: () => showGuides ? 'Hide Guides' : 'Show Guides', keys: 'Tab', key: null, group: 'app', when: () => true, run: () => { showGuides = !showGuides; requestRender(); } },
         { id: 'help', label: 'Keyboard Shortcuts', keys: '?', key: null, group: 'app', when: () => true, run: () => toggleHelpWindow() },
+        // P-V6 (v20261104e): Save's key text was written in two hands - a table entry now, for retitle (the Cmd+S case of onKeyDown stays; in no menu)
+        { id: 'save', label: 'Save', keys: '⌘S', key: null, group: 'app', when: () => true, run: () => saveSceneToStorage({ announce: true }) },
       ],
       _ctx: null,   // the context of an open menu (S2): { obj, leaf }
       // THE MENUS (v20261102b, S2): ids, '-' a separator, '#Label' a section heading; an id the table lacks (plan 2's frameSel /
@@ -98790,9 +99192,14 @@
       // SECTIONED (v20261102h, the owner: "categorize the context menu when selected like the no selection version"): the object and
       // row menus carry headings as the paper menu's View / Workplane do - Edit, Group, Arrange, Object, View, Workplane (View before
       // Workplane, the paper menu's order); a heading replaces the separator that stood between Copy / Paste Object and Duplicate / Delete
-      OBJECT_ITEMS: ['#Edit', 'copy', 'pasteObject', 'duplicate', 'delete', '-', '#Group', 'group', 'ungroup', 'boolean', '-', '#Arrange', 'forward', 'backward', 'toFront', 'toBack', '-', '#Object', 'toggleHide', 'toggleLock', 'selectChild', '-', '#View', 'frameSel', 'lookAt', '-', '#Workplane', 'wpFromSel'],
-      TREE_ITEMS: ['#Edit', 'copy', 'duplicate', 'delete', '-', '#Group', 'group', 'ungroup', 'boolean', '-', '#Arrange', 'forward', 'backward', 'toFront', 'toBack', '-', '#Object', 'toggleHide', 'toggleLock', '-', '#View', 'frameSel', 'lookAt', '-', '#Workplane', 'wpFromSel'],
-      PAPER_ITEMS: ['paste', 'pasteObject', 'copyView', '-', 'selectAll', 'deselect', '-', '#View', 'viewFront', 'viewSide', 'viewTop', 'viewInvert', 'viewFace', 'viewProj', 'viewReset', 'frameAll', '-', '#Workplane', 'wpCycle', 'wpFromCam', 'wpFromSel', '-', 'guides', 'help'],
+      // v20261104e (PLAN-polish-four-features-261104 P-V1 / P-V2 / P-V3 / P-V7): Undo / Redo head all three menus (D3); the paper menu is sectioned
+      // like the other two (Edit / Select / View / Workplane / Display); the selection's verbs wherever the hit is - the paper's View lists Frame
+      // Selection and Look At (greyed with the reason when nothing is selected, D4), the row menu's Edit = the object menu's four (Paste Object
+      // is position-independent), the object menu a Select section; Rename and Edit Points in the Object sections. Undo / Redo take no first focus
+      // (openMenu): Enter right after a right-click must not undo.
+      OBJECT_ITEMS: ['#Edit', 'undo', 'redo', '-', 'copy', 'pasteObject', 'duplicate', 'delete', '-', '#Select', 'selectAll', 'deselect', '-', '#Group', 'group', 'ungroup', 'boolean', '-', '#Arrange', 'forward', 'backward', 'toFront', 'toBack', '-', '#Object', 'toggleHide', 'toggleLock', 'rename', 'editPoints', 'selectChild', '-', '#View', 'frameSel', 'lookAt', '-', '#Workplane', 'wpFromSel'],
+      TREE_ITEMS: ['#Edit', 'undo', 'redo', '-', 'copy', 'pasteObject', 'duplicate', 'delete', '-', '#Group', 'group', 'ungroup', 'boolean', '-', '#Arrange', 'forward', 'backward', 'toFront', 'toBack', '-', '#Object', 'toggleHide', 'toggleLock', 'rename', 'editPoints', '-', '#View', 'frameSel', 'lookAt', '-', '#Workplane', 'wpFromSel'],
+      PAPER_ITEMS: ['#Edit', 'undo', 'redo', '-', 'paste', 'pasteObject', 'copyView', '-', '#Select', 'selectAll', 'deselect', '-', '#View', 'viewFront', 'viewSide', 'viewTop', 'viewInvert', 'viewFace', 'viewProj', 'viewReset', 'frameAll', 'frameSel', 'lookAt', '-', '#Workplane', 'wpCycle', 'wpFromCam', 'wpFromSel', '-', '#Display', 'guides', 'help'],
       _menuEl() { return document.getElementById('contextMenu'); },
       isMenuOpen() { const el = this._menuEl(); return !!(el && !el.hidden); },
       _hot(b) { const el = this._menuEl(); if (el) el.querySelectorAll('button').forEach(x => x.classList.toggle('hot', x === b)); },
@@ -98803,11 +99210,14 @@
         this._ctx = ctx || null;
         el.innerHTML = '';
         const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-        let first = null, any = false, pendingSep = false;
+        let first = null, any = false, pendingSep = false, head = null;
         const sep = () => { if (!pendingSep || !any) { pendingSep = false; return; } const hr = document.createElement('div'); hr.className = 'ui-hr'; hr.setAttribute('role', 'separator'); el.appendChild(hr); pendingSep = false; };
+        // P-V11 (v20261104e): a heading is a GROUP named by its text that owns its items (aria-owns: the DOM stays flat - the menu is a flex column
+        // and the probes read its children), so a screen reader hears "Edit, group" before Undo; it was role="presentation" and said nothing
+        const own = () => { if (head && head.owns.length) head.el.setAttribute('aria-owns', head.owns.join(' ')); };
         for (const it of items) {
           if (it === '-') { pendingSep = true; continue; }
-          if (typeof it === 'string' && it[0] === '#') { sep(); const h = document.createElement('div'); h.className = 'flyout-heading'; h.setAttribute('role', 'presentation'); h.textContent = it.slice(1); el.appendChild(h); any = true; continue; }
+          if (typeof it === 'string' && it[0] === '#') { sep(); own(); const h = document.createElement('div'); h.className = 'flyout-heading'; h.setAttribute('role', 'group'); h.setAttribute('aria-label', it.slice(1)); h.textContent = it.slice(1); el.appendChild(h); head = { el: h, owns: [] }; any = true; continue; }
           const c = this.byId(it);
           if (!c) continue;
           const on = this.enabled(it);
@@ -98817,19 +99227,29 @@
           b.type = 'button';
           b.setAttribute('role', 'menuitem');
           b.dataset.cmdId = it;
-          b.innerHTML = '<span>' + esc(this.labelOf(it)) + '</span><span class="flyout-key">' + esc(this.keyText(c.keys)) + '</span>';
+          b.innerHTML = '<span>' + esc(this.labelOf(it)) + '</span><span class="flyout-key">' + esc(this.keyText(this.keysOf(it))) + '</span>';
+          { const ak = this.ariaKeys(this.keysOf(it)); if (ak) b.setAttribute('aria-keyshortcuts', ak); }   // P-V11
+          b.id = 'cm-' + it; if (head) head.owns.push(b.id);
           if (!on) { b.disabled = true; b.title = this.reasonOf(it); }
-          b.addEventListener('click', () => { this.closeMenu(); this.run(it); });   // close FIRST: a run rebuilds the tree and the panels
-          b.addEventListener('pointerenter', () => this._hot(b));
+          // close FIRST: a run rebuilds the tree and the panels. The context is HELD across the close (v20261104a, DEF-V1): closeMenu nulls
+          // _ctx, and Select Child's predicate and body read _ctx.leaf - the listed row refused on every click and Enter
+          b.addEventListener('click', () => { const ctx = this._ctx; this.closeMenu(); this._ctx = ctx; try { this.run(it); } finally { this._ctx = null; } });
+          // the pointer MOVES THE FOCUS (v20261104a, DEF-V3): the focus listener sets .hot, so the highlighted row is the one Enter runs
+          // (the hover moved .hot alone and Enter ran the focused row); a disabled row takes no focus and leaves both where they are
+          b.addEventListener('pointerenter', () => { if (!b.disabled) b.focus({ preventScroll: true }); });
           b.addEventListener('focus', () => this._hot(b));
           el.appendChild(b);
           any = true;
-          if (on && !first) first = b;
+          if (on && !first && c.group !== 'history') first = b;   // v20261104e: Undo / Redo never take the first focus (Enter after a right-click must not undo)
         }
+        own();
         el.hidden = false;
-        const w = el.offsetWidth, h = el.offsetHeight;   // the pen flyout's clamp, both axes
-        el.style.left = Math.max(4, Math.min(x, window.innerWidth - w - 4)) + 'px';
-        el.style.top = Math.max(4, Math.min(y, window.innerHeight - h - 4)) + 'px';
+        // P-V5 (v20261104e): FLIP at an edge, then clamp - the pen flyout's clamp alone slid the menu UNDER the pointer near the right or the bottom
+        // edge (with the pointer moving the focus since DEF-V3, the item under it would take it); now it opens to the pointer's left / above it
+        const w = el.offsetWidth, h = el.offsetHeight;
+        const fx = x + w + 4 > window.innerWidth ? x - w : x, fy = y + h + 4 > window.innerHeight ? y - h : y;
+        el.style.left = Math.max(4, Math.min(fx, window.innerWidth - w - 4)) + 'px';
+        el.style.top = Math.max(4, Math.min(fy, window.innerHeight - h - 4)) + 'px';
         if (first) first.focus();
         return true;
       },
@@ -98840,6 +99260,7 @@
         el.hidden = true;
         el.innerHTML = '';   // a closed menu holds no buttons: the untitled-button census (U6) counted its stale rows
         this._ctx = null;
+        if (hoverDrillEnabled) setHoveredObject(null);   // P-H6 (v20261104e): the hover frozen under the menu ends with it - the next move resolves it again
       },
       // the two permanent listeners (registered below, in capture, BEFORE the app's own capture-phase keydown handler of init):
       // a press outside closes; Esc closes WITHOUT reaching the app (its Esc would deselect what was just right-clicked),
@@ -98852,18 +99273,40 @@
         const i = items.indexOf(document.activeElement);
         if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); this.closeMenu(); return; }
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopImmediatePropagation(); if (!items.length) return; items[e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length].focus(); return; }
-        if (e.key === 'Enter' || e.key === ' ') { if (i >= 0) { e.preventDefault(); e.stopImmediatePropagation(); items[i].click(); } return; }
+        // Enter / Space with no item focused (every item disabled, the focus taken elsewhere) closes, as Tab does (v20261104a, DEF-V4: it left the menu open and the key went on to the app)
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopImmediatePropagation(); if (i >= 0) items[i].click(); else this.closeMenu(); return; }
         if (e.key === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); this.closeMenu(); return; }
+        // P-V4 (v20261104e): a MODIFIER alone keeps the menu (it closed on Shift / Cmd / Opt - the first half of a chord); Home / End; a letter
+        // jumps to the next enabled item that starts with it and is CONSUMED (it closed the menu AND fired the tool letter - 'd' took the pen's
+        // neighbour); a letter that names nothing keeps the menu. Any other key closes and passes, as before
+        if (e.key === 'Shift' || e.key === 'Meta' || e.key === 'Alt' || e.key === 'Control' || e.key === 'CapsLock') return;
+        if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); e.stopImmediatePropagation(); if (items.length) items[e.key === 'Home' ? 0 : items.length - 1].focus(); return; }
+        if (typeof e.key === 'string' && e.key.length === 1 && /\S/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          e.preventDefault(); e.stopImmediatePropagation();
+          const ch = e.key.toLowerCase(), n = items.length;
+          for (let k = 1; k <= n; k++) { const b = items[(i + k + n) % n]; const t = (b.firstChild && b.firstChild.textContent || '').trim().toLowerCase(); if (t[0] === ch) { b.focus(); break; } }
+          return;
+        }
         this.closeMenu();
       },
       isMac: /Mac|iPhone|iPad|iPod/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || ''),
       byId(id) { for (const c of this.list) if (c.id === id) return c; return null; },
-      enabled(id) { const c = this.byId(id); if (!c) return false; try { return !!c.when(); } catch (e) { return false; } },
+      enabled(id) { const c = this.byId(id); if (!c) return false; if (this._pendingRefuses(c)) return false; try { return !!c.when(); } catch (e) { return false; } },
       labelOf(id) { const c = this.byId(id); if (!c) return ''; try { return typeof c.label === 'function' ? c.label() : c.label; } catch (e) { return typeof c.label === 'string' ? c.label : c.id; } },
-      keysOf(id) { const c = this.byId(id); return c ? c.keys : ''; },
-      reasonOf(id) { const c = this.byId(id); if (!c) return ''; const r = typeof c.reason === 'function' ? c.reason() : c.reason; return r || 'Select an object'; },
+      // `keys` may be a FUNCTION (v20261104b, P-F6): Frame All's Shift+2 is only Frame All while nothing is selected (the key is frameSelection), so the
+      // paper menu shows the key then and no key otherwise. Every reader goes through keysOf, so keyText's callers stay a string
+      keysOf(id) { const c = this.byId(id); if (!c) return ''; if (typeof c.keys !== 'function') return c.keys; try { return c.keys() || ''; } catch (e) { return ''; } },
+      reasonOf(id) { const c = this.byId(id); if (!c) return ''; if (this._pendingRefuses(c)) return 'Finish the shape first (Enter), or Esc'; const r = typeof c.reason === 'function' ? c.reason() : c.reason; return r || 'Select an object'; },
       // the display form: on a Mac the symbols as written; elsewhere Ctrl+ / Alt+ / Shift+ (a Windows hand is not told to press a key it has not got)
-      keyText(keys) { if (!keys) return ''; if (this.isMac) return keys; return String(keys).replace(/⌘-/g, 'Ctrl-').replace(/⌘/g, 'Ctrl+').replace(/⌥/g, 'Alt+').replace(/⇧/g, 'Shift+'); },
+      keyText(keys) { if (!keys) return ''; if (this.isMac) return keys; return String(keys).replace(/⌘-/g, 'Ctrl-').replace(/⌘/g, 'Ctrl+').replace(/⌥/g, 'Alt+').replace(/⇧/g, 'Shift+').replace(/⌫/g, 'Backspace'); },   // ⌫ (P-V9, v20261104e): the Mac glyph alone was left
+      // the aria-keyshortcuts form of `keys` (P-V11, v20261104e): modifiers by their DOM names (Meta on a Mac, Control elsewhere), the key last; a gesture (⌘-click) is no key
+      ariaKeys(keys) {
+        if (!keys || /click/.test(keys)) return '';
+        let rest = String(keys); const mods = [];
+        for (const [sym, name] of [['⌘', this.isMac ? 'Meta' : 'Control'], ['⌥', 'Alt'], ['⇧', 'Shift']]) if (rest.includes(sym)) { mods.push(name); rest = rest.split(sym).join(''); }
+        rest = ({ '⌫': 'Backspace', 'Esc': 'Escape' })[rest] || rest;
+        return rest ? mods.concat([rest]).join('+') : '';
+      },
       run(id) {
         const c = this.byId(id);
         if (!c || !this.enabled(id)) return false;
@@ -98873,6 +99316,11 @@
       // a Cmd+D mid-creation would duplicate a half-drawn path: refused while a shape or pen creation is pending and while a
       // Camera Match session owns the keys - everything but the two copies, which change nothing
       _creationPending() { return !!(pendingPolygon || (currentTool === 'pen' && activePath && activePath._preCreationSceneState) || CamMatchSession.active); },
+      // THE ONE GATE (v20261104a, DEF-V2): the refusal lived in dispatchKey alone, so the Scene Objects row menu (its listener opens unguarded)
+      // ran Duplicate / Delete / Paste mid-creation. It is read by enabled() now - run() refuses, the menu greys the row with the reason -
+      // for the OBJECT verbs and the pastes (the ungrouped entries, every keyed one among them) but the two copies; the view, workplane and
+      // app rows change no object and are not refused (their keys, onKeyDown cases, never were)
+      _pendingRefuses(c) { return !!c && !c.group && c.id !== 'copy' && c.id !== 'copyView' && this._creationPending(); },
       // true when the event named a command of this table (ran or refused): the caller prevents the default and returns.
       // The modifier SET must match exactly (Cmd+] never fires on Cmd+Opt+], Cmd+C never on Cmd+Shift+C); letters through
       // _keyIs (the Caps Lock rule of v20261030k), the brackets through event.code (layout-safe, the trim keys' precedent -
@@ -98885,8 +99333,7 @@
           if (!k) continue;
           if (meta !== !!k.meta || shift !== !!k.shift || alt !== !!k.alt) continue;
           if (k.code ? ev.code !== k.code : !_keyIs(ev, k.k)) continue;
-          if (c.id !== 'copy' && c.id !== 'copyView' && this._creationPending()) return true;
-          this.run(c.id);
+          this.run(c.id);   // a pending creation refuses in run() (enabled: _pendingRefuses), the key is consumed either way
           return true;
         }
         return false;
@@ -98900,7 +99347,8 @@
           if (!c) continue;
           if (el.dataset.cmdTitle === undefined) el.dataset.cmdTitle = el.getAttribute('title') || '';
           const base = el.dataset.cmdTitle;
-          el.title = c.keys ? (base ? base + ' ' : '') + '(' + this.keyText(c.keys) + ')' : base;   // a verb with no key (Look At, v20261102f) keeps its sentence alone
+          const k = this.keysOf(c.id);   // v20261104b: a function-valued key read now (at boot nothing is selected: Frame All carries its Shift+2)
+          el.title = k ? (base ? base + ' ' : '') + '(' + this.keyText(k) + ')' : base;   // a verb with no key (Look At, v20261102f) keeps its sentence alone
         }
       },
     };
@@ -99255,33 +99703,33 @@
         switch (event.key) {
           case '1':
             event.preventDefault();
-            pushCameraUndoState(); // View key
-            activeCamera.setView('front');
+            pushCameraUndoState('Front view'); // View key (the History label, v20261104f P-F7)
+            CameraFly.run(activeCamera, () => activeCamera.setView('front'));   // CAMERA FLY (v20261105a)
             break;
           case '3':
             event.preventDefault();
-            pushCameraUndoState(); // View key
-            activeCamera.setView('side');
+            pushCameraUndoState('Side view'); // View key (the History label, v20261104f P-F7)
+            CameraFly.run(activeCamera, () => activeCamera.setView('side'));   // CAMERA FLY (v20261105a)
             break;
           case '!':
             event.preventDefault();
-            pushCameraUndoState(); // View key
+            pushCameraUndoState('Face workplane'); // View key (the History label, v20261104f P-F7)
             faceWorkplane();
             break;
           // Removed '#' shortcut as requested
           case '7':
             event.preventDefault();
-            pushCameraUndoState(); // View key
-            activeCamera.setView('top');
+            pushCameraUndoState('Top view'); // View key (the History label, v20261104f P-F7)
+            CameraFly.run(activeCamera, () => activeCamera.setView('top'));   // CAMERA FLY (v20261105a)
             break;
           case '9':
             event.preventDefault();
-            pushCameraUndoState(); // View key
-            activeCamera.invertView();
+            pushCameraUndoState('Invert view'); // View key (the History label, v20261104f P-F7)
+            CameraFly.run(activeCamera, () => activeCamera.invertView());   // CAMERA FLY (v20261105a)
             break;
           case '5':
             event.preventDefault();
-            pushCameraUndoState(); // Projection toggle
+            pushCameraUndoState(projectionType === 'perspective' ? 'Orthographic' : 'Perspective'); // Projection toggle (the History label, v20261104f P-F7)
             if (projectionType === 'perspective') {
               const radius = vectorLength(vectorSubtract(activeCamera.position, activeCamera.target));
               activeCamera.orthoZoom = Math.tan(activeCamera.fovRadians / 2) * radius;
@@ -99313,8 +99761,8 @@
             break;
           case '0':
             event.preventDefault();
-            pushCameraUndoState(); // View key
-            activeCamera.reset();
+            pushCameraUndoState('Reset view'); // View key (the History label, v20261104f P-F7)
+            CameraFly.run(activeCamera, () => activeCamera.reset());   // CAMERA FLY (v20261105a)
             break;
           case 'v':
           case 'V':
@@ -99709,7 +100157,8 @@
     // any axis is on one of them), a group as the union of its rows, a light as its anchor. Tier B, sampled: a revolve
     // or a sweep through the light's rail (_lightRailOf / _lightSweepPt, v20261019k) at CURVE_STATIONS
     // stations. Tier C, the control points through the world matrix (contains the curve; may over-estimate): a loft,
-    // a fold, a mapped path, and a curved body whose rail cannot be built. `approx` says which; the tooltip reads it.
+    // a fold, and a curved body whose rail cannot be built; a MAPPED path reads its TARGET's samples (v20261104a, DEF-F1 -
+    // _mappingOf / _mappedSamples). `approx` says which; the tooltip reads it.
     const WorldExtent = {
       CURVE_STATIONS: 48,   // Tier B's stations (was ALIGN_CURVE_STATIONS); the revolve's Segments when more
       // the exact [lo, hi] of a 1-D cubic Bezier with control values a, b, c, d over t in [0, 1]: the ends plus the real roots of the derivative
@@ -99749,7 +100198,10 @@
         }
         if (!segs.length) for (const v of (o.localVertices || [])) if (v) out.pts.push(w(v));
       },
-      _controlSamples(o, W, out) { for (const v of (o.localVertices || [])) if (v) out.pts.push(pointApplyMatrix(v, W)); out.approx = true; },
+      // `tierC` (v20261104b, PLAN-polish-four-features-261104 F0): the samples are CONTROL points (Tier C), not a close sample of the drawn body - a fold's
+      // flat sheet, a loft's sections, a mapped path's target padded. `approx` stays the boolean Align reads (Tier B or C); `tierC` tells the frame
+      // that the box along arbitrary axes may miss a raised flap, so it falls back to the sphere. A union (a group) is Tier C if any row is.
+      _controlSamples(o, W, out) { for (const v of (o.localVertices || [])) if (v) out.pts.push(pointApplyMatrix(v, W)); out.approx = true; out.tierC = true; },
       // an extrude's end profiles: the draw's own rail (drawExtrudeAsMesh builds it with these arguments), the profile through its first and last frame with the
       // per-frame taper of sweepPoint's extrude branch (the plane perpendicular to the vector, v20260907e) - an affine map per frame, so a cubic stays a cubic
       _extrudeSamples(o, es, W, out) {
@@ -99779,15 +100231,56 @@
         for (let i = 0; i <= N; i++) { const fr = SurfaceMapper.getFrameAtU(R.frames, i / N); if (!fr) return false; for (const poly of polys) for (const pp of poly) out.pts.push(_lightSweepPt(fr, pp, R)); }
         out.approx = true; return true;
       },
+      // A MAPPED BODY DRAWS ON ITS TARGET (v20261104a, DEF-F1, measured: a 1 x 1 label at the origin mapped onto a revolve at x = 20 is drawn
+      // on the revolve, while its control points through its own matrix - the Tier C read - framed the origin and the label left the paper).
+      // The mapping is the object's own or its nearest mapped ancestor group's (the draw inherits it), resolved as the draw resolves it:
+      // surface mapping first ("id:kind", the target a body - sweep / revolve / extrude / loft), else spline flow (targetId, a rail).
+      _mappingOf(o) {
+        for (let p = o, g = 0; p && g++ < 256; p = p.parent) {
+          const sc = p.surfaceConstraint; if (!sc) continue;
+          const sm = sc.surfaceMapping;
+          if (sm && sm.enabled && sm.surfacePathId) {
+            const raw = String(sm.surfacePathId), ci = raw.indexOf(':'), t = findObjectById(ci >= 0 ? raw.slice(0, ci) : raw);
+            if (t && ((t.sweepSettings && t.sweepSettings.enabled) || (t.revolveSettings && t.revolveSettings.enabled) || (t.extrudeSettings && t.extrudeSettings.enabled) || (t.loftSettings && t.loftSettings.enabled))) return { target: t, pad: Math.abs(+sm.offsetN || 0), src: p };
+          }
+          if (sc.active && sc.targetId) { const t = findObjectById(sc.targetId); if (t) return { target: t, rail: sc, src: p }; }
+        }
+        return null;
+      },
+      // Tier C, on the target: a decal lies on the target's body (lifted by its normal offset); a spline-flow picture lies along the rail within
+      // the source's own reach (the diagonal of its control box, times the larger mapping scale, plus the offset) - a padded set, the corners of
+      // a cube of that radius about every point, contains it along ANY axis set. false = no target samples (a hidden target): the caller's Tier C
+      _mappedSamples(o, map, out) {
+        const depth = out._mapDepth || 0; if (depth > 3) return false;   // a target mapped back onto its source
+        const t = { pts: [], cubics: [], approx: false, _mapDepth: depth + 1 };
+        this.samplesOf(map.target, t);
+        if (!t.pts.length && !t.cubics.length) return false;
+        let R = map.pad || 0;
+        if (map.rail) {
+          const src = [], walk = (x) => { if (!x || x.visible === false) return; if (x.isGroup) { (x.children || []).forEach(walk); return; } const W = x.getWorldMatrix(); for (const v of (x.localVertices || [])) if (v) src.push(pointApplyMatrix(v, W)); };
+          walk(map.src);
+          const e = src.length ? this.extentOfSamples({ pts: src }, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]) : null;
+          const k = Math.max(1, Math.abs(+map.rail.scaleU || 1), Math.abs(+map.rail.scaleV || 1));
+          R += (e ? vectorLength(vectorSubtract(e.hi, e.lo)) * k : 0) + Math.abs(+map.rail.offset || 0);
+        }
+        if (R > 0) {
+          const pts = t.pts.slice(); for (const c of t.cubics) pts.push(...c);   // a cubic's control points contain it
+          for (const p of pts) for (const sx of [-R, R]) for (const sy of [-R, R]) for (const sz of [-R, R]) out.pts.push([p[0] + sx, p[1] + sy, p[2] + sz]);
+        } else { for (const p of t.pts) out.pts.push(p); for (const c of t.cubics) out.cubics.push(c); }
+        out.approx = true; out.tierC = true;   // Tier C (the comment above); v20261104b: the frame's sphere fallback reads tierC
+        return true;
+      },
       samplesOf(o, out) {
         out = out || { pts: [], cubics: [], approx: false };
         if (!o || o.visible === false) return out;
+        const map = (o.isGroup || (o.localVertices && o.localVertices.length && !_isLightObj(o))) ? this._mappingOf(o) : null;   // DEF-F1 (v20261104a)
+        if (map && this._mappedSamples(o, map, out)) return out;
         if (o.isGroup) { for (const c of _lightRowsOf(o)) this.samplesOf(c, out); return out; }
         const W = o.getWorldMatrix();
         if (_isLightObj(o) || !o.localVertices || !o.localVertices.length) { out.pts.push(getPivotAnchorWorld(o)); return out; }
         const es = o._effExtrude || o.extrudeSettings, rs = o.revolveSettings, sw = o.sweepSettings, ls = o.loftSettings, sc = o.surfaceConstraint;
         const mapped = !!(sc && ((sc.active && sc.targetId) || (sc.surfaceMapping && sc.surfaceMapping.enabled)));
-        if (mapped || (ls && ls.enabled) || (typeof _lightFoldRoot === 'function' && _lightFoldRoot(o))) { this._controlSamples(o, W, out); return out; }   // Tier C
+        if (mapped || (ls && ls.enabled) || (typeof _lightFoldRoot === 'function' && _lightFoldRoot(o))) { this._controlSamples(o, W, out); return out; }   // Tier C (a mapped path here: its target did not resolve)
         if ((rs && rs.enabled) || (sw && sw.enabled)) { if (!this._curvedSamples(o, out)) this._controlSamples(o, W, out); return out; }   // Tier B
         if (es && es.enabled) { this._extrudeSamples(o, es, W, out); return out; }   // Tier A
         this._flatSamples(o, W, out); return out;                                     // Tier A
@@ -99795,7 +100288,7 @@
       extentOf(o, axes, mode) {
         if (mode === 'anchor') return this.extentOfSamples({ pts: [getPivotAnchorWorld(o)] }, axes);
         if (mode === 'origin') return this.extentOfSamples({ pts: [_worldPositionOf(o)] }, axes);
-        const S = this.samplesOf(o); const e = this.extentOfSamples(S, axes); if (e) e.approx = !!S.approx; return e;
+        const S = this.samplesOf(o); const e = this.extentOfSamples(S, axes); if (e) { e.approx = !!S.approx; e.tierC = !!S.tierC; } return e;
       },
     };
 
@@ -99823,11 +100316,36 @@
       const sec = document.getElementById('alignSection');
       if (sec) sec.style.display = alignEnabled ? '' : 'none';
       try { Align.syncUI(); } catch (e) { }
+      try { updateTreeView(); } catch (e) { }   // the key's row (A5, v20261104d) follows the gate
       if (typeof requestRender === 'function') requestRender();   // the key outline (D5) follows the gate
     };
     const Align = {
       prefs: { to: 'selection', extent: 'bounds' },   // session preferences (DOM state, like rotatePivotMode): never serialized, never undoable
       WHICH: ['min', 'mid', 'max'],
+      WHICH_WORD: { min: 'lowest', mid: 'centre', max: 'highest' },   // the undo labels' words (v20261104d, A3: "Align Y highest to selection", not the token)
+      _ghost: null,   // the hover ghost's descriptor (v20261104d, A0): null | { kind, axis, which, gap } | { orient } - written by the buttons' pointer / focus
+      _ghostG: null,
+      _ghostGroup() { return (this._ghostG && this._ghostG.isConnected) ? this._ghostG : (this._ghostG = document.getElementById('alignGhostGroup')); },
+      // the ghost's EXTENT box: the 8 corners of an extent measured along `axes` (lo / hi are the dot products with each axis), moved by the
+      // world vector d, as M / L segments in the outline's space. The corner is the solve of dot(p, a_i) = v_i (exact for any basis - a Local
+      // gizmo on a sheared key is not orthogonal). An edge along an axis with no extent is skipped, and so are its copies on the far side
+      _boxData(e, axes, d, scr) {
+        const [a0, a1, a2] = axes, c12 = vectorCross(a1, a2), c20 = vectorCross(a2, a0), c01 = vectorCross(a0, a1), det = vectorDot(a0, c12);
+        if (!(Math.abs(det) > 1e-12)) return '';
+        const span = [0, 1, 2].map(i => e.hi[i] - e.lo[i]); if (span.every(x => !(x > 1e-9))) return '';   // a point (Extent: Anchor / Origin): no box
+        const at = (q) => { const v = [0, 1, 2].map(i => q[i] ? e.hi[i] : e.lo[i]); return [0, 1, 2].map(r => (v[0] * c12[r] + v[1] * c20[r] + v[2] * c01[r]) / det + d[r]); };
+        let out = '';
+        for (let ax = 0; ax < 3; ax++) {
+          if (!(span[ax] > 1e-9)) continue;
+          const o1 = (ax + 1) % 3, o2 = (ax + 2) % 3;
+          for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
+            if ((i && !(span[o1] > 1e-9)) || (j && !(span[o2] > 1e-9))) continue;
+            const q0 = [0, 0, 0], q1 = [0, 0, 0]; q0[o1] = q1[o1] = i; q0[o2] = q1[o2] = j; q1[ax] = 1;
+            const A = scr(at(q0)), B = scr(at(q1)); if (A && B) out += 'M ' + A[0] + ' ' + A[1] + ' L ' + B[0] + ' ' + B[1] + ' ';
+          }
+        }
+        return out;
+      },
       // ---------------------------------------------------------------- pure
       // the columns of a basis matrix as unit world axes (gizmoBasis / workplaneGizmoBasis store the images of the canonical axes in the columns)
       colAxes(M) { return [0, 1, 2].map(i => vectorNormalize([M[0][i], M[1][i], M[2][i]])); },
@@ -99928,7 +100446,7 @@
           if (kind === 'gaps') return { ok: false, reason: 'anchors have no width to space.' };
           if (kind === 'distribute' && n < 3) return { ok: false, reason: 'Distribute needs three or more anchors.' };
           if (to === 'selection' && n < 2 && kind === 'align') return { ok: false, reason: 'Align to Selection needs two or more anchors.' };
-          if (to === 'key' && !key) return { ok: false, reason: 'no key anchor - the last anchor you shift-click is the key.' };
+          if (to === 'key' && !key && kind === 'align') return { ok: false, reason: 'no key anchor - the last anchor you shift-click is the key.' };   // Distribute never reads the key (v20261104a, DEF-A3)
           if (to === 'key' && n < 2 && kind === 'align') return { ok: false, reason: 'Align to Key Anchor needs a second anchor.' };
           return { ok: true, n };
         }
@@ -99937,7 +100455,9 @@
         if (kind === 'distribute' && n < 3) return { ok: false, reason: 'Distribute needs three or more objects.' };
         if (kind === 'gaps' && n < 2) return { ok: false, reason: 'Gaps need two or more objects.' };
         if (to === 'selection' && n < 2 && kind === 'align') return { ok: false, reason: 'Align to Selection needs two or more objects.' };
-        if (to === 'key' && !key) return { ok: false, reason: 'no key object - the last object you shift-click is the key.' };
+        // the key is read by Align alone (v20261104a, DEF-A3): Distribute never reads it and Gaps falls back to the lowest, so with the primary a
+        // skipped subject (a rider, a 2D layer, a selected descendant of a selected object) they were refused for a key they do not use
+        if (to === 'key' && !key && kind === 'align') return { ok: false, reason: 'no key object - the last object you shift-click is the key.' };
         if (to === 'key' && n < 2 && kind === 'align') return { ok: false, reason: 'Align to Key Object needs a second object.' };
         return { ok: true, n };
       },
@@ -99959,66 +100479,89 @@
         notifyPathUpdated(o);
         if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(o), ['posX', 'posY', 'posZ']);
       },
+      // THE PLAN / RUN SPLIT (v20261104c, PLAN-polish-four-features-261104 batch 3): every verb is a PLAN - what would move, by how much -
+      // and a WRITE. plan / planVertices / planOrient compute and touch nothing; run / runVertices / orient are plan + the write loop
+      // (_begin / the writes / _end). The bodies were MOVED, not rewritten, so a click is bit-identical to before; the hover ghost
+      // (drawAlignGhost) reads the SAME plan the click writes. A move carries the scalar `s` along the frame's axis `a` (the thresholds read
+      // it, as they always did) and `d` = vectorScale(a, s), the WORLD vector the write and the ghost both use.
       // the three verbs on OBJECTS. axis 0..2 of the frame; which min | mid | max; gap (gaps only): a number or null
-      run(kind, axis, which, gap) {
-        if (this.vertexMode()) return this.runVertices(kind, axis, which);
+      plan(kind, axis, which, gap) {
         const S = this.subjects();
-        const st = this.status(kind); if (!st.ok) { showAppNotice('Align: ' + st.reason + (S.skipped.length ? ' ' + this._skipText(S.skipped) : ''), { kind: 'warn', ms: 5000 }); return false; }   // a refusal names the skipped too, or "needs a second object" would hide why there is none
+        const st = this.status(kind); if (!st.ok) return { ok: false, reason: st.reason, why: 'status', skipped: S.skipped, moves: [] };
         const to = this.prefs.to, mode = this.prefs.extent, F = this.frameOf(to, S.key || selectedObject), a = F.axes[axis], L = F.labels[axis];
         const exts = S.objs.map(o => this.extentOf(o, F.axes, mode));
-        if (exts.some(e => !e)) { showAppNotice('Align: an object has no extent.', { kind: 'warn', ms: 4000 }); return false; }
-        const moves = [];   // [{ o, d }] along a
+        if (exts.some(e => !e)) return { ok: false, reason: 'an object has no extent.', why: 'extent', skipped: S.skipped, moves: [] };
+        const moves = [];   // [{ o, s, d }]: s along a, d = the world vector
+        const add = (o, sc) => moves.push({ o, s: sc, d: vectorScale(a, sc) });
         if (kind === 'align') {
           let ref;
           if (to === 'selection') ref = this.edge(this.unionOf(exts), which, axis);
           else if (to === 'key') ref = this.edge(exts[S.objs.indexOf(S.key)], which, axis);
           else ref = vectorDot(F.P, a);
-          S.objs.forEach((o, i) => { if (to === 'key' && o === S.key) return; moves.push({ o, d: ref - this.edge(exts[i], which, axis) }); });
+          S.objs.forEach((o, i) => { if (to === 'key' && o === S.key) return; add(o, ref - this.edge(exts[i], which, axis)); });
         } else if (kind === 'distribute') {
-          for (const r of this.solveDistribute(exts.map(e => this.edge(e, which, axis)))) moves.push({ o: S.objs[r.idx], d: r.d });
+          for (const r of this.solveDistribute(exts.map(e => this.edge(e, which, axis)))) add(S.objs[r.idx], r.d);
         } else {
           const anchor = (to === 'key' && S.key) ? S.objs.indexOf(S.key) : -1;
-          for (const r of this.solveGaps(exts.map(e => [e.lo[axis], e.hi[axis]]), gap, anchor)) moves.push({ o: S.objs[r.idx], d: r.d });
+          for (const r of this.solveGaps(exts.map(e => [e.lo[axis], e.hi[axis]]), gap, anchor)) add(S.objs[r.idx], r.d);
         }
-        if (!moves.some(m => Math.abs(m.d) > 1e-9)) { this._notice(S.skipped, 'Align: already there.'); return false; }
+        return { ok: true, F, a, L, to, mode, key: S.key, exts, objs: S.objs, skipped: S.skipped, moves };
+      },
+      run(kind, axis, which, gap) {
+        if (this.vertexMode()) return this.runVertices(kind, axis, which);
+        const P = this.plan(kind, axis, which, gap);
+        if (!P.ok) {
+          if (P.why === 'status') showAppNotice('Align: ' + P.reason + (P.skipped.length ? ' ' + this._skipText(P.skipped) : ''), { kind: 'warn', ms: 5000 });   // a refusal names the skipped too, or "needs a second object" would hide why there is none
+          else showAppNotice('Align: ' + P.reason, { kind: 'warn', ms: 4000 });
+          return false;
+        }
+        const moves = P.moves, to = P.to, L = P.L;
+        if (!moves.some(m => Math.abs(m.s) > 1e-9)) { this._notice(P.skipped, 'Align: already there.'); return false; }
         this._begin();
-        for (const m of moves) if (Math.abs(m.d) > 1e-12) this._moveObj(m.o, vectorScale(a, m.d));
-        this._end((kind === 'align' ? 'Align ' : kind === 'distribute' ? 'Distribute ' : 'Space ') + L + (kind === 'gaps' ? '' : ' ' + which) + (kind === 'align' ? ' to ' + this.toName(to) : ''), S.skipped);
+        for (const m of moves) if (Math.abs(m.s) > 1e-12) this._moveObj(m.o, m.d);
+        this._end((kind === 'align' ? 'Align ' : kind === 'distribute' ? 'Distribute ' : 'Space ') + L + (kind === 'gaps' ? '' : ' ' + this.WHICH_WORD[which]) + (kind === 'align' ? ' to ' + this.toName(to) : ''), P.skipped);
         return true;
       },
       // the A tool: the same verbs on anchor points - a vertex's extent is its world position; the write is the Move panel's vertex rule
       // (_vertexDeltaMatrix: the whole world matrix's inverse); a bezier anchor's handles ride it when Move Handles with Anchor is on
-      runVertices(kind, axis, which) {
-        const st = this.status(kind); if (!st.ok) { showAppNotice('Align: ' + st.reason, { kind: 'warn', ms: 4000 }); return false; }
+      planVertices(kind, axis, which) {
+        const st = this.status(kind); if (!st.ok) return { ok: false, reason: st.reason, moves: [] };
         const to = this.prefs.to, { verts, key } = this.vertexSubjects(), F = this.frameOf(to, key ? key.object : (verts[0] && verts[0].object)), a = F.axes[axis], L = F.labels[axis];
         const world = verts.map(v => pointApplyMatrix(v.object.localVertices[v.vertexIndex], v.object.getWorldMatrix()));
         const vals = world.map(p => vectorDot(p, a));
-        const moves = [];
+        const moves = [];   // [{ v, s, d, p }]: p the anchor's world position now
+        const add = (v, i, sc) => moves.push({ v, s: sc, d: vectorScale(a, sc), p: world[i] });
         if (kind === 'align') {
           let ref;
           if (to === 'selection') ref = which === 'min' ? Math.min(...vals) : which === 'max' ? Math.max(...vals) : (Math.min(...vals) + Math.max(...vals)) / 2;
           else if (to === 'key') ref = vals[verts.indexOf(key)];
           else ref = vectorDot(F.P, a);
-          verts.forEach((v, i) => { if (to === 'key' && v === key) return; moves.push({ v, d: ref - vals[i] }); });
+          verts.forEach((v, i) => { if (to === 'key' && v === key) return; add(v, i, ref - vals[i]); });
         } else {
-          for (const r of this.solveDistribute(vals)) moves.push({ v: verts[r.idx], d: r.d });
+          for (const r of this.solveDistribute(vals)) add(verts[r.idx], r.idx, r.d);
         }
-        if (!moves.some(m => Math.abs(m.d) > 1e-9)) { showAppNotice('Align: already there.', { ms: 2500 }); return false; }
+        return { ok: true, F, a, L, to, verts, key, moves };
+      },
+      runVertices(kind, axis, which) {
+        const P = this.planVertices(kind, axis, which);
+        if (!P.ok) { showAppNotice('Align: ' + P.reason, { kind: 'warn', ms: 4000 }); return false; }
+        const moves = P.moves, verts = P.verts, L = P.L;
+        if (!moves.some(m => Math.abs(m.s) > 1e-9)) { showAppNotice('Align: already there.', { ms: 2500 }); return false; }
         const handles = !!(document.getElementById('dsMoveHandlesCb') || {}).checked;
         const movedKey = new Set(verts.map(v => v.object.id + '_' + v.vertexIndex));
         this._begin();
         const touched = new Set();
         for (const m of moves) {
-          if (!(Math.abs(m.d) > 1e-12)) continue;
+          if (!(Math.abs(m.s) > 1e-12)) continue;
           const o = m.v.object, vi = m.v.vertexIndex, inv = _vertexDeltaMatrix(o); if (!inv) continue;
-          const dl = vectorApplyMatrix(vectorScale(a, m.d), inv);
+          const dl = vectorApplyMatrix(m.d, inv);
           o.localVertices[vi] = vectorAdd(o.localVertices[vi], dl);
           if (handles && o.algorithm === 'bezier') for (const ci of bezierAnchorCompanions(o, vi)) if (!movedKey.has(o.id + '_' + ci)) o.localVertices[ci] = vectorAdd(o.localVertices[ci], dl);
           touched.add(o);
         }
         for (const o of touched) notifyPathUpdated(o);
         for (const v of verts) if (v.worldPosition) v.worldPosition = pointApplyMatrix(v.object.localVertices[v.vertexIndex], v.object.getWorldMatrix());
-        this._end((kind === 'align' ? 'Align anchors ' : 'Distribute anchors ') + L + ' ' + which, []);
+        this._end((kind === 'align' ? 'Align anchors ' : 'Distribute anchors ') + L + ' ' + this.WHICH_WORD[which], []);
         return true;
       },
       toName(to) { return to === 'selection' ? 'selection' : to === 'key' ? (this.vertexMode() ? 'key anchor' : 'key object') : to === 'workplane' ? 'workplane' : to === 'world' ? 'world origin' : 'camera target'; },
@@ -100048,26 +100591,33 @@
         if (target === 'key' && n < 2) return { ok: false, reason: 'Orient to Key Object needs a second object.' };
         return { ok: true, n };
       },
-      orient(target) {
+      // the plan of an Orient (v20261104c): { ok, reason, RT, skipped, writes: [{ o, Rn, RT }] } - Rn the LOCAL rotation the write stores
+      planOrient(target) {
         const S = this.subjects();
-        const st = this.orientStatus(target); if (!st.ok) { showAppNotice('Orient: ' + st.reason + (S.skipped.length ? ' ' + this._skipText(S.skipped) : ''), { kind: 'warn', ms: 5000 }); return false; }
-        const RT = this.orientTarget(target, S.key); if (!RT) return false;
+        const st = this.orientStatus(target); if (!st.ok) return { ok: false, reason: st.reason, why: 'status', skipped: S.skipped, writes: [] };
+        const RT = this.orientTarget(target, S.key); if (!RT) return { ok: false, reason: 'no target frame.', why: 'target', skipped: S.skipped, writes: [] };
         const writes = [];
         for (const o of S.objs) {
           if (target === 'key' && o === S.key) continue;
           const pR = parentWorldRotation(o), inv = pR ? matrixInverse(pR) : null;
           const Rn = (pR && inv) ? matrixMultiply(inv, RT) : RT;
           let same = true; for (let i = 0; i < 3 && same; i++) for (let j = 0; j < 3; j++) if (Math.abs(Rn[i][j] - o.rotationMatrix[i][j]) > 1e-9) { same = false; break; }
-          if (!same) writes.push({ o, Rn });
+          if (!same) writes.push({ o, Rn, RT });
         }
-        if (!writes.length) { this._notice(S.skipped, 'Orient: already there.'); return false; }
+        return { ok: true, RT, key: S.key, skipped: S.skipped, writes };
+      },
+      orient(target) {
+        const P = this.planOrient(target);
+        if (!P.ok) { if (P.why === 'status') showAppNotice('Orient: ' + P.reason + (P.skipped.length ? ' ' + this._skipText(P.skipped) : ''), { kind: 'warn', ms: 5000 }); return false; }
+        const writes = P.writes;
+        if (!writes.length) { this._notice(P.skipped, 'Orient: already there.'); return false; }
         this._begin();
         for (const w of writes) {
           w.o.rotationMatrix = w.Rn.map(r => r.slice()); w.o.rotationEuler = matrixToEuler(w.o.rotationMatrix);
           notifyPathUpdated(w.o);
           if (typeof tlAutoKeyProps === 'function') tlAutoKeyProps(tlKeyOf(w.o), ['rotX', 'rotY', 'rotZ']);
         }
-        this._end('Orient to ' + (target === 'key' ? 'key object' : target), S.skipped);
+        this._end('Orient to ' + (target === 'key' ? 'key object' : target), P.skipped);
         return true;
       },
       // ------------------------------------------------------------------ UI
@@ -100085,15 +100635,22 @@
       _svg(body) { return '<svg class="icon-20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">' + body + '</svg>'; },
       buildUI() {
         const grid = document.getElementById('alignGrid'); if (!grid || grid.childElementCount) return;
+        // THE HOVER GHOST (v20261104d, A0): the pointer on a button, or the keyboard's focus, names its verb; drawAlignGhost draws the result
+        const ghostOn = (b, desc) => { const on = () => { this._ghost = desc(); }, off = () => { this._ghost = null; }; b.addEventListener('mouseenter', on); b.addEventListener('focus', on); b.addEventListener('mouseleave', off); b.addEventListener('blur', off); };
+        const readGap = () => { const inp = document.getElementById('alignSpacingInput'), raw = inp ? inp.value.trim() : ''; const g = raw === '' ? null : fromDisplay(parseFloat(raw)); return (g === null || !isFinite(g)) ? null : g; };
         for (let ax = 0; ax < 3; ax++) {
           const row = document.createElement('div'); row.className = 'align-row';
           const letter = document.createElement('span'); letter.className = 'align-axis'; letter.dataset.axis = String(ax); letter.textContent = 'XYZ'[ax]; row.appendChild(letter);
           for (const kind of ['align', 'distribute']) {
-            const bar = document.createElement('div'); bar.className = 'tree-action-bar align-bar';
+            const bar = document.createElement('div'); bar.className = 'tree-action-bar align-bar'; bar.dataset.kind = kind;   // A1 (v20261104d): syncUI hides the distribute bars by kind
             for (const which of this.WHICH) {
               const b = document.createElement('button'); b.type = 'button'; b.className = 'ui-btn ui-btn-small'; b.dataset.kind = kind; b.dataset.axis = String(ax); b.dataset.which = which;
-              b.innerHTML = this._svg(this.ICONS[(kind === 'align' ? '' : 'd') + which]);
+              // A2 (v20261104d; D5 = the static turn): the Y row's glyphs turned a quarter, so "lowest" shows its bar at the BOTTOM; the Z row keeps
+              // the X glyph (Z is oblique on screen - no honest static picture; the dynamic screen-angle glyphs are offered, not built)
+              const glyph = this.ICONS[(kind === 'align' ? '' : 'd') + which];
+              b.innerHTML = this._svg(ax === 1 ? '<g transform="rotate(-90 10 10)">' + glyph + '</g>' : glyph);
               b.addEventListener('click', (e) => { e.preventDefault(); this.run(kind, ax, which); });
+              ghostOn(b, () => ({ kind, axis: ax, which, gap: null }));
               bar.appendChild(b);
             }
             row.appendChild(bar);
@@ -100104,7 +100661,8 @@
         if (gaps) for (let ax = 0; ax < 3; ax++) {
           const b = document.createElement('button'); b.type = 'button'; b.className = 'ui-btn ui-btn-small'; b.dataset.kind = 'gaps'; b.dataset.axis = String(ax);
           b.innerHTML = this._svg(this.ICONS.gaps) + '<span class="align-gap-letter">' + 'XYZ'[ax] + '</span>';
-          b.addEventListener('click', (e) => { e.preventDefault(); const inp = document.getElementById('alignSpacingInput'), raw = inp ? inp.value.trim() : ''; const g = raw === '' ? null : fromDisplay(parseFloat(raw)); this.run('gaps', ax, null, (g === null || !isFinite(g)) ? null : g); });
+          b.addEventListener('click', (e) => { e.preventDefault(); this.run('gaps', ax, null, readGap()); });
+          ghostOn(b, () => ({ kind: 'gaps', axis: ax, which: null, gap: readGap() }));
           gaps.appendChild(b);
         }
         const orient = document.getElementById('alignOrientBar');
@@ -100112,6 +100670,7 @@
           const b = document.createElement('button'); b.type = 'button'; b.className = 'ui-btn ui-btn-small'; b.dataset.orient = tg;
           b.textContent = tg === 'key' ? 'Key' : tg === 'workplane' ? 'Workplane' : tg === 'camera' ? 'Camera' : 'World';
           b.addEventListener('click', (e) => { e.preventDefault(); this.orient(tg); });
+          ghostOn(b, () => ({ orient: tg }));
           orient.appendChild(b);
         }
         const toSel = document.getElementById('alignToSelect'), exSel = document.getElementById('alignExtentSelect');
@@ -100126,13 +100685,13 @@
         sec.querySelectorAll('button[data-kind]').forEach(b => {
           const kind = b.dataset.kind, st = kind === 'align' ? stA : kind === 'distribute' ? stD : stG, ax = +b.dataset.axis;
           if (st) b.disabled = !st.ok;
-          b.title = this._sideWords(F, ax, b.dataset.which, kind) + (st && !st.ok ? ' - ' + st.reason : '');
+          b.title = this._sideWords(F, ax, b.dataset.which, kind) + (st && !st.ok ? ' - ' + st.reason : '. Hover: the dashed ghost is the result - the outline at the destination (an extrusion: its front face) and its extent box');
         });
         const words = { key: 'Orient to the key object: turn each selected object so its frame equals the key\'s rotation (the key stays)', workplane: 'Orient to the workplane: the object\'s X along the plane\'s U, Y up the plane, Z along its normal - as a shape drawn on it', camera: 'Orient to the camera: the object\'s XY faces the viewer, Z toward the eye (Face Camera, baked for this view)', world: 'Orient to the world: rotation 0, 0, 0' };
         sec.querySelectorAll('button[data-orient]').forEach(b => {
           const st = withOrient ? this.orientStatus(b.dataset.orient) : null;
           if (st) b.disabled = !st.ok;
-          b.title = words[b.dataset.orient] + '. The object spins in place about its anchor; position, pivot, scale and shear stay' + (st && !st.ok ? ' - ' + st.reason : '');
+          b.title = words[b.dataset.orient] + '. The object spins in place about its anchor; position, pivot, scale and shear stay' + (st && !st.ok ? ' - ' + st.reason : '. Hover: the dashed ghost is the turned outline');
         });
       },
       // the words of a button, in the frame: "Align the lowest edge (World Y) to the selection"
@@ -100141,14 +100700,19 @@
         const planeAx = F.plane ? (ax === 2 ? 'its normal' : 'its ' + 'UV'[ax]) + (F.approx && F.approx[ax] ? ', nearest World ' + L : '') : '';   // v20261031m: the letter is the world axis the plane's axis runs along
         const edge = which === 'min' ? 'lowest' : which === 'max' ? 'highest' : 'centre', along = ' along ' + (F.to === 'world' ? 'World ' : F.to === 'workplane' ? 'the workplane\'s ' : (F.mode === 'world' ? 'World ' : F.mode === 'local' ? 'the key object\'s ' : F.mode === 'workplane' ? 'the workplane\'s ' : 'the camera\'s ')) + L + (planeAx ? ' (' + planeAx + ')' : '');
         if (kind === 'distribute') return 'Distribute: the ' + (which === 'mid' ? 'centres' : edge + ' edges') + ' equally spaced' + along + ' (the first and the last stay)';
-        if (kind === 'gaps') return 'Gaps: equal space between the objects' + along + ' - the Spacing value, or equal gaps inside the current extent (the ' + (this.prefs.to === 'key' ? 'key' : 'lowest') + ' stays)';
+        // the key stays only when there IS one (v20261104a, DEF-A5: run anchors to S.key, the lowest without it)
+        if (kind === 'gaps') return 'Gaps: equal space between the objects' + along + ' - the Spacing value, or equal gaps inside the current extent (the ' + (this.prefs.to === 'key' && this.subjects().key ? 'key' : 'lowest') + ' stays)';
         if (wp && ax === 2) return which === 'min' ? 'Rest on the workplane (the lowest point on the plane, along its normal' + (F.approx && F.approx[2] ? ', nearest World ' + L : ' = World ' + L) + ')' : which === 'max' ? 'Hang under the workplane (the highest point on the plane)' : 'Centre on the workplane';
         return 'Align the ' + edge + (which === 'mid' ? '' : ' edge') + along + ' to the ' + this.toName(this.prefs.to) + (wp ? '\'s axis' : '');
       },
       syncUI() {
+        this._ghost = null;   // A0 (v20261104d): a selection / tool / target change kills a stale ghost (the pointer re-enters to see the new one)
         const sec = document.getElementById('alignSection'); if (!sec) return;
         sec.style.display = alignEnabled ? '' : 'none';
         if (!alignEnabled) return;
+        // A6 (v20261104f): the block lives in the V / A drawer (#moveSettingsContainer); with another tool the drawer is hidden and every panel
+        // update ran seven subjects() and a frameOf for nothing. setTool calls syncUI when it shows the drawer, so the block is current on return
+        const drawer = document.getElementById('moveSettingsContainer'); if (drawer && (drawer.style.display === 'none' || (drawer.classList.contains('hidden') && drawer.style.display !== 'block'))) return;
         const vm = this.vertexMode();
         const toSel = document.getElementById('alignToSelect'), exSel = document.getElementById('alignExtentSelect');
         if (toSel && toSel.value !== this.prefs.to) toSel.value = this.prefs.to;
@@ -100158,20 +100722,44 @@
         const gapRows = document.getElementById('alignGapsRows'); if (gapRows) gapRows.style.display = vm ? 'none' : '';
         const hdr = document.getElementById('alignHeader'); if (hdr) hdr.textContent = vm ? 'Align Anchors' : 'Align';
         let F; try { F = this.frameOf(this.prefs.to, vm ? (selectedVertexInfo ? selectedVertexInfo.object : null) : (this.subjects().key || selectedObject)); } catch (e) { F = this.frameOf('world'); }
-        sec.querySelectorAll('.align-axis').forEach(el => { el.textContent = F.labels[+el.dataset.axis]; });
-        sec.querySelectorAll('.align-gap-letter').forEach((el, i) => { el.textContent = F.labels[i]; });
+        // a word label (the Camera gizmo's "Depth") is ONE letter in the 14 px slot, the word in its tooltip (v20261104a, DEF-A1: 33 px of text spilled
+        // under the first button); the buttons' words and the undo labels keep the word (F.labels is unchanged)
+        const short = (L) => L.length > 1 ? L[0] : L;
+        // A7 (v20261104f): a tilted plane's letter is the NEAREST world axis (approx) - the slot says so ("≈Y"), not only the tooltip
+        sec.querySelectorAll('.align-axis').forEach(el => { const ax = +el.dataset.axis, L = F.labels[ax], ap = !!(F.approx && F.approx[ax]); el.textContent = (ap ? '≈' : '') + short(L); el.classList.toggle('is-approx', ap); if (L.length > 1) el.title = L + ' - the camera\'s view axis'; else if (ap) el.title = 'Nearest World ' + L + ' (the plane is tilted)'; else el.removeAttribute('title'); });
+        sec.querySelectorAll('.align-gap-letter').forEach((el, i) => { el.textContent = short(F.labels[i]); });
+        const stA = this.status('align'), stD = this.status('distribute'), stG = this.status('gaps');
         const key = document.getElementById('alignKeyLine');
         if (key) {
-          if (vm) { const { key: kv } = this.vertexSubjects(); key.textContent = kv ? ('Key anchor: #' + kv.vertexIndex + ' of ' + kv.object.name) : 'Key anchor: none (shift-click the key anchor last)'; }
-          else { const S = this.subjects(); key.textContent = S.key && S.objs.length > 1 ? ('Key object: ' + S.key.name) : (S.objs.length > 1 ? 'Key object: none' : 'Key object: select two or more (the last shift-clicked is the key)'); }
+          // A4 (v20261104d): ONE subject under Selection / Key - every align button grey - the line carries the reason AND the way out (the
+          // Workplane, the World Origin and the Camera Target work with one); it wraps then (.is-reason) instead of an ellipsis
+          const to = this.prefs.to, out = ' - or Align To Workplane, World Origin or Camera Target, which work with one.';
+          let txt, why = false;
+          if (vm) { const { verts, key: kv } = this.vertexSubjects(); if (verts.length === 1 && (to === 'selection' || to === 'key') && !stA.ok) { txt = stA.reason.replace(/\.$/, '') + out; why = true; } else txt = kv ? ('Key anchor: #' + kv.vertexIndex + ' of ' + kv.object.name) : 'Key anchor: none (shift-click the key anchor last)'; }
+          else {
+            const S = this.subjects();
+            if (S.objs.length === 1 && (to === 'selection' || to === 'key') && !stA.ok) { txt = stA.reason.replace(/\.$/, '') + out; why = true; }
+            else txt = S.key && S.objs.length > 1 ? ('Key object: ' + S.key.name) : (S.objs.length > 1 ? 'Key object: none' : 'Key object: select two or more (the last shift-clicked is the key)');
+          }
+          key.textContent = txt; key.classList.toggle('is-reason', why);
         }
-        this._retitle(F, this.status('align'), this.status('distribute'), this.status('gaps'), true);
+        // A1 (v20261104d): progressive disclosure by count - the distribute bars show only when Distribute can act (three or more), the Gaps
+        // rows only when Gaps can (two or more). VISIBILITY, not display: the slot is kept, so the align bars keep their width and nothing moves
+        sec.querySelectorAll('#alignGrid .align-bar[data-kind="distribute"]').forEach(b => { b.style.visibility = stD.ok ? '' : 'hidden'; });
+        if (gapRows) gapRows.style.visibility = stG.ok ? '' : 'hidden';
+        this._retitle(F, stA, stD, stG, true);
         const orRows = document.getElementById('alignOrientRows'); if (orRows) orRows.style.display = vm ? 'none' : '';
       },
-      // the KEY object's outline (D5): drawPathHighlight draws the primary heavier while several objects are selected and the gate is on
-      keyOutlineFor(o) {
-        if (!alignEnabled || !selectedObjects || selectedObjects.length < 2 || !selectedObject) return false;
-        for (let p = o; p; p = p.parent) if (p === selectedObject) return true;
+      // the KEY object's outline (D5): drawPathHighlight draws the key heavier while several objects are selected and the gate is on. The key
+      // is subjects().key - the one the Key line names and Align To = Key reads (v20261104a, DEF-A4: this tested selectedObject, so a skipped
+      // primary drew the heavy outline while the line read "none"); keyObject() is read ONCE per highlight pass, keyOutlineFor per path
+      keyObject() {
+        if (!alignEnabled || !selectedObjects || selectedObjects.length < 2 || !selectedObject) return null;
+        const S = this.subjects(); return S.objs.length > 1 ? S.key : null;
+      },
+      keyOutlineFor(o, key) {
+        const k = key === undefined ? this.keyObject() : key; if (!k) return false;
+        for (let p = o; p; p = p.parent) if (p === k) return true;
         return false;
       },
       // the fourteenth console suite: the pure solvers, the extent of a cubic, the frames
@@ -100237,6 +100825,86 @@
         return fail === 0;
       },
     };
+    // THE HOVER GHOST (v20261104d, PLAN-polish-four-features-261104 A0; the owner: "Align is difficult: many buttons, and you can't see what
+    // result you get until you press"). Hovering (or focusing) a button sets Align._ghost to its verb; this draws into #alignGhostGroup
+    // where the click would put each MOVED subject - from the SAME plan the click writes (Align.plan / planVertices / planOrient, the split
+    // of v20261104c), so the ghost is the result by construction:
+    //   - a move: the profile outline of every visible leaf through vp . T(d) . W (d the plan's WORLD vector; the write's _worldDeltaToParent
+    //     moves the world matrix by exactly d), dashed; and the destination EXTENT box - the 8 corners of the extent the plan measured (Extent
+    //     Bounds / Anchor / Origin, along the frame's axes) + d, fainter. The outline is the PROFILE (the selection's and the hover's
+    //     outline: an extrusion's is its front face); the box carries the depth - it is what shows the edge that "rests on" the plane.
+    //   - an Orient: the outline through Pw . X . L . C, X = T(a) . Rn . R^-1 . T(-a) (Pw the parent's world matrix, a = position + pivotShift
+    //     the parent-space anchor, R the rotation now, Rn the plan's new LOCAL rotation, L . C the local chain down to the leaf) - EXACTLY
+    //     the post-click world matrix under ANY parent, a scaled or sheared one included, because the local matrix is T(a) . R . shape .
+    //     T(-pivot) and the write changes R alone. (The plan's world composition T(A) . RT . Rw^-1 . T(-A) . W is the IDEAL frame; under a
+    //     scaled parent the write lands elsewhere - Orient's own approximation, v20261031n - and the ghost shows where it LANDS; align_probe
+    //     G4 measures both.) A Face Camera billboard gets none (its drawn rotation is the camera's, the write does not show).
+    //   - anchors (the A tool): the path with the anchors moved, the handles riding when Move Handles with Anchor is on - the write's rule.
+    // Nothing is mutated to draw it (never a temporary rotationMatrix / position swap). It runs in the guides section of _renderFrame, every
+    // rAF before the _mustDraw gate: NO requestRender, no scene draw for a hover; the build is cached on the verb, the prefs, the gizmo mode,
+    // the VP, the canvas size, _hoverSceneGen (every dirty signal) and the frame. A refused verb (a disabled button) draws nothing; the key
+    // under Align To = Key, a skipped subject and an object already there do not move, so they get no ghost.
+    const drawAlignGhost = (vpMatrix) => {
+      const g = Align._ghostGroup(); if (!g) return;
+      if (g.style.display === 'none') g.style.display = '';
+      const gh = Align._ghost;
+      if (!gh || !alignEnabled || dragMode !== 'none' || RenderCache._presenting) { drawAlignGhost.clear(); return; }
+      const vm = Align.vertexMode(), hc = vm && !!(document.getElementById('dsMoveHandlesCb') || {}).checked;
+      const key = JSON.stringify(gh) + '|' + Align.prefs.to + '|' + Align.prefs.extent + '|' + gizmoMode + '|' + vm + hc + '|' + vpMatrix.map(r => r.join(',')).join(';') + '|' + width + 'x' + height + '|' + _hoverSceneGen + '|' + animationTimeline.currentFrame;
+      if (key === drawAlignGhost._key) return;   // nothing moved: the ghost is still right
+      const t0 = performance.now();
+      while (g.firstChild) g.removeChild(g.firstChild);
+      const add = (d, cls) => { if (!d) return; const el = document.createElementNS('http://www.w3.org/2000/svg', 'path'); el.setAttribute('d', d); el.setAttribute('class', cls); g.appendChild(el); };
+      const leavesOf = (o) => { const out = []; const walk = (x) => { if (!x || x.visible === false) return; if (x.isGroup) { (x.children || []).forEach(walk); return; } if (!_isLightObj(x)) out.push(x); }; walk(o); return out; };
+      const scr = (p) => { const tv = transformVertex(p, vpMatrix); return tv ? [(tv[0] * FRAME_SIZE) / 2, (-tv[1] * FRAME_SIZE) / 2] : null; };
+      let n = 0;
+      if (gh.orient) {
+        const P = Align.planOrient(gh.orient);
+        if (P.ok) for (const w of P.writes) {
+          const o = w.o; if (o.faceCamera && (o.faceCamera.x || o.faceCamera.y)) continue;
+          const sh = o.pivotShift || [0, 0, 0], a = [o.position[0] + sh[0], o.position[1] + sh[1], o.position[2] + sh[2]], Rinv = matrixInverse(o.rotationMatrix); if (!Rinv) continue;
+          const X = matrixMultiply(createTranslationMatrix(a[0], a[1], a[2]), matrixMultiply(w.Rn, matrixMultiply(Rinv, createTranslationMatrix(-a[0], -a[1], -a[2]))));
+          const Pw = o.parent && o.parent.getWorldMatrix ? o.parent.getWorldMatrix() : null;
+          let d = '';
+          for (const leaf of leavesOf(o)) {
+            let m = createIdentityMatrix(); for (let x = leaf; x && x !== o.parent; x = x.parent) m = matrixMultiply(x.getLocalMatrix(), m);
+            const W2 = matrixMultiply(X, m); d += _outlineDataFor(leaf, matrixMultiply(vpMatrix, Pw ? matrixMultiply(Pw, W2) : W2));
+          }
+          add(d, 'align-ghost'); n++;
+        }
+      } else if (vm) {
+        const P = Align.planVertices(gh.kind, gh.axis, gh.which);
+        if (P.ok) {
+          const byObj = new Map(), movedKey = new Set(P.verts.map(v => v.object.id + '_' + v.vertexIndex));
+          for (const m of P.moves) {
+            if (!(Math.abs(m.s) > 1e-12)) continue;
+            const o = m.v.object, vi = m.v.vertexIndex, inv = _vertexDeltaMatrix(o); if (!inv) continue;
+            let lv = byObj.get(o); if (!lv) { lv = o.localVertices.map(q => q.slice()); byObj.set(o, lv); }
+            const dl = vectorApplyMatrix(m.d, inv); lv[vi] = vectorAdd(lv[vi], dl);
+            if (hc && o.algorithm === 'bezier') for (const ci of bezierAnchorCompanions(o, vi)) if (!movedKey.has(o.id + '_' + ci)) lv[ci] = vectorAdd(lv[ci], dl);
+          }
+          for (const [o, lv] of byObj) { add(_outlineDataFor({ algorithm: o.algorithm, subPathData: o.subPathData, localVertices: lv }, resolveObjectMVP(o, vpMatrix)), 'align-ghost'); n++; }
+        }
+      } else {
+        const P = Align.plan(gh.kind, gh.axis, gh.which, gh.gap);
+        if (P.ok) for (const m of P.moves) {
+          if (!(Math.abs(m.s) > 1e-12)) continue;   // the write's own test: no move, no ghost
+          const vpT = matrixMultiply(vpMatrix, createTranslationMatrix(m.d[0], m.d[1], m.d[2]));
+          let d = ''; for (const leaf of leavesOf(m.o)) d += _outlineDataFor(leaf, resolveObjectMVP(leaf, vpT));
+          add(d, 'align-ghost');
+          const e = P.exts[P.objs.indexOf(m.o)]; if (e) add(Align._boxData(e, P.F.axes, m.d, scr), 'align-ghost-box');
+          n++;
+        }
+      }
+      drawAlignGhost._key = key; drawAlignGhost.builds++; drawAlignGhost.subjects = n; drawAlignGhost.lastMs = performance.now() - t0;
+    };
+    drawAlignGhost._key = null; drawAlignGhost.builds = 0; drawAlignGhost.subjects = 0; drawAlignGhost.lastMs = 0;
+    drawAlignGhost.clear = () => {
+      const g = Align._ghostGroup(); if (!g || (drawAlignGhost._key === null && !g.firstChild)) return;
+      while (g.firstChild) g.removeChild(g.firstChild);
+      drawAlignGhost._key = null; drawAlignGhost.subjects = 0;
+    };
+    drawAlignGhost.hide = () => { const g = Align._ghostGroup(); if (g && g.style.display !== 'none') g.style.display = 'none'; };
     // the drawer block is built once the DOM is there (the script runs at the end of the body, so it is)
     try { Align.buildUI(); } catch (e) { console.warn('Align.buildUI', e); }
     // --- /ALIGN ---
@@ -102677,8 +103345,8 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         let hit = findObjectByElement(e.target, sceneObjects), leaf = null;
         if (hit) {
           const deep = findDeepObjectByElement(e.target);
-          if (_isDeepSelectClick({ metaKey: e.metaKey })) hit = deep || hit;
-          else if (currentTool !== 'directSelect') { while (hit.parent) hit = hit.parent; }
+          if (_isDeepSelectClick({ metaKey: e.metaKey || (!Commands.isMac && e.ctrlKey) })) hit = deep || hit;   // P-V9 (v20261104e): off a Mac Ctrl is the deep modifier (on a Mac Ctrl-click IS the right click)
+          else if (currentTool !== 'directSelect') { while (hit.parent) hit = hit.parent; hit = _drillDepthHit(hit, e.target) || hit; }   // P-H1 (v20261104e): the drill depth, as the left press
           if (hit.isGroup && deep && deep !== hit) leaf = deep;
           if (!selectedObjects.includes(hit)) setSelectedObject(hit, !!e.shiftKey);
           Commands.openMenu(e.clientX, e.clientY, Commands.OBJECT_ITEMS, { obj: hit, leaf });
@@ -102698,7 +103366,8 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         }
       }
       // ... and the paper: the pointer leaving it ends the hover; a double-click drills in (S3, bubbling - after the corner widgets' capture)
-      svg.addEventListener('mouseleave', () => { if (hoverDrillEnabled) setHoveredObject(null); });
+      // P-H6 (v20261104e): the open menu sits OVER the paper, so moving onto it is a mouseleave - it would clear the frozen hover; closeMenu ends it instead
+      svg.addEventListener('mouseleave', () => { if (hoverDrillEnabled && !Commands.isMenuOpen()) setHoveredObject(null); });
       svg.addEventListener('dblclick', (e) => _onCanvasDblClick(e));
       { const tree = document.getElementById('sceneTree'); if (tree) tree.addEventListener('contextmenu', (e) => { e.preventDefault(); Commands.openMenu(e.clientX, e.clientY, Commands.PAPER_ITEMS, {}); }); }   // the EMPTY part of the list: the paper menu (the rows stop their own)
       svg.addEventListener('mousemove', onMouseMove);
@@ -103270,6 +103939,14 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         const cb = document.getElementById('hoverDrillCb');
         if (cb) { cb.checked = _hdOn; cb.addEventListener('change', () => { setHoverDrillEnabled(cb.checked); saveSettings({ hoverDrill: cb.checked }); }); }
       }
+      // CAMERA FLY (v20261105a): the gate of the eased view change, persisted; absent = CAMERA_FLY_DEFAULT_ON (on)
+      {
+        let _vfOn = CAMERA_FLY_DEFAULT_ON;
+        try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); if (typeof s.viewFly === 'boolean') _vfOn = s.viewFly; } catch (e) { }
+        setCameraFlyEnabled(_vfOn);
+        const cb = document.getElementById('viewFlyCb');
+        if (cb) { cb.checked = _vfOn; cb.addEventListener('change', () => { setCameraFlyEnabled(cb.checked); saveSettings({ viewFly: cb.checked }); }); }
+      }
 
       // COLOR PICKER (v20260921g): Settings > Custom color picker - an experiment, default OFF, until v20260921m; DEFAULT
       // ON since. Consumers read ColorPicker.enabled, never the checkbox's DOM state (the v20260812p feature-gate
@@ -103643,6 +104320,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           document.documentElement.removeAttribute('data-gizmo'); { const c = document.getElementById('gizmoColorCb'); if (c) c.checked = false; }   // Colored Gizmo Highlight: OFF
           setAlignEnabled(ALIGN_DEFAULT_ON); { const c = document.getElementById('alignCb'); if (c) c.checked = ALIGN_DEFAULT_ON; }   // ALIGN (experimental): OFF
           setHoverDrillEnabled(HOVER_DRILL_DEFAULT_ON); { const c = document.getElementById('hoverDrillCb'); if (c) c.checked = HOVER_DRILL_DEFAULT_ON; }   // HOVER AND DRILL (v20261103a): ON
+          setCameraFlyEnabled(CAMERA_FLY_DEFAULT_ON); { const c = document.getElementById('viewFlyCb'); if (c) c.checked = CAMERA_FLY_DEFAULT_ON; }   // CAMERA FLY (v20261105a): ON
           if (scaleStrokesWithObject) { scaleStrokesWithObject = false; ScaleStyle.restore(); ScaleStyle.disarm(); syncStrokeWidthInputs(); }   // Scale Strokes: OFF (the widths put back, as the checkbox does)
           { const c = document.getElementById('scaleStrokesCb'); if (c) c.checked = false; }
 
@@ -104732,6 +105410,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         return false;
       }
       renderCacheEpoch++;   // ANIMATION RENDER CACHE: a new scene invalidates everything
+      CameraFly.settle();   // CAMERA FLY (v20261105a): the file's cameras replace the live ones below
       _importing = true;    // stays up if anything below throws: a half-landed scene is not autosaved
       if (!skipUndo) {
         if (typeof pushUndoState === 'function') pushUndoState();
@@ -104756,6 +105435,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       // pointed at objects that no longer exist.
       pendingPolygon = null; activePath = null; activePixelGroup = null; _lastPixelCell = null;
       selectedVertexInfo = null; hoveredVertexInfo = null; selectedVertices = []; dragMode = 'none';
+      hoveredObject = null; drawHoverHighlight.clear();   // HOVER AND DRILL (v20261104a, DEF-H1): the hover held the old scene's object
       _pendingShapePanelOff();   // v20261012d: the inline display, not the class (see the helper)
 
       // Restore Objects
@@ -104873,7 +105553,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       // What still re-baselines is what imports with skipUndo - boot, the corpus, the probes - where there is no history to break.
       if (!(undoStep && !skipUndo)) {
         if (typeof captureSceneState === 'function') _lastSceneState = deepClone(captureSceneState());
-        if (typeof captureCameraState === 'function') _lastCameraState = deepClone(captureCameraState());
+        if (typeof captureCameraState === 'function') { _lastCameraState = deepClone(captureCameraState()); _cameraNextLabel = null; }   // P-F7 (v20261104f): a re-baseline drops a pending label
       }
 
       // Restore Animation Timeline
@@ -106541,6 +107221,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
     const _tlWritePropertyValue = (objectName, prop, val) => {
       if (objectName === TL_WORKPLANE_KEY) { _wpWrite(prop, val); return; }   // v20260728w
       if (objectName === '__camera__') {
+        CameraFly.settle();   // CAMERA FLY (v20261105a): a keyframe write is a whole pose - a fly ends first
         if (prop === 'fov') { activeCamera.fovDegrees = val; return; }
         if (prop === 'orthoZoom') { activeCamera.orthoZoom = val; return; }
         // FRAMING (v20260904f): a derived quantity with no write arm before —
@@ -107548,6 +108229,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         }
         // Check if it's a camera track
         if (objectName === '__camera__') {
+          CameraFly.settle();   // CAMERA FLY (v20261105a): the track's pose takes the frame; a fly ends first (none starts while this plays)
           // Per-property camera lookup
           const getVal = (prop) => {
             const kfs = objTracks.get(prop);

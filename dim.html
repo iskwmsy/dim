@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261105a -->
+<!-- dim v20261105f -->
 
 <!--
   MIT License
@@ -4221,6 +4221,7 @@
     .align-axis.is-approx { letter-spacing: -1.5px; }   /* ALIGN (v20261104f, A7): "≈X" measured 15 px in the 14 px slot - the approx mark tucked in, the slot kept (DEF-A1's rule: nothing spills under the first button) */
     .align-key { font-size: var(--font-size-small); color: var(--text-muted); padding: 2px var(--row-padding-h); white-space: nowrap; overflow: clip visible; text-overflow: ellipsis; }
     #alignGapsBar .ui-btn-small { display: flex; align-items: center; justify-content: center; gap: 4px; }
+    #alignSpacingInput:disabled { opacity: 0.45; cursor: default; }   /* ALIGN (v20261105e): the Spacing field greys with its Gaps bar (the Camera Window's disabled fields' rule, #subWindowBar3) */
     #alignOrientBar .ui-btn-small { padding-left: 4px; padding-right: 4px; font-size: var(--font-size-small); }   /* four words in a 260 px bar (v20261031n) */
     .align-gap-letter { font-size: var(--font-size-label); font-weight: 600; }
     #pathHighlightGroup path.align-key-outline { opacity: .45; pointer-events: none; }
@@ -6873,7 +6874,7 @@
               <option value="16:9">16:9</option>
               <option value="9:16">9:16</option>
               <option value="4:5">4:5</option>
-              <option value="photo">Photo</option> <!-- CAMERA MATCH: the active camera's photo (v20261018x) -->
+              <option value="photo">Photo</option> <!-- CAMERA MATCH: the active camera's photo (v20261018x); listed only while that camera has one, render()'s chrome block (v20261105c) -->
             </select>
           </div>
         </div>
@@ -7807,10 +7808,11 @@
               <div class="xyz-row">
                 <label for="alignToSelect" title="What the selection aligns to">Align To</label>
                 <div class="xyz-inputs">
-                  <select id="alignToSelect" title="Selection: the bounds of everything selected. Key Object: the last object you shift-clicked - it stays put. Workplane: rest on / centre on / hang under the plane along its normal, the grid origin's axes in the plane. World Origin and Camera Target: that point. The axes are the gizmo's (W).">
-                    <option value="selection" selected>Selection</option>
+                  <select id="alignToSelect" title="Workplane (the default - it works with one object): rest on / centre on / hang under the plane along its normal, the grid origin's axes in the plane. Selection: the bounds of everything selected. Key Object: the last object you shift-clicked - it stays put. World Origin and Camera Target: that point. The axes are the gizmo's (W).">
+                    <!-- v20261105f: Workplane first and the default - it works with ONE object (Selection and Key need two) -->
+                    <option value="workplane" selected>Workplane</option>
+                    <option value="selection">Selection</option>
                     <option value="key">Key Object</option>
-                    <option value="workplane">Workplane</option>
                     <option value="world">World Origin</option>
                     <option value="cameraTarget">Camera Target</option>
                   </select>
@@ -11550,7 +11552,7 @@
         <option value="16:9">16:9</option>
         <option value="9:16">9:16</option>
         <option value="4:5">4:5</option>
-        <option value="photo">Photo</option> <!-- CAMERA MATCH (v20261018x) -->
+        <option value="photo">Photo</option> <!-- CAMERA MATCH (v20261018x); listed only while this window's camera has a photo, SubView._syncFrameGuide (v20261105c) -->
       </select>
     </div>
     <!-- Third bar (v20261008c, PLAN-subwindow-stereo): a left / right eye pair.
@@ -53806,6 +53808,17 @@
       }
       return FRAME_GUIDE_RATIOS[key] || null;
     };
+    // (v20261105c) the Photo option of a Frame Guide select is LISTED ONLY WHILE THERE IS A PHOTO TO OUTLINE: hidden (the
+    // element kept) when the camera has no backplate - except while it IS the pick, since a select must never show a blank
+    // or a wrong label; the user moves off it and the option hides. The pick itself is never written here, and nothing goes
+    // to undo (a user who removes the photo and imports another keeps their Photo guide). Compared before written, so a
+    // per-frame caller costs nothing. The owner picked Photo with no photo, saw nothing, and asked what it was.
+    const _syncPhotoGuideOption = (sel, pick, cam) => {
+      const opt = sel && sel.querySelector('option[value="photo"]');
+      if (!opt) return;
+      const hide = pick !== 'photo' && !_frameGuideSize('photo', cam);
+      if (opt.hidden !== hide) opt.hidden = hide;
+    };
     const _camBackplateDraw = (cam) => {
       const el = document.getElementById('camBackplateImg');
       if (!el) return;
@@ -89008,6 +89021,7 @@
       // Every visible pane carries the same rect (v20261008c, plan D6): an
       // overlay present in one pane only shows as a ghost once the pair fuses.
       _syncFrameGuide() {
+        _syncPhotoGuideOption(document.getElementById('subWinFrameGuide'), this.frameGuide, this._camRef);   // CAMERA-MATCH (v20261105c): the Photo option listed only while THIS window's camera has a photo (open(), the pick, and render()'s chrome block on a change of the photo)
         const ratio = _frameGuideSize(this.frameGuide, this._camRef);   // CAMERA-MATCH (v20261018x): 'photo' = this window's camera's letterbox
         const n = this._arrangement().length;
         this.PANE_IDS.forEach((s, i) => {
@@ -91239,7 +91253,8 @@
       // and unconditionally every 30th frame as a belt (≤0.5 s staleness for
       // anything the header does not name). updateCameraPanel keeps its own
       // activeElement guard, so typing is never fought.
-      const _chromeHdr = width + '|' + height + '|' + CANVAS_OFFSET_X + '|' + _camPose(activeCamera) + '|' + (selectedCamera === activeCamera ? 'same' : _camPose(selectedCamera)) + '|' + cameras.indexOf(selectedCamera) + '|' + tlExpanded + '|' + _tlExpandedHeight + '|' + _currentFrameGuide + '|' + projectionType + '|' + (_showHudCb ? _showHudCb.checked : true) + '|' + _camBackplateKey(activeCamera);   // CAMERA-MATCH (v20261018x): the photo and the Photo guide follow the header. v20261012g: Show Camera HUD is written by this gated block too - without it the toggle waited for the 30th-frame belt
+      const _subGuideKey = SubView.isOpen() ? (_camBackplateKey(SubView._camRef) + '|' + SubView.frameGuide + '|' + cameras.indexOf(SubView._camRef)) : '';   // CAMERA-MATCH (v20261105c): the Camera Window's camera's photo and its own pick, while the window is open
+      const _chromeHdr = width + '|' + height + '|' + CANVAS_OFFSET_X + '|' + _camPose(activeCamera) + '|' + (selectedCamera === activeCamera ? 'same' : _camPose(selectedCamera)) + '|' + cameras.indexOf(selectedCamera) + '|' + tlExpanded + '|' + _tlExpandedHeight + '|' + _currentFrameGuide + '|' + projectionType + '|' + (_showHudCb ? _showHudCb.checked : true) + '|' + _camBackplateKey(activeCamera) + '|' + _subGuideKey;   // CAMERA-MATCH (v20261018x): the photo and the Photo guide follow the header. v20261012g: Show Camera HUD is written by this gated block too - without it the toggle waited for the 30th-frame belt
       render._chromeTick = (render._chromeTick || 0) + 1;
       const _chromeDirty = (_chromeHdr !== render._chromeHdr) || (render._chromeTick % 30 === 0);
       if (_chromeDirty) render._chromeHdr = _chromeHdr;
@@ -91250,6 +91265,8 @@
       frameRect.setAttribute('height', FRAME_SIZE * scale);
 
       _camBackplateDraw(activeCamera);   // CAMERA-MATCH (v20261018x): the active camera's photo, under the grid
+      _syncPhotoGuideOption(document.getElementById('frameGuideSelect'), _currentFrameGuide, activeCamera);   // CAMERA-MATCH (v20261105c): the Photo option listed only with a photo - the header carries the photo and the pick, so every path (import, Remove, undo / redo, a load, Set Active) lands here
+      if (_subGuideKey !== render._subGuideKey) { render._subGuideKey = _subGuideKey; if (_subGuideKey) SubView._syncFrameGuide(); }   // CAMERA-MATCH (v20261105c): the Camera Window's own select and guide rect follow ITS camera's photo while it is open - on a change of that key only, never per pass
       // --- Frame Guide (aspect-ratio overlay) ---
       const _fgRatio = _frameGuideSize(_currentFrameGuide, activeCamera);   // CAMERA-MATCH: 'photo' = the camera's letterbox
       if (_fgRatio) {
@@ -100320,7 +100337,7 @@
       if (typeof requestRender === 'function') requestRender();   // the key outline (D5) follows the gate
     };
     const Align = {
-      prefs: { to: 'selection', extent: 'bounds' },   // session preferences (DOM state, like rotatePivotMode): never serialized, never undoable
+      prefs: { to: 'workplane', extent: 'bounds' },   // session preferences (Workplane the default since v20261105f: it works with one object) (DOM state, like rotatePivotMode): never serialized, never undoable
       WHICH: ['min', 'mid', 'max'],
       WHICH_WORD: { min: 'lowest', mid: 'centre', max: 'highest' },   // the undo labels' words (v20261104d, A3: "Align Y highest to selection", not the token)
       _ghost: null,   // the hover ghost's descriptor (v20261104d, A0): null | { kind, axis, which, gap } | { orient } - written by the buttons' pointer / focus
@@ -100743,10 +100760,11 @@
           }
           key.textContent = txt; key.classList.toggle('is-reason', why);
         }
-        // A1 (v20261104d): progressive disclosure by count - the distribute bars show only when Distribute can act (three or more), the Gaps
-        // rows only when Gaps can (two or more). VISIBILITY, not display: the slot is kept, so the align bars keep their width and nothing moves
-        sec.querySelectorAll('#alignGrid .align-bar[data-kind="distribute"]').forEach(b => { b.style.visibility = stD.ok ? '' : 'hidden'; });
-        if (gapRows) gapRows.style.visibility = stG.ok ? '' : 'hidden';
+        // A1 (v20261104d) hid the distribute bars and the Gaps rows by count (visibility, the slot kept) - with one object the kept slot
+        // read as a 130 px hole between the Z row and Orient. v20261105e: Illustrator's way instead - every button always listed, GREYED
+        // (disabled by _retitle, the reason in its tooltip) while Distribute (three or more) or Gaps (two or more) cannot act; the Spacing
+        // field greys with its bar. The layout never changes with the count.
+        { const inp = document.getElementById('alignSpacingInput'); if (inp) inp.disabled = !stG.ok; }
         this._retitle(F, stA, stD, stG, true);
         const orRows = document.getElementById('alignOrientRows'); if (orRows) orRows.style.display = vm ? 'none' : '';
       },

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261105f -->
+<!-- dim v20261107b -->
 
 <!--
   MIT License
@@ -1316,6 +1316,21 @@
     }
     #contextMenu > * {
       flex-shrink: 0;   /* the flyout is a flex column: under the max-height the rows SHRANK (19.7 px, measured at 500 px) instead of scrolling */
+    }
+    /* STANDARD PLANES (v20261107a): a CHECK COLUMN on every row of the context menu (the macOS and Illustrator menus reserve one, so the
+       radio rows' labels and the plain rows' line up), the check itself on a row whose aria-checked is true. A ::before, never a node:
+       _menuKey's letter jump and the probes read a row's firstChild as its label. Scoped to #contextMenu - the tool flyouts' rows are
+       icons with their own .active tint and have no checked rows */
+    #contextMenu button::before {
+      content: '';
+      flex: 0 0 10px;
+      text-align: center;
+      font-size: 11px;
+      line-height: 1;
+      color: var(--accent-ink);
+    }
+    #contextMenu button[aria-checked="true"]::before {
+      content: '\2713';
     }
 
     .tool-panel-label {
@@ -7564,7 +7579,7 @@
         <!-- CAMERA FLY (v20261105a, PLAN-polish-four-features-261104 P-F1) - the gate of the eased view change, default ON. Off = every
              view change jumps to its pose as before; nothing in a scene depends on it. -->
         <div class="prop-row prop-inline" id="viewFlyRow">
-          <label for="viewFlyCb" class="ui-checkbox-label" title="On by default. A view change - Frame Selection, Frame All, Look At, the Front / Side / Top / Invert / Reset view keys, Face Workplane, Reset Zoom, Reset Truck / Pedestal - flies the camera to its new view over a fifth of a second instead of jumping to it. A drag, a wheel, a scrub, an undo or another view change during the fly ends it at its destination first. Off = the camera jumps, as before. The system's Reduce Motion setting also turns it off.">Animate View Changes</label>
+          <label for="viewFlyCb" class="ui-checkbox-label" title="On by default. A view change - Frame Selection, Frame All, Look At, the Front / Side / Top / Invert / Reset view keys, Face Workplane, Zoom In / Zoom Out, Reset Zoom, Reset Truck / Pedestal - flies the camera to its new view over a fifth of a second instead of jumping to it. A drag, a wheel, a scrub, an undo or another view change during the fly ends it at its destination first. Off = the camera jumps, as before. The system's Reduce Motion setting also turns it off.">Animate View Changes</label>
           <input type="checkbox" id="viewFlyCb" class="ui-checkbox" checked />
         </div>
 
@@ -12506,6 +12521,40 @@
     const frameSelection = (opts) => { const pts = _frameSelectedPoints(); if (pts.length) return frameObjects(null, { ...(opts || {}), points: pts }); const sel = _frameSelected(); return sel.length ? frameObjects(sel, opts) : frameObjects(null, { ...(opts || {}), all: true }); };
     const frameAll = (opts) => frameObjects(null, { ...(opts || {}), all: true });
     const lookAtSelection = (opts) => frameObjects(_frameSelected(), { ...(opts || {}), lookOnly: true });
+    // ZOOM STEP (v20261107b, PLAN-context-menu-planes-and-zoom-keys-261107 S2): Cmd+= / Cmd+- - ONE step of ZOOM_KEY_STEP in or out,
+    // through Camera.zoomBy (the wheel's bounds and Keep Size). WITH A SELECTION the step zooms TO the object (D1, Illustrator's "Zoom
+    // to Selection" preference): the camera target goes to the selection's centre first - the Look At move, the position following so
+    // the direction is kept - and the step is taken from there, as ONE write and one fly; the first press re-centres and zooms, every
+    // following press zooms about the object, which stays centred; zoom OUT re-centres the same way. Under A with anchors selected
+    // the anchors' box centre is the point (P-F4's rule). Nothing selected, or nothing frameable (a hidden selection, a 2D layer):
+    // the step about the current target, no notice. THE UNDO is the wheel's: pushCameraUndoStateCoalesced, a run of presses one
+    // entry (it settles a fly first; the 2 / 4 / 6 / 8 steps' shape). The refusals are frameObjects': a locked camera (a notice
+    // naming it), playback with a camera track. The auto-key is the wheel's debounce. `opts.cam` for the Camera panel (P-F2).
+    // ACCEPTED EDGE: the near bound is the wheel's (ZOOM_NEAR 5 unless the camera is already nearer) - a frame fit may stand nearer.
+    const ZOOM_KEY_STEP = 1.25;   // per press (the wheel's 100 px notch is about 1.16, Illustrator's ladder about 1.5 at the low end)
+    const _cmdCamAnimated = () => { const tr = animationTimeline.isPlaying && animationTimeline.tracks.get('__camera__'); return !!(tr && [...tr.values()].some(k => Array.isArray(k) && k.length)); };
+    const zoomStep = (dir, opts) => {
+      const o = opts || {}, cam = o.cam || activeCamera;
+      if (cam.lock) { showAppNotice(cam.name + ' is locked - the zoom was not changed', { kind: 'warn' }); return false; }
+      if (cam === activeCamera && _cmdCamAnimated()) { showAppNotice('The camera is animated - pause the playback to zoom', { kind: 'info' }); return false; }
+      let c = null;
+      if (cam === activeCamera) {
+        const pts = _frameSelectedPoints();
+        const ext = pts.length ? WorldExtent.extentOfSamples({ pts: pts.map(p => p.slice(0, 3)) }, FRAME_AXES) : frameExtentOf(_frameSelected());
+        if (ext) c = [0, 1, 2].map(i => (ext.lo[i] + ext.hi[i]) / 2);
+      }
+      pushCameraUndoStateCoalesced();
+      const moved = !!c && c.some((v, i) => Math.abs(v - cam.target[i]) > 1e-9);
+      CameraFly.run(cam, () => {   // CAMERA FLY: the write below is the end pose
+        if (c) { const off = vectorSubtract(cam.position, cam.target); cam.target = c; cam.position = vectorAdd(c, off); }
+        cam.zoomBy(dir > 0 ? 1 / ZOOM_KEY_STEP : ZOOM_KEY_STEP);
+      });
+      if (moved && cam === activeCamera) _frameMark = { target: c.slice(0, 3), until: performance.now() + FRAME_MARK_MS };   // P-F5: where the orbit centre went
+      if (typeof tlAutoKeyCamera === 'function') { clearTimeout(_autoKeyWheelTimer); _autoKeyWheelTimer = setTimeout(() => tlAutoKeyCamera(), 300); }   // the wheel's debounce
+      updateCameraPanel();
+      requestRender();
+      return true;
+    };
     // P-F2 (v20261104b): the panel shows selectedCamera (btnResetTruckPedestal and the Truck / Pedestal fields act on it), and these buttons acted on
     // activeCamera - with Camera 2 selected in the list they moved Camera 1
     for (const [id, fn] of [['frameSelectionBtn', frameSelection], ['frameAllBtn', frameAll], ['lookAtBtn', lookAtSelection]]) {
@@ -12623,13 +12672,7 @@
         setWorkplaneFromCamera();
         return;
       }
-      pushUndoState();
-      activeWorkplane.mode = e.target.value;
-      activeWorkplane.offset = 0;
-      document.getElementById('custom-offset-z-field').value = "0.00";
-      updatePropertiesPanel();
-      requestRender();
-      pushUndoState('Change workplane mode');
+      setStandardWorkplane(e.target.value);   // STANDARD PLANES (v20261107a): the one writer (the body stood here as the third copy)
     });
     wpOffsetInput.addEventListener('input', (e) => {
       pushUndoStateCoalesced();   // v20260914z: before the write (see gridSizeInput)
@@ -53201,28 +53244,48 @@
           const zoomSpeed = 0.001;
           const oldRadius = vectorLength(vectorSubtract(this.position, this.target));
           const step = deltaY * zoomSpeed * Math.max(1, oldRadius / Camera.ZOOM_STEP_FROM);
-          const newRadius = Math.max(Math.min(Camera.ZOOM_NEAR, oldRadius), Math.min(Math.max(Camera.ZOOM_FAR, oldRadius), oldRadius + step));
-
-          const relPos = vectorNormalize(vectorSubtract(this.position, this.target));
-          this.position = vectorAdd(this.target, vectorScale(relPos, newRadius));
-
-          // Keep Size: compensate FOV when distance changes
-          const keepSizeEl = document.getElementById('camFovCompensateCheckbox');
-          if (keepSizeEl && keepSizeEl.checked && oldRadius > 0.01) {
-            const oldFovRad = (this.fovDegrees * Math.PI) / 180;
-            const newFovRad = 2 * Math.atan(oldRadius * Math.tan(oldFovRad / 2) / newRadius);
-            const newFovDeg = (newFovRad * 180) / Math.PI;
-            if (newFovDeg > 1 && newFovDeg < 179) {
-              this.fovDegrees = newFovDeg;
-            }
-          }
+          this._applyRadius(oldRadius, oldRadius + step);
         } else {
           // Same rule for the orthographic zoom (its old clamp was [1, 50]).
           const zoomSpeed = 0.02;
           const oldZoom = this.orthoZoom;
-          const newZoom = oldZoom + deltaY * zoomSpeed * Math.max(1, oldZoom / Camera.ZOOM_STEP_FROM);
-          this.orthoZoom = Math.max(Math.min(1, oldZoom), Math.min(Math.max(Camera.ZOOM_FAR, oldZoom), newZoom));
+          this._applyOrthoZoom(oldZoom, oldZoom + deltaY * zoomSpeed * Math.max(1, oldZoom / Camera.ZOOM_STEP_FROM));
         }
+      }
+      // ZOOM STEP (v20261107b, PLAN-context-menu-planes-and-zoom-keys-261107 S2): the MULTIPLICATIVE zoom of the Cmd+= / Cmd+- keys -
+      // the distance (perspective) or orthoZoom (ortho / oblique) times `factor`, through the SAME bounds and the same Keep Size
+      // compensation as the wheel's zoom(deltaY): the two tails were lifted into _applyRadius / _applyOrthoZoom so the wheel and the
+      // key cannot disagree about where the camera may go (camera_zoom_far_probe reads those bounds and is the refactor's control).
+      zoomBy(factor) {
+        if (!(factor > 0)) return;
+        if ((this.projectionType || projectionType) === 'perspective') {
+          const oldRadius = vectorLength(vectorSubtract(this.position, this.target));
+          this._applyRadius(oldRadius, oldRadius * factor);
+        } else {
+          const oldZoom = this.orthoZoom;
+          this._applyOrthoZoom(oldZoom, oldZoom * factor);
+        }
+      }
+      // the wheel's tail: v20261012a's bounds (the camera may stay where it already is, never trapped; the far bound 500) + Keep Size
+      _applyRadius(oldRadius, wanted) {
+        const newRadius = Math.max(Math.min(Camera.ZOOM_NEAR, oldRadius), Math.min(Math.max(Camera.ZOOM_FAR, oldRadius), wanted));
+
+        const relPos = vectorNormalize(vectorSubtract(this.position, this.target));
+        this.position = vectorAdd(this.target, vectorScale(relPos, newRadius));
+
+        // Keep Size: compensate FOV when distance changes
+        const keepSizeEl = document.getElementById('camFovCompensateCheckbox');
+        if (keepSizeEl && keepSizeEl.checked && oldRadius > 0.01) {
+          const oldFovRad = (this.fovDegrees * Math.PI) / 180;
+          const newFovRad = 2 * Math.atan(oldRadius * Math.tan(oldFovRad / 2) / newRadius);
+          const newFovDeg = (newFovRad * 180) / Math.PI;
+          if (newFovDeg > 1 && newFovDeg < 179) {
+            this.fovDegrees = newFovDeg;
+          }
+        }
+      }
+      _applyOrthoZoom(oldZoom, wanted) {
+        this.orthoZoom = Math.max(Math.min(1, oldZoom), Math.min(Math.max(Camera.ZOOM_FAR, oldZoom), wanted));
       }
 
       adjustFov(deltaY) {
@@ -99180,20 +99243,22 @@
         { id: 'frameSel', label: 'Frame Selection', keys: '⇧2', key: null, group: 'view', when: () => !activeCamera.lock && !!frameExtentOf(_cmdSel()), reason: () => activeCamera.lock ? _cmdLockedText() : _frameEmptyText(_cmdSel(), 'Nothing selected to frame'), run: () => frameSelection() },   // v20261104e: frameSelection - the Shift+2 verb (P-F4 anchors under A)
         { id: 'frameAll', label: 'Frame All', keys: () => _cmdSel().length ? '' : '⇧2', key: null, group: 'view', when: () => !activeCamera.lock && !!frameExtentOf(_frameAllObjects()), reason: () => activeCamera.lock ? _cmdLockedText() : 'Nothing in the scene to frame', run: () => frameAll() },
         { id: 'lookAt', label: 'Look At Selection', keys: '', key: null, group: 'view', when: () => !activeCamera.lock && !!frameExtentOf(_cmdSel()), reason: () => activeCamera.lock ? _cmdLockedText() : _frameEmptyText(_cmdSel(), 'Nothing selected to look at'), run: () => lookAtSelection() },
+        // ZOOM STEP (v20261107b, PLAN-context-menu-planes-and-zoom-keys-261107 S2): Cmd+= / Cmd+- by the key CHARACTER with Shift ignored
+        // (`any` / `shiftAny` in dispatchKey): on a JIS keyboard + is Shift+; and = is Shift+-, on a US one + is Shift+=, and code Equal is the
+        // ^ key on JIS - so neither the code nor an exact Shift would do; the two lists are disjoint by character (Cmd+Shift+- on JIS types =
+        // and zooms IN, as its keycap says). Illustrator takes Cmd+= and Cmd++ alike. The browser's own page zoom is prevented with the key.
+        { id: 'zoomIn', label: 'Zoom In', keys: '⌘+', key: { any: ['+', '='], meta: true, shiftAny: true }, group: 'view', when: () => !activeCamera.lock && !_cmdCamAnimated(), reason: () => activeCamera.lock ? _cmdLockedText() : 'The camera is animated - pause the playback to zoom', run: () => zoomStep(+1) },
+        { id: 'zoomOut', label: 'Zoom Out', keys: '⌘-', key: { any: ['-', '_'], meta: true, shiftAny: true }, group: 'view', when: () => !activeCamera.lock && !_cmdCamAnimated(), reason: () => activeCamera.lock ? _cmdLockedText() : 'The camera is animated - pause the playback to zoom', run: () => zoomStep(-1) },
         // --- the workplane ---
-        { id: 'wpCycle', label: 'Next Standard Plane', keys: 'G', key: null, group: 'workplane', when: () => true, run: () => {
-          pushUndoState();
-          const standardModes = ['vertical', 'horizontal', 'side'];
-          let nextIndex = standardModes.indexOf(activeWorkplane.mode) + 1;
-          if (nextIndex >= standardModes.length || nextIndex === 0 && !standardModes.includes(activeWorkplane.mode)) nextIndex = 0;
-          activeWorkplane.mode = standardModes[nextIndex];
-          activeWorkplane.offset = 0;
-          const wpInput = document.getElementById('custom-offset-z-field');
-          if (wpInput) wpInput.value = "0.00";
-          updatePropertiesPanel();
-          requestRender();
-          pushUndoState('Change workplane mode');
-        } },
+        // STANDARD PLANES (v20261107a, PLAN-context-menu-planes-and-zoom-keys-261107 S1): the three planes as RADIO rows, the top bar's
+        // pulldown in the menu - `checked` is the row's state (openMenu writes role menuitemradio + aria-checked, the check a ::before), the
+        // chip G sits on the plane G picks NEXT (a function-valued keys, Frame All's precedent), the active row stays enabled and its click
+        // writes nothing (D2, the select's no-op), a locked workplane greys the three (D6). wpCycle is no longer LISTED in the paper menu
+        // (D3) - the entry stays for the G key's display and retitle. The four runs are the one writer, setStandardWorkplane.
+        { id: 'wpXY', label: 'XY Plane', keys: () => nextStandardWorkplane() === 'vertical' ? 'G' : '', key: null, group: 'workplane', checked: () => activeWorkplane.mode === 'vertical', when: () => !activeWorkplane.lock, reason: 'The workplane is locked', run: () => setStandardWorkplane('vertical') },
+        { id: 'wpXZ', label: 'XZ Plane', keys: () => nextStandardWorkplane() === 'horizontal' ? 'G' : '', key: null, group: 'workplane', checked: () => activeWorkplane.mode === 'horizontal', when: () => !activeWorkplane.lock, reason: 'The workplane is locked', run: () => setStandardWorkplane('horizontal') },
+        { id: 'wpYZ', label: 'YZ Plane', keys: () => nextStandardWorkplane() === 'side' ? 'G' : '', key: null, group: 'workplane', checked: () => activeWorkplane.mode === 'side', when: () => !activeWorkplane.lock, reason: 'The workplane is locked', run: () => setStandardWorkplane('side') },
+        { id: 'wpCycle', label: 'Next Standard Plane', keys: 'G', key: null, group: 'workplane', when: () => !activeWorkplane.lock, reason: 'The workplane is locked', run: () => setStandardWorkplane(nextStandardWorkplane()) },
         { id: 'wpFromCam', label: 'Workplane from Camera', keys: '⇧G', key: null, group: 'workplane', when: () => true, run: () => setWorkplaneFromCamera() },
         { id: 'wpFromSel', label: 'Workplane from Selection', keys: '⌥G', key: null, group: 'workplane', when: () => _cmdHasSel(), run: () => setWorkplaneFromSelection() },
         // --- the app ---
@@ -99214,9 +99279,9 @@
       // Selection and Look At (greyed with the reason when nothing is selected, D4), the row menu's Edit = the object menu's four (Paste Object
       // is position-independent), the object menu a Select section; Rename and Edit Points in the Object sections. Undo / Redo take no first focus
       // (openMenu): Enter right after a right-click must not undo.
-      OBJECT_ITEMS: ['#Edit', 'undo', 'redo', '-', 'copy', 'pasteObject', 'duplicate', 'delete', '-', '#Select', 'selectAll', 'deselect', '-', '#Group', 'group', 'ungroup', 'boolean', '-', '#Arrange', 'forward', 'backward', 'toFront', 'toBack', '-', '#Object', 'toggleHide', 'toggleLock', 'rename', 'editPoints', 'selectChild', '-', '#View', 'frameSel', 'lookAt', '-', '#Workplane', 'wpFromSel'],
-      TREE_ITEMS: ['#Edit', 'undo', 'redo', '-', 'copy', 'pasteObject', 'duplicate', 'delete', '-', '#Group', 'group', 'ungroup', 'boolean', '-', '#Arrange', 'forward', 'backward', 'toFront', 'toBack', '-', '#Object', 'toggleHide', 'toggleLock', 'rename', 'editPoints', '-', '#View', 'frameSel', 'lookAt', '-', '#Workplane', 'wpFromSel'],
-      PAPER_ITEMS: ['#Edit', 'undo', 'redo', '-', 'paste', 'pasteObject', 'copyView', '-', '#Select', 'selectAll', 'deselect', '-', '#View', 'viewFront', 'viewSide', 'viewTop', 'viewInvert', 'viewFace', 'viewProj', 'viewReset', 'frameAll', 'frameSel', 'lookAt', '-', '#Workplane', 'wpCycle', 'wpFromCam', 'wpFromSel', '-', '#Display', 'guides', 'help'],
+      OBJECT_ITEMS: ['#Edit', 'undo', 'redo', '-', 'copy', 'pasteObject', 'duplicate', 'delete', '-', '#Select', 'selectAll', 'deselect', '-', '#Group', 'group', 'ungroup', 'boolean', '-', '#Arrange', 'forward', 'backward', 'toFront', 'toBack', '-', '#Object', 'toggleHide', 'toggleLock', 'rename', 'editPoints', 'selectChild', '-', '#View', 'frameSel', 'lookAt', 'zoomIn', 'zoomOut', '-', '#Workplane', 'wpFromSel'],
+      TREE_ITEMS: ['#Edit', 'undo', 'redo', '-', 'copy', 'pasteObject', 'duplicate', 'delete', '-', '#Group', 'group', 'ungroup', 'boolean', '-', '#Arrange', 'forward', 'backward', 'toFront', 'toBack', '-', '#Object', 'toggleHide', 'toggleLock', 'rename', 'editPoints', '-', '#View', 'frameSel', 'lookAt', 'zoomIn', 'zoomOut', '-', '#Workplane', 'wpFromSel'],
+      PAPER_ITEMS: ['#Edit', 'undo', 'redo', '-', 'paste', 'pasteObject', 'copyView', '-', '#Select', 'selectAll', 'deselect', '-', '#View', 'viewFront', 'viewSide', 'viewTop', 'viewInvert', 'viewFace', 'viewProj', 'viewReset', 'frameAll', 'frameSel', 'lookAt', 'zoomIn', 'zoomOut', '-', '#Workplane', 'wpXY', 'wpXZ', 'wpYZ', 'wpFromCam', 'wpFromSel', '-', '#Display', 'guides', 'help'],
       _menuEl() { return document.getElementById('contextMenu'); },
       isMenuOpen() { const el = this._menuEl(); return !!(el && !el.hidden); },
       _hot(b) { const el = this._menuEl(); if (el) el.querySelectorAll('button').forEach(x => x.classList.toggle('hot', x === b)); },
@@ -99243,6 +99308,7 @@
           const b = document.createElement('button');
           b.type = 'button';
           b.setAttribute('role', 'menuitem');
+          { const ck = this.checkedOf(it); if (ck !== null) { b.setAttribute('role', 'menuitemradio'); b.setAttribute('aria-checked', ck ? 'true' : 'false'); } }   // STANDARD PLANES (v20261107a): a radio row; the check is a ::before, never a node before the label (two readers take firstChild as the label)
           b.dataset.cmdId = it;
           b.innerHTML = '<span>' + esc(this.labelOf(it)) + '</span><span class="flyout-key">' + esc(this.keyText(this.keysOf(it))) + '</span>';
           { const ak = this.ariaKeys(this.keysOf(it)); if (ak) b.setAttribute('aria-keyshortcuts', ak); }   // P-V11
@@ -99313,6 +99379,8 @@
       // `keys` may be a FUNCTION (v20261104b, P-F6): Frame All's Shift+2 is only Frame All while nothing is selected (the key is frameSelection), so the
       // paper menu shows the key then and no key otherwise. Every reader goes through keysOf, so keyText's callers stay a string
       keysOf(id) { const c = this.byId(id); if (!c) return ''; if (typeof c.keys !== 'function') return c.keys; try { return c.keys() || ''; } catch (e) { return ''; } },
+      // `checked` (v20261107a, STANDARD PLANES): a radio row's state - a function or a boolean; null = not a radio row (every entry but the three planes)
+      checkedOf(id) { const c = this.byId(id); if (!c || c.checked === undefined) return null; try { return typeof c.checked === 'function' ? !!c.checked() : !!c.checked; } catch (e) { return false; } },
       reasonOf(id) { const c = this.byId(id); if (!c) return ''; if (this._pendingRefuses(c)) return 'Finish the shape first (Enter), or Esc'; const r = typeof c.reason === 'function' ? c.reason() : c.reason; return r || 'Select an object'; },
       // the display form: on a Mac the symbols as written; elsewhere Ctrl+ / Alt+ / Shift+ (a Windows hand is not told to press a key it has not got)
       keyText(keys) { if (!keys) return ''; if (this.isMac) return keys; return String(keys).replace(/⌘-/g, 'Ctrl-').replace(/⌘/g, 'Ctrl+').replace(/⌥/g, 'Alt+').replace(/⇧/g, 'Shift+').replace(/⌫/g, 'Backspace'); },   // ⌫ (P-V9, v20261104e): the Mac glyph alone was left
@@ -99321,7 +99389,7 @@
         if (!keys || /click/.test(keys)) return '';
         let rest = String(keys); const mods = [];
         for (const [sym, name] of [['⌘', this.isMac ? 'Meta' : 'Control'], ['⌥', 'Alt'], ['⇧', 'Shift']]) if (rest.includes(sym)) { mods.push(name); rest = rest.split(sym).join(''); }
-        rest = ({ '⌫': 'Backspace', 'Esc': 'Escape' })[rest] || rest;
+        rest = ({ '⌫': 'Backspace', 'Esc': 'Escape', '+': 'Plus', '-': 'Minus' })[rest] || rest;   // + / - (v20261107b): the zoom keys
         return rest ? mods.concat([rest]).join('+') : '';
       },
       run(id) {
@@ -99341,15 +99409,16 @@
       // true when the event named a command of this table (ran or refused): the caller prevents the default and returns.
       // The modifier SET must match exactly (Cmd+] never fires on Cmd+Opt+], Cmd+C never on Cmd+Shift+C); letters through
       // _keyIs (the Caps Lock rule of v20261030k), the brackets through event.code (layout-safe, the trim keys' precedent -
-      // a bare bracket carries no modifier and never reaches here).
+      // a bare bracket carries no modifier and never reaches here). A spec with `any` (v20261107b) matches event.key against a list
+      // of characters as typed and, with `shiftAny`, takes Shift or not (the zoom keys: + needs Shift on every layout, = on JIS).
       dispatchKey(ev) {
         if (!ev) return false;
         const meta = !!(ev.metaKey || ev.ctrlKey), shift = !!ev.shiftKey, alt = !!ev.altKey;
         for (const c of this.list) {
           const k = c.key;
           if (!k) continue;
-          if (meta !== !!k.meta || shift !== !!k.shift || alt !== !!k.alt) continue;
-          if (k.code ? ev.code !== k.code : !_keyIs(ev, k.k)) continue;
+          if (meta !== !!k.meta || (!k.shiftAny && shift !== !!k.shift) || alt !== !!k.alt) continue;   // shiftAny (v20261107b): the zoom keys' + / = with Shift or without
+          if (k.any ? !k.any.includes(ev.key) : k.code ? ev.code !== k.code : !_keyIs(ev, k.k)) continue;   // `any` (v20261107b): key CHARACTERS as typed - the layout decides, not the code
           this.run(c.id);   // a pending creation refuses in run() (enabled: _pendingRefuses), the key is consumed either way
           return true;
         }
@@ -99462,20 +99531,8 @@
           setWorkplaneFromCamera();
           return; // Stop processing
         } else if (!event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
-          // G: Cycle Standard Modes (XY -> XZ -> YZ)
-          pushUndoState();
-          const standardModes = ['vertical', 'horizontal', 'side'];
-          let nextIndex = standardModes.indexOf(activeWorkplane.mode) + 1;
-          if (nextIndex >= standardModes.length || nextIndex === 0 && !standardModes.includes(activeWorkplane.mode)) {
-            nextIndex = 0;
-          }
-          activeWorkplane.mode = standardModes[nextIndex];
-          activeWorkplane.offset = 0;
-          const wpInput = document.getElementById('custom-offset-z-field');
-          if (wpInput) wpInput.value = "0.00";
-          updatePropertiesPanel();
-          requestRender();
-          pushUndoState('Change workplane mode');
+          // G: Cycle Standard Modes (XY -> XZ -> YZ) - the one writer since v20261107a (setStandardWorkplane: a locked workplane refuses with a notice)
+          setStandardWorkplane(nextStandardWorkplane());
           return; // Stop processing
         }
       }
@@ -100926,6 +100983,34 @@
     // the drawer block is built once the DOM is there (the script runs at the end of the body, so it is)
     try { Align.buildUI(); } catch (e) { console.warn('Align.buildUI', e); }
     // --- /ALIGN ---
+
+    // STANDARD PLANES (v20261107a, PLAN-context-menu-planes-and-zoom-keys-261107 S1): the ONE writer of a standard workplane
+    // mode. The body stood in THREE copies - the G key's case in onKeyDown, the menu's Next Standard Plane (its run a copy by
+    // the S1 rule of PLAN-standard-verbs) and the plain branch of #workplaneSelect's change handler - and the context menu's
+    // XY / XZ / YZ rows are a fourth caller, so the body lives here and the four call it (one writer satisfies "the key and
+    // the menu cannot disagree" more strictly than copies). Returns false and writes NOTHING - no undo entry - when the plane
+    // is already the active one (the select's behaviour: re-picking the shown option fires no change; D2) and when the
+    // workplane is LOCKED (D6: the panel's select is disabled under the lock while the key and the menu rewrote the plane
+    // regardless - the one behaviour change to the G key, with a notice).
+    const STANDARD_WORKPLANE_MODES = ['vertical', 'horizontal', 'side'];   // XY, XZ, YZ - the select's order, the G cycle's order
+    const nextStandardWorkplane = () => {   // the mode G lands on: the next in the cycle; XY from a non-standard plane (indexOf -1)
+      const i = STANDARD_WORKPLANE_MODES.indexOf(activeWorkplane.mode);
+      return STANDARD_WORKPLANE_MODES[(i + 1) % STANDARD_WORKPLANE_MODES.length];
+    };
+    const setStandardWorkplane = (mode) => {
+      if (!STANDARD_WORKPLANE_MODES.includes(mode)) return false;
+      if (activeWorkplane.lock) { showAppNotice('The workplane is locked - the plane was not changed', { kind: 'warn' }); return false; }
+      if (activeWorkplane.mode === mode) return false;
+      pushUndoState();
+      activeWorkplane.mode = mode;
+      activeWorkplane.offset = 0;
+      const wpInput = document.getElementById('custom-offset-z-field');
+      if (wpInput) wpInput.value = "0.00";
+      updatePropertiesPanel();
+      requestRender();
+      pushUndoState('Change workplane mode');
+      return true;
+    };
 
     // WORKPLANE FROM CAMERA (v20260811j: lifted verbatim out of the Shift+G keydown
     // branch, where it was the only copy). Freezes the CURRENT view direction into

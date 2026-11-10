@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261107b -->
+<!-- dim v20261107c -->
 
 <!--
   MIT License
@@ -1950,6 +1950,18 @@
       font-weight: 600;
       padding: 6px 8px 2px;
       user-select: none;
+      display: flex;   /* KEY HINTS (v20261107c): the label at the left, its keys chip at the right */
+      align-items: center;
+    }
+
+    /* KEY HINTS (v20261107c): the stack's undo / redo keys, the context menu's .flyout-key look (the ONE margin-left: auto of this line) */
+    .history-stack-key {
+      margin-left: auto;
+      padding-left: 12px;
+      font-weight: 400;
+      opacity: 0.7;
+      font-size: var(--font-size-small);
+      white-space: nowrap;
     }
 
     .history-stack-label-camera,
@@ -9012,11 +9024,13 @@
       </svg>
     </div>
     <div id="historyDropdown">
-      <div class="history-stack-label">Scene</div>
+      <!-- KEY HINTS (v20261107c): each stack's undo / redo keys as a chip at the label's right, written by Commands.keyHints() from the table
+           (the context menu's chips, the owner: "a good habit ... for the History panel since it has shortcuts for undoing scene camera and animation") -->
+      <div class="history-stack-label">Scene<span class="history-stack-key" data-cmd-keys="undo redo"></span></div>
       <div id="historySceneList" class="history-list"></div>
-      <div class="history-stack-label history-stack-label-camera">Camera</div>
+      <div class="history-stack-label history-stack-label-camera">Camera<span class="history-stack-key" data-cmd-keys="cameraUndo cameraRedo"></span></div>
       <div id="historyCameraList" class="history-list"></div>
-      <div class="history-stack-label history-stack-label-animation">Animation</div>
+      <div class="history-stack-label history-stack-label-animation">Animation<span class="history-stack-key" data-cmd-keys="animUndo animRedo"></span></div>
       <div id="historyAnimationList" class="history-list"></div>
     </div>
   </div>
@@ -99187,8 +99201,14 @@
       list: [
         // --- the history (v20261104e, P-V3): display entries - the keys stay init's capture-phase cases; group 'history' so the creation gate
         // (_pendingRefuses) leaves them alone: the key's own priorities handle a pending shape and the Pen (an undo CANCELS a pending shape)
-        { id: 'undo', label: () => _cmdUndoLabel(), keys: '⌘Z', key: null, group: 'history', when: () => _cmdCanUndo(), reason: 'Nothing to undo', run: () => _cmdUndo() },
-        { id: 'redo', label: () => _cmdRedoLabel(), keys: '⌘⇧Z', key: null, group: 'history', when: () => sceneRedoHistory.length > 0, reason: 'Nothing to redo', run: () => _cmdRedo() },
+        { id: 'undo', label: () => _cmdUndoLabel(), hint: 'Scene Undo', keys: '⌘Z', key: null, group: 'history', when: () => _cmdCanUndo(), reason: 'Nothing to undo', run: () => _cmdUndo() },
+        { id: 'redo', label: () => _cmdRedoLabel(), hint: 'Scene Redo', keys: '⌘⇧Z', key: null, group: 'history', when: () => sceneRedoHistory.length > 0, reason: 'Nothing to redo', run: () => _cmdRedo() },
+        // KEY HINTS (v20261107c): the camera and the animation stacks as display entries - in no menu; the History dropdown's label chips read
+        // their keys (Commands.keyHints), the keys stay init's capture-phase Opt+Z / Opt+Shift+Z / Opt+X / Opt+Shift+X cases, the runs their copies
+        { id: 'cameraUndo', label: 'Camera Undo', keys: '⌥Z', key: null, group: 'history', when: () => cameraUndoHistory.length > 0, reason: 'Nothing to undo', run: () => { if (document.activeElement && document.activeElement.tagName === 'INPUT') document.activeElement.blur(); performCameraUndo(); } },
+        { id: 'cameraRedo', label: 'Camera Redo', keys: '⌥⇧Z', key: null, group: 'history', when: () => cameraRedoHistory.length > 0, reason: 'Nothing to redo', run: () => { if (document.activeElement && document.activeElement.tagName === 'INPUT') document.activeElement.blur(); performCameraRedo(); } },
+        { id: 'animUndo', label: 'Animation Undo', keys: '⌥X', key: null, group: 'history', when: () => animUndoHistory.length > 0, reason: 'Nothing to undo', run: () => { if (document.activeElement && document.activeElement.tagName === 'INPUT') document.activeElement.blur(); performAnimUndo(); } },
+        { id: 'animRedo', label: 'Animation Redo', keys: '⌥⇧X', key: null, group: 'history', when: () => animRedoHistory.length > 0, reason: 'Nothing to redo', run: () => { if (document.activeElement && document.activeElement.tagName === 'INPUT') document.activeElement.blur(); performAnimRedo(); } },
         // --- the object verbs ---
         { id: 'selectAll', label: 'Select All', keys: '⌘A', key: { k: 'a', meta: true }, when: () => _cmdCanSelectAll(), reason: 'Nothing to select', run: () => _cmdSelectAll() },
         { id: 'deselect', label: 'Deselect', keys: 'Esc', key: null, when: () => _cmdHasSel(), reason: 'Nothing is selected', run: () => setSelectedObject(null) },
@@ -99427,6 +99447,15 @@
       // every element with data-cmd="<id>" gets  title = <its own sentence> (<the table's keys>)  - written from the table, so a
       // tooltip can never drift from the binding (help.html's table drifted once, v20260718k); the base sentence is kept on the
       // element so a second call rewrites rather than appends
+      // KEY HINTS (v20261107c): every element with data-cmd-keys="<id> <id> ..." shows those entries' keys as one chip ("⌘Z · ⌘⇧Z"), its
+      // tooltip naming the verbs - the History dropdown's three stack labels; written from the table through keyText like the menu's chips
+      keyHints() {
+        for (const el of document.querySelectorAll('[data-cmd-keys]')) {
+          const ids = String(el.dataset.cmdKeys).split(/\s+/).filter(id => this.byId(id));
+          el.textContent = ids.map(id => this.keyText(this.keysOf(id))).filter(Boolean).join(' · ');
+          el.title = ids.map(id => { const c = this.byId(id); const l = c.hint || (typeof c.label === 'function' ? c.id : c.label); return l + ' (' + this.keyText(this.keysOf(id)) + ')'; }).join(', ');   // `hint` (undo / redo): the stack's name, not the entry's live label
+        }
+      },
       retitle() {
         for (const el of document.querySelectorAll('[data-cmd]')) {
           const c = this.byId(el.dataset.cmd);
@@ -103671,6 +103700,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       };
       initObjTabs();
       Commands.retitle();   // COMMANDS (v20261102a): the verb buttons' tooltips carry the table's keys
+      Commands.keyHints();   // KEY HINTS (v20261107c): the History dropdown's stack labels carry the undo / redo keys
 
       // --- Custom Number Input Spinners (v20260517c) ---
       const initCustomSpinners = (root = document) => {

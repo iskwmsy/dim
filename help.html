@@ -151,7 +151,7 @@
 
   <p style="font-size:11px;font-weight:600;color:var(--text-main);margin:0 0 4px;">dim / 3D Application based on SVG for
     graphic designers</p>
-  <p style="font-size:11px;color:var(--text-help-muted);margin:0 0 2px;">v20261107c</p>
+  <p style="font-size:11px;color:var(--text-help-muted);margin:0 0 2px;">v20261112f</p>
   <p style="font-size:11px;color:var(--text-help-muted);margin:0 0 0;">&copy; 2026 Masaya Ishikawa</p>
 
   <!-- ===== Keyboard Shortcuts ===== -->
@@ -1445,17 +1445,65 @@
       <td>A point or a panel light can fade with distance: <em>Inverse</em> is Range / distance, <em>Inverse Square</em> its square, so at Range the light has its typed Intensity, nearer it is brighter and farther dimmer. None (the default) is the same at any distance; a directional light has no distance and no such row. Range is animatable. A shadow does not change with it. Selected, the light draws a faint dashed ring at Range; the ring is never exported.</td>
     </tr>
     <tr>
+      <td>Affects</td>
+      <td><em>Scene</em> (the default): the light reaches every object. <em>Its Group</em> (the group's name is shown): the light
+          reaches only the objects in the group it sits in, and the groups inside it &mdash; only they are shaded by it, only they
+          cast its shadows, and only their faces take its shadows. Its shadows still fall on the workplane (Receivers keeps its
+          meaning). So two groups, each with its own light, light and shadow only themselves. Move an object into or out of the
+          group in Scene Objects and it follows at once. A light that is not in a group reaches the whole scene, whatever is
+          chosen (the panel says so). Under Shadow Strength From Light a shadow on an object counts only the lights that reach
+          that object.</td>
+    </tr>
+    <tr>
+      <td>Shade Objects</td>
+      <td>On (the default): the light colours the objects it reaches &mdash; their lit and dark sides. Off: the light only casts
+          its shadows; every object keeps its own colours (as if the light were not there) and the shadows stay exactly where
+          they were. With Shade Objects off the shadow's darkness is Shadow Opacity: Shadow Strength reads Manual and greys,
+          since From Light needs a light that shades (it comes back when Shade Objects is ticked again). Other lights in the
+          scene still shade as before. Intensity 0 does the same silently, for older scenes.</td>
+    </tr>
+    <tr>
       <td>Shadows / Shadow Opacity / Shadow Color / Blur / Softness</td>
       <td>Shadows on or off for this light (on turns Scene Z-Sort on: a shadow is a face the scene sorts and masks like any
           other). Opacity is the shadow's darkness; Shadow Color its colour, black by default (laid over whatever it lands
           on at that opacity; a light colour is a wash). Blur, in the display unit (its label says which), softens the edge &mdash;
-          on the canvas an SVG blur, in the export six offset copies inside the hard outline. Softness (shown for panel
+          on the canvas an SVG blur of the shadow, fading inward and outward from its outline (a shadow on an object's face stays on that face); in the export twelve copies of the shadow across the outline, on the blur's own profile. Softness (shown for panel
           lights) widens the soft edge with the distance between the casters and the surface the shadow lands on.</td>
     </tr>
     <tr>
-      <td>Expand Blur in Export</td>
-      <td>On: a blurred shadow ships as the vector soft edge Illustrator reads. Off: the file keeps the blur filter (for a
-          browser; Illustrator shows it hard).</td>
+      <td>Shadow Strength</td>
+      <td><em>Manual</em> (the default, and every older file): the shadow is Shadow Color at the typed Shadow Opacity, wherever
+          it lands. <em>From Light</em>: each shadow is exactly as dark as the light it blocks &mdash; the surface under it shows
+          the colour it has with this light switched off and the other lights and Ambient still on. So a dim light casts a faint
+          shadow, a shadow out past a Falloff's Range or near the edge of a spot's cone fades, a shadow lightens where a second
+          light still reaches, and a lit face's shadow matches its unlit sides. Shadow Opacity greys (it keeps its value for
+          Manual). One darkness per shadow, read at the middle of the surface it lands on (a long shadow under a strong Falloff
+          does not grade along its length); the workplane counts as a white lit face. From Light wants some Ambient: at Ambient 0
+          a shadow is black. A light at Intensity 0 blocks nothing, so under From Light it casts no shadow (under Manual it still
+          does). With a Shadow Color other than black the darkness is chosen so the result comes as close to the unlit colour as
+          that colour allows. Blur, Blur in Export and Copy carry the same darkness.</td>
+    </tr>
+    <tr>
+      <td>Soft Edge (panel lights)</td>
+      <td><em>From Size</em> (a new panel's choice): the shadow's edge softens as a real area light's does &mdash; wider with a
+          bigger panel (its Size, or the Scale tool) and with a caster standing higher above the surface, narrower with the
+          panel farther away, a little wider when the panel shines in at a low angle. The soft edge spreads both ways across
+          the shadow's outline, as a real penumbra does. Softness then multiplies it: 1 = the physical width, 0 = a hard edge,
+          2 = twice as soft; Blur adds to it. One width per surface the shadow lands on (the casters' average height above it),
+          and the panel still lights faces from its centre &mdash; its size changes the shadow, not the shading.
+          <em>Manual</em>: Softness &times; the casters' height above the surface, whatever the panel's size &mdash; the form
+          of every scene made before From Size, which opens looking exactly as it did.</td>
+    </tr>
+    <tr>
+      <td>Blur in Export</td>
+      <td>What a blurred shadow becomes in an export or a copy. Vector Layers (the default): twelve copies of the shadow
+          across its outline &mdash; all paths, with fine steps at a wide blur. Image: one picture of the blurred shadow, as the
+          canvas shows it &mdash; in Illustrator an image (inside a clip group when the shadow lies on an object's face), not a
+          path; every frame of a sequence carries its own, and pasting the copy back into dim with &#8984;V drops it (Paste
+          Object, &#8984;&#8679;V, keeps the light). SVG Filter: the file keeps the blur filter (for a browser; Illustrator shows
+          it hard). A copy of a selection (&#8984;C with objects selected, the light not among them) carries the selection's
+          shadows only: the one its objects cast on the workplane and those lying on them; select the light as well for every
+          shadow it casts.</td>
     </tr>
     <tr>
       <td>Receivers</td>
@@ -1476,7 +1524,7 @@
     <tr>
       <td>Timeline</td>
       <td>A light's position, rotation and scale are tracks like any object's; Intensity, Shadow Opacity, Blur and Softness
-          are its own group (<em>Light</em>) &mdash; Auto-Key records them as you type.</td>
+          are its own group (<em>Light</em>) &mdash; Auto-Key records them as you type. Under Shadow Strength From Light the Shadow Opacity track has no effect (the darkness comes from the lights).</td>
     </tr>
   </table>
 
@@ -1899,7 +1947,7 @@
     </tr>
     <tr>
       <td><kbd>⌘</kbd> <kbd>C</kbd></td>
-      <td>Copy &mdash; the selected objects as SVG for Illustrator (the frame rect kept), with dim&rsquo;s own record inside the text, so <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>V</kbd> brings the objects back (copying anything else replaces it); with nothing selected, the whole view</td>
+      <td>Copy &mdash; the selected objects as SVG for Illustrator (the frame rect kept), with dim&rsquo;s own record inside the text, so <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>V</kbd> brings the objects back (copying anything else replaces it); with nothing selected, the whole view. With a light in the scene the copy carries the selection&rsquo;s shadows: the shadow the selected objects cast on the workplane, and any shadow lying on a selected object, whoever casts it &mdash; nothing of or on an object left out. Select the light too for all of its shadows</td>
     </tr>
     <tr>
       <td><kbd>⌘</kbd> <kbd>V</kbd></td>

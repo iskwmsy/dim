@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261116q -->
+<!-- dim v20261117b -->
 
 <!--
   MIT License
@@ -2663,6 +2663,13 @@
 
     .ui-btn:hover {
       background-color: var(--btn-hover);
+    }
+
+    /* GREYED FIELDS (v20261116r; the owner: the Lights panel's Range "was uneditable" and looked live): a field that is off LOOKS off - the Camera
+       Window's and Align's rule (#subWindowBar3, #alignSpacingInput) for every input / select / textarea. Their own rules are more specific and win. */
+    input:disabled, select:disabled, textarea:disabled {
+      opacity: 0.45;
+      cursor: default;
     }
 
     .ui-btn:disabled {
@@ -9540,6 +9547,28 @@
                     <select id="lightBeamCutSelect" class="ui-select" title="Whether the objects in the beam stop it. Shadow Tunnel: the beam stops at an object - nothing behind it as seen from the light, so its patch on the floor leaves the object's shadow. None: the beam goes through the objects (they hide what is behind them) and only the floor stops it. The objects are the ones that cast this light's shadow">
                       <option value="none">None</option>
                       <option value="tunnel">Shadow Tunnel</option>
+                    </select>
+                  </div>
+                  <!-- LIGHT (v20261116s): the beam's LENGTH - it ends there, or at the floor when the floor is nearer; 0 = at the floor (the Range in the air) -->
+                  <div class="xyz-row" id="lightBeamLengthRow">
+                    <label for="lightBeamLengthInput">Length <span id="lightBeamLengthUnit">(px)</span></label>
+                    <div class="xyz-inputs">
+                      <input type="number" id="lightBeamLengthInput" value="0" step="0.1" min="0" title="How far the beam reaches from the light, in the display unit: it ends there, or at the floor when the floor is nearer. Shows where the beam ends now; 0 = at the floor (or at the Range when the beam misses the floor). The beam only - the light, its shading and its shadows reach on" />
+                    </div>
+                  </div>
+                  <!-- LIGHT (v20261116u): the beam's FADE - the share of its length that fades out at its far end -->
+                  <div class="xyz-row" id="lightBeamFadeRow">
+                    <label for="lightBeamFadeInput">Fade</label>
+                    <div class="xyz-inputs">
+                      <input type="number" id="lightBeamFadeInput" value="0" step="0.05" min="0" max="1" title="How much of the beam fades out toward its far end: 0 = none, 0.5 = its far half fades to nothing, 1 = it fades all the way from the light (or from Start). Exported as a gradient - pasting into Illustrator misplaces the fade: use Export SVG and File &gt; Open (or Fade in Export: Bands)" />
+                    </div>
+                  </div>
+                  <!-- LIGHT (v20261116v): how the Fade leaves dim - Illustrator's PASTE does not carry an SVG gradient with the art -->
+                  <div class="style-row">
+                    <label for="lightBeamFadeExportSelect">Fade in Export</label>
+                    <select id="lightBeamFadeExportSelect" class="ui-select" title="How the Fade is written to an SVG. Gradient: one editable gradient - right through Export SVG and File &gt; Open, but pasting into Illustrator (Cmd+V, Paste in Place) misplaces it. Bands: stepped slices of plain shapes - right however it reaches Illustrator, a paste included">
+                      <option value="gradient">Gradient</option>
+                      <option value="bands">Bands</option>
                     </select>
                   </div>
                   <div class="style-row">
@@ -17811,6 +17840,24 @@
       _scheduleHistoryUpdate();
       return n;
     };
+    // THE CANCEL OF A FIELD EDIT (v20261117b) - ONE helper for a typed field's Esc (v20261114zl, lifted here verbatim from the field keys in
+    // init) and a scrub's Esc (attachFieldScrub). The rewind to the mark, with the selection taken by id before and put back after (a scene
+    // restore rebuilds every object and leaves nothing selected - performUndo's contract; an Esc in a field must not deselect), then the
+    // panels and a frame. Returns the number of entries rewound.
+    const _fieldEditCancel = (mark) => {
+      const ids = _cmdSel().map(o => o.id), primary = selectedObject ? selectedObject.id : null;
+      let n = 0; try { n = _fieldEditRewind(mark); } catch (err) { console.warn('Esc: the field edit could not be rewound', err); }
+      if (n) {
+        if (!selectedObject && ids.length) {
+          const objs = ids.map(id => findObjectById(id)).filter(Boolean);
+          const head = objs.find(o => o.id === primary) || objs[objs.length - 1];
+          const order = objs.filter(o => o !== head).concat(head ? [head] : []);   // the primary added LAST (setSelectedObject makes the added one primary)
+          order.forEach((o, i) => setSelectedObject(o, i > 0));
+        }
+        updatePropertiesPanel(); try { updateStylePanel(); } catch (err) { } requestRender();
+      }
+      return n;
+    };
 
     // --- History Panel ---
     let _historyUpdateRAF = null;
@@ -18626,6 +18673,54 @@
     // message - it no longer disappears. .visible keeps its meaning (a message at full strength; probes read it).
     let _appNoticeTimer = null;
     const APP_NOTICE_FULL_MS = 3000;
+    // --- GREYED FIELDS (v20261116r) ---
+    // The owner, 2026-11-16: the Lights panel's Range "was uneditable. Entering a number in the form triggered a camera shortcut. and the drag scrub does
+    // not work" - Range is OFF without a Falloff (input.disabled). A disabled field takes no focus, so the click left the page focused and the typed digits
+    // ran the view keys (5 = the projection); the scrub skips a disabled field (as it should). The field looked live (no disabled rule but the Camera
+    // Window's and Align's - the CSS above makes every one look off). A press on a greyed field HOLDS the keys: until the next press elsewhere, Esc or
+    // Tab, a key without Cmd / Ctrl does nothing (onKeyDown) and the message bar says why the field is off - its _greyWhy reason, else that it is off.
+    // Read from the pointerdown (Chrome fires it on a disabled field, no mousedown, no focus) and from what is UNDER the pointer (a browser that sends
+    // the press to the field's row).
+    let _greyHold = null, _greyHoldT = -1;
+    const _GREY_SEL = 'input:disabled, select:disabled, textarea:disabled';
+    // why a field is off, on its row, its label and itself (the _stackSnapWhy form); why = null puts the titles back
+    const _greyWhy = (input, why) => {
+      if (!input) return;
+      const row = input.closest('.xyz-row, .style-row'), lab = row && row.querySelector(':scope > label');
+      for (const el of [row, lab, input]) {
+        if (!el) continue;
+        if (why) { if (el.dataset.greyT0 === undefined) el.dataset.greyT0 = el.title || ''; el.title = why; }
+        else if (el.dataset.greyT0 !== undefined) { el.title = el.dataset.greyT0; delete el.dataset.greyT0; }
+      }
+      if (why) input.dataset.greyWhy = why; else delete input.dataset.greyWhy;
+    };
+    const _greyFieldAt = (e) => {
+      const t = e.target && e.target.closest ? e.target.closest(_GREY_SEL) : null; if (t) return t;
+      if (!Number.isFinite(e.clientX)) return null;
+      try { return (document.elementsFromPoint(e.clientX, e.clientY) || []).find(el => el.matches && el.matches(_GREY_SEL)) || null; } catch (err) { return null; }
+    };
+    const _greyPress = (e) => {
+      const f = _greyFieldAt(e);
+      if (!f) { _greyHold = null; return; }
+      if (_greyHold === f && Math.abs(e.timeStamp - _greyHoldT) < 400) return;   // the pointerdown and the mousedown of ONE press
+      _greyHold = f; _greyHoldT = e.timeStamp;
+      const a = document.activeElement; if (a && a !== document.body && a.blur) a.blur();   // a field focused before is not the one the keys are for
+      const row = f.closest('.xyz-row, .style-row'), lab = row && row.querySelector(':scope > label');
+      const name = (lab && lab.textContent.trim()) || f.getAttribute('aria-label') || 'This field';
+      try { showAppNotice(f.dataset.greyWhy || (name + ' is off here'), { kind: 'warn' }); } catch (err) { }
+    };
+    document.addEventListener('pointerdown', _greyPress, true);
+    document.addEventListener('mousedown', _greyPress, true);
+    // onKeyDown's first word: true = the key was the greyed field's (swallowed)
+    const _greyKey = (event) => {
+      const f = _greyHold; if (!f) return false;
+      if (!f.isConnected || !f.disabled) { _greyHold = null; return false; }
+      if (event.key === 'Escape' || event.key === 'Tab') { _greyHold = null; return event.key === 'Escape' ? (event.preventDefault(), true) : false; }
+      if (event.metaKey || event.ctrlKey) return false;
+      if (event.key.length === 1 || /^(Backspace|Delete|Enter|Arrow(Up|Down|Left|Right)|Home|End|PageUp|PageDown)$/.test(event.key)) { event.preventDefault(); return true; }
+      return false;
+    };
+    // --- /GREYED FIELDS ---
     const showAppNotice = (text, opts) => {
       const o = opts || {};
       const kind = o.kind || 'info', ms = Math.max(APP_NOTICE_FULL_MS, (o.ms > 0) ? o.ms : 0);
@@ -47659,12 +47754,13 @@
               // complements) around the terminal <use>; the plain entry is a
               // chain of length one. Collect every clip level on the way —
               // the effective footprint is occ ∩ clip_1 ∩ clip_2 ∩ … .
-              let occEl = entry;
+              let occEl = entry, levelEmpty = false;
               const clipSets = [];
               while (occEl && occEl.tagName === 'g') {
                 const cRef = (occEl.getAttribute('clip-path') || '').match(/url\(#(mrc\d+)\)/);
                 if (cRef) {
                   const cp = clonedRoot.querySelector('#' + cRef[1]);
+                  if (cp && this._clipNoArea(cp, false)) { levelEmpty = true; break; }   // (v20261116x) a level of no area hides nothing (_clipNoArea)
                   if (cp) {
                     const cr = ringsOf(cp);
                     if (cr.length) { clipSets.push(cr); for (const s of segsOf(cp)) srcSegs.push(s); }
@@ -47672,13 +47768,18 @@
                 }
                 occEl = occEl.firstElementChild;
               }
+              if (levelEmpty) continue;
               if (!occEl) continue;
               let occRings = null;
               if (occEl.tagName === 'use') {
                 const gRef = (occEl.getAttribute('href') || '').replace('#', '');
                 const geo = clonedRoot.querySelector('#' + gRef);
+                if (geo && this._clipNoArea(geo, true)) continue;   // (v20261116x) an occluder of no area hides nothing
                 if (geo) { occRings = ringsOf(geo); for (const s of segsOf(geo)) srcSegs.push(s); }
-              } else { occRings = ringsOf(occEl); for (const s of segsOf(occEl)) srcSegs.push(s); }
+              } else {
+                if (this._clipNoArea(occEl, true)) continue;   // (v20261116x)
+                occRings = ringsOf(occEl); for (const s of segsOf(occEl)) srcSegs.push(s);
+              }
               if (!occRings || !occRings.length) continue;
               // STROKE-BAND DILATION WAS BUILT HERE AND DECLINED (v20260814b,
               // reverted v20260814d). It subtracted the occluder's PAINTED
@@ -48278,7 +48379,7 @@
         const RI = RenderIntersections;
         const t0 = performance.now();
         const st = { faces: 0, entries: 0, levels: 0, booleans: 0, normalized: -1,
-                     failed: 0, emptyEff: 0, maxDepth: 0, bytes: 0, overlapPairs: -1,
+                     failed: 0, emptyEff: 0, emptyLevels: 0, emptyFoot: 0, maxDepth: 0, bytes: 0, overlapPairs: -1,
                      bands: 0, bandsSkipped: 0, bandWrappers: 0, multiChildClips: -1,
                      capped: 0, capMerged: 0, capUnions: 0, capFailed: 0,
                      overCapStacks: 0, maxTotalDepth: 0,
@@ -48443,23 +48544,29 @@
             // Descend the clip chain exactly as flattenExport's entries loop
             // does — a fold-split COMPLEMENT entry is a nested stack of clip
             // groups around the terminal <use>.
-            let occEl = entry;
+            let occEl = entry, levelEmpty = false;
             const clipSets = [], clipEls = [];
             while (occEl && occEl.tagName === 'g') {
               const cr = (occEl.getAttribute('clip-path') || '').match(/url\(#(mrc\d+)\)/);
               if (cr) {
                 const cp = clonedRoot.querySelector('#' + cr[1]);
+                // (v20261116x) a level of NO AREA hides nothing - the entry is skipped, never read as unclipped (_clipNoArea)
+                if (cp && this._clipNoArea(cp, false)) { levelEmpty = true; break; }
                 // a level that is not a proper ring set is read as its even-odd outline (v20260928h, _clipProperSet)
                 if (cp) { const crr = ringsOf(cp); if (crr.length) { clipSets.push(this._clipProperSet(crr, st)); clipEls.push(cp); } }
               }
               occEl = occEl.firstElementChild;
             }
+            if (levelEmpty) { st.emptyLevels++; continue; }
             if (!occEl) continue;
             let occGeo = occEl;
             if (occEl.tagName === 'use') {
               occGeo = clonedRoot.querySelector('#' + (occEl.getAttribute('href') || '').replace('#', ''));
             }
             if (!occGeo) continue;
+            // (v20261116x) an occluder of NO AREA hides nothing (_clipNoArea, paint: a stroked copy is not empty) - read here,
+            // where the degenerate drop's deletion of it used to end the entry (`if (!occGeo) continue`), so the entry ends as before
+            if (this._clipNoArea(occGeo, true)) { st.emptyFoot++; continue; }
             // M3: this entry's occluder may owe F a stroke band — see
             // _clipStrokeOverlay. Recorded now, emitted after F's chain exists.
             if (!opts.noBands) bandJobs.push({ occGeo, clipEls });
@@ -49519,6 +49626,45 @@
         if (!out.length) return u.rings.map(r => ({ pts: r.pts, srcs: null }));
         if (st) st.clipSetNoise += u.rings.length - out.length;
         return out;
+      },
+      // AN ENTRY OF NO AREA HIDES NOTHING (v20261116x, PLAN-export-hairline-clip-261116). A mask entry is an occluder's black
+      // copy under its clip levels: what it hides is the occluder INSIDE every level. A level with no area paints nothing in
+      // SVG (an empty clipPath clips everything away), so neither does the entry. clipExport and flattenExport read a level
+      // with no rings as ABSENT - `if (rings.length) clipSets.push(...)` - and fell to level 0, "the footprint IS the hidden
+      // set": the occluder's WHOLE face came out of the face. Measured: a spot beam drawn on the floor under Scene Z-Sort,
+      // whose level is the rim traced out and back (area 3.14, perimeter 520), exported as one quad of the cone's top.
+      // THE RULE IS THE DEGENERATE DROP'S OWN (v20260904y: per path, |area| under a fiftieth of the perimeter; a path the ring
+      // reader cannot read, or of no perimeter, is not known empty), because until v20261116x that drop deleted exactly
+      // these paths under <defs> before the converters ran: a level it deleted read as absent (the defect), a black copy it
+      // deleted left the entry empty. With the drop kept out of <defs>, the converters now ask the same question themselves -
+      // a level of no area hides nothing (the fix), an occluder of no area hides nothing (as before: kept, its segments
+      // steered the curve fit of the face behind - boolean_drill_owner_face_order_a, one cut edge as ten cubics for one).
+      // `paint`: a footprint - a path that paints a STROKE is not empty (the drop kept it; in the mask it hides its band).
+      // Not FOOT_NOISE_W: that wider rule (mean width 0.25 against 0.04) would also skip thin occluders the export subtracts.
+      _clipNoArea(el, paint) {
+        const RI = RenderIntersections;
+        const nodes = (el.getAttribute && el.getAttribute('d')) ? [el] : [];
+        for (const n of el.querySelectorAll('[d]')) nodes.push(n);
+        for (const n of nodes) {
+          const d = n.getAttribute('d');
+          if (!d || !d.trim()) continue;
+          if (paint) {
+            let s = null;
+            for (let m = n; m && m.getAttribute; m = m.parentNode) { const v = m.getAttribute('stroke'); if (v) { s = v; break; } }
+            if (s && s !== 'none') return false;
+          }
+          const rs = RI.ringsFromElement(n);
+          if (!rs || !rs.length) return false;
+          let a2 = 0, per = 0;
+          for (const P of rs) {
+            for (let k = 0, l = P.length - 1; k < P.length; l = k++) {
+              a2 += P[l][0] * P[k][1] - P[k][0] * P[l][1];
+              per += Math.hypot(P[k][0] - P[l][0], P[k][1] - P[l][1]);
+            }
+          }
+          if (!(per > 0) || Math.abs(a2) / 2 >= per * 0.02) return false;
+        }
+        return true;
       },
       // AN EMPTY RESULT IS A CLAIM, AND IT CAN BE CHECKED (v20260928h). "This
       // occluder, inside these clip levels, hides nothing" is true when the
@@ -56144,7 +56290,7 @@
     const _lightBeamRecord = (b) => {
       if (!b || typeof b !== 'object') return null;
       const c = (typeof ColorPicker !== 'undefined' && ColorPicker.normHex && ColorPicker.normHex(b.color)) || null;
-      return { on: b.on !== false, opacity: _lightNum(b.opacity, 0, 1, 0.25), ...(c ? { color: c } : {}), cut: b.cut === 'tunnel' ? 'tunnel' : 'none',   /* (zq) absent = None (a new beam); 'objects' (zj) reads None */ ...(b.look === 'solid' ? { look: 'solid' } : {}),
+      return { on: b.on !== false, opacity: _lightNum(b.opacity, 0, 1, 0.25), ...(c ? { color: c } : {}), cut: b.cut === 'tunnel' ? 'tunnel' : 'none',   /* (zq) absent = None (a new beam); 'objects' (zj) reads None */ ...(_lightNum(b.fade, 0, 1, 0) > 0 ? { fade: _lightNum(b.fade, 0, 1, 0) } : {}),   /* (v20261116u) FADE: the share of the beam's length that fades out at its end; absent = 0 = none */ ...(b.fadeExport === 'bands' ? { fadeExport: 'bands' } : {}),   /* (v20261116v) FADE IN EXPORT; since v20261116w absent = Gradient (the owner: one editable gradient, the paste said in the tooltip), 'bands' = stepped slices */ ...(b.look === 'solid' ? { look: 'solid' } : {}),
         ...(b.bottomOpacity !== undefined && Number.isFinite(+b.bottomOpacity) ? { bottomOpacity: _lightNum(b.bottomOpacity, 0, 1, 0.25) } : {}), ...(b.startOpacity !== undefined && Number.isFinite(+b.startOpacity) ? { startOpacity: _lightNum(b.startOpacity, 0, 1, 0.25) } : {}),
         ...((() => { const bc = (typeof ColorPicker !== 'undefined' && ColorPicker.normHex && ColorPicker.normHex(b.bottomColor)) || null, sc = (typeof ColorPicker !== 'undefined' && ColorPicker.normHex && ColorPicker.normHex(b.startColor)) || null; return { ...(bc ? { bottomColor: bc } : {}), ...(sc ? { startColor: sc } : {}) }; })()) };   // (zr) a Solid beam's ends' colours: absent = the beam's colour   // (zq) a Solid beam's ends: absent = the Beam Opacity   // (v20261115zk) 'objects' withdrawn: it draws what None draws; (zo) look 'solid' - absent = one layer   // (v20261115zk) 'objects' withdrawn: it draws what None draws
     };
@@ -56189,6 +56335,10 @@
         // (v20261115zm) START: a spot's near cut, scene units along the beam - nothing nearer casts its shadow, its beam begins there (a lamp's bulb and shade).
         // ABSENT = 0 (every light before this release, byte-identical); written only when above 0.
         ...(_lightNum(s.start, 0, 1e6, 0) > 0 ? { start: _lightNum(s.start, 0, 1e6, 0) } : {}),
+        // (v20261116s) BEAM LENGTH: how far a spot's beam reaches, scene units from the light - it ends there or at the floor, whichever is nearer (the beam only:
+        // the light's shading and shadows reach on). ABSENT = 0 = the floor, or the Range when the floor does not catch the whole cone (every light before this
+        // release, byte-identical); written only when above 0. Top level, beside start, so it is an animation channel (ltBeamLength).
+        ...(_lightNum(s.beamLength, 0, 1e6, 0) > 0 ? { beamLength: _lightNum(s.beamLength, 0, 1e6, 0) } : {}),
       };
     };
     const _isLightObj = (o) => !!(o && !o.isGroup && o.light && typeof o.light === 'object');
@@ -57750,10 +57900,13 @@
       const L = obj.light, W = obj.getWorldMatrix(), P = pointApplyMatrix([0, 0, 0], W), d = _lightBeam(obj, W); if (!d) return null;
       const half = Math.min(L.coneAngle / 2, LIGHT_BEAM_MAX_HALF) * Math.PI / 180, tanH = Math.tan(half);
       const wp = _lightFloorOf(L), n0 = vectorNormalize(wp.normal), h = vectorDot(vectorSubtract(P, wp.point), n0), ah = Math.abs(h);
-      let len = L.range, slab = null;
+      // (v20261116s) Length (beamLength > 0): the beam ends there, or at the floor when the floor is nearer (the end plane and the floor stop each ray, the nearer
+      // wins: _lightBeamVolume's endT); absent = the floor, or the Range when the floor does not catch the whole cone (as before)
+      const bl = +L.beamLength > 0 ? +L.beamLength : 0;
+      let len = bl || L.range, slab = null;
       if (ah > 1e-9) {
         const up = h > 0 ? n0 : vectorScale(n0, -1), c = -vectorDot(d, up), sn = Math.sqrt(Math.max(0, 1 - c * c));   // c > 0: the beam goes toward the floor
-        if (c - tanH * sn > 1e-6) len = Math.min((ah * 1.05 + 1e-3) / (c - tanH * sn), 1e4 * ah);          // every ray meets the floor: the base disc lies wholly beyond it
+        if (c - tanH * sn > 1e-6) { const fLen = Math.min((ah * 1.05 + 1e-3) / (c - tanH * sn), 1e4 * ah); len = bl ? Math.min(bl, fLen) : fLen; }   // every ray meets the floor: the base disc lies wholly beyond it (a shorter Length wins)
         if (c + tanH * sn > 1e-6) {                                                                          // some ray meets the floor: the slab cuts
           const F = vectorSubtract(P, vectorScale(up, ah * (1 - _lightBeamLift))), down = vectorScale(up, -1), ax = Math.abs(down[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
           const xA = vectorNormalize(vectorCross(ax, down)), yA = vectorCross(down, xA), S = len / Math.cos(half) + 1;
@@ -57900,7 +58053,15 @@
       if (rim.some(p => { const v = vectorSubtract(p.E, P); return Math.abs(vectorDot(v, d) - G.cone.len) < 1e-6 * G.cone.len; })) {
         const C = vectorAdd(P, vectorScale(d, G.cone.len)); let ring = [];
         for (let i = 0; i < N; i++) { const th = 2 * Math.PI * i / N; ring.push(vectorAdd(C, vectorScale(vectorAdd(vectorScale(e1, Math.cos(th)), vectorScale(e2, Math.sin(th))), G.cone.R))); }
-        if (fl) ring = _lightClipRing(ring, (X) => vectorDot(vectorSubtract(X, fl.pt), fl.up));
+        if (fl) {
+          const r0 = ring; ring = _lightClipRing(ring, (X) => vectorDot(vectorSubtract(X, fl.pt), fl.up));
+          // (v20261116t) a point the floor cut on a CHORD of the disc's ring sits inside the circle (an S-kink where the disc's edge leaves it): moved along the
+          // cut line (the end plane meets the floor) onto the circle - the cone's own point there, where the floor patch's corner lands too (_lightRimSnap)
+          const C = vectorAdd(P, vectorScale(d, G.cone.len)), R = G.cone.R, u0 = vectorCross(d, fl.up), ul = Math.hypot(u0[0], u0[1], u0[2]);
+          if (ul > 1e-9) { const u = vectorScale(u0, 1 / ul), lim = 2 * Math.PI * R / N;
+            ring = ring.map(X => { if (r0.includes(X)) return X; const w = vectorSubtract(X, C), b = vectorDot(u, w), c = vectorDot(w, w) - R * R, disc = b * b - c; if (!(disc >= 0)) return X;
+              const sq = Math.sqrt(disc), s1 = -b + sq, s2 = -b - sq, sm = Math.abs(s1) < Math.abs(s2) ? s1 : s2; return Math.abs(sm) <= lim ? vectorAdd(X, vectorScale(u, sm)) : X; }); }
+        }
         if (ring.length >= 3) cap = { C: ring.reduce((s, p) => vectorAdd(s, p), [0, 0, 0]).map(x => x / ring.length), ring };
       }
       // (v20261115zp) the end cap CUT BY THE SHADOWS (the owner: "cut the end cap by the shadows too"): the disc on its plane minus the casters' shadows sent from
@@ -57919,7 +58080,19 @@
       let floorPatch = null;
       if (fl && rim.some(p => p.k === -1)) {
         try {
-          const pl = _lightPlaneBasis({ point: fl.pt, normal: fl.up }), fp = _lightConeFootprint({ P, cone: { dir: d, half } }, pl, 4 * G.cone.len / Math.cos(half) + 1);
+          const pl = _lightPlaneBasis({ point: fl.pt, normal: fl.up }), fp0 = _lightConeFootprint({ P, cone: { dir: d, half } }, pl, 4 * G.cone.len / Math.cos(half) + 1);
+          // (v20261116t) THE PATCH ENDS WHERE THE BEAM ENDS. The footprint is the whole cone's on the floor; where the beam ends in the air first (its Length, or the
+          // Range, shorter than the floor along some rays) those rays never reach the floor - the owner's beam with a Length drew the floor patch to 13.1 along the
+          // axis under a beam 9 long. Cut at the line where the end plane (d . (X - P) = len) meets the floor: the end cap is cut by the floor along the same line.
+          let fp = fp0;
+          if (fp0) {
+            const fE = (q) => G.cone.len - vectorDot(vectorSubtract(vectorAdd(pl.o, vectorAdd(vectorScale(pl.u, q[0]), vectorScale(pl.v, q[1]))), P), d);
+            if (fp0.some(q => fE(q) < 0)) {
+              const out = []; let A = fp0[fp0.length - 1], fa = fE(A);
+              for (const B of fp0) { const fb = fE(B); if ((fa >= 0) !== (fb >= 0)) { const t = fa / (fa - fb); out.push([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t]); } if (fb >= 0) out.push(B); A = B; fa = fb; }
+              fp = out.length >= 3 ? out : null; if (fp) fp.chords = fp0.chords;   // the rim's chords still name the part of the rim kept
+            }
+          }
           if (fp) {
             // (v20261116n, B1) its edge is the SHADOWS' edge: the cone's footprint as its four quarter cubics (fp.chords) and the casters' curves, recovered after the
             // union by _lightCurveRings and written by _lightRingCurveD - the construction of a shadow cut to the cone, so the two meet without a sliver
@@ -57990,7 +58163,11 @@
         const find = (q) => { const cx = Math.round(q[0] / cell), cy = Math.round(q[1] / cell); let best = null, bd = tol * tol;
           for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const c of grid.get((cx + a) + ',' + (cy + b)) || []) { const d2 = (c.x - q[0]) ** 2 + (c.y - q[1]) ** 2; if (d2 <= bd) { bd = d2; best = c; } }
           return best; };
-        const nA = { C: pre ? pre.edge.length : (V.cap ? V.cap.ring.length : 0) }, step = (a, b) => { if (!a || !b || a.arc !== b.arc) return 0; const n = a.arc === 'C' ? nA.C : V.rim.length - 1; let d = b.i - a.i; if (n) { if (d > n / 2) d -= n; if (d < -n / 2) d += n; } return Math.abs(d) <= 2 && d !== 0 ? Math.sign(d) : 0; };
+        const nA = { C: pre ? pre.edge.length : (V.cap ? V.cap.ring.length : 0) }, step = (a, b) => { if (!a || !b || a.arc !== b.arc) return 0; const n = a.arc === 'C' ? nA.C : V.rim.length - 1; let d = b.i - a.i; if (n) { if (d > n / 2) d -= n; if (d < -n / 2) d += n; } if (!(Math.abs(d) <= 2 && d !== 0)) return 0;
+          // (v20261116t) two samples on the circle but FAR apart on it are not a piece of the rim: the straight cut the floor makes across the end disc, once its two
+          // ends are moved onto the circle - one sample spacing is 7.5 degrees at the most (the footprint's 48), a rim step never more
+          if (A) { const ta = thW(a.X), tb = thW(b.X); if (Number.isFinite(ta) && Number.isFinite(tb)) { let dt = tb - ta; dt -= 2 * Math.PI * Math.round(dt / (2 * Math.PI)); if (Math.abs(dt) > 1.5 * 2 * Math.PI / LIGHT_CONE_RING) return 0; } }
+          return Math.sign(d); };
         let out = '';
         for (const r0 of rings) {
           // a vertex that is no curve's sample and lies on the line of its neighbours (a wall cut in four, the clipper's lattice) goes; a repeated one too
@@ -58033,9 +58210,15 @@
       const H = FRAME_SIZE / 2, P = G.P, d = G.d, out = [];
       // (v20261116n) THE LIFT IS DEPTH ONLY: a point within _lightBeamLift of the light's height above the floor is drawn where it is and takes the depth of the point
       // on its ray at that height (the floor patch, the side's and the walls' floor edges - in front of the floor by the margin they had when the geometry was lifted)
+      // (v20261116y, PLAN-beam-lift-sight-line-261116) ...ON ITS SIGHT LINE, not on its ray from the light: the point at that height on the PIXEL'S OWN ray, toward the
+      // light's side of the floor (nearer the eye when the eye is above the floor, the same pixel; farther when it is below, so the floor hides the beam). The step
+      // toward the LIGHT was in front of the floor only where it also stepped toward the camera: past the axis from the camera the near rim's step went AWAY from it,
+      // and the floor masked a band of the floor patch (a straight edge - where the step runs square to the view): a crescent at the probe's camera (1,451 px), most
+      // of the patch from low or side views (17,512 / 25,468 px, 14 / 53 export pieces). Always toward the eye was tried and refused: from under the floor the patch
+      // showed through it (114,720 px). The step is capped at half the way to a perspective eye.
       const LIFT = G.floor ? G.floor.h * _lightBeamLift : 0;
       const sp = (X) => { const t = transformVertex(X, vp); if (!t) return null; let z = t[2];
-        if (LIFT > 0) { const hX = Math.max(0, vectorDot(vectorSubtract(X, G.floor.pt), G.floor.up)); if (hX < LIFT) { const t2 = transformVertex(vectorAdd(X, vectorScale(vectorSubtract(P, X), (LIFT - hX) / Math.max(1e-12, G.floor.h - hX))), vp); if (t2) z = t2[2]; } }
+        if (LIFT > 0) { const hX = Math.max(0, vectorDot(vectorSubtract(X, G.floor.pt), G.floor.up)); if (hX < LIFT) { const e = toEye(X), eL = Math.hypot(e[0], e[1], e[2]); if (eL > 1e-12) { const c = vectorDot(e, G.floor.up) / eL; if (Math.abs(c) > 1e-9) { let s = (LIFT - hX) / Math.abs(c); if (c > 0 && !camE.ortho) s = Math.min(s, 0.5 * eL); const t2 = transformVertex(vectorAdd(X, vectorScale(e, (c > 0 ? s : -s) / eL)), vp); if (t2) z = t2[2]; } } } }
         return { x: t[0] * H, y: -t[1] * H, z }; };
       const toEye = (X) => camE.ortho ? camE.back : vectorSubtract(camE.eye, X);
       const lerp = (A, B, u) => [A[0] + (B[0] - A[0]) * u, A[1] + (B[1] - A[1]) * u, A[2] + (B[2] - A[2]) * u];
@@ -58125,7 +58308,44 @@
       // as one layer (the beam's outline without its ends, at the Beam Opacity), the BOTTOM (the floor patch and / or the end cap, at the Bottom Opacity) and the
       // START disc (at the Start Opacity) drawn WHOLE over it, whichever way they face - their own paths, their own plane records. zo's Solid (the faces turned
       // away as a second layer) is gone.
-      if (look !== 'solid') { const f0 = build(false, 'beam'); if (f0) out.push(f0); return out; }
+      // (v20261116u) THE FADE (the owner: "Add the fade (as a modifyable option) at the beam's end"): beam.fade = the share of the beam's length, from its far end,
+      // over which it fades to nothing - by the distance along the axis from the light. Vector, as Illustrator takes it: each path's fill becomes a LINEAR GRADIENT
+      // of the beam's colour, opacity 1 -> 0 between the screen points where the fade starts and ends (the side: on the axis; the floor patch: in the floor,
+      // along the beam's direction in it), the path and its <defs> in one <g> (the blurred shadow's form). The end disc lies where the fade is complete: not drawn.
+      // The start disc takes the fade's strength at Start. Linear on SCREEN: under perspective a little off the distance along the axis - accepted.
+      const fadeOf = (items) => {
+        const fade = Math.max(0, Math.min(1, +(obj.light.beam && obj.light.beam.fade) || 0)); if (!(fade > 0) || !items.length) return items;
+        const ax = (X) => vectorDot(vectorSubtract(X, P), d), a1 = V.rim.reduce((m, p) => Math.max(m, ax(p.E)), 0), aS = Math.max(0, G.start || 0), a0 = a1 - fade * (a1 - aS);
+        if (!(a1 - a0 > 1e-9)) return items;
+        const alpha = (a) => Math.max(0, Math.min(1, (a1 - a) / (a1 - a0))), scr = (X) => { const q = sp(X); return q ? [q.x, q.y] : null; };
+        const ns = 'http://www.w3.org/2000/svg', mkE = (tag, at) => { const e = document.createElementNS(ns, tag); for (const k in at) e.setAttribute(k, at[k]); return e; };
+        const tag = String(obj.id).replace(/[^A-Za-z0-9_-]/g, '');
+        const wrapIn = (it, A, B, name) => {   // the path's fill a gradient from A (opacity 1) to B (0), both screen points
+          const el = it.element, c = el.getAttribute('fill'), id = 'dimBeamFade_' + tag + '_' + name;
+          if (!A || !B || Math.hypot(B[0] - A[0], B[1] - A[1]) < 1e-3) return it;   // the axis seen end on: the beam stays as it is
+          const g = mkE('linearGradient', { id, gradientUnits: 'userSpaceOnUse', x1: f2(A[0]), y1: f2(A[1]), x2: f2(B[0]), y2: f2(B[1]) });
+          g.appendChild(mkE('stop', { offset: '0', 'stop-color': c, 'stop-opacity': '1' })); g.appendChild(mkE('stop', { offset: '1', 'stop-color': c, 'stop-opacity': '0' }));
+          const defs = mkE('defs', {}); defs.appendChild(g); el.setAttribute('fill', 'url(#' + id + ')'); el.setAttribute('data-light-beam-fade', String(fade));
+          const w = mkE('g', { 'data-light-beam-g': name }); w.appendChild(defs); w.appendChild(el); w._dimPickOwner = obj; it.element = w; return it;
+        };
+        const res = [];
+        for (const it of items) {
+          const name = it.element.getAttribute('data-light-beam');
+          if (name === 'end') continue;   // at the beam's far end: faded out
+          if (name === 'start') { const k = alpha(aS); if (k < 1) it.element.setAttribute('fill-opacity', String(+(+it.element.getAttribute('fill-opacity') * k).toFixed(4))); res.push(it); continue; }
+          if (name === 'floor' && G.floor) {
+            const n = G.floor.up, w0 = vectorSubtract(d, vectorScale(n, vectorDot(d, n))), wl = Math.hypot(w0[0], w0[1], w0[2]);
+            const X0 = V.floorPatch && V.floorPatch.rings[0] && V.floorPatch.rings[0][0];
+            if (!X0) { res.push(it); continue; }
+            if (wl < 1e-6) { const k = alpha(ax(X0)); it.element.setAttribute('fill-opacity', String(+(+it.element.getAttribute('fill-opacity') * k).toFixed(4))); res.push(it); continue; }   // the beam square to the floor: one distance - one strength
+            const wh = vectorScale(w0, 1 / wl), rate = vectorDot(d, wh), at = (a) => vectorAdd(X0, vectorScale(wh, (a - ax(X0)) / rate));
+            res.push(wrapIn(it, scr(at(a0)), scr(at(a1)), name)); continue;
+          }
+          res.push(wrapIn(it, scr(vectorAdd(P, vectorScale(d, a0))), scr(vectorAdd(P, vectorScale(d, a1))), name || 'beam'));
+        }
+        return res;
+      };
+      if (look !== 'solid') { const f0 = build(false, 'beam'); if (f0) out.push(f0); return fadeOf(out); }
       const side = build(false, 'beam', true); if (side) out.push(side);
       const L0 = obj.light.beam, opB = L0.bottomOpacity !== undefined ? L0.bottomOpacity : op, opS = L0.startOpacity !== undefined ? L0.startOpacity : op;
       const cB = L0.bottomColor || colour, cS = L0.startColor || colour;   // (v20261115zr) the ends' colours: absent = the beam's
@@ -58155,7 +58375,7 @@
       if (V.floorPatch) { const e = planeEl(V.floorPatch.rings, V.floorPatch.edge, 'floor', opB, cB, 'E-1', V.floorPatch); if (e) out.push(e); }
       if (V.cap) { const e = planeEl(V.cap.lit || [V.cap.ring], V.cap.ring, 'end', opB, cB, 'C'); if (e) out.push(e); }
       if (V.front) { const e = planeEl([V.front.ring], V.front.ring, 'start', opS, cS, 'S'); if (e) out.push(e); }
-      return out;
+      return fadeOf(out);
     };
     const _lightBeamPieces = (obj, vp, cam) => {
       const L = obj.light; if (!_lightBeamOn(L)) { obj._beamVol = null; obj._beamPic = null; return []; }
@@ -58166,7 +58386,7 @@
       // the picture: the same geometry (its rays' stops) and the same camera and look = the same elements
       const geomSig = G.key + '|' + V.rim.map(p => p.E.map(x => x.toFixed(5)).join(',')).join(';') + '|' + V.walls.map(w => w.quads.map(Q => Q.map(X => X.map(x => x.toFixed(5)).join(',')).join(' ')).join(';')).join('#') + '|' + (V.cap ? V.cap.ring.length : 0);
       const look = L.beam.look === 'solid' ? 'solid' : 'layer';   // (v20261115zo; zq: and the ends' opacities in the key below)
-      const sig = vp.map(r => r.join(',')).join(';') + '|' + (cam.projectionType || projectionType) + '|' + cam.position.join(',') + '|' + colour + '|' + op + '|' + look + '|' + L.beam.bottomOpacity + '|' + L.beam.startOpacity + '|' + L.beam.bottomColor + '|' + L.beam.startColor + '|' + geomSig;
+      const sig = vp.map(r => r.join(',')).join(';') + '|' + (cam.projectionType || projectionType) + '|' + cam.position.join(',') + '|' + colour + '|' + op + '|' + look + '|' + L.beam.bottomOpacity + '|' + L.beam.startOpacity + '|' + L.beam.bottomColor + '|' + L.beam.startColor + '|' + L.beam.fade + '|' + geomSig;
       let pic = obj._beamPic;
       if (!pic || pic.sig !== sig) pic = obj._beamPic = { sig, items: _lightBeamEmit(obj, V, G, vp, camE, colour, op, look) };
       V.S.ms = performance.now() - t0; Object.assign(_lightBeamStats, V.S);
@@ -58293,13 +58513,22 @@
       if (foRow) foRow.style.display = L.kind === 'directional' ? 'none' : '';
       if (raRow) raRow.style.display = L.kind === 'directional' ? 'none' : '';
       if (fo && document.activeElement !== fo) fo.value = L.falloff === 'inverse' || L.falloff === 'inverseSquare' ? L.falloff : 'none';
-      if (ra) { if (document.activeElement !== ra) ra.value = fmtDisplay(L.range); ra.disabled = !L.falloff || L.falloff === 'none'; }
+      if (ra) { if (document.activeElement !== ra) ra.value = fmtDisplay(L.range); ra.disabled = !L.falloff || L.falloff === 'none'; _greyWhy(ra, ra.disabled ? 'Range is the distance a Falloff dims the light from - choose a Falloff (Inverse or Inverse Square) to use it' : null); }   // GREYED FIELDS (v20261116r)
       // (v20261031d) a spot's two rows
       const cnRow = document.getElementById('lightConeRow'), cnA = document.getElementById('lightConeAngleInput'), cnS = document.getElementById('lightConeSoftnessInput');
       if (cnRow) cnRow.style.display = L.kind === 'spot' ? '' : 'none';
       if (cnA && document.activeElement !== cnA) cnA.value = (+L.coneAngle).toFixed(2).replace(/\.?0+$/, '');
       if (cnS && document.activeElement !== cnS) cnS.value = (+L.coneSoftness).toFixed(2).replace(/\.?0+$/, '');
       { const st = document.getElementById('lightStartInput'), su = document.getElementById('lightStartUnit'); if (st && document.activeElement !== st) st.value = fmtDisplay(+L.start || 0); if (su) su.textContent = '(' + displayUnitLabel() + ')'; }   // (v20261115zm)
+      { const bl = document.getElementById('lightBeamLengthInput'), bu = document.getElementById('lightBeamLengthUnit');   // (v20261116s) Length: the record, else where the beam ends now
+        if (bl) { if (document.activeElement !== bl) { const v = +L.beamLength > 0 ? +L.beamLength : 0; let e0 = 0; try { const G = _lightBeamGeom(obj); e0 = G ? G.cone.len : 0; } catch (e) { e0 = 0; }
+            bl.value = v ? fmtDisplay(v) : ''; bl.placeholder = e0 ? fmtDisplay(e0) : ''; }   // absent: EMPTY, the placeholder where the beam ends now (the field shows its channel's value - PanelAnim; a scrub starts from the placeholder)
+          bl.disabled = !_lightBeamOn(L); _greyWhy(bl, bl.disabled ? 'The beam is off - tick Beam to draw it and set its length' : null); }
+        if (bu) bu.textContent = '(' + displayUnitLabel() + ')'; }
+      { const bf = document.getElementById('lightBeamFadeInput');   // (v20261116u) Fade
+        if (bf) { if (document.activeElement !== bf) bf.value = (+(L.beam && L.beam.fade) || 0).toFixed(2).replace(/\.?0+$/, '') || '0'; bf.disabled = !_lightBeamOn(L); _greyWhy(bf, bf.disabled ? 'The beam is off - tick Beam to draw it and fade it' : null); }
+        const fx = document.getElementById('lightBeamFadeExportSelect');   // (v20261116v) Fade in Export
+        if (fx) { if (document.activeElement !== fx) fx.value = L.beam && L.beam.fadeExport === 'bands' ? 'bands' : 'gradient'; fx.disabled = !_lightBeamOn(L) || !(+(L.beam && L.beam.fade) > 0); _greyWhy(fx, fx.disabled ? 'Nothing fades - set Fade above 0 to choose how it is exported' : null); } }
       {   // (v20261115zi, B1) the beam's rows: the checkbox, Opacity and Color greyed while it is off
         const bOn = document.getElementById('lightBeamInput'), bOp = document.getElementById('lightBeamOpacityInput'), bC = document.getElementById('lightBeamColorInput'), bCH = document.getElementById('lightBeamColorHexInput');
         const on = _lightBeamOn(L), B = L.beam || {}, colour = B.color || L.color || '#ffffff';
@@ -58446,6 +58675,12 @@
       }
       { const st = document.getElementById('lightStartInput');   // (v20261115zm) Start: a spatial field (the display unit), coalesced like Range, on the timeline (ltStart)
         if (st) { st.addEventListener('input', () => { const v = parseFloat(st.value); if (Number.isFinite(v)) write(l => { const s0 = Math.max(0, fromDisplay(v)); if (s0 > 0) l.start = s0; else delete l.start; }, 'ltStart'); }); st.addEventListener('keydown', (e) => e.stopPropagation()); } }
+      { const bl = document.getElementById('lightBeamLengthInput');   // (v20261116s) Length: a spatial field (the display unit), coalesced, on the timeline (ltBeamLength); 0 = at the floor
+        if (bl) { bl.addEventListener('input', () => { const v = bl.value.trim() === '' ? 0 : parseFloat(bl.value); if (Number.isFinite(v)) write(l => { const b0 = Math.max(0, fromDisplay(v)); if (b0 > 0) l.beamLength = b0; else delete l.beamLength; }, 'ltBeamLength'); }); bl.addEventListener('keydown', (e) => e.stopPropagation()); } }   // empty or 0 = at the floor
+      { const bf = document.getElementById('lightBeamFadeInput');   // (v20261116u) Fade: coalesced; 0 leaves no key
+        if (bf) { bf.addEventListener('input', () => { const v = parseFloat(bf.value); if (Number.isFinite(v)) write(l => { const nb = { ..._lightBeamRecord(l.beam || { on: true, look: 'solid' }) }; const f = Math.max(0, Math.min(1, v)); if (f > 0) nb.fade = f; else delete nb.fade; l.beam = nb; }); }); bf.addEventListener('keydown', (e) => e.stopPropagation()); }
+        const fx = document.getElementById('lightBeamFadeExportSelect');   // (v20261116v) one labelled entry
+        if (fx) fx.addEventListener('change', () => { const o = sel(); if (!o) return; pushUndoState(); const nb = { ..._lightBeamRecord(o.light.beam || { on: true, look: 'solid' }) }; if (fx.value === 'bands') nb.fadeExport = 'bands'; else delete nb.fadeExport;   /* (v20261116w) Gradient leaves no key */ o.light.beam = nb; pushUndoState('Fade in export'); }); }
       const foSel = document.getElementById('lightFalloffSelect'), raIn = document.getElementById('lightRangeInput');
       if (foSel) foSel.addEventListener('change', () => { const o = sel(); if (!o) return; pushUndoState(); o.light.falloff = foSel.value === 'inverse' || foSel.value === 'inverseSquare' ? foSel.value : 'none'; _lightSyncFields(o); requestRender(); pushUndoState('Light falloff'); });
       if (raIn) { raIn.addEventListener('input', () => { const v = parseFloat(raIn.value); if (Number.isFinite(v)) write(l => { l.range = Math.max(0.01, fromDisplay(v)); }, 'ltRange'); }); raIn.addEventListener('keydown', (e) => e.stopPropagation()); }
@@ -97015,6 +97250,10 @@
       // (v20261115y) the motion path's key drag cancels here too: under the pointer lock DragRelay._onKey takes the Escape and calls only
       // this (measured: the timeline's early Esc listener never saw it, the key stayed moved and the release committed it)
       if (_travelKeyDrag) { if (_tlDragEsc === _travelKeyEsc) _tlDragEsc = null; _travelKeyEsc(); return true; }
+      // (v20261117a) a NUMBER FIELD's scrub cancels here too, for the same reason: under the pointer lock DragRelay._onKey takes the Escape
+      // and calls only this, so attachFieldScrub's own Escape never ran (measured: Length and Cone Angle kept the scrubbed value and the
+      // scrub went on with later moves). The scrub's own cancel puts the press's value back (an empty field empty) and ends the relay.
+      if (_fieldScrubCancel) { const f = _fieldScrubCancel; _fieldScrubCancel = null; return f(); }
       const c = _dragCancel;
       if (!c || dragMode === 'none') { _dragCancel = null; return false; }
       _dragCancel = null;
@@ -102745,11 +102984,17 @@
       // none (or absent with no stroked ancestor) and the ring area is under
       // a fiftieth of a unit per unit of perimeter, i.e. a mean width no
       // browser would fill either; counted in MaskRender.stats.exportDegenerateDropped.
+      // NEVER UNDER <defs> / <clipPath> / <mask> (v20261116x, PLAN-export-hairline-clip-261116): those paths are not
+      // painted - they are MaskRender's machinery, read by clipExport below. The pass deleted the one path of a HAIRLINE
+      // clip level (a spot beam drawn on the floor, Scene Z-Sort on: the floor hides the beam only along the rim, a ring
+      // out and back, mean width 0.012); clipExport then read the level as absent and took the floor's WHOLE face out of
+      // the beam (the export kept 21 % of a One Layer beam, 73 % of a Solid one). The holdout pass below skips the same.
       {
         let dropped = 0;
         const RI = (typeof RenderIntersections !== 'undefined') ? RenderIntersections : null;
         if (RI && RI.ringsFromElement) {
           clonedGroup.querySelectorAll('path').forEach(el => {
+            if (el.closest('defs, clipPath, mask')) return;
             let n = el, stroke = null;
             while (n && n !== clonedGroup) { const v = n.getAttribute && n.getAttribute('stroke'); if (v) { stroke = v; break; } n = n.parentNode; }
             if (stroke && stroke !== 'none') return;
@@ -103158,6 +103403,61 @@
         exportSVG.appendChild(guide);
       }
       if (_layers) _layerExportTree(exportSVG);   // v20261030zg (S3)
+      // THE FADE AS BANDS (v20261116v, PLAN-beam-fade-paste-261116; the owner: "what I see in canvas is different to the illustrator paste"). Illustrator's
+      // PASTE (Cmd+V, Paste in Place) moves the art to where it pastes and leaves an SVG gradient behind (measured: the art by (+200, -300), the two gradients by
+      // (+165, -270) and (-349, +287); objectBoundingBox, gradientTransform and a <defs> beside the path no better) - File > Open is right. A faded piece of a
+      // beam whose Fade in Export is Bands (the default) leaves as FADE_BANDS stepped slices of plain shapes: the piece's path under a clip group per slice
+      // (the strip between two lines square to the fade's direction, as the gradient draws it), at the fade's strength at the slice's middle, after one slice
+      // for everything before the fade at full strength. Each clip group holds ONE child (the importer's contract); the slices sit in one plain <g> that
+      // takes the piece's place. A piece deeper than CLIP_DEPTH_CAP allows keeps its gradient.
+      {
+        const FADE_BANDS = 16, bandDefs = []; let bandN = 0;
+        exportSVG.querySelectorAll('[fill^="url(#dimBeamFade_"]').forEach(el => {
+          const gid = /^url\(#([^)]+)\)$/.exec(el.getAttribute('fill') || ''); if (!gid) return;
+          const src = document.getElementById(gid[1]); if (!src) return;
+          const oid = gid[1].slice('dimBeamFade_'.length, gid[1].lastIndexOf('_')), owner = findObjectById(oid);
+          if (!(owner && owner.light && owner.light.beam && owner.light.beam.fadeExport === 'bands')) return;   // (v20261116w) Bands by choice; the default is the gradient
+          let depth = 0; for (let p = el.parentNode; p && p !== exportSVG; p = p.parentNode) if (p.localName === 'g') depth++;
+          if (depth + 2 > MaskRender.CLIP_DEPTH_CAP) return;   // a slice adds two <g> (the wrapper, its clip group): Illustrator drops content past 14
+          const A = [+src.getAttribute('x1'), +src.getAttribute('y1')], B = [+src.getAttribute('x2'), +src.getAttribute('y2')], len = Math.hypot(B[0] - A[0], B[1] - A[1]); if (!(len > 1e-6)) return;
+          const stop0 = src.querySelector('stop'), colour = (stop0 && stop0.getAttribute('stop-color')) || '#ffffff', op = el.hasAttribute('fill-opacity') ? +el.getAttribute('fill-opacity') : 1;
+          const u = [(B[0] - A[0]) / len, (B[1] - A[1]) / len], tOf = (p) => ((p[0] - A[0]) * u[0] + (p[1] - A[1]) * u[1]) / len;
+          // each strip cut to the piece's box (its control points' - a superset of the outline): Illustrator sizes a clip group by its clipping path, so a strip
+          // across the frame gave the pasted beam a box thousands wide (and moved where the paste lands); a strip that misses the piece is not written
+          const nums = (el.getAttribute('d') || '').match(/-?[0-9.]+(?:e-?[0-9]+)?/gi) || []; let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+          for (let i = 0; i + 1 < nums.length; i += 2) { const x = +nums[i], y = +nums[i + 1]; if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y; }
+          if (!(bx1 >= bx0)) return;
+          const box = [[bx0 - 1, by0 - 1], [bx1 + 1, by0 - 1], [bx1 + 1, by1 + 1], [bx0 - 1, by1 + 1]];
+          const cut = (ring, f) => { const o = []; for (let i = 0; i < ring.length; i++) { const P0 = ring[i], P1 = ring[(i + 1) % ring.length], f0 = f(P0), f1 = f(P1); if (f0 >= 0) o.push(P0); if ((f0 >= 0) !== (f1 >= 0)) { const t = f0 / (f0 - f1); o.push([P0[0] + (P1[0] - P0[0]) * t, P0[1] + (P1[1] - P0[1]) * t]); } } return o; };
+          const wrap = document.createElementNS(svgNS, 'g');
+          for (let k = -1; k < FADE_BANDS; k++) {
+            const t0 = k < 0 ? -Infinity : k / FADE_BANDS, t1 = k < 0 ? 0 : (k + 1) / FADE_BANDS, a = k < 0 ? 1 : 1 - (k + 0.5) / FADE_BANDS; if (!(a > 0.001)) continue;
+            let q = box; if (t0 > -Infinity) q = cut(q, (p) => tOf(p) - t0); q = cut(q, (p) => t1 - tOf(p)); if (q.length < 3) continue;
+            const id = 'dimFadeBand' + (++bandN), cp = document.createElementNS(svgNS, 'clipPath'); cp.setAttribute('id', id);
+            const cpp = document.createElementNS(svgNS, 'path');
+            cpp.setAttribute('d', 'M' + q.map(p => p[0].toFixed(2) + ' ' + p[1].toFixed(2)).join('L') + 'Z'); cp.appendChild(cpp); bandDefs.push(cp);
+            const g = document.createElementNS(svgNS, 'g'); g.setAttribute('clip-path', 'url(#' + id + ')');
+            const pc = el.cloneNode(false); pc.setAttribute('fill', colour); pc.setAttribute('fill-opacity', String(+(op * a).toFixed(4))); g.appendChild(pc); wrap.appendChild(g);
+          }
+          el.parentNode.replaceChild(wrap, el);
+        });
+        if (bandDefs.length) { let defs = exportSVG.querySelector(':scope > defs'); if (!defs) { defs = document.createElementNS(svgNS, 'defs'); exportSVG.insertBefore(defs, exportSVG.firstChild); } bandDefs.forEach(cp => defs.appendChild(cp)); }
+        // a fade gradient no fill names any more (a piece kept as drawn carries its own <defs>): out, and its <defs> when empty; the wrapper's stamp off
+        const named = new Set(); exportSVG.querySelectorAll('[fill^="url(#dimBeamFade_"],[stroke^="url(#dimBeamFade_"]').forEach(el => { for (const a of ['fill', 'stroke']) { const m = /^url\(#([^)]+)\)$/.exec(el.getAttribute(a) || ''); if (m) named.add(m[1]); } });
+        exportSVG.querySelectorAll('linearGradient[id^="dimBeamFade_"]').forEach(g => { if (named.has(g.getAttribute('id'))) return; const d = g.parentNode; g.remove(); if (d && d.localName === 'defs' && !d.childElementCount && d !== exportSVG.querySelector(':scope > defs')) d.remove(); });
+        exportSVG.querySelectorAll('[data-light-beam-g]').forEach(g => g.removeAttribute('data-light-beam-g'));
+      }
+      // PAINT SERVERS THE FILE NAMES (v20261116u): the exporter rebuilds a piece as a plain path and keeps its `fill` - a beam's Fade is `url(#dimBeamFade_...)`, a
+      // gradient in the piece's own <defs> on the page, which the rebuild leaves behind (the file named a gradient it did not hold). Every fill / stroke that names
+      // a gradient the file does not contain takes a copy of the page's into the root's <defs>. Nothing names one in a file without a Fade: byte-identical.
+      {
+        const have = new Set([...exportSVG.querySelectorAll('[id]')].map(e => e.getAttribute('id'))), want = new Set();
+        exportSVG.querySelectorAll('[fill],[stroke]').forEach(el => { for (const a of ['fill', 'stroke']) { const m = /^url\(#([^)]+)\)$/.exec(el.getAttribute(a) || ''); if (m && !have.has(m[1])) want.add(m[1]); } });
+        if (want.size) {
+          let defs = exportSVG.querySelector(':scope > defs'); if (!defs) { defs = document.createElementNS(svgNS, 'defs'); exportSVG.insertBefore(defs, exportSVG.firstChild); }
+          for (const id of want) { const src = document.getElementById(id); if (src && /^(linearGradient|radialGradient)$/.test(src.localName)) defs.appendChild(src.cloneNode(true)); }
+        }
+      }
       // COPY SELECTION (v20261102a, S1b): dim's own record rides the file as its LAST node, an XML comment - every XML reader
       // (Illustrator, Inkscape, a browser, dim's own importer) skips it; only Paste Object reads it. Passed by
       // copySelectionToClipboard alone: the view copy, the file and the sequence exports are byte-identical to before.
@@ -103952,6 +104252,7 @@
         || (_tag === 'BUTTON' && event.key === ' ')) {
         return;
       }
+      if (_greyKey(event)) return;   // GREYED FIELDS (v20261116r): the keys after a press on a greyed field are its own - nothing reaches the view keys
       if (CamMatchSession.active && CamMatchSession.key(event)) return;   // CAMERA-MATCH (v20261018y): the session's keys (1 / 2 / 3, Delete, Enter, Esc)
       if (refPick) { event.preventDefault(); if (event.key === 'Escape') endRefPick('Pick cancelled'); return; }   // E5 (v20261114z): an armed pick: Esc cancels, the tool keys wait
       if (event.key === 'Escape' && _cancelLiveDrag()) { event.preventDefault(); return; }   // T2 (v20261114b): Esc mid-drag puts the drag back, the selection kept
@@ -108442,21 +108743,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         const f = _numFieldFocus && _numFieldFocus.el === el ? _numFieldFocus : null;
         if (f && el.value !== f.text) { el.value = f.text; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }
         el.blur();   // first: a panel sync skips the focused field
-        if (f) {
-          // a scene restore rebuilds every object and leaves nothing selected (performUndo's contract): the selection is taken by id
-          // before the rewind and put back after it - an Esc in a field must not deselect (the reason the key is stopped at all)
-          const ids = _cmdSel().map(o => o.id), primary = selectedObject ? selectedObject.id : null;
-          let n = 0; try { n = _fieldEditRewind(f.mark); } catch (err) { console.warn('Esc: the field edit could not be rewound', err); }
-          if (n) {
-            if (!selectedObject && ids.length) {
-              const objs = ids.map(id => findObjectById(id)).filter(Boolean);
-              const head = objs.find(o => o.id === primary) || objs[objs.length - 1];
-              const order = objs.filter(o => o !== head).concat(head ? [head] : []);   // the primary added LAST (setSelectedObject makes the added one primary)
-              order.forEach((o, i) => setSelectedObject(o, i > 0));
-            }
-            updatePropertiesPanel(); try { updateStylePanel(); } catch (err) { } requestRender();
-          }
-        }
+        if (f) _fieldEditCancel(f.mark);   // the rewind, the selection kept, the panels (v20261117b: one helper with the scrub's Esc)
         _numFieldFocus = null;
       }, true);
       document.addEventListener('keydown', (e) => {
@@ -110628,12 +110915,16 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
     // the v20260721o-p lesson); the input is held by closure and keeps emitting.
     // Sensitivity, rounding and the min / max clamp are the grip's, verbatim.
     // Both installers call this; wrapSpinnerNoScrub deliberately does not.
+    // (v20261117a) the live scrub's cancel, for _cancelLiveDrag - the one reader (DragRelay._onKey's Escape under the pointer lock).
+    // Set while a press is down on a scrubbed field, cleared when it ends; one press at a time, so one variable.
+    let _fieldScrubCancel = null;
     const attachFieldScrub = (input, wrap, opts = {}) => {
       const SLOP = 3;   // px - the pills' and the HUD's click slop
       let down = null;  // the press: { x, y, v0, axis, lastX, lastY, accum, scrubbing }
       const emit = (v) => { input.value = v; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); };
       const end = () => {
         const d = down; if (!d) return null; down = null;
+        if (_fieldScrubCancel === cancel) _fieldScrubCancel = null;
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
         window.removeEventListener('keydown', onKey, true);
@@ -110648,6 +110939,9 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           if (dx < SLOP && dy < SLOP) return;
           down.axis = dx >= dy ? 'h' : 'v';
           down.scrubbing = true;
+          // (v20261117b) the mark a cancel rewinds to - taken before the first write, as a typed field takes it at its focus (an open coalescing
+          // window is committed here as its own edit, so the rewind cannot take it along)
+          try { down.mark = _fieldEditMark(); } catch (err) { down.mark = null; }
           down.lastX = e.clientX; down.lastY = e.clientY;   // the first delta after the lock is zero
           wrap.classList.add('scrubbing');
           document.documentElement.style.cursor = down.axis === 'h' ? 'ew-resize' : 'ns-resize';
@@ -110680,13 +110974,26 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       // new alike; DragRelay._onKey already swallows it for the same reason
       // while a lock is on). A press that has not moved is simply forgotten,
       // and that Escape is the page's.
+      // (v20261117b) THE WAY BACK IS EXACT: the press's value goes back into the field (an EMPTY field back to empty, v20261116s) and then the
+      // three stacks are rewound to the mark taken when the scrub began (_fieldEditCancel - a typed field's Esc, v20261114zl). The field's
+      // text alone wrote the SHOWN value: Position X -50.36 for -0.5036442881774614 came back as -0.5036, the object moved and one entry stayed.
+      const back = (d) => { emit(d.blank ? '' : d.v0); if (d.mark) _fieldEditCancel(d.mark); };
       const onKey = (e) => {
         if (e.key !== 'Escape' || !down) return;
         const d = end();
         if (!d.scrubbing) return;
-        emit(d.v0);
         e.preventDefault(); e.stopImmediatePropagation();
+        back(d);
       };
+      // (v20261117a) THE SAME CANCEL UNDER THE POINTER LOCK, reached through _cancelLiveDrag (DragRelay._onKey swallows the Escape before
+      // onKey above can see it). Returns whether a scrub was put back; either way the press ends and the relay lets go, as a canvas cancel does.
+      function cancel() {
+        const d = end(); if (!d) return false;
+        try { DragRelay.candidate = null; if (DragRelay.active || DragRelay.pending) DragRelay._end(false); } catch (err) { }
+        if (!d.scrubbing) return false;
+        back(d);
+        return true;
+      }
       input.addEventListener('mousedown', (e) => {
         if (e.button !== 0 || down) return;
         if (document.activeElement === input) return;   // a FOCUSED field is a text field - all native
@@ -110694,7 +111001,10 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         e.preventDefault();   // no focus, no caret, no selection, no row drag - the release decides
         if (opts.stopPropagation) e.stopPropagation();
         if (typeof DragRelay === 'object' && DragRelay) DragRelay.arm(e, 'scrub');   // CONTINUOUS DRAG S1: the pointer lock, when it is granted
-        down = { x: e.clientX, y: e.clientY, v0: parseFloat(input.value) || 0, axis: null, lastX: e.clientX, lastY: e.clientY, accum: 0, scrubbing: false };
+        // (v20261116s) an EMPTY field with a number for its placeholder (the beam's Length: empty = at the floor, the placeholder where it ends now) scrubs from the placeholder
+        const vIn = parseFloat(input.value), blank = input.value.trim() === '', vPh = parseFloat(input.placeholder);
+        down = { x: e.clientX, y: e.clientY, v0: Number.isFinite(vIn) ? vIn : (blank && Number.isFinite(vPh) ? vPh : 0), blank, axis: null, lastX: e.clientX, lastY: e.clientY, accum: 0, scrubbing: false };
+        _fieldScrubCancel = cancel;
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onUp);
         window.addEventListener('keydown', onKey, true);
@@ -110708,7 +111018,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       // focal length, the colour picker's channel names): those writers need not know about it. The observer sees
       // its own write too, and leaves a title that already ends with the hint alone.
       const HINT = 'drag to scrub, click to type';
-      const hint = () => { const t = input.getAttribute('title') || ''; if (t.toLowerCase().endsWith(HINT)) return; input.title = t ? t.replace(/\s+$/, '') + ' - ' + HINT : 'Drag to scrub, click to type'; };
+      const hint = () => { const t = input.getAttribute('title') || ''; if (input.dataset.greyWhy || t.toLowerCase().endsWith(HINT)) return;   /* GREYED FIELDS (v20261116r): a field off for a reason says only that */ input.title = t ? t.replace(/\s+$/, '') + ' - ' + HINT : 'Drag to scrub, click to type'; };
       hint();
       try { new MutationObserver(hint).observe(input, { attributes: true, attributeFilter: ['title'] }); } catch (err) { /* no observer: the static hint stays */ }
     };
@@ -114559,6 +114869,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       { prop: 'ltConeAngle', label: 'Cone Angle', settingsKey: 'coneAngle', precision: 2, step: 1 },   // (v20261031d)
       { prop: 'ltConeSoftness', label: 'Cone Softness', settingsKey: 'coneSoftness', precision: 2, step: 0.05 },
       { prop: 'ltStart', label: 'Start', settingsKey: 'start', precision: 2, step: 0.1, def: 0 },   // (v20261115zm) a spot's near cut; absent = 0
+      { prop: 'ltBeamLength', label: 'Beam Length', settingsKey: 'beamLength', precision: 2, step: 0.1, def: 0 },   // (v20261116s) how far the beam reaches; absent = 0 = the floor
     ];
     const _get3dSettingsParamsForObj = (obj) => {
       if (!obj) return null;
@@ -114838,6 +115149,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         { id: 'lightConeAngleInput', prop: 'ltConeAngle' },
         { id: 'lightConeSoftnessInput', prop: 'ltConeSoftness' },
         { id: 'lightStartInput', prop: 'ltStart', fmt: v => fmtDisplay(v) },   // (v20261115zm)
+        { id: 'lightBeamLengthInput', prop: 'ltBeamLength', fmt: v => fmtDisplay(v) },   // (v20261116s)
         { id: 'revolveStartInput', prop: 'rvStart' },
         { id: 'revolveSegmentsInput', prop: 'rvSegments' },
         { id: 'revolveOffsetInput', prop: 'rvOffset', fmt: v => fmtDisplay(v) },

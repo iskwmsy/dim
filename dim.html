@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261121d -->
+<!-- dim v20261122h -->
 
 <!--
   MIT License
@@ -131,11 +131,16 @@
          AND a selected row. Nothing named the difference, so "darken the
          selection" was silently also a decision about every border.
          Same values, separate names — no pixel moved. */
-      --line-faint: rgba(0, 0, 0, 0.04);
+      /* v20261122f ONE LINE (owner, 2026-11-22, on the no-shadow mock: "border strokes differ in some places ... make it consistent (the thin
+         1px default)"). Measured with the shadows off there were SEVEN edges: these three steps (4 / 6 / 8 %), the pills' 16 %, a checkbox
+         at 65 % unticked and 85 % ticked, and the side panels drew two. --line-one is the one line, 1 px at 10 %; the three names stay
+         (their uses differ) and all read it. The values until v20261122e: .04 / .06 / .08 (dark: .05 / .08 / .12). */
+      --line-one: rgba(0, 0, 0, 0.10);
+      --line-faint: var(--line-one);
       /* timeline row rules, .ui-hr */
-      --line-hairline: rgba(0, 0, 0, 0.06);
+      --line-hairline: var(--line-one);
       /* outer border of every floating panel and bar */
-      --border-light: rgba(0, 0, 0, 0.08);
+      --border-light: var(--line-one);
       /* the third LINE step: dividers, separators, .xyz-inputs' 1px gaps */
       --tint-hover: rgba(0, 0, 0, 0.04);
       /* Row/target hover: scene tree, history, object tabs — and, since
@@ -155,7 +160,7 @@
 
       --text-main: rgba(0, 0, 0, 0.85);
       --text-secondary: rgba(0, 0, 0, 0.65);
-      --text-muted: rgba(0, 0, 0, 0.45);
+      --text-muted: rgba(0, 0, 0, 0.62);   /* v20261122f: .45 until then (3.3:1 at 11 px); the row labels read at 5.9:1 */
       /* Opaque tertiary text — the timeline read-outs. It shares a value with
          --ink-icon-idle by coincidence, not by meaning: this one is TEXT.
          DECLARED in v20260905c: it was referenced twice as
@@ -312,7 +317,11 @@
          different values and are deliberately NOT tokenized into one. */
       --radius-chip: 2px;
       --radius-btn: 8px;
-      --panel-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+      /* v20261122f NO SHADOWS (owner: "I like the non-shadow look"). The nine shadow tokens hold no blur any more: a panel has its own
+         border and nothing else (none); what floats over other things wears the one line as a ring (float, modal, drag, knob) or as a top
+         rule (drawer, curve). Until v20261122e: panel 0 1px 4px .05, drawer 0 -2px 12px .10 + 0 -1px 4px .06, modal 0 8px 32px .18 +
+         0 2px 8px .08, float 0 2px 12px .14, curve 0 -2px 12px .1, drag 0 1px 2px .3, knob 0 1px 2px .15, pill 0 1px 1px .06. */
+      --panel-shadow: none;
       --row-bg: transparent;
 
       /* MOTION (v20260905a, was 35 literals across 5 spellings — one of them
@@ -342,18 +351,54 @@
          like a hole). The hover is the same tint on the plain button's hover. History: #ff6464 / #d9534f, fixed reds (v20260909d-e);
          before that derived from the accent (v20260908j - v20260909c); an inverted monotone button was tried on the mock and
          judged too strong. The three STATE reds (--danger-ink / -fill / -armed) are information and are not touched. */
-      --btn-danger-bg: color-mix(in srgb, var(--btn-bg), var(--accent-color) 24%);
-      --btn-danger-hover: color-mix(in srgb, var(--btn-hover), var(--accent-color) 24%);
+      /* v20261122g BUTTONS IN THREE MONOCHROME ROLES (polish plan 3c, release 3; owner, 2026-11-22: "3c, monochrome"). No button
+         wears the accent any more - the accent is STATE (the active tool, the selection, focus, titles). PLAIN: --btn-bg, everything
+         ordinary. COMMIT (.ui-btn-primary: Submit, Confirm ..., Activate, Merge, OK): solid INK with the panel's colour as its label -
+         one expression for both themes, because --shade is black in light and white in dark. DESTRUCTIVE (.ui-btn-danger): Clear Scene
+         ONLY - a plain button a step darker (13 % toward the ink), not a tint. The other eight that wore the look (the trash can, Del,
+         Remove camera / workplane, Purge Subpath, Camera Match's Clear, Remove Photo, Remove Reference Image) remove one thing, are
+         everyday and can be undone; a warning on those teaches the eye to ignore warnings (the owner agreed). Until v20261122f:
+         danger = --btn-bg + 24 % accent (the comment above), active = var(--accent-color) with a #ffffff label. */
+      --btn-danger-bg: color-mix(in srgb, var(--btn-bg), var(--text-main) 13%);
+      --btn-danger-hover: color-mix(in srgb, var(--btn-bg), var(--text-main) 20%);
       --btn-danger-text: var(--btn-text);
-      --btn-active-bg: var(--accent-color);
-      --btn-active-text: #ffffff;
+      /* v20261122h COMMIT AT CLEAR SCENE'S LEVEL (owner, on v20261122g's solid ink: "the submit button black color stands out too
+         much. Maybe making it the same level as the clear scene is better"). A near-black slab was the darkest thing on a light
+         panel, darker than the active tool. So the buttons are TWO levels: plain, and one step darker (13 % toward the ink, 20 %
+         hovered) for the button with consequence - the commit of a panel and Clear Scene alike; the label is the plain button's
+         ink. The two never share a group. v20261122g: color-mix(--bg-panel, --shade 85 %), label --bg-panel, hover 18 % toward
+         the panel. */
+      --btn-active-bg: var(--btn-danger-bg);
+      --btn-active-hover: var(--btn-danger-hover);
+      --btn-active-text: var(--btn-text);
 
       /* Canvas HUD bars */
-      --hud-bar-bg: hsl(0, 0%, 78%);
+      /* THE OUTLINE PILL (v20261121g; owner, 2026-11-21: "the design of the grey pill seem to stand out too much from the rest of the app
+         ... a white (a bit transparent?) filled pill with a thin monochrome border and the monochrome text" - after Plotter and coss ui,
+         research _plans/_visuals/plotter_index.html section 04). Until then: a grey ground hsl(0 0% 78%) at 0.8 with a white number
+         (1.7:1, measured 2026-11-16) and white chevrons. Now the paper's own white, a little see-through, a hairline of translucent
+         ink (--hud-bar-line; 16 % where coss ui uses 8 - 10 %: these stand on artwork, not on a page) with a 1 px bottom shadow, the
+         number in ink, the chevrons a softer ink (--hud-bar-glyph - they were the literal white of the colour rule's exceptions).
+         The translucency is in the GROUND's alpha now, so --hud-bar-opacity is 1 and the number is never see-through.
+         THE PILL FOLLOWS THE PAPER, NOT THE THEME (owner: "White in both"): the pills stand on the paper, which is white in both
+         themes, so this block is not redefined under the dark theme (as v20261114zg). A scene whose paper is DARK gets the -on-dark
+         set through :root[data-paper="dark"] (_paperToneSync, the empty card's own measure). */
+      --hud-bar-bg: rgba(255, 255, 255, 0.86);
       --hud-bar-hover: color-mix(in srgb, var(--hud-bar-bg), var(--paper-shade) 10%);
-      --hud-bar-text: #ffffff;
-      --hud-bar-opacity: 0.8;   /* v20260921c: a token because the on-canvas drag pills (an HTML pool since v20260921n) must wear the SAME translucency as the HUD pills */
-      --hud-label-color: hsl(0, 0%, 68%);
+      --hud-bar-text: rgba(0, 0, 0, 0.6);   /* v20261122d (owner: the pill's text and the hand icon "seem strong as black"): #262626 until then. 5.7:1 on the pill. */
+      --hud-bar-text-edit: #262626;         /* the number while it is being typed: full ink, as it was */
+      --hud-bar-opacity: 1;   /* v20260921c: a token because the on-canvas drag pills (an HTML pool since v20260921n) must wear the SAME translucency as the HUD pills */
+      --hud-label-color: var(--paper-ink-muted);
+      --hud-bar-line: rgba(0, 0, 0, 0.10);   /* v20261122f: the one line (.16 until then, with a 1 px shadow at .06 under the pill) */
+      --hud-bar-shadow: transparent;
+      --hud-bar-glyph: rgba(0, 0, 0, 0.45);
+      --hud-bar-bg-on-dark: rgba(24, 24, 24, 0.86);
+      --hud-bar-hover-on-dark: color-mix(in srgb, var(--hud-bar-bg-on-dark), white 12%);
+      --hud-bar-text-on-dark: rgba(255, 255, 255, 0.7);
+      --hud-bar-text-edit-on-dark: #f5f5f5;
+      --hud-bar-line-on-dark: rgba(255, 255, 255, 0.12);   /* v20261122f: .2 until then */
+      --hud-bar-shadow-on-dark: transparent;
+      --hud-bar-glyph-on-dark: rgba(255, 255, 255, 0.55);
       /* THE PAPER'S INKS (v20261113j): text drawn ON the paper follows the PAPER, not the theme - the paper's colour is the
          scene's (white by default in both themes), so the theme's text inks vanish on it in dark (white on white). Not redefined in
          the dark block on purpose: #emptySceneCard reads the dark pair when the paper itself is dark (_emptyCardSync measures it).
@@ -372,7 +417,7 @@
          second value for each of these names under :root[data-theme="dark"]
          and nothing else. The rule from here on: a colour outside :root is a
          token name, or it is one of the recorded exceptions (the HUD arrow
-         glyphs' white on the grey pill, the export progress scrim, the world
+         glyphs' white on the grey pill - a token, --hud-bar-glyph, since v20261121g - the export progress scrim, the world
          axis' mid grey, the paper — which is scene data). */
       /* THE HEADER BARS: the right panel's section headers, the tool drawer header and the modal header (with their icons, the
          drawer's re-edit tag and the chevrons). Until v20261115zd ONE token, --bg-bar, filled them AND the active tool on the rail;
@@ -420,7 +465,7 @@
       --btn-disabled-border: #dddddd;
       --text-hint: #aaa;
       --knob: white;
-      --knob-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+      --knob-shadow: 0 0 0 1px var(--line-one);
       --slider-fill: rgba(0, 0, 0, 0.06);
       --kern-gap-tint: rgba(0, 0, 0, 0.07);
       --flash-ok: #e0ffe0;
@@ -431,11 +476,11 @@
       --scrollbar-thumb: rgba(0, 0, 0, 0.18);
       --scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
       --scrim: rgba(0, 0, 0, 0.35);
-      --shadow-drawer: 0 -2px 12px rgba(0, 0, 0, 0.10), 0 -1px 4px rgba(0, 0, 0, 0.06);
-      --shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
-      --shadow-float: 0 2px 12px rgba(0, 0, 0, 0.14);
-      --shadow-curve: 0 -2px 12px rgba(0, 0, 0, 0.1);
-      --shadow-drag: 0 1px 2px rgba(0, 0, 0, 0.3);
+      --shadow-drawer: 0 -1px 0 var(--line-one);
+      --shadow-modal: 0 0 0 1px var(--line-one);
+      --shadow-float: 0 0 0 1px var(--line-one);
+      --shadow-curve: 0 -1px 0 var(--line-one);
+      --shadow-drag: 0 0 0 1px var(--line-one);
       /* COLOR PICKER (v20260921g): the picker's own DATA colours. They
          are colour CONTENT, not chrome - the white / black the square fades to,
          the hue bar's rainbow, and the marker ring that must read on ANY colour
@@ -483,6 +528,10 @@
       --gizmo-centre-hot: var(--accent-ink);
       --gizmo-free-centre: #222;
       --gizmo-free-centre-hot: var(--accent-ink);
+      /* GIZMO MARKS (v20261122d): a gizmo key and the centre handle at REST are the paper's white with an ink edge (the outline pill's
+         look); a plane handle is a see-through white face. Solid colour is kept for the control under the pointer or in the hand. */
+      --gizmo-key-fill: rgba(255, 255, 255, 0.94);
+      --gizmo-plane-fill: rgba(255, 255, 255, 0.55);
       --gizmo-pos-dot: #c9c9c9;
       --gizmo-pos-dot-stroke: #999999;
       /* IMAGES THAT CARRY A COLOUR. var() cannot be used inside a data URI, so
@@ -507,8 +556,16 @@
        untouched (7.3:1 either way). Overlay ink is a mid grey because the
        gizmos cross BOTH grounds — the dark void and the white paper (D7).
        Not themed on purpose: the paper (#frameRect, scene data, exported),
-       the grid (a user preference that EXPORTS — D3), the HUD glyph white on
-       the grey pill, the export progress scrim, the world axis grey. */
+       the grid (a user preference that EXPORTS — D3), the export progress scrim,
+       the world axis grey. (The HUD glyph's white is a token since v20261121g.) */
+    /* v20261121g THE OUTLINE PILL on a DARK PAPER: token to token (no literal here: the colour rule). The attribute is the scene's paper,
+       measured by _paperToneSync - never the theme. */
+    :root[data-paper="dark"] {
+      --hud-bar-bg: var(--hud-bar-bg-on-dark); --hud-bar-hover: var(--hud-bar-hover-on-dark); --hud-bar-text: var(--hud-bar-text-on-dark);
+      --hud-bar-text-edit: var(--hud-bar-text-edit-on-dark);
+      --hud-label-color: var(--paper-ink-muted-on-dark); --hud-bar-line: var(--hud-bar-line-on-dark); --hud-bar-shadow: var(--hud-bar-shadow-on-dark);
+      --hud-bar-glyph: var(--hud-bar-glyph-on-dark);
+    }
     /* v20260921u: Settings > Colored gizmo highlight - the pre-v20260921u hues, token to token (no literal here: the colour rule) */
     :root[data-gizmo="color"] {
       --gizmo-axis-x-active: var(--gizmo-hue-x); --gizmo-axis-y-active: var(--gizmo-hue-y); --gizmo-axis-z-active: var(--gizmo-hue-z);
@@ -525,14 +582,12 @@
       --bg-input-hover: #333333;
       --bg-input-focus: #383838;
       --bg-toggle-off: #4a4a4a;
-      --line-faint: rgba(255, 255, 255, 0.05);
-      --line-hairline: rgba(255, 255, 255, 0.08);
-      --border-light: rgba(255, 255, 255, 0.12);
+      --line-one: rgba(255, 255, 255, 0.12);   /* v20261122f: the one line; the three names read it through :root */
       --tint-hover: rgba(255, 255, 255, 0.06);
       --tint-selected: rgba(255, 255, 255, 0.12);
       --text-main: rgba(255, 255, 255, 0.87);
       --text-secondary: rgba(255, 255, 255, 0.65);
-      --text-muted: rgba(255, 255, 255, 0.45);
+      --text-muted: rgba(255, 255, 255, 0.62);
       --text-tertiary: #8a8a8a;
       --text-hint: #777;
       --ink-icon-idle: #8a8a8a;
@@ -558,10 +613,9 @@
       --btn-disabled-bg: #2a2a2a;
       --btn-disabled-text: #666;
       --btn-disabled-border: #333;
-      /* --hud-bar-bg / --hud-label-color are NOT redefined here (v20261114zg, the owner: subtle, the same as light) - the camera
+      /* --hud-bar-bg / --hud-label-color (and the outline pill's other tokens, v20261121g) are NOT redefined here (v20261114zg, the owner: subtle, the same as light) - the camera
          HUD and the navigation triad sit on the PAPER, which is white in both themes, so they keep the light greys; and their
          hover mixes with --paper-shade, not --shade (white in this block, which turned the hover LIGHTER in dark). */
-      --panel-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
       --field-tint-hover: rgba(255, 255, 255, 0.06);
       --field-tint-focus: rgba(255, 255, 255, 0.1);
       --name-field-tint: rgba(255, 255, 255, 0.06);
@@ -572,7 +626,6 @@
       --bg-spin-active: #555;
       --ink-on-spin: #1e1e1e;
       --knob: #ddd;
-      --knob-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
       --slider-fill: rgba(255, 255, 255, 0.08);
       --kern-gap-tint: rgba(255, 255, 255, 0.1);
       --flash-ok: color-mix(in srgb, #2f8f4e 25%, var(--bg-app));
@@ -582,11 +635,6 @@
       --scrollbar-thumb: rgba(255, 255, 255, 0.2);
       --scrollbar-thumb-hover: rgba(255, 255, 255, 0.35);
       --scrim: rgba(0, 0, 0, 0.6);
-      --shadow-drawer: 0 -2px 12px rgba(0, 0, 0, 0.5), 0 -1px 4px rgba(0, 0, 0, 0.4);
-      --shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
-      --shadow-float: 0 2px 12px rgba(0, 0, 0, 0.55);
-      --shadow-curve: 0 -2px 12px rgba(0, 0, 0, 0.5);
-      --shadow-drag: 0 1px 2px rgba(0, 0, 0, 0.7);
       --danger-ink: #e8635a;
       --danger-armed: #ef7a72;
       --tl-ink: #8a8a8a;
@@ -765,6 +813,8 @@
       pointer-events: auto;
       z-index: 5;
       background: var(--hud-bar-bg);
+      box-shadow: inset 0 0 0 1px var(--hud-bar-line), 0 1px 1px var(--hud-bar-shadow);   /* v20261121g THE OUTLINE PILL: the hairline is INSIDE the box (no size change) */
+      color: var(--hud-bar-text);
       opacity: var(--hud-bar-opacity);
       user-select: none;
       -webkit-user-select: none;
@@ -929,6 +979,7 @@
       width: 100%;
       height: 100%;
       pointer-events: none;
+      color: var(--hud-bar-glyph);   /* v20261121g: the chevrons draw in currentColor (they were a literal white) */
     }
 
     /* Center value text — horizontal */
@@ -1455,7 +1506,13 @@
     }
     /* The dock's shares (written by layoutLeftColumn; absent = the natural heights) */
     #toolDrawer.docked { max-height: var(--drawer-max-h, calc(100vh - var(--timeline-height) - 10px)); }
-    #leftPanelContainer.dock-shrunk { max-height: var(--left-panel-max-h, calc(100vh - var(--timeline-height))); }
+    #leftPanelContainer.dock-shrunk { max-height: var(--left-panel-max-h, calc(100vh - var(--timeline-height))); min-height: var(--left-panel-max-h, 0px); }
+    /* v20261122g THE TWO MEET (owner: "Fix the white notch at the tool drawer too"). When the column is shared the layout left 8 px between
+       the panel and the drawer, and the CANVAS showed in it - the pasteboard and, at its right end, the paper's white edge: a notch,
+       plainest in the dark theme. It was always there, under the drawer's shadow (gone since v20261122f). Now the panel fills its share
+       (min-height above; layoutLeftColumn's share has no gap) and its own bottom border is the one line between them, so the drawer's
+       top rule is dropped there. When both fit, nothing changes: the canvas shows between them as it always did. */
+    #leftPanelContainer.dock-shrunk ~ #toolDrawer.docked { box-shadow: none; }
 
     #toolDrawerHeader {
       display: flex;
@@ -2715,7 +2772,7 @@
     }
 
     .ui-btn-primary:hover {
-      background: color-mix(in srgb, var(--btn-active-bg), var(--shade) 15%);
+      background: var(--btn-active-hover);
     }
 
 
@@ -3332,7 +3389,7 @@
       appearance: none;
       width: 16px;
       height: 16px;
-      border: 1px solid var(--text-secondary);
+      border: 1px solid var(--line-one);   /* v20261122f: the hairline, ticked or not (--text-secondary / --text-main until then) - the tick says it is on */
       border-radius: 0;
       background: var(--bg-input);
       position: relative;
@@ -3344,7 +3401,7 @@
     }
 
     .ui-checkbox:hover {
-      border-color: var(--text-main);
+      border-color: var(--line-one);
     }
 
     .ui-checkbox::after {
@@ -3359,7 +3416,7 @@
     }
 
     .ui-checkbox:checked {
-      border-color: var(--text-main);
+      border-color: var(--line-one);
     }
 
     .ui-checkbox:checked::after {
@@ -4599,9 +4656,11 @@
     #axisIndicatorGroup.nav .ax-disc { fill: var(--hud-bar-bg); fill-opacity: 0; pointer-events: all; cursor: grab; }
     #axisIndicatorGroup.nav line { stroke: var(--hud-label-color); pointer-events: none; }
     #axisIndicatorGroup.nav .ax-letter { pointer-events: none; }
-    #axisIndicatorGroup.nav .ax-pos { fill: var(--hud-bar-bg); stroke: none; cursor: pointer; pointer-events: all; transition: fill var(--dur); }
-    #axisIndicatorGroup.nav .ax-neg { fill: var(--hud-bar-bg); fill-opacity: 0; stroke: var(--hud-label-color); stroke-width: 1.25; cursor: pointer; pointer-events: all; transition: fill-opacity var(--dur); }
-    #axisIndicatorGroup.nav .ax-hub { fill: var(--hud-bar-bg); cursor: pointer; pointer-events: all; transition: fill var(--dur); }
+    #axisIndicatorGroup.nav .ax-pos { fill: var(--hud-bar-bg); stroke: var(--hud-bar-line); stroke-width: 1; cursor: pointer; pointer-events: all; transition: fill var(--dur); }
+    /* v20261122d (owner: the hollow circles' stroke "differs (thick) from the X Y Z circle" - 1.25 px at 50 % against 1 px at 16 %):
+       the three hollow circles take the lettered ones' edge and ground, so the six are one disc, three with a letter. */
+    #axisIndicatorGroup.nav .ax-neg { fill: var(--hud-bar-bg); fill-opacity: 1; stroke: var(--hud-bar-line); stroke-width: 1; cursor: pointer; pointer-events: all; transition: fill-opacity var(--dur); }
+    #axisIndicatorGroup.nav .ax-hub { fill: var(--hud-bar-bg); stroke: var(--hud-bar-line); stroke-width: 1; cursor: pointer; pointer-events: all; transition: fill var(--dur); }
     #axisIndicatorGroup.nav .ax-pos:hover, #axisIndicatorGroup.nav .ax-hub:hover { fill: var(--hud-bar-hover); }
     #axisIndicatorGroup.nav .ax-neg:hover { fill: var(--hud-bar-hover); fill-opacity: 1; stroke: var(--hud-bar-hover); }
     #axisIndicatorGroup.nav .ax-letter path { stroke: var(--hud-bar-text); }
@@ -4802,12 +4861,23 @@
        pill - same fill, same rounded ends, the number in the same ink and place; the editing state is the pill at full
        opacity with an accent ring. The camera HUD bars keep the boxed editor above. */
     #dragPillLayer .drag-hud-pill .hud-value-input {
-      width: 100%; height: 100%; padding: 0 8px; border-radius: inherit; background-color: transparent; color: var(--hud-bar-text);
-      font-weight: 400; box-shadow: none; caret-color: var(--hud-bar-text); -moz-appearance: textfield; appearance: textfield;
+      width: 100%; height: 100%; padding: 0 8px; border-radius: inherit; background-color: transparent; color: var(--hud-bar-text-edit);
+      font-weight: 400; box-shadow: none; caret-color: var(--hud-bar-text-edit); -moz-appearance: textfield; appearance: textfield;
     }
     #dragPillLayer .drag-hud-pill .hud-value-input::-webkit-inner-spin-button,
     #dragPillLayer .drag-hud-pill .hud-value-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     #dragPillLayer .drag-hud-pill.editing { opacity: 1; box-shadow: 0 0 0 1.5px var(--accent-ink); }
+    /* PLAIN TEXT WHILE DRAGGING (v20261122d; owner's idea after Plotter's labels: "solid text between the measurement" during the drag,
+       the pill "as soon as mouse released"). A pill cannot be clicked while a drag is in flight (.editable is set only when no drag is),
+       so a pill that stands ON the drawing - it carries its title above: the distance / single-axis pill on its ruler, the rotate pill -
+       is drawn as a READING then: no ground, no edge, the number and its title in the readout's ink. (v20261122d gave them a white
+       paper halo; v20261122e, the owner: "remove the white blurred background ... once we release it becomes a pill".) On release the
+       pill fades in under the same number. Nothing moves. The x / y / z column at the paper's corner stays pills (owner: "just the text
+       near the actual graphic"). The layer carries .live-text only while DragReadout.LIVE_TEXT is on. */
+    #dragPillLayer.live-text .drag-hud-pill { transition: background-color var(--dur-fast), box-shadow var(--dur-fast); }
+    #dragPillLayer.live-text .drag-pill.label-above:not(.editable) .drag-hud-pill { background: transparent; box-shadow: none; }
+    #dragPillLayer.live-text .drag-pill.label-above:not(.editable) .hud-value,
+    #dragPillLayer.live-text .drag-pill.label-above:not(.editable) .drag-hud-label { color: var(--accent-ink); }
     #pathHighlightGroup text.drag-dim-measure { font-family: var(--font-family-sans); font-weight: 400; visibility: hidden; }
     /* GIZMO DRAG FOCUS (v20260921d): GizmoFocus.apply tags the selection gizmo's
        children while one of its controls is dragged. The rest is hidden here;
@@ -6518,6 +6588,18 @@
       color: var(--danger-ink);
       font-style: italic;
     }
+
+    /* v20261122f A HAIRLINE MARKS AN INPUT (owner, 2026-11-22: "give it a hairline (no rounded corners)"; "inputs have hairlines and buttons
+       solid (as they used to be)"). A number or text field and a select keep their square white box and gain the one line, INSIDE the box
+       (no size change); the focus ring replaces it. A row of fields (.xyz-inputs) already draws ONE 1 px separator between its fields - a
+       1 px gap over a line-coloured ground - so the GROUP takes the outer line (an overlay, no size change), never each field (that made
+       a 3 px band). Only a group that HOLDS a number or text field: .xyz-inputs is also a plain layout box (the Scene panel's Background
+       swatch stands alone in one). A colour swatch is an input too and takes the line as a ring. These rules are last in the sheet. */
+    input[type="number"]:not(:focus):not(.hud-value-input), input[type="text"]:not(:focus):not(.hud-value-input), select, .ui-select { box-shadow: inset 0 0 0 1px var(--line-one); }
+    .xyz-inputs input:is([type="number"], [type="text"]):not(:focus) { box-shadow: none; }
+    .xyz-inputs:has(input:is([type="number"], [type="text"])) { background: var(--line-one); position: relative; }
+    .xyz-inputs:has(input:is([type="number"], [type="text"]))::after { content: ''; position: absolute; inset: 0; box-shadow: inset 0 0 0 1px var(--line-one); pointer-events: none; z-index: 3; }
+    input[type="color"] { box-shadow: 0 0 0 1px var(--line-one); }
   </style>
   <!-- THEME BOOTSTRAP (v20260908b). The one script in <head>, and the only code
        that may run before the app script: it stamps data-theme on <html> from the
@@ -6620,10 +6702,10 @@
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 104 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <!-- Left chevron -->
-      <polyline points="26 16 20 12 26 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round"
+      <polyline points="26 16 20 12 26 8" stroke="currentColor" stroke-width="0.96" stroke-linecap="round"
         stroke-linejoin="round" />
       <!-- Right chevron -->
-      <polyline points="78 8 84 12 78 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round"
+      <polyline points="78 8 84 12 78 16" stroke="currentColor" stroke-width="0.96" stroke-linecap="round"
         stroke-linejoin="round" />
     </svg>
     <span class="hud-value" id="hudAzimuthValue">0.0°</span>
@@ -6638,10 +6720,10 @@
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 24 104" fill="none" xmlns="http://www.w3.org/2000/svg">
       <!-- Up chevron -->
-      <polyline points="8 26 12 20 16 26" stroke="#fff" stroke-width="0.96" stroke-linecap="round"
+      <polyline points="8 26 12 20 16 26" stroke="currentColor" stroke-width="0.96" stroke-linecap="round"
         stroke-linejoin="round" />
       <!-- Down chevron -->
-      <polyline points="16 78 12 84 8 78" stroke="#fff" stroke-width="0.96" stroke-linecap="round"
+      <polyline points="16 78 12 84 8 78" stroke="currentColor" stroke-width="0.96" stroke-linecap="round"
         stroke-linejoin="round" />
     </svg>
     <span class="hud-value" id="hudElevationValue">0.0°</span>
@@ -6670,10 +6752,10 @@
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 104 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <!-- Left chevron -->
-      <polyline points="26 16 20 12 26 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round"
+      <polyline points="26 16 20 12 26 8" stroke="currentColor" stroke-width="0.96" stroke-linecap="round"
         stroke-linejoin="round" />
       <!-- Right chevron -->
-      <polyline points="78 8 84 12 78 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round"
+      <polyline points="78 8 84 12 78 16" stroke="currentColor" stroke-width="0.96" stroke-linecap="round"
         stroke-linejoin="round" />
     </svg>
     <span class="hud-value" id="hudDistValue">10.0</span>
@@ -6689,10 +6771,10 @@
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 104 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <!-- Left chevron -->
-      <polyline points="26 16 20 12 26 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round"
+      <polyline points="26 16 20 12 26 8" stroke="currentColor" stroke-width="0.96" stroke-linecap="round"
         stroke-linejoin="round" />
       <!-- Right chevron -->
-      <polyline points="78 8 84 12 78 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round"
+      <polyline points="78 8 84 12 78 16" stroke="currentColor" stroke-width="0.96" stroke-linecap="round"
         stroke-linejoin="round" />
     </svg>
     <span class="hud-value" id="hudFovZoomValue">60°</span>
@@ -6707,10 +6789,10 @@
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 104 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <!-- Left chevron -->
-      <polyline points="26 16 20 12 26 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round"
+      <polyline points="26 16 20 12 26 8" stroke="currentColor" stroke-width="0.96" stroke-linecap="round"
         stroke-linejoin="round" />
       <!-- Right chevron -->
-      <polyline points="78 8 84 12 78 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round"
+      <polyline points="78 8 84 12 78 16" stroke="currentColor" stroke-width="0.96" stroke-linecap="round"
         stroke-linejoin="round" />
     </svg>
     <span class="hud-value" id="hudFovValue">60°</span>
@@ -6727,10 +6809,10 @@
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 104 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <!-- Left chevron -->
-      <polyline points="26 16 20 12 26 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round"
+      <polyline points="26 16 20 12 26 8" stroke="currentColor" stroke-width="0.96" stroke-linecap="round"
         stroke-linejoin="round" />
       <!-- Right chevron -->
-      <polyline points="78 8 84 12 78 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round"
+      <polyline points="78 8 84 12 78 16" stroke="currentColor" stroke-width="0.96" stroke-linecap="round"
         stroke-linejoin="round" />
     </svg>
     <span class="hud-value" id="hudTruckXValue">0.0</span>
@@ -6747,10 +6829,10 @@
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 24 104" fill="none" xmlns="http://www.w3.org/2000/svg">
       <!-- Up chevron -->
-      <polyline points="8 26 12 20 16 26" stroke="#fff" stroke-width="0.96" stroke-linecap="round"
+      <polyline points="8 26 12 20 16 26" stroke="currentColor" stroke-width="0.96" stroke-linecap="round"
         stroke-linejoin="round" />
       <!-- Down chevron -->
-      <polyline points="16 78 12 84 8 78" stroke="#fff" stroke-width="0.96" stroke-linecap="round"
+      <polyline points="16 78 12 84 8 78" stroke="currentColor" stroke-width="0.96" stroke-linecap="round"
         stroke-linejoin="round" />
     </svg>
     <span class="hud-value" id="hudTruckYValue">0.0</span>
@@ -6767,7 +6849,7 @@
   <!-- EMPTY SCENE CARD (v20261113g): what to do with an empty paper; HTML over the canvas, never in an export -->
   <div id="emptySceneCard" role="note"><div class="esc-main">Paste art from Illustrator <span id="emptySceneKey">&#8984;V</span></div><div>or draw with the tools on the left</div><div>Sample Scene, in the Data panel, shows what dim can do</div></div>
   <div id="hudTruckResetBtn" class="canvas-hud-bar canvas-hud-bar-circle" title="Reset Truck / Pedestal">
-    <svg viewBox="0 0 20 20" fill="#fff" xmlns="http://www.w3.org/2000/svg">
+    <svg viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M15.09,6.6c-.52-.21-1.09.07-1.25.58l-1.23,2.77.82-4.41c.1-.58-.25-1.17-.82-1.29-.61-.13-1.2.27-1.3.88l-.7,4.19v-5.28c-.01-.6-.49-1.08-1.09-1.08s-1.08.48-1.08,1.08v5.66s-.9-4.69-.9-4.69c-.1-.52-.54-.93-1.07-.93-.7,0-1.18.63-1.06,1.28l1.23,6.36c-.41-.62-1.2-1.15-1.76-1.47-.53-.31-1.64-.03-1.51.73.03.19.24.56.35.72l3.31,4.65c.33.45.85.71,1.41.71h3.69c.65,0,1.21-.44,1.37-1.07l2.12-8.22c.13-.47-.09-.99-.54-1.17Z" />
     </svg>
@@ -7175,7 +7257,7 @@
               <polyline points="9.75 8 9.75 4 24.25 4 24.25 22 20.25 22" />
             </svg>
           </button>
-          <button id="removeCameraBtn" class="ui-btn ui-btn-small ui-btn-danger" title="Remove">
+          <button id="removeCameraBtn" class="ui-btn ui-btn-small" title="Remove">
             <svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
               <path stroke-miterlimit="10"
                 d="M8.25,10.5v12.75c0,1.24,1.01,2.25,2.25,2.25h9c1.24,0,2.25-1.01,2.25-2.25v-12.75" />
@@ -7454,7 +7536,7 @@
               <div class="cam-match-btns">
                 <button id="camMatchEditBtn" class="ui-btn" title="Open the match again with its lines where they were">Edit Match</button>
                 <button id="camMatchRestoreBtn" class="ui-btn" title="Put the camera back on its solved pose - the lines are the backup">Restore</button>
-                <button id="camMatchClearBtn" class="ui-btn ui-btn-danger" title="Forget the lines; the camera keeps its pose">Clear</button>
+                <button id="camMatchClearBtn" class="ui-btn" title="Forget the lines; the camera keeps its pose">Clear</button>
               </div>
             </div>
             <div id="camMatchSession" class="hidden">
@@ -7509,7 +7591,7 @@
               <div class="ui-hint" id="camMatchHint" title="Drag on the photo to draw a line along an edge that runs along the chosen axis; drag a line's end or body to move it; click a line to select it, Delete removes it. Two lines on each of two axes solve the camera; more lines, or a third axis, refine it. Enter confirms, Esc cancels."></div>
               <div class="prop-row prop-row-plain">
                 <div class="cam-match-btns">
-                  <button id="camMatchConfirmBtn" class="ui-btn" title="Keep the match and lock the camera (Enter)">Confirm</button>
+                  <button id="camMatchConfirmBtn" class="ui-btn ui-btn-primary" title="Keep the match and lock the camera (Enter)">Confirm</button>
                   <button id="camMatchCancelBtn" class="ui-btn" title="Put the camera and the lines back as they were (Esc)">Cancel</button>
                 </div>
               </div>
@@ -7589,7 +7671,7 @@
               <polyline points="9.75 8 9.75 4 24.25 4 24.25 22 20.25 22" />
             </svg>
           </button>
-          <button id="removeWorkplaneBtn" class="ui-btn ui-btn-small ui-btn-danger" title="Remove">
+          <button id="removeWorkplaneBtn" class="ui-btn ui-btn-small" title="Remove">
             <svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
               <path stroke-miterlimit="10"
                 d="M8.25,10.5v12.75c0,1.24,1.01,2.25,2.25,2.25h9c1.24,0,2.25-1.01,2.25-2.25v-12.75" />
@@ -8497,7 +8579,7 @@
               <input type="checkbox" id="penOriginCenterCb" class="ui-checkbox" checked />
             </div>
             <div class="prop-row prop-row-plain" style="padding: 4px 10px;">
-              <button id="penConfirmBtn" title="Finish the path (Enter)" class="ui-btn ui-btn-wide">Confirm Path</button>
+              <button id="penConfirmBtn" title="Finish the path (Enter)" class="ui-btn ui-btn-wide ui-btn-primary">Confirm Path</button>
             </div>
             <div class="ui-hint">or press Enter</div>
           </div>
@@ -9209,7 +9291,7 @@
           </div>
         </div>
         <div class="prop-row prop-row-plain" id="confirmShapeRow" style="padding: 4px 10px;">
-          <button id="confirmShapeBtn" title="Place the shape (Enter)" class="ui-btn ui-btn-wide">Confirm Shape</button>
+          <button id="confirmShapeBtn" title="Place the shape (Enter)" class="ui-btn ui-btn-wide ui-btn-primary">Confirm Shape</button>
         </div>
         <div class="ui-hint">or press Enter</div>
       </div>
@@ -9353,7 +9435,7 @@
               <polyline points="9.75 8 9.75 4 24.25 4 24.25 22 20.25 22" />
             </svg>
           </button>
-          <button id="removeObjectBtn" class="ui-btn ui-btn-small ui-btn-danger" title="Remove" data-cmd="delete">
+          <button id="removeObjectBtn" class="ui-btn ui-btn-small" title="Remove" data-cmd="delete">
             <svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
               <path stroke-miterlimit="10"
                 d="M8.25,10.5v12.75c0,1.24,1.01,2.25,2.25,2.25h9c1.24,0,2.25-1.01,2.25-2.25v-12.75" />
@@ -9884,7 +9966,7 @@
                       <input type="number" id="vertexIndexInput" class="ui-input w-40 text-center">
                       <span class="mx-1 text-sm opacity-70" id="totalVerticesSpan">/ 0</span>
                       <button id="nextVertexBtn" title="Select the next vertex of the path" class="ui-btn ui-btn-small flex-none">&gt;</button>
-                      <button id="deleteVertexBtn" aria-label="Delete vertex" title="Delete the selected vertex" class="ui-btn ui-btn-small ui-btn-danger">Del</button>
+                      <button id="deleteVertexBtn" aria-label="Delete vertex" title="Delete the selected vertex" class="ui-btn ui-btn-small">Del</button>
                     </div>
                     <div class="xyz-row">
                       <label>Vertex</label>
@@ -9912,7 +9994,7 @@
                         Winding</button>
                       <div class="flex-row-gap" style="width: 100%;">
                         <button id="createSubPathBtn" title="Merge the selected paths into one compound path - each becomes a subpath" class="ui-btn ui-btn-small">Merge Subpath</button>
-                        <button id="purgeSubPathBtn" title="Split the selected compound path into one path per subpath" class="ui-btn ui-btn-small ui-btn-danger">Purge Subpath</button>
+                        <button id="purgeSubPathBtn" title="Split the selected compound path into one path per subpath" class="ui-btn ui-btn-small">Purge Subpath</button>
                       </div>
                     </div>
                   </div>
@@ -13795,7 +13877,6 @@
 
       if (referenceImage.active) {
         refImageBtn.textContent = 'Remove Reference Image';
-        refImageBtn.classList.add('ui-btn-danger');
         refImageControls.style.display = 'block';
 
         if (refImageOpacitySlider) refImageOpacitySlider.value = referenceImage.opacity;
@@ -13808,7 +13889,6 @@
         if (refImageScaleV) refImageScaleV.value = referenceImage.scaleV;
       } else {
         refImageBtn.textContent = 'Import Reference Image';
-        refImageBtn.classList.remove('ui-btn-danger');
         refImageControls.style.display = 'none';
       }
     };
@@ -56818,7 +56898,7 @@
           : ('The photo on the canvas is ' + activeCamera.name + '\'s, the active camera. ' + cam.name + ' has none.');
       }
       btn.textContent = bp ? 'Remove Photo' : 'Import Photo';
-      btn.classList.toggle('ui-btn-danger', !!bp);
+      // v20261122g: Remove Photo is a plain button (it was ui-btn-danger while a photo was set) - one thing, undoable, Restore beside it
       ctl.classList.toggle('hidden', !bp);
       if (!bp) return;
       {   // S2 (v20261018y): Match Camera / Edit + Restore + Clear / the session's rows
@@ -78271,6 +78351,25 @@
     };
     // Default scene objects removed — test scene is auto-loaded on startup.
 
+    // --- GIZMO MARKS (v20261122d) --- the selection gizmo in the readout's and the pills' language (owner, 2026-11-22; research
+    // _plans/_visuals/polish_index.html, direction 3c). ON = false draws the gizmo of v20261122c element for element (the probes' control).
+    //   KEYS: at rest an x / y / z key is the paper's white with an ink edge and an ink letter; under the pointer or in the hand it is
+    //     SOLID in the active colour with a white letter, as it always was - so a fill means "this one is in your hand". The shapes stay
+    //     (a square moves, a circle turns or extrudes, a triangle scales).
+    //   PLANE FACES: a plane handle was two edges of the hexagon - its grab area was their stroke ("too thin to click and drag", owner).
+    //     Each now has a filled face (its two edges closed through the gizmo's centre) with the SAME data-axis, under the lines; a press
+    //     anywhere on it is the plane drag (gizmo picking is by DOM target). See-through white at rest, the active colour at 30 % when hot.
+    //   CENTRE: an open ring over a white disc, not a filled dot; solid when hot. The disc keeps its transparent 10 px grab stroke.
+    //   ONE WEIGHT: every stroke W px (2 until then; the owner: "too bold", then "every 1.5 px seems good") - axis lines, plane edges,
+    //     rings, scale bars, key edges, the centre ring.
+    //   RINGS: a rotate ring is drawn as four quarters - two in the axis ink, and the full ring under them in grey. The grey quarters are
+    //     DASHED 3 5 in the axis ink instead, so a ring is one ink and the quarters still turn with the object.
+    //   WORLD AXES: solid, at 45 % (owner: "solid as it used to be. Maybe giving it an opacity").
+    //   GRAB: gizmo picking is by DOM target, and a stroke is hit only where it is PAINTED - so a thinner line is a thinner target and a
+    //     dashed ring is a target with holes. Every stroked control but the plane edges (axis lines, rings, the outer ring, scale bars) therefore
+    //     gets a transparent twin under it, HIT px wide, with the same geometry and data-axis (a 'transparent' stroke is painted for
+    //     pointer-events - the centre disc's own trick). The grab width was the drawn 2 px until then.
+    const GizmoMarks = { ON: true, W: 1.5, HIT: 7 };
     // --- Gizmo Creation ---
     let axisIndicator;
     const gizmoElements = { lines: [], texts: [] };
@@ -78288,6 +78387,7 @@
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
         line.setAttribute('stroke', axis.c);
         line.setAttribute('stroke-width', '1');
+        if (GizmoMarks.ON) line.setAttribute('stroke-opacity', '0.45');   // v20261122d GIZMO MARKS: the world axes solid and quiet
         gizmoGroup.appendChild(line);
         gizmoElements.lines.push(line);
 
@@ -78895,7 +78995,8 @@
       const desiredPixelSize = LABEL_CIRCLE_R;
       const fontSize = desiredPixelSize / mainScale;
       // Compute mainScale-compensated stroke width so gizmo lines stay constant screen pixels
-      const gizmoSW = ((selectionGizmoElements.colors || _readGizmoColors()).strokeWidth || 4) / mainScale;   // v20260914zzh: from the colour cache, not getComputedStyle per frame
+      const GM = GizmoMarks.ON;   // v20261122d GIZMO MARKS
+      const gizmoSW = (GM ? GizmoMarks.W : ((selectionGizmoElements.colors || _readGizmoColors()).strokeWidth || 4)) / mainScale;   // v20260914zzh: from the colour cache, not getComputedStyle per frame
 
       const CIRCLE_SEGMENTS = 72;
       const circleAxes = ['x', 'y', 'z'];
@@ -78947,6 +79048,8 @@
         // Determine if this axis is highlighted (hovered or dragged)
         const isAxisHighlighted = highlightedAxis === axisKey || _exCurAxis === axisKey;   // EXTRUDE TOOL: the current vector's ring
         const axisColor = isAxisHighlighted ? activeColors[i] : normalColors[i];
+        // GIZMO MARKS: a key at rest is an OUTLINE (white ground, ink edge), a hot one solid as before. The label group's units are px.
+        const keyPaint = (el) => { if (GM && !isAxisHighlighted) { el.setAttribute('fill', 'var(--gizmo-key-fill)'); el.setAttribute('stroke', axisColor); el.setAttribute('stroke-width', String(GizmoMarks.W)); el.setAttribute('stroke-linejoin', 'round'); } else { el.setAttribute('fill', axisColor); el.setAttribute('stroke', 'none'); } };
         // EXTRUDE TOOL: an ineligible target dims the whole gizmo (the elements are
         // shared with the other tools, so the reset to '' is unconditional).
         [line, text, circle, selectionGizmoElements.circlesGrey && selectionGizmoElements.circlesGrey[i]].forEach(el => { if (el) el.style.opacity = _exDim ? '0.35' : ''; });
@@ -79017,7 +79120,7 @@
                 const triBaseX = triSize * 0.866;
                 labelTri.setAttribute('points', `0,${triTipY} ${-triBaseX},${triBaseY} ${triBaseX},${triBaseY}`);
                 labelTri.removeAttribute('transform'); // Always tip-up, no 3D rotation
-                labelTri.setAttribute('fill', axisColor);
+                keyPaint(labelTri);
                 labelTri.setAttribute('data-axis', dataAxisVal);
                 labelTri.style.display = 'block';
               }
@@ -79031,7 +79134,7 @@
                 labelRect.setAttribute('height', sqSize.toString());
                 labelRect.setAttribute('x', (-sqSize / 2).toString());
                 labelRect.setAttribute('y', (-sqSize / 2).toString());
-                labelRect.setAttribute('fill', axisColor);
+                keyPaint(labelRect);
                 labelRect.setAttribute('data-axis', dataAxisVal);
                 labelRect.style.display = 'block';
               }
@@ -79041,7 +79144,7 @@
               if (labelTri) labelTri.style.display = 'none';
               if (labelCircle) {
                 labelCircle.setAttribute('r', LABEL_CIRCLE_R.toString());
-                labelCircle.setAttribute('fill', axisColor);
+                keyPaint(labelCircle);
                 labelCircle.setAttribute('data-axis', dataAxisVal);
                 labelCircle.style.display = 'block';
               }
@@ -79051,6 +79154,7 @@
             const pathElement = text.querySelector('path');
             if (pathElement) {
               pathElement.setAttribute('stroke-width', (gc.textStrokeWidth / labelScale).toString());
+              pathElement.setAttribute('stroke', (GM && !isAxisHighlighted) ? axisColor : 'var(--overlay-halo)');   // GIZMO MARKS: an ink letter on the outline key, white on the solid one
               pathElement.setAttribute('data-axis', dataAxisVal);
             }
 
@@ -79114,7 +79218,8 @@
 
           circleGrey.setAttribute('d', greyPathData);
           circleGrey.setAttribute('stroke-width', gizmoSW);
-          circleGrey.setAttribute('stroke', gc.ringGrey);
+          if (GM) { circleGrey.setAttribute('stroke', normalColors[i]); circleGrey.setAttribute('stroke-opacity', '0.55'); circleGrey.setAttribute('stroke-dasharray', (3 / mainScale) + ' ' + (5 / mainScale)); }   // GIZMO MARKS: the quarters that were grey are dashed, in the ring's own ink
+          else { circleGrey.setAttribute('stroke', gc.ringGrey); circleGrey.removeAttribute('stroke-opacity'); circleGrey.removeAttribute('stroke-dasharray'); }
           circleGrey.style.display = 'block';
           sortedElements.push({ el: circleGrey, z: tOrigin[2] });
 
@@ -79181,9 +79286,15 @@
 
         const movePlanarNormalColors = [gc.xy, gc.yz, gc.xz];
         const movePlanarActiveColors = [gc.xyActive, gc.yzActive, gc.xzActive];
+        // GIZMO MARKS: the three FACES, built once (polygons under the lines, tagged like their polylines)
+        if (GM && !selectionGizmoElements.movePlanarFaces) {
+          selectionGizmoElements.movePlanarFaces = movePlanarDefs.map(() => { const f = document.createElementNS(svgNS, 'polygon'); f.setAttribute('stroke', 'none'); f.style.cursor = 'pointer'; f.style.display = 'none'; selectionGizmoGroup.appendChild(f); return f; });
+        }
 
         movePlanarDefs.forEach(h => {
           const polyline = selectionGizmoElements.movePlanarHandles[h.idx];
+          const face = selectionGizmoElements.movePlanarFaces ? selectionGizmoElements.movePlanarFaces[h.idx] : null;
+          if (face) face.style.display = 'none';   // shown below, with its polyline
           // 2D MODE: only the XY plane exists
           if (gizmo2D && h.axis !== 'xy') { polyline.style.display = 'none'; return; }
           const tA = projGizmo(h.pA);
@@ -79205,12 +79316,21 @@
             polyline.setAttribute('data-axis', `planar-${h.axis}`);
             polyline.style.display = 'block';
             sortedElements.push({ el: polyline, z: (tA[2] + tCorner[2] + tB[2]) / 3 });
+            if (GM && face) {   // the face: the two edges closed through the centre; UNDER every line (a distinct far z each, so the sort is total)
+              face.setAttribute('points', `${ax},${ay} ${cx},${cy} ${bx},${by} ${originX},${originY}`);
+              face.setAttribute('fill', isMovePlanarHighlighted ? movePlanarActiveColors[h.idx] : 'var(--gizmo-plane-fill)');
+              face.setAttribute('fill-opacity', isMovePlanarHighlighted ? '0.3' : '1');
+              face.setAttribute('data-axis', `planar-${h.axis}`);
+              face.style.display = 'block';
+              sortedElements.push({ el: face, z: -1e6 - h.idx });
+            }
           } else {
             polyline.style.display = 'none';
           }
         });
       } else if (selectionGizmoElements.movePlanarHandles) {
         selectionGizmoElements.movePlanarHandles.forEach(p => p.style.display = 'none');
+        if (selectionGizmoElements.movePlanarFaces) selectionGizmoElements.movePlanarFaces.forEach(f => f.style.display = 'none');
       }
 
       // Center Circle — Scale (uniform), Pivot (free-move), Move (free-move)
@@ -79279,6 +79399,21 @@
       } else {
         selectionGizmoElements.uniformCircle.style.display = 'none';
       }
+      // GIZMO MARKS: the centre at rest is an OPEN RING over a white disc. The disc's stroke is its transparent grab area, so the ring is a
+      // second circle (no pointer events, the same data-axis so GizmoFocus dims and hides it with the disc); a hot centre is solid, no ring.
+      {
+        const uc = selectionGizmoElements.uniformCircle; let ring = selectionGizmoElements.centreRing;
+        const rest = GM && uc.style.display !== 'none' && highlightedAxis !== uc.getAttribute('data-axis');
+        if (rest) {
+          if (!ring) { ring = selectionGizmoElements.centreRing = document.createElementNS(svgNS, 'circle'); ring.setAttribute('fill', 'none'); ring.style.pointerEvents = 'none'; selectionGizmoGroup.appendChild(ring); }
+          const ink = uc.getAttribute('fill');   // the tool's own centre ink (--gizmo-centre / --gizmo-free-centre), set by its branch above
+          uc.setAttribute('fill', 'var(--gizmo-key-fill)');
+          ring.setAttribute('cx', originX); ring.setAttribute('cy', originY); ring.setAttribute('r', FREE_CENTRE_R / mainScale);
+          ring.setAttribute('stroke', ink); ring.setAttribute('stroke-width', GizmoMarks.W / mainScale); ring.setAttribute('data-axis', uc.getAttribute('data-axis'));
+          ring.style.display = 'block';
+          topElements.push({ el: ring, z: tOrigin[2] + 0.002 });
+        } else if (ring) ring.style.display = 'none';
+      }
 
       // Screen-Rotation Circle (Rotate Only — large gray ring for camera-facing rotation)
       // Uses fixed pixel radius (like uniform scale circle) so it doesn't distort with perspective.
@@ -79288,7 +79423,7 @@
         const screenCircleBg = selectionGizmoElements.screenRotateCircleBg;
         const screenCircleRadius = 1.1 * DESIRED_PIXEL_SIZE / mainScale;
         const isScreenHighlighted = highlightedAxis === 'rotate-screen';
-        const scrSW = (gizmoSW + 0.4 / mainScale).toString();
+        const scrSW = (GM ? gizmoSW : gizmoSW + 0.4 / mainScale).toString();   // GIZMO MARKS: one weight
         const circumference = 2 * Math.PI * screenCircleRadius;
         const quarter = circumference / 4;
 
@@ -79320,6 +79455,23 @@
         selectionGizmoElements.screenRotateCircleBg.style.display = 'none';
       }
 
+      // GIZMO MARKS - THE GRAB TWINS (the record is at GizmoMarks): one transparent stroke under each stroked control drawn this frame
+      {
+        const hits = selectionGizmoElements.hits || (selectionGizmoElements.hits = []);
+        for (const h of hits) h.style.display = 'none';
+        if (GM) {
+          const GEO = { line: ['x1', 'y1', 'x2', 'y2'], path: ['d'], circle: ['cx', 'cy', 'r'] }, hw = GizmoMarks.HIT / mainScale;   // NOT the plane edges (polylines): their FACE is their target, and a wide twin there stole the axis line where an edge ends on it (measured at the X line's middle)
+          for (const it of sortedElements.slice()) {
+            const el = it.el, tag = el.tagName, geo = GEO[tag];
+            if (!geo || !el.hasAttribute('data-axis') || el.style.pointerEvents === 'none' || (tag !== 'line' && el.getAttribute('fill') !== 'none')) continue;
+            let h = el._gzHit;
+            if (!h) { h = el._gzHit = document.createElementNS(svgNS, tag); h.setAttribute('fill', 'none'); h.setAttribute('stroke', 'transparent'); h.setAttribute('stroke-linecap', 'round'); h.setAttribute('stroke-linejoin', 'round'); h.style.cursor = 'pointer'; hits.push(h); }
+            for (const k of geo) { const v = el.getAttribute(k); if (h.getAttribute(k) !== v) h.setAttribute(k, v); }
+            h.setAttribute('stroke-width', hw); h.setAttribute('data-axis', el.getAttribute('data-axis')); h.style.opacity = el.style.opacity; h.style.display = 'block';
+            sortedElements.push({ el: h, z: it.z - 1e-7 });   // just under its own control
+          }
+        }
+      }
       sortedElements.sort((a, b) => a.z - b.z);
       sortedElements.forEach((item) => {
         selectionGizmoGroup.appendChild(item.el);
@@ -94544,14 +94696,30 @@
     let _emptyCardShown = false, _emptyCardFill = null;
     // THE PAPER'S INK (v20261113j): the card's text follows the paper's own colour (scene data - white in both themes by default),
     // never the theme. Measured only when the paper's fill attribute changes (a string compare per frame while shown).
+    // ONE measure of the paper (v20261121g): is the paper's own colour dark? null when it has no readable fill
+    const _paperIsDark = () => {
+      const m = (getComputedStyle(frameRect).fill || '').match(/[\d.]+/g);
+      if (!m || m.length < 3) return null;
+      const lin = (v) => { v = +v / 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+      const L = 0.2126 * lin(m[0]) + 0.7152 * lin(m[1]) + 0.0722 * lin(m[2]);
+      return L < 0.18;   // the luminance where black and white text read equally (about 4.6:1 each)
+    };
     const _emptyCardInk = (el) => {
       const f = frameRect.getAttribute('fill') || '';
       if (f === _emptyCardFill) return; _emptyCardFill = f;
-      const m = (getComputedStyle(frameRect).fill || '').match(/[\d.]+/g);
-      if (!m || m.length < 3) { el.classList.remove('dark-paper'); return; }
-      const lin = (v) => { v = +v / 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
-      const L = 0.2126 * lin(m[0]) + 0.7152 * lin(m[1]) + 0.0722 * lin(m[2]);
-      el.classList.toggle('dark-paper', L < 0.18);   // the luminance where black and white text read equally (about 4.6:1 each)
+      el.classList.toggle('dark-paper', _paperIsDark() === true);
+    };
+    // THE PAPER'S TONE (v20261121g, the outline pill): :root[data-paper="dark"] while the scene's paper is dark - the HUD pills, the pills at a
+    // drag and the axis widget stand on the paper and take its opposite. Asked every frame, measured only when the fill attribute changes
+    // (a string compare); never written into the scene or the settings.
+    let _paperToneFill = null;
+    const _paperToneSync = () => {
+      try {
+        const f = frameRect.getAttribute('fill') || '';
+        if (f === _paperToneFill) return; _paperToneFill = f;
+        const r = document.documentElement;
+        if (_paperIsDark() === true) r.setAttribute('data-paper', 'dark'); else r.removeAttribute('data-paper');
+      } catch (e) { }
     };
     const _emptyCardSync = (place) => {
       try {
@@ -96443,8 +96611,8 @@
       <ellipse cx="10" cy="10" rx="8" ry="3" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 88 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <polyline points="22 16 16 12 22 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
-      <polyline points="66 8 72 12 66 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="22 16 16 12 22 8" stroke="currentColor" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="66 8 72 12 66 16" stroke="currentColor" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
     <span class="hud-value" id="subHudAzValue">0.0°</span>
   </div>
@@ -96455,8 +96623,8 @@
       <ellipse cx="10" cy="10" rx="3" ry="8" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 24 104" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <polyline points="8 26 12 20 16 26" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
-      <polyline points="16 78 12 84 8 78" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="8 26 12 20 16 26" stroke="currentColor" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="16 78 12 84 8 78" stroke="currentColor" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
     <span class="hud-value" id="subHudElValue">0.0°</span>
   </div>
@@ -96475,8 +96643,8 @@
       <polyline points="9.03 15.97 4.03 15.97 4.03 10.97" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="1" />
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 72 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <polyline points="18 16 12 12 18 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
-      <polyline points="54 8 60 12 54 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="18 16 12 12 18 8" stroke="currentColor" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="54 8 60 12 54 16" stroke="currentColor" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
     <span class="hud-value" id="subHudDistValue">10.0</span>
   </div>
@@ -96487,8 +96655,8 @@
       <path d="M6.98,11.82c.89-.52,1.92-.82,3.02-.82s2.14.3,3.02.82" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 72 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <polyline points="18 16 12 12 18 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
-      <polyline points="54 8 60 12 54 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="18 16 12 12 18 8" stroke="currentColor" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="54 8 60 12 54 16" stroke="currentColor" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
     <span class="hud-value" id="subHudFovZoomValue">60°</span>
   </div>
@@ -96498,8 +96666,8 @@
       <polygon points="18 14 14 6 6 6 2 14 18 14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 72 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <polyline points="18 16 12 12 18 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
-      <polyline points="54 8 60 12 54 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="18 16 12 12 18 8" stroke="currentColor" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="54 8 60 12 54 16" stroke="currentColor" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
     <span class="hud-value" id="subHudFovValue">60°</span>
   </div>
@@ -96511,8 +96679,8 @@
       <polyline points="13 14 17 10 13 6" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 72 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <polyline points="18 16 12 12 18 8" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
-      <polyline points="54 8 60 12 54 16" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="18 16 12 12 18 8" stroke="currentColor" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="54 8 60 12 54 16" stroke="currentColor" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
     <span class="hud-value" id="subHudTruckXValue">0.0</span>
   </div>
@@ -96524,14 +96692,14 @@
       <polyline points="14 7 10 3 6 7" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" />
     </svg>
     <svg class="hud-bar-svg" viewBox="0 0 24 104" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <polyline points="8 26 12 20 16 26" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
-      <polyline points="16 78 12 84 8 78" stroke="#fff" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="8 26 12 20 16 26" stroke="currentColor" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="16 78 12 84 8 78" stroke="currentColor" stroke-width="0.96" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
     <span class="hud-value" id="subHudTruckYValue">0.0</span>
   </div>
   <div id="subHudTruckResetBtn" class="canvas-hud-bar canvas-hud-bar-circle subwin-hud subwin-hud-hand"
     title="Drag to truck freely — Click to reset Truck / Pedestal">
-    <svg viewBox="0 0 20 20" fill="#fff" xmlns="http://www.w3.org/2000/svg">
+    <svg viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M15.09,6.6c-.52-.21-1.09.07-1.25.58l-1.23,2.77.82-4.41c.1-.58-.25-1.17-.82-1.29-.61-.13-1.2.27-1.3.88l-.7,4.19v-5.28c-.01-.6-.49-1.08-1.09-1.08s-1.08.48-1.08,1.08v5.66s-.9-4.69-.9-4.69c-.1-.52-.54-.93-1.07-.93-.7,0-1.18.63-1.06,1.28l1.23,6.36c-.41-.62-1.2-1.15-1.76-1.47-.53-.31-1.64-.03-1.51.73.03.19.24.56.35.72l3.31,4.65c.33.45.85.71,1.41.71h3.69c.65,0,1.21-.44,1.37-1.07l2.12-8.22c.13-.47-.09-.99-.54-1.17Z" />
     </svg>
@@ -97813,6 +97981,7 @@
       const _chromeHdr = width + '|' + height + '|' + CANVAS_OFFSET_X + '|' + _camPose(activeCamera) + '|' + (selectedCamera === activeCamera ? 'same' : _camPose(selectedCamera)) + '|' + cameras.indexOf(selectedCamera) + '|' + tlExpanded + '|' + _tlExpandedHeight + '|' + _currentFrameGuide + '|' + projectionType + '|' + (_showHudCb ? _showHudCb.checked : true) + '|' + _camBackplateKey(activeCamera) + '|' + _subGuideKey;   // CAMERA-MATCH (v20261018x): the photo and the Photo guide follow the header. v20261012g: Show Camera HUD is written by this gated block too - without it the toggle waited for the 30th-frame belt
       render._chromeTick = (render._chromeTick || 0) + 1;
       _emptyCardSync(false);   // (v20261113g) the empty-scene card: shown or not is asked every frame, placed with the chrome below
+      _paperToneSync();        // (v20261121g) the outline pill follows the paper's tone
       _historyHudSync();   // (v20261114zh) Undo / Redo greyed when their stack is empty - asked every frame, two class toggles
       const _chromeDirty = (_chromeHdr !== render._chromeHdr) || (render._chromeTick % 30 === 0);
       if (_chromeDirty) render._chromeHdr = _chromeHdr;
@@ -109383,6 +109552,76 @@
       dimBlend(lenPx, nearPx, farPx) { return Math.max(0, Math.min(1, (lenPx - nearPx) / (farPx - nearPx))); },   // 0 up to nearPx (the FARTHEST, held - the owner's "threshold for the farthest"), then linear, 1 from farPx
       VECTOR_CLIP: true,   // v20260921zd: false = the vector runs behind the pills again
       NOW_DOT: true,
+      // ---- DRAFTING MARKS (v20261121f; owner, 2026-11-21: the readout's round dots "may be confusing since rounded dots are used as path nodes
+      // too" - research _plans/_visuals/plotter_index.html, direction A, after Pasquale Vitiello's Plotter). What each mark IS changes, nothing
+      // else (same ink, same pills, same placement law):
+      //   a measurement ENDS in a 45 deg slash (8 px extent) and its witness line runs 5 px past - never a dot;
+      //   where the drag STARTED is a centre mark (an 11 px cross) - never a ring;
+      //   the MOVE is the one mark that is a change: a dashed shaft (4 6 at first; 6 4 since v20261122e) with a solid open head (two 6 px
+      //     legs at 45 deg), dashes counted back from the head. The head stopped 38 px short of the gizmo's centre at first; since v20261122e
+      //     it points at the object's point (see ARROW_BACK_PX). The filled now-dot is not drawn. Same for the swept arc of a rotate drag;
+      //   a DASH carries a meaning: movement (4 6) and an axis (the centerline 8 3 1 3). Witness lines, dimension lines, the x / y / z legs
+      //     and the rotate's zero ray are continuous;
+      //   ONE WEIGHT, MARK_W px, for every line of the readout (v20261122b). The history, because it took four tries: v20261121f's first
+      //     build was 1 px throughout (Plotter's "one weight") with the measuring lines at 0.6 / 0.32 - the owner: "too thin to my eyes";
+      //     then TWO weights, the main marks 1.5 px and the measuring lines 1 px at 0.9 / 0.5; then the main marks 2 px (v20261122a, on
+      //     1.5: "it is still bit hard to see"); then, after living with 2 px / 1 px: the main marks "should be 1.5 and dimension line,
+      //     witness lines and legs should be 1.5 as well". So: the arrow's shaft and head, the centre mark, the slashes, the rotate's arc,
+      //     head, now ray and zero ray, the dimension line, the witness lines and the x / y / z legs are all MARK_W = 1.5 px. The order of
+      //     the marks is read from OPACITY alone: 1 for the movement and the marks, 0.9 the dimension line, 0.5 witness lines, legs and
+      //     the zero ray. v20261122c (owner: "make the dotted lines that appear during the drag 1.5 too"): the drag's GUIDE joins - the
+      //     axis centerline, the plane patch's cross and its outline are MARK_W as well (they were 1 px), at their own 0.4 / 0.32.
+      //   ONE OWNER PER EDGE: on a single-axis drag in flight the axis guide lies on the vector's own line - the guide is drawn, the shaft
+      //     is not (only its head).
+      // Plotter's own opacities (0.32 / 0.14) are set for an empty page and vanish over artwork - these are stronger on purpose.
+      // MARKS = false draws the picture of v20261121e, element for element (the probes' control; NOW_DOT is read only there).
+      MARKS: true, MARK_W: 1.5,
+      // v20261122d PLAIN TEXT WHILE DRAGGING (the CSS record is at #dragPillLayer.live-text): the layer wears the class while this is on.
+      LIVE_TEXT: true,
+      // v20261122d THE LINES CLEAR THE TITLE (owner: "the line margin should have this text in mind (the line overlaps it especially on y axis
+      // movement)"). Every line is cut behind a pill's 72 x 24 box (+ 3 px); the pill's title (x / y / z / delta) stands 2 px ABOVE that box
+      // and was never in the cut, so a vertical dimension line ran through it. With this on, a pill that carries its title above adds a
+      // second box to the cut: TITLE_DY px above the pill's centre, TITLE_HW x TITLE_HH half sizes. titleCut is the pure half.
+      TITLE_CLEAR: true, TITLE_DY: 21, TITLE_HW: 11, TITLE_HH: 9,
+      // pure: the ranges of p -> q visible past the pills (centres cs, half sizes hw x hh) AND past the title boxes (centres ts, half sizes tw x th)
+      segVisibleBoth(p, q, cs, hw, hh, ts, tw, th) {
+        const a = this.segVisibleT(p, q, cs, hw, hh);
+        if (!ts || !ts.length) return a;
+        const b = this.segVisibleT(p, q, ts, tw, th), out = [];
+        for (const [a0, a1] of a) for (const [b0, b1] of b) { const lo = Math.max(a0, b0), hi = Math.min(a1, b1); if (hi - lo > 1e-9) out.push([lo, hi]); }
+        return out;
+      },
+      // v20261122e THE HEAD POINTS AT THE POINT (owner: the head "has a offset from the point of the object so it is not understandable
+      // enough. Can you make it directly point it?"). Until then the head stopped 38 px short, to clear the whole gizmo. Now it goes to
+      // the object's point: where the gizmo's centre handle stands on that point the tip stops on the handle's EDGE (ARROW_BACK_PX, the
+      // handle's 4.75 px radius and a hair - a tip under the handle would be hidden by it), and where the handle is hidden or faint (an
+      // axis or plane drag) the tip is the point itself. _arrowBack() is this frame's answer; the last one used is kept in _arrowBackNow.
+      // THE DASH (owner: "the dash seems too short for the arrow head"): DASH_ON / DASH_OFF = 6 / 4 (4 / 6 until then). A dash is as long
+      // as a leg of the head, the shaft is 60 % ink (it was 40 %), and the period is still 10 px. The rotate's arc wears the same.
+      ARROW_BACK_PX: 6, ARROW_MIN_PX: 24, ARROW_LEAD_PX: 9, DASH_ON: 6, DASH_OFF: 4,
+      _arrowBack() { let up = false; try { const c = selectionGizmoElements.uniformCircle; up = !!c && c.style.display !== 'none' && !c.hasAttribute('data-drag-hidden') && !c.hasAttribute('data-drag-dim'); } catch (e) { } return (this._arrowBackNow = up ? this.ARROW_BACK_PX : 0); },
+      // pure: where the arrow's shaft runs on a vector lenPx long, in px from its start: it leaves the centre mark at lead and ends at tip.
+      // CONTINUOUS in lenPx (no jump as a drag grows): the tip rides the vector's end up to ARROW_MIN_PX, waits there while the end pulls
+      // `back` px ahead, then follows that far behind. back: how far short of the end the tip stops (default ARROW_BACK_PX; 0 = on the end).
+      arrowPlan(lenPx, back) { const bk = back == null ? this.ARROW_BACK_PX : back, tip = Math.max(Math.min(lenPx, this.ARROW_MIN_PX), lenPx - bk); return { tip, lead: Math.min(this.ARROW_LEAD_PX, tip * 0.3) }; },
+      // pure: the stroke-dasharray of a line len long that draws `on`-long dashes every on + off, COUNTED BACK FROM s1 (so a dash always meets
+      // the head), only between s0 and s1 and only inside the visible ranges vis ([[t0, t1], ...] of the line - segVisibleT's). dashForT's form.
+      dashFromTip(vis, len, s0, s1, on, off) {
+        const segs = [];
+        if (on > 0 && off >= 0) for (let e = s1; e > s0 + 1e-9; e -= on + off) { const a = Math.max(s0, e - on); for (const [t0, t1] of vis) { const lo = Math.max(a, t0 * len), hi = Math.min(e, t1 * len); if (hi - lo > 1e-6) segs.push([lo, hi]); } }
+        segs.sort((p, q) => p[0] - q[0]);
+        const arr = []; let end = 0;
+        segs.forEach(([a, b], i) => { if (i === 0) { if (a > 1e-9) arr.push(0, a); } else arr.push(a - end); arr.push(b - a); end = b; });
+        if (!arr.length) arr.push(0);
+        arr.push(len * 2 + 1);
+        return arr.map(v => +v.toFixed(4));
+      },
+      // pure: the two ends of the slash at c, for a witness line arriving along the unit vector u - u turned 45 deg clockwise on the screen, 4 px
+      // each way on both axes. A function of u alone, so the two slashes of one dimension are parallel whichever way the drag ran.
+      slashEnds(c, u, k) { const sx = (u[0] - u[1]) * k, sy = (u[0] + u[1]) * k; return [[c[0] - sx, c[1] - sy], [c[0] + sx, c[1] + sy]]; },
+      // the open head at tip, pointing along the unit vector dir: two legs, each 45 deg off the shaft
+      _head(el, tip, dir, scale, cls) { const c = Math.SQRT1_2, L = 6 / scale; for (const sg of [1, -1]) el('line', { class: cls, x1: tip[0], y1: tip[1], x2: tip[0] + (-dir[0] * c - sg * dir[1] * c) * L, y2: tip[1] + (-dir[1] * c + sg * dir[0] * c) * L, stroke: 'var(--accent-ink)', 'stroke-width': this.MARK_W / scale, 'stroke-linecap': 'butt' }); },
+      _centreMark(el, c, scale, attrs) { const a = 5.5 / scale; return el('path', Object.assign({ d: 'M' + (c[0] - a) + ' ' + c[1] + 'H' + (c[0] + a) + 'M' + c[0] + ' ' + (c[1] - a) + 'V' + (c[1] + a), fill: 'none', stroke: 'var(--accent-ink)', 'stroke-width': this.MARK_W / scale, 'stroke-linecap': 'butt' }, attrs || {})); },
       // pure: how far beyond its base offset the distance pill sits for a dimension line lenPx long when it fits at fitPx
       DIMENSIONS: true,
       DIM_FONT_PX: 12,
@@ -109613,11 +109852,23 @@
           for (let i = 0; i <= n; i++) { const p = P(at(plan.sweep * i / n)); if (p) arc.push(p); }
           if (arc.length < 2) return false;
           const p0 = arc[0], p1 = arc[arc.length - 1];
+          if (D.MARKS) {
+            // v20261121f DRAFTING MARKS: the swept arc is a MOVEMENT - dashed 4 6 from the hand's end (the points run tip-first, so a dash meets
+            // the head), a solid open head there; the zero ray a quiet continuous reference; no dots; the arc and the now ray at MARK_W
+            el('polygon', { class: 'drag-rot-sector', points: [c].concat(arc).map(p => p[0] + ',' + p[1]).join(' '), fill: 'var(--accent-color)', 'fill-opacity': 0.055, stroke: 'none' });
+            el('line', { class: 'drag-rot-zero', x1: c[0], y1: c[1], x2: p0[0], y2: p0[1], stroke: ink, 'stroke-opacity': 0.5, 'stroke-width': px(D.MARK_W) });
+            el('line', { class: 'drag-rot-now', x1: c[0], y1: c[1], x2: p1[0], y2: p1[1], stroke: ink, 'stroke-width': px(D.MARK_W), 'stroke-linecap': 'butt' });
+            el('polyline', { class: 'drag-rot-arc', points: arc.slice().reverse().map(p => p[0] + ',' + p[1]).join(' '), fill: 'none', stroke: ink, 'stroke-width': px(D.MARK_W), 'stroke-linecap': 'butt', 'stroke-dasharray': px(D.DASH_ON) + ' ' + px(D.DASH_OFF) });
+            let k = arc.length - 2; while (k > 0 && Math.hypot(p1[0] - arc[k][0], p1[1] - arc[k][1]) * scale < 6) k--;
+            const hx = p1[0] - arc[k][0], hy = p1[1] - arc[k][1], hl = Math.hypot(hx, hy);
+            if (hl * scale > 3) D._head(el, p1, [hx / hl, hy / hl], scale, 'drag-rot-head');
+          } else {
           el('polygon', { class: 'drag-rot-sector', points: [c].concat(arc).map(p => p[0] + ',' + p[1]).join(' '), fill: 'var(--accent-color)', 'fill-opacity': 0.08, stroke: 'none' });
           el('line', { class: 'drag-rot-zero', x1: c[0], y1: c[1], x2: p0[0], y2: p0[1], stroke: ink, 'stroke-opacity': 0.6, 'stroke-width': px(1), 'stroke-dasharray': px(5) + ' ' + px(4) });
           el('line', { class: 'drag-rot-now', x1: c[0], y1: c[1], x2: p1[0], y2: p1[1], stroke: ink, 'stroke-width': px(1.5), 'stroke-linecap': 'round' });
           el('polyline', { class: 'drag-rot-arc', points: arc.map(p => p[0] + ',' + p[1]).join(' '), fill: 'none', stroke: ink, 'stroke-width': px(1.5), 'stroke-linecap': 'round' });
           for (const p of [p0, p1]) el('circle', { class: 'drag-dim-dot', cx: p[0], cy: p[1], r: px(2.5), fill: ink });
+          }
           // THE PILL STAYS IN ONE PLACE (v20260921x; owner: "the rotating pill moves but it should stay in one place. I think near the gizmo axis
           // circle is good"). It rode the arc's middle, so it travelled at half the speed of the turn. Now it is PARKED just beyond the ring's axis
           // label (the lettered circle at the axis' tip - the one control GizmoFocus leaves on screen with the ring), on the line from the gizmo's
@@ -109684,9 +109935,11 @@
           const P = (p) => { const t = transformVertex(p, M); return t ? [(t[0] * FRAME_SIZE) / 2, (-t[1] * FRAME_SIZE) / 2] : null; };
           const zc = zAt !== undefined ? zAt : (obj._s3Land ? r : 0);   // (v20261004e) a landed sphere's centre is r up its axis (local +z, the plane normal)
           const c = P([0, 0, zc]), q = P([r, 0, zc]); if (!c || !q) return;
-          const ink = { stroke: 'var(--accent-ink)', 'stroke-width': px(1), 'stroke-opacity': 0.9, fill: 'none' };
+          const ink = { stroke: 'var(--accent-ink)', 'stroke-width': px(D.MARKS ? D.MARK_W : 1), 'stroke-opacity': 0.9, fill: 'none' };
           const B = D._block(), L = Math.hypot(q[0] - c[0], q[1] - c[1]);
-          el('circle', { class: 'drag-dim-dot', cx: c[0], cy: c[1], r: px(2.5), fill: 'var(--accent-ink)' });
+          // v20261121f DRAFTING MARKS: the centre is a centre mark, the surface end a slash across the line, the line continuous
+          const MK = D.MARKS, uR = L > 1e-9 ? [(q[0] - c[0]) / L, (q[1] - c[1]) / L] : [1, 0];
+          if (MK) D._centreMark(el, c, scale, { class: 'drag-dim-centre' }); else el('circle', { class: 'drag-dim-dot', cx: c[0], cy: c[1], r: px(2.5), fill: 'var(--accent-ink)' });
           let pc;
           if (L * scale >= 60) pc = [(c[0] + q[0]) / 2 + px(B.dx), (c[1] + q[1]) / 2 + px(B.dy)];
           else {   // too short to hold the pill: beside the surface point, out along the line (or to the right)
@@ -109696,9 +109949,10 @@
           }
           const pe = D._heldPillCentre('s3r', scale) || pc;
           for (const [t0, t1] of D.segVisibleT(c, q, [pe], px(36 + 3), px(12 + 3))) {
-            el('line', Object.assign({ class: 'drag-dim-line', 'data-dim': 's3r', x1: c[0] + (q[0] - c[0]) * t0, y1: c[1] + (q[1] - c[1]) * t0, x2: c[0] + (q[0] - c[0]) * t1, y2: c[1] + (q[1] - c[1]) * t1 }, ink, { 'stroke-dasharray': px(5) + ' ' + px(4) }));
+            el('line', Object.assign({ class: 'drag-dim-line', 'data-dim': 's3r', x1: c[0] + (q[0] - c[0]) * t0, y1: c[1] + (q[1] - c[1]) * t0, x2: c[0] + (q[0] - c[0]) * t1, y2: c[1] + (q[1] - c[1]) * t1 }, ink, MK ? {} : { 'stroke-dasharray': px(5) + ' ' + px(4) }));
           }
-          el('circle', { class: 'drag-dim-dot', cx: q[0], cy: q[1], r: px(2.5), fill: 'var(--accent-ink)' });
+          if (MK) { const [s0, s1] = D.slashEnds(q, [-uR[1], uR[0]], px(4)); el('line', Object.assign({ class: 'drag-dim-slash', x1: s0[0], y1: s0[1], x2: s1[0], y2: s1[1] }, ink, { 'stroke-width': px(D.MARK_W) })); }
+          else el('circle', { class: 'drag-dim-dot', cx: q[0], cy: q[1], r: px(2.5), fill: 'var(--accent-ink)' });
           D._placePill('s3r', pc, D.fmtNum(toDisplay(r), false), _isTorusObj(obj) ? 'R' : 'r', scale);   // TORUS (v20261018l): the ring
         },
         draw(D, vpMatrix, scale) {
@@ -109734,8 +109988,8 @@
             s3d: [[[X, Y, zb], [X, Y, zf]], [[-X, Y, zb], [-X, Y, zf]], [[X, -Y, zb], [X, -Y, zf]], [[-X, -Y, zb], [-X, -Y, zf]]]
           };
           if (round) this._drawSphere(D, obj, vpMatrix, scale, za);
-          const ink = { stroke: 'var(--accent-ink)', 'stroke-width': px(1), 'stroke-opacity': 0.9, fill: 'none' };
-          const dash = { 'stroke-dasharray': px(5) + ' ' + px(4) };
+          const ink = { stroke: 'var(--accent-ink)', 'stroke-width': px(D.MARKS ? D.MARK_W : 1), 'stroke-opacity': 0.9, fill: 'none' };
+          const MK = D.MARKS, dash = MK ? {} : { 'stroke-dasharray': px(5) + ' ' + px(4) };   // v20261121f DRAFTING MARKS: continuous lines, slashes for dots
           const B = D._block(), hw = px(36 + 3), hh = px(12 + 3);
           const value = { s3w: w, s3d: d, s3h: h };
           for (const key of this.KEYS) {
@@ -109775,6 +110029,11 @@
             const pc = [bc[0] + px(B.dx), bc[1] + px(B.dy)];                     // the pill's centre inside it
             const held = D._heldPillCentre(key, scale), pe = held || pc;
             for (const [p, q] of [[cd.p0, q0], [cd.p1, q1]]) {
+              if (MK) {
+                el('line', Object.assign({ class: 'drag-dim-witness', x1: p[0] + cd.n[0] * px(3), y1: p[1] + cd.n[1] * px(3), x2: q[0] + cd.n[0] * px(5), y2: q[1] + cd.n[1] * px(5) }, ink, { 'stroke-opacity': 0.5 }));
+                const [s0, s1] = D.slashEnds(q, cd.n, px(4)); el('line', Object.assign({ class: 'drag-dim-slash', x1: s0[0], y1: s0[1], x2: s1[0], y2: s1[1] }, ink, { 'stroke-width': px(D.MARK_W) }));
+                continue;
+              }
               el('line', Object.assign({ class: 'drag-dim-witness', x1: p[0] + cd.n[0] * px(3), y1: p[1] + cd.n[1] * px(3), x2: q[0], y2: q[1] }, ink, dash));
               el('circle', { class: 'drag-dim-dot', cx: q[0], cy: q[1], r: px(2.5), fill: 'var(--accent-ink)' });
             }
@@ -109785,13 +110044,14 @@
             }
             if (!fits || held) {
               el('line', Object.assign({ class: 'drag-dim-leader', 'data-dim': key, x1: qm[0], y1: qm[1], x2: pe[0], y2: pe[1] }, ink));
-              el('circle', { class: 'drag-dim-dot drag-dim-leader-dot', cx: qm[0], cy: qm[1], r: px(2), fill: 'var(--accent-ink)', 'fill-opacity': 0.75 });
+              if (!MK) el('circle', { class: 'drag-dim-dot drag-dim-leader-dot', cx: qm[0], cy: qm[1], r: px(2), fill: 'var(--accent-ink)', 'fill-opacity': 0.75 });
             }
             D._placePill(key, pc, text, label, scale);
           }
         }
       },
       draw(vpMatrix, scale) {
+        { const L = this._layerEl || (this._layerEl = document.getElementById('dragPillLayer')); if (L && L.classList.contains('live-text') !== !!this.LIVE_TEXT) L.classList.toggle('live-text', !!this.LIVE_TEXT); }
         this._pillUsed = {}; this._nowDotUsed = false;
         let r = false;
         try { r = this._drawInner(vpMatrix, scale); } finally { this._pillSweep(); this.syncHint(); }
@@ -109839,7 +110099,7 @@
         }
         const el = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); e.style.pointerEvents = 'none'; g.appendChild(e); return e; };
         const px = (n) => n / scale;
-        const sw = 1.5 / scale;
+        const MK = this.MARKS, sw = (MK ? this.MARK_W : 1.5) / scale;   // the readout's one weight (MARK_W); 1.5 px under MARKS = false, as it was
         if (depth) {
           // ONE PILL ALONE, parked: left of the Z handle's label for the handle, right of the centre circle for the D / Z key
           const handle = live ? this._depthHandle : this.last.depthHandle, right = this.DIM_LABEL_SIDE !== 'above' ? 14 : 0;   // a title on the right sits between the pill and the handle
@@ -109849,7 +110109,7 @@
           return true;
         }
         if (live) this._drawGuide(el, P, scale, is2D);   // S2: under the vector; the drag in flight only
-        const ringEl = el('circle', { id: 'dragReadoutStart', cx: a[0], cy: a[1], r: 4 / scale, fill: 'none', stroke: 'var(--accent-ink)', 'stroke-width': sw });   // may be hidden below: v20260921zd
+        const ringEl = MK ? this._centreMark(el, a, scale, { id: 'dragReadoutStart' }) : el('circle', { id: 'dragReadoutStart', cx: a[0], cy: a[1], r: 4 / scale, fill: 'none', stroke: 'var(--accent-ink)', 'stroke-width': sw });   // may be hidden below: v20260921zd
         // THE STAIRCASE: the world x leg, then y, then z, from the start - a
         // fixed order so the picture holds still while the vector turns; a
         // leg under 2 px is not drawn (it would only be a dot). With ONE axis
@@ -109866,7 +110126,7 @@
           const p0 = P(cur), p1 = P(nxt);
           const lenPx = (p0 && p1) ? Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) * scale : 0;
           if (lenPx >= 2) {
-            if (!plan.single) el('line', { class: 'drag-readout-leg', 'data-leg': ax, x1: p0[0], y1: p0[1], x2: p1[0], y2: p1[1], stroke: 'var(--gizmo-axis-' + ax + ')', 'stroke-width': 1 / scale, 'stroke-dasharray': (4 / scale) + ' ' + (3 / scale) });
+            if (!plan.single) el('line', Object.assign({ class: 'drag-readout-leg', 'data-leg': ax, x1: p0[0], y1: p0[1], x2: p1[0], y2: p1[1], stroke: 'var(--gizmo-axis-' + ax + ')', 'stroke-width': (MK ? this.MARK_W : 1) / scale }, MK ? { 'stroke-opacity': 0.5 } : { 'stroke-dasharray': (4 / scale) + ' ' + (3 / scale) }));
             if (!this.DIMENSIONS && lenPx >= 14) {
               // the v20260915d letter (the gizmo's axis tokens are monochrome, so the legs are lettered)
               const lt = el('text', { class: 'drag-readout-label drag-readout-leg-letter', 'data-leg': ax, x: (p0[0] + p1[0]) / 2, y: (p0[1] + p1[1]) / 2, 'font-size': 8 / scale, 'stroke-width': 2 / scale, 'text-anchor': 'middle' });
@@ -109882,16 +110142,35 @@
           // the gaps are a stroke-dasharray computed from the pills' rectangles (segVisibleT -> dashForT; the legs' 3 px margin). Butt caps
           // when cut: a round cap would poke into the margin, and the two real ends sit under the start ring and the now-dot anyway.
           const vAttrs = { id: 'dragReadoutVector', x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: 'var(--accent-ink)', 'stroke-width': sw, 'stroke-linecap': 'round' };
+          if (MK) {
+            // v20261121f DRAFTING MARKS: the vector is the MOVEMENT - still ONE full-length line (x1..y2 are the vector, as above), drawn as 4 6
+            // dashes counted back from the head, between the centre mark's lead and the head (arrowPlan), and only where no pill covers it:
+            // one stroke-dasharray again (dashFromTip). On a single-axis drag in flight the axis guide owns this line (one owner per edge):
+            // no dash at all, the head alone.
+            const L = Math.hypot(b[0] - a[0], b[1] - a[1]), lenPx = L * scale, pl = this.arrowPlan(lenPx, this._arrowBack()), gd = live ? this.guide : null;
+            const vis = (this.VECTOR_CLIP && this._pillsNow && this._pillsNow.at.length) ? this.segVisibleBoth(a, b, this._pillsNow.at, this._pillsNow.hw, this._pillsNow.hh, this._pillsNow.titles, this._pillsNow.tw, this._pillsNow.th) : [[0, 1]];
+            let owned = false;
+            if (gd && gd.kind === 'axis' && gd.u) { const u = gd.u, cx = [delta[1] * u[2] - delta[2] * u[1], delta[2] * u[0] - delta[0] * u[2], delta[0] * u[1] - delta[1] * u[0]]; owned = Math.hypot(cx[0], cx[1], cx[2]) <= 1e-6 * (1 + dist); }
+            vAttrs['stroke-linecap'] = 'butt';
+            vAttrs['stroke-dasharray'] = (owned ? [0, L * 2 + 1] : this.dashFromTip(vis, L, px(pl.lead), px(pl.tip), px(this.DASH_ON), px(this.DASH_OFF))).join(' ');
+            if (owned) vAttrs['data-owned'] = '1';
+            el('line', vAttrs);
+            if (lenPx >= 8) {
+              const tt = pl.tip / lenPx, tip = [a[0] + (b[0] - a[0]) * tt, a[1] + (b[1] - a[1]) * tt];
+              if (vis.some(([t0, t1]) => tt >= t0 - 1e-9 && tt <= t1 + 1e-9)) this._head(el, tip, [(b[0] - a[0]) / L, (b[1] - a[1]) / L], scale, 'drag-readout-head');
+            }
+          } else {
           if (this.VECTOR_CLIP && this._pillsNow && this._pillsNow.at.length) {
             const vis = this.segVisibleT(a, b, this._pillsNow.at, this._pillsNow.hw, this._pillsNow.hh);
             if (!(vis.length === 1 && vis[0][0] === 0 && vis[0][1] === 1)) { vAttrs['stroke-dasharray'] = this.dashForT(vis, Math.hypot(b[0] - a[0], b[1] - a[1])).join(' '); vAttrs['stroke-linecap'] = 'butt'; }
           }
           el('line', vAttrs);
+          }
           // ... and the START RING with it: when any of the ring lies under a pill it is hidden whole (visibility, so its geometry is still there to
           // read) - a 9.5 px ring cannot usefully be cut, and half a ring over a number is worse than none. pillsNow's half sizes carry a 3 px margin;
           // the ring's outer radius is 4.75 px, hence the 2 px more.
           if (this.VECTOR_CLIP && this._pillsNow && this._pillsNow.at.some(c => Math.abs(a[0] - c[0]) < this._pillsNow.hw + px(2) && Math.abs(a[1] - c[1]) < this._pillsNow.hh + px(2))) ringEl.setAttribute('visibility', 'hidden');
-          if (this.NOW_DOT) this._placeNowDot(b, scale);   // v20260921s: the ring marks where it started, the dot where it is
+          if (this.NOW_DOT && !MK) this._placeNowDot(b, scale);   // v20260921s: the ring marks where it started, the dot where it is
           const lenPx = Math.hypot(b[0] - a[0], b[1] - a[1]) * scale;
         }
         // THE TAG lives on the guide (v20260915l; the owner asked for it near
@@ -109943,13 +110222,15 @@
         const legSegs = [], pillAt = {}, PHW = px(36 + 3), PHH = px(12 + 3);
         // v20260921zd: QUEUED, not drawn - flushed below once every pill has its place, so a line can be cut behind ANY pill (the order of the jobs is the old
         // draw order, so the stacking is unchanged). VECTOR_CLIP = false: each line is cut behind its OWN pill only (rc), the v20260921x picture.
-        const jobs = [], lineOut = (attrs, p, q, rc) => jobs.push({ attrs, p, q, rc }), dotOut = (attrs) => jobs.push({ dot: attrs });
+        const jobs = [], lineOut = (attrs, p, q, rc) => jobs.push({ attrs, p, q, rc }), dotOut = (attrs) => jobs.push({ dot: attrs }), markOut = (attrs, c) => jobs.push({ mark: attrs, c });   // mark (v20261121f): a slash - drawn WHOLE or not at all, by the dot's own rule (a slash cut in two by a pill is two stray ticks)
+        const titleAt = {}, THW = px(this.TITLE_HW), THH = px(this.TITLE_HH);   // v20261122d: the title boxes of the pills that carry their title above
         const flush = () => {
-          const cs = Object.keys(pillAt).map(k => pillAt[k]), all = this.VECTOR_CLIP;
+          const cs = Object.keys(pillAt).map(k => pillAt[k]), all = this.VECTOR_CLIP, ts = Object.keys(titleAt).map(k => titleAt[k]);
           for (const j of jobs) {
+            if (j.mark) { const r = px(-0.5); if (!(all && cs.some(c => Math.abs(j.c[0] - c[0]) < PHW + r && Math.abs(j.c[1] - c[1]) < PHH + r))) el('line', j.mark); continue; }
             if (j.dot) { const r = (+j.dot.r || 0) - px(3); if (!(all && cs.some(c => Math.abs(j.dot.cx - c[0]) < PHW + r && Math.abs(j.dot.cy - c[1]) < PHH + r))) el('circle', j.dot); continue; }
             const { p, q } = j, d = [q[0] - p[0], q[1] - p[1]], at = (t) => t <= 0 ? p : t >= 1 ? q : [p[0] + d[0] * t, p[1] + d[1] * t];
-            const segs = all ? this.segVisibleT(p, q, cs, PHW, PHH).map(([t0, t1]) => [at(t0), at(t1)]) : (j.rc ? this.segOutsideRect(p, q, j.rc, PHW, PHH) : [[p, q]]);
+            const segs = all ? this.segVisibleBoth(p, q, cs, PHW, PHH, ts, THW, THH).map(([t0, t1]) => [at(t0), at(t1)]) : (j.rc ? this.segOutsideRect(p, q, j.rc, PHW, PHH) : [[p, q]]);
             for (const [u, v] of segs) if (Math.hypot(v[0] - u[0], v[1] - u[1]) * scale >= 1) el('line', Object.assign({ x1: u[0], y1: u[1], x2: v[0], y2: v[1] }, j.attrs));
           }
         };
@@ -109972,8 +110253,9 @@
           items.push({ key: ax, p0, p1, lenPx, text: this.dimText(ax, dDisp[i]), label: this.dimLabel(ax), primary: single === ax });
         }
         if (!single && keys.length && toDisplay(dist) >= 0.005) items.unshift({ key: 'd', p0: a, p1: b, lenPx: Math.hypot(b[0] - a[0], b[1] - a[1]) * scale, text: this.dimText('d', toDisplay(dist)), label: this.dimLabel('d'), primary: true });
-        const ink = (pr) => ({ stroke: 'var(--accent-ink)', 'stroke-width': px(1), 'stroke-opacity': pr ? 0.9 : 0.6, fill: 'none' });
-        const dash = { 'stroke-dasharray': px(5) + ' ' + px(4) };
+        const ink = (pr) => ({ stroke: 'var(--accent-ink)', 'stroke-width': px(this.MARKS ? this.MARK_W : 1), 'stroke-opacity': pr ? 0.9 : 0.6, fill: 'none' });
+        // v20261121f DRAFTING MARKS: a dimension line and its witness lines are continuous (0.9 / 0.5, MARK_W); the old dash stays under MARKS = false
+        const MK = this.MARKS, dash = MK ? {} : { 'stroke-dasharray': px(5) + ' ' + px(4) }, inkW = { stroke: 'var(--accent-ink)', 'stroke-width': px(this.MARK_W), 'stroke-opacity': 0.5, fill: 'none' };
         // v20260922f THE CORNER COLUMN (owner, after the d / e mocks: "place the pills at the left top corner of the paper as it used to be"): every
         // move pill lives in a column 8 px inside the paper's top-left - x, y, z, delta, 28 px per row - live AND kept, so nothing on the canvas
         // carries a number and nothing moves that the hand did not move; the confirm pills (#dragConfirmHint) follow below. The canvas keeps
@@ -110029,7 +110311,11 @@
             place = anchor = [mid[0] + u[0] * off, mid[1] + u[1] * off];
             if (it.lenPx >= 2 && !inCorner) {
               const q0 = [it.p0[0] + u[0] * off, it.p0[1] + u[1] * off], q1 = [it.p1[0] + u[0] * off, it.p1[1] + u[1] * off], g3 = px(3);
-              for (const [p, q] of [[it.p0, q0], [it.p1, q1]]) { lineOut(Object.assign({ class: 'drag-dim-witness' }, ink(true), dash), [p[0] + u[0] * g3, p[1] + u[1] * g3], q); dotOut({ class: 'drag-dim-dot', cx: q[0], cy: q[1], r: px(2.5), fill: 'var(--accent-ink)' }); }
+              if (MK) for (const [p, q] of [[it.p0, q0], [it.p1, q1]]) {   // the witness runs 5 px past the dimension line, which ends in a slash (u turned 45 deg - parallel at both ends)
+                lineOut(Object.assign({ class: 'drag-dim-witness' }, inkW), [p[0] + u[0] * g3, p[1] + u[1] * g3], [q[0] + u[0] * px(5), q[1] + u[1] * px(5)]);
+                const sl = this.slashEnds(q, u, px(4)); markOut(Object.assign({ class: 'drag-dim-slash', 'data-dim': it.key, x1: sl[0][0], y1: sl[0][1], x2: sl[1][0], y2: sl[1][1] }, ink(true), { 'stroke-width': px(this.MARK_W) }), q);
+              }
+              else for (const [p, q] of [[it.p0, q0], [it.p1, q1]]) { lineOut(Object.assign({ class: 'drag-dim-witness' }, ink(true), dash), [p[0] + u[0] * g3, p[1] + u[1] * g3], q); dotOut({ class: 'drag-dim-dot', cx: q[0], cy: q[1], r: px(2.5), fill: 'var(--accent-ink)' }); }
               it.dl = [q0, q1];   // drawn below, once the pill's place is known
             }
           }
@@ -110042,21 +110328,22 @@
           const w = ruler && this.DIM_PIN ? 1 : it.primary ? this.dimBlend(it.lenPx, this.DIM_NEAR_D_PX, this.DIM_FAR_D_PX) : this.dimBlend(it.lenPx, this.DIM_NEAR_PX, this.DIM_FAR_PX);   // v20260922b: every ruler is pinned
           const c = [home[0] + (place[0] - home[0]) * w, home[1] + (place[1] - home[1]) * w];   // THE LAW: home + w * (place - home)
           const pc = inCorner ? [-FRAME_SIZE / 2 + px((this.cornerInsetX || 8) + 36), -FRAME_SIZE / 2 + px((this.cornerTop || this.CORNER_TOP) + 12 + cornerRow++ * 28)] : c, hc = this._heldPillCentre(it.key, scale), pe = hc || pc; pillAt[it.key] = pe;   // v20260922d: at the cursor while the tag is up
+          if (this.TITLE_CLEAR && !inCorner) titleAt[it.key] = [pe[0], pe[1] - px(this.TITLE_DY)];   // the ruler's pill carries its title above
           if (it.dl) lineOut(Object.assign({ class: 'drag-dim-line', 'data-dim': it.key }, ink(true), dash), it.dl[0], it.dl[1], pe);
           if (!inCorner && Math.hypot(pe[0] - anchor[0], pe[1] - anchor[1]) * scale > 3) {
             lineOut(Object.assign({ class: 'drag-dim-leader', 'data-dim': it.key }, ink(it.primary)), anchor, pe, pe);
-            dotOut({ class: 'drag-dim-dot drag-dim-leader-dot', cx: anchor[0], cy: anchor[1], r: px(2), fill: 'var(--accent-ink)', 'fill-opacity': 0.75 });
+            if (!MK) dotOut({ class: 'drag-dim-dot drag-dim-leader-dot', cx: anchor[0], cy: anchor[1], r: px(2), fill: 'var(--accent-ink)', 'fill-opacity': 0.75 });
           }
           if (dbg) dbg[it.key] = { w: +w.toFixed(4), lenPx: +it.lenPx.toFixed(2), home: home.map(v => +(v * scale).toFixed(2)), place: place.map(v => +(v * scale).toFixed(2)), c: c.map(v => +(v * scale).toFixed(2)) };
           this._placePill(it.key, pc, it.text, it.label, scale, inCorner ? 'right' : 'above');   // v20260922g: the ruler's pill titles above, the column's to the right
         }
-        for (const lg of legSegs) lineOut({ class: 'drag-readout-leg', 'data-leg': lg.ax, stroke: 'var(--gizmo-axis-' + lg.ax + ')', 'stroke-width': 1 / scale, 'stroke-dasharray': (4 / scale) + ' ' + (3 / scale) }, lg.p0, lg.p1, pillAt[lg.ax]);
+        for (const lg of legSegs) lineOut(Object.assign({ class: 'drag-readout-leg', 'data-leg': lg.ax, stroke: 'var(--gizmo-axis-' + lg.ax + ')', 'stroke-width': (MK ? this.MARK_W : 1) / scale }, MK ? { 'stroke-opacity': 0.5 } : { 'stroke-dasharray': (4 / scale) + ' ' + (3 / scale) }), lg.p0, lg.p1, pillAt[lg.ax]);
         flush();
         this._cornerRows = corner ? cornerRow : 0;   // v20260922f: the confirm pills sit after these rows
         // v20260922g: placed HERE, every draw - updateHudBarPositions runs only when the chrome changes (_chromeDirty), so a row count that changed
         // between two drags (3 rows for a body drag, 0 for a single axis) left the confirm pills one state behind
         { const hint = this._hintEl || (this._hintEl = document.getElementById('dragConfirmHint')); if (hint) { hint.style.left = (width / 2 + CANVAS_OFFSET_X - FRAME_SIZE / 2 * scale + (this.cornerInsetX || 8)) + 'px'; hint.style.top = (height / 2 + CANVAS_OFFSET_Y - FRAME_SIZE / 2 * scale + (this.cornerTop || this.CORNER_TOP) + this._cornerRows * 28) + 'px'; } }
-        this._pillsNow = { at: Object.keys(pillAt).map(k => pillAt[k]), hw: PHW, hh: PHH };   // v20260921zd: for the vector, drawn by the caller
+        this._pillsNow = { at: Object.keys(pillAt).map(k => pillAt[k]), hw: PHW, hh: PHH, titles: Object.keys(titleAt).map(k => titleAt[k]), tw: THW, th: THH };   // v20260921zd: for the vector, drawn by the caller
       },
       // The dimensions of one frame: dims = [{key, p0, p1 (frame units), lenPx, text, primary, inline}], the distance first.
       // ---- S2 (v20260915e): the guide - the plane the drag moves on, or the
@@ -110110,7 +110397,7 @@
         if (g.kind === 'axis' || g.kind === 'depth') {
           const e = seg(g.u, 400);
           if (e) {
-            el('line', { id: g.kind === 'depth' ? 'dragReadoutGuideDepth' : 'dragReadoutGuideAxis', class: 'drag-readout-guide', x1: e[0][0], y1: e[0][1], x2: e[1][0], y2: e[1][1], stroke: 'var(--accent-ink)', 'stroke-opacity': 0.45, 'stroke-width': 1 / scale, 'stroke-dasharray': (8 / scale) + ' ' + (4 / scale) });
+            el('line', { id: g.kind === 'depth' ? 'dragReadoutGuideDepth' : 'dragReadoutGuideAxis', class: 'drag-readout-guide', x1: e[0][0], y1: e[0][1], x2: e[1][0], y2: e[1][1], stroke: 'var(--accent-ink)', 'stroke-opacity': this.MARKS ? 0.4 : 0.45, 'stroke-width': (this.MARKS ? this.MARK_W : 1) / scale, 'stroke-dasharray': this.MARKS ? [8, 3, 1, 3].map(v => v / scale).join(' ') : (8 / scale) + ' ' + (4 / scale) });   // v20261121f DRAFTING MARKS: an axis is a centerline, 8 3 1 3
             // THE TAG at the end of the line OPPOSITE the direction of travel
             // (v20260915l): chosen once the drag has gone 4 px, then held for
             // the gesture (a live choice would flip the label across the line
@@ -110149,7 +110436,7 @@
           if (c.every(Boolean)) corners = c; else h *= 0.5;
         }
         if (!corners) return;
-        el('polygon', { id: 'dragReadoutGuidePlane', class: 'drag-readout-guide', points: corners.map(c => c[0] + ',' + c[1]).join(' '), fill: 'var(--accent-color)', 'fill-opacity': 0.06, stroke: 'var(--accent-ink)', 'stroke-opacity': 0.5, 'stroke-width': 0.75 / scale, 'stroke-linejoin': 'round' });
+        el('polygon', { id: 'dragReadoutGuidePlane', class: 'drag-readout-guide', points: corners.map(c => c[0] + ',' + c[1]).join(' '), fill: 'var(--accent-color)', 'fill-opacity': this.MARKS ? 0.055 : 0.06, stroke: 'var(--accent-ink)', 'stroke-opacity': this.MARKS ? 0.32 : 0.5, 'stroke-width': (this.MARKS ? this.MARK_W : 0.75) / scale, 'stroke-linejoin': 'round' });
         // THE TAG 8 px above the patch's TOPMOST projected corner, centred on
         // it (v20260915l): the patch is fixed at the start anchor, so the label
         // names the plane like a map label and never moves with the gizmo.
@@ -110161,7 +110448,7 @@
         if (top) this._tagPos = { x: top[0], y: top[1] - 8 / scale, anchor: 'middle' };
         const cu = seg(g.u, 160 * (h / (160 * factor))), cv = seg(g.v, 160 * (h / (160 * factor)));
         for (const [id, e] of [['dragReadoutGuideCrossU', cu], ['dragReadoutGuideCrossV', cv]]) {
-          if (e) el('line', { id, class: 'drag-readout-guide', x1: e[0][0], y1: e[0][1], x2: e[1][0], y2: e[1][1], stroke: 'var(--accent-ink)', 'stroke-opacity': 0.3, 'stroke-width': 0.75 / scale, 'stroke-dasharray': (3 / scale) + ' ' + (3 / scale) });
+          if (e) el('line', { id, class: 'drag-readout-guide', x1: e[0][0], y1: e[0][1], x2: e[1][0], y2: e[1][1], stroke: 'var(--accent-ink)', 'stroke-opacity': this.MARKS ? 0.4 : 0.3, 'stroke-width': (this.MARKS ? this.MARK_W : 0.75) / scale, 'stroke-dasharray': this.MARKS ? [8, 3, 1, 3].map(v => v / scale).join(' ') : (3 / scale) + ' ' + (3 / scale) });
         }
       },
       describeNow() {
@@ -110271,6 +110558,12 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         ok('segOutsideRect: a line through a pill leaves the two pieces outside it, a line inside it leaves nothing, a line that misses it is untouched, a leader ending IN the pill stops at its edge', (() => { const c = [0, 0], A = this.segOutsideRect([-100, 0], [100, 0], c, 40, 15), B = this.segOutsideRect([-10, 2], [10, -2], c, 40, 15), C = this.segOutsideRect([-100, 30], [100, 30], c, 40, 15), E = this.segOutsideRect([0, -80], [0, 0], c, 40, 15); return A.length === 2 && Math.abs(A[0][1][0] + 40) < 1e-9 && Math.abs(A[1][0][0] - 40) < 1e-9 && B.length === 0 && C.length === 1 && C[0][0][0] === -100 && E.length === 1 && Math.abs(E[0][1][1] + 15) < 1e-9; })());
         ok('segVisibleT: two pills on a line leave three pieces, overlapping pills merge into one gap, a pill over the START leaves the rest, no pill = [[0, 1]], wholly covered = []', (() => { const p = [-100, 0], q = [100, 0], V = (cs) => this.segVisibleT(p, q, cs, 20, 10), A = V([[-50, 0], [50, 0]]), B = V([[0, 0], [30, 0]]), C = V([[-100, 0]]), N = V([[0, 40]]), F = this.segVisibleT([-5, 0], [5, 0], [[0, 0]], 20, 10); const near = (x, y) => Math.abs(x - y) < 1e-9; return A.length === 3 && near(A[0][1], 0.15) && near(A[1][0], 0.35) && near(A[1][1], 0.65) && near(A[2][0], 0.85) && B.length === 2 && near(B[0][1], 0.4) && near(B[1][0], 0.75) && C.length === 1 && near(C[0][0], 0.1) && C[0][1] === 1 && N.length === 1 && N[0][0] === 0 && N[0][1] === 1 && F.length === 0; })());
         ok('dashForT: dash, gap, dash ... over the line\'s length; a covered START opens with a zero dash; the closing gap outlasts the line; nothing visible = one zero dash', JSON.stringify(this.dashForT([[0, 0.15], [0.35, 0.65], [0.85, 1]], 200)) === '[30,40,60,40,30,401]' && JSON.stringify(this.dashForT([[0.1, 1]], 200)) === '[0,20,180,401]' && JSON.stringify(this.dashForT([], 200)) === '[0,401]');
+        // v20261121f DRAFTING MARKS
+        ok('arrowPlan: the tip rides the vector\'s end up to ARROW_MIN_PX, waits while the end pulls `back` px ahead, then follows that far behind - continuous, never past the end; the lead never passes 9 px; back 0 = the tip IS the end; the default back is ARROW_BACK_PX', JSON.stringify([0, 5, 24, 40, 62, 63, 200].map(L => this.arrowPlan(L, 38).tip)) === '[0,5,24,24,24,25,162]' && JSON.stringify([0, 5, 24, 27, 30, 31, 200].map(L => this.arrowPlan(L, 6).tip)) === '[0,5,24,24,24,25,194]' && [0, 5, 24, 62, 200].every(L => this.arrowPlan(L, 0).tip === L) && this.arrowPlan(200).tip === 200 - this.ARROW_BACK_PX && [0, 5, 24, 62, 200, 1000].every(L => { const p = this.arrowPlan(L); return p.tip <= L && p.lead <= 9 && p.lead <= p.tip; }) && this.arrowPlan(200).lead === 9);
+        ok('dashFromTip: 4 on / 6 off counted BACK from the tip (the last dash ends on it), nothing before the lead or past the tip, a covered range cut out, the closing gap outlasts the line; nothing visible = one zero dash', JSON.stringify(this.dashFromTip([[0, 1]], 100, 9, 62, 4, 6)) === '[0,9,3,6,4,6,4,6,4,6,4,6,4,201]' && JSON.stringify(this.dashFromTip([[0, 0.3], [0.5, 1]], 100, 0, 62, 4, 6)) === '[2,6,4,6,4,6,2,20,2,6,4,201]' && JSON.stringify(this.dashFromTip([], 100, 0, 62, 4, 6)) === '[0,201]' && JSON.stringify(this.dashFromTip([[0, 1]], 100, 0, 0, 4, 6)) === '[0,201]');
+        ok('slashEnds: the witness direction turned 45 deg clockwise on the screen - an upward witness gives a slash rising to the right, 4 px each way on both axes; opposite witnesses give the SAME line', JSON.stringify(this.slashEnds([10, 10], [0, -1], 4)) === '[[6,14],[14,6]]' && JSON.stringify(this.slashEnds([0, 0], [1, 0], 4)) === '[[-4,-4],[4,4]]' && (() => { const a = this.slashEnds([0, 0], [0, 1], 4), b = this.slashEnds([0, 0], [0, -1], 4); return a[0][0] === b[1][0] && a[0][1] === b[1][1]; })());
+        // v20261122d THE LINES CLEAR THE TITLE
+        ok('segVisibleBoth: a vertical line through a pill AND its title box loses both (one gap from the title\'s top to the pill\'s bottom when they touch), a line that misses the title is segVisibleT\'s own answer, no title boxes = segVisibleT', JSON.stringify(this.segVisibleBoth([0, -100], [0, 100], [[0, 0]], 39, 15, [[0, -21]], 11, 9)) === '[[0,0.35],[0.575,1]]' && JSON.stringify(this.segVisibleBoth([-100, 0], [100, 0], [[0, 0]], 39, 15, [[0, -21]], 11, 9)) === JSON.stringify(this.segVisibleT([-100, 0], [100, 0], [[0, 0]], 39, 15)) && JSON.stringify(this.segVisibleBoth([0, -100], [0, 100], [[0, 0]], 39, 15, [], 11, 9)) === JSON.stringify(this.segVisibleT([0, -100], [0, 100], [[0, 0]], 39, 15)));
         ok('scrubAxis: the larger of the two movements names the axis; a tie is sideways', this.scrubAxis(5, 1) === 'x' && this.scrubAxis(-1, -6) === 'y' && this.scrubAxis(2, 9) === 'y' && this.scrubAxis(4, 4) === 'x' && this.scrubAxis(-7, 3) === 'x');
         ok('constraintAxes: an axis on an axis, two on a plane, all for the camera plane, a tilted axis names every world axis it touches, 2D -> x y', this.constraintAxes({ kind: 'axis', u: [0, 1, 0] }).join() === 'y' && this.constraintAxes({ kind: 'plane', u: [1, 0, 0], v: [0, 0, 1] }).join() === 'x,z' && this.constraintAxes({ kind: 'plane', u: [0.6, 0.3, -0.74], v: [0.1, 0.9, 0.4] }).join() === 'x,y,z' && this.constraintAxes({ kind: 'axis', u: [0.7071, 0, 0.7071] }).join() === 'x,z' && this.constraintAxes(null, true).join() === 'x,y' && this.constraintAxes(null, false).join() === 'x,y,z');
         // NO JUMPS (v20260921s): the distance pill's step-out is continuous in the line's length
@@ -112136,9 +112429,9 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         const lsc = document.getElementById('leftPanelScroll'), lbar = document.getElementById('leftTabBar');
         const panelNeed = lsc ? (lbar ? lbar.offsetHeight : 0) + lsc.scrollHeight + 2 : lp.scrollHeight;   // v20261018zv: the container no longer scrolls, so its scrollHeight is its height
         if (panelNeed + drawerNeed + GAP <= colH) { lp.classList.remove('dock-shrunk'); root.style.removeProperty('--drawer-max-h'); root.style.removeProperty('--left-panel-max-h'); return; }
-        const drawerMax = Math.min(drawerNeed, Math.max(Math.round(colH * 0.4), colH - panelNeed - GAP));
+        const drawerMax = Math.min(drawerNeed, Math.max(Math.round(colH * 0.4), colH - panelNeed));
         root.style.setProperty('--drawer-max-h', drawerMax + 'px');
-        root.style.setProperty('--left-panel-max-h', (colH - drawerMax - GAP) + 'px');
+        root.style.setProperty('--left-panel-max-h', (colH - drawerMax) + 'px');   // v20261122g: no gap in a shared column (it was colH - drawerMax - GAP: the canvas showed in those 8 px)
         lp.classList.add('dock-shrunk');
       };
       window._dimLayoutLeftColumn = layoutLeftColumn;   // updateTimelineHeight (top level) calls it

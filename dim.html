@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261124i -->
+<!-- dim v20261124m -->
 
 <!--
   MIT License
@@ -43929,6 +43929,8 @@
       //   the repro, that gate changed 0 px at the authored pose - the
       //   culprits sit below the two-layer window. Same-owner pairs excluded
       //   (an object's own back faces vs its front faces - separate policy).
+      PRISM_RANK: true,       // (v20261124j) a same-owner MIXED planar pair of one clean extrusion, one of them a CAP, decided by the emitter's
+      //   exact rank (entry._prismRank, stamped in Path.draw's z-sort branch); false = the skip of v20261124i (the probe's control)
       SAME_OWNER_CONST: true, // v20260805j: let an object's OWN faces mask each
       SAME_OWNER_MIN: 8,      //   other when the raster says the emitter's paint
       //   order is decisively wrong — constant order only, never a region.
@@ -44263,6 +44265,7 @@
           idStable: null, idOwnersChanged: 0,
           curvedConst: 0, curvedMixed: 0, curvedUndecided: 0, curvedMixedSkipped: 0, curvedBlob: 0,
           sameOwnerConst: 0, sameOwnerMixedSkipped: 0, coincidentPairs: 0, coincidentRefuted: 0, lightLeadExplained: 0,
+          prismRank: 0,   // (v20261124j) same-owner MIXED planar pairs a prism's rank masked (PRISM_RANK)
           regionRehosted: 0, regionRejected: 0, arcVerifyRetry: 0, sliverArcs: 0,
           exportSplitRetry: 0, exportSplitFail: 0,
           // S3b step 3: how many faces carry a data-mr-svis stamp this frame,
@@ -44788,7 +44791,19 @@
                 }
                 continue;
               }
-              if (sameOwner && cPos) continue;        // same-owner MIXED stays the emitter's business
+              if (sameOwner && cPos) {                // same-owner MIXED stays the emitter's business ...
+                // (v20261124j) ... unless the emitter is a clean extrusion under a z-sort, whose order no longer reaches the paint: its rank
+                // says who is in front. N (painted later) ranking BELOW D is behind D wherever they overlap (the pass is a painter order),
+                // so N takes D's constant entry. Only when one of the two is a CAP: a cap's place is unconditional (far first, near last),
+                // while a ribbon pair the 3-ray vote left undecided ranks by a tie-break. PLAN-oblique-zsort-261124 S2.
+                const rD = D.ent && D.ent._prismRank, rN = N.ent && N.ent._prismRank;
+                if (!this.PRISM_RANK || rD === undefined || rN === undefined || D.ent._prismOwner !== N.ent._prismOwner || !(rN < rD)
+                  || (D.ent._prismRole !== 'cap' && N.ent._prismRole !== 'cap')) continue;
+                if (!entryNeeded(D, N)) continue;
+                (N.maskEntries || (N.maskEntries = [])).push({ el: D.el, dg: D.gEl, half: null });
+                stats.constEntries++; stats.prismRank++;
+                continue;
+              }
               if (!entryNeeded(D, N)) continue;       // occluder never visibly front — vacuous
               if (!cPos) {                            // D fully nearer — full violation fix
                 (N.maskEntries || (N.maskEntries = [])).push({ el: D.el, dg: D.gEl, half: null });
@@ -58838,11 +58853,37 @@
       const at = R.pt || ((t) => _lightBezAt(R, t));   // (v20261119k) a curve that is not a cubic (a mother curve BENT by a flow) gives its own points (R.pt - not `at`: an array has one): R holds its ends and end tangents only
       const m3 = at(0.5), q13 = at(0.25), q33 = at(0.75); if (!m3 || !q13 || !q33) return null;
       const f = { h1: pp(R[1]), h2: pp(R[2]), m: pp(m3), q1: pp(q13), q3: pp(q33) }; if (!(f.h1 && f.h2 && f.m && f.q1 && f.q3)) return null;
-      let kids = null; if (depth > 0) { const k0 = _lightFitTreeOf(sub, a, (a + b) / 2, depth - 1, pp), k1 = _lightFitTreeOf(sub, (a + b) / 2, b, depth - 1, pp); if (k0 && k1) kids = [k0, k1]; }
+      // (v20261124m, PLAN-shadow-curves-through-cut-261124 R) A FIT IS TESTED WHERE IT IS DRAWN. _lightFitCubic tests a cubic against the true curve at Q1 / M / Q3 -
+      // the PARAMETERS 1/4, 1/2, 3/4 - and under a light's magnification those can bunch at one end of the run on the plane (a run near the horizon: all three in
+      // its last 7 %; the cubic overshot 466 units where nothing was tested - the "needle"). When the largest gap between consecutive points of P0, Q1, M, Q3, P3
+      // exceeds LIGHT_FIT_GAP of their polyline's length, the three are re-picked at a quarter, half and three quarters of the run's LENGTH on the plane (33
+      // samples), and the halves split there (their join is f.m, as before). A run whose points are spread keeps the old points bit for bit. 0 = the old rule.
+      let um = 0.5;
+      if (LIGHT_FIT_GAP > 0) { const e0 = pp(at(0)), e1 = pp(at(1));
+        if (e0 && e1) { const P = [e0, f.q1, f.m, f.q3, e1], d2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]); let len = 0, gap = 0; for (let k = 0; k < 4; k++) { const g = d2(P[k], P[k + 1]); len += g; if (g > gap) gap = g; }
+          if (len > 0 && gap > LIGHT_FIT_GAP * len) { const N = 32, S = [0]; let prev = e0, ok = true;
+            for (let i = 1; i <= N; i++) { const q = pp(at(i / N)); if (!q) { ok = false; break; } S.push(S[i - 1] + d2(q, prev)); prev = q; }
+            if (ok && S[N] > 0) { const uAt = (fr) => { const s = fr * S[N]; let i = 1; while (i < N && S[i] < s) i++; const s0 = S[i - 1], s1 = S[i]; return (i - 1 + (s1 > s0 ? (s - s0) / (s1 - s0) : 0)) / N; };
+              const u1 = uAt(0.25), u2 = uAt(0.5), u3 = uAt(0.75), q1 = pp(at(u1)), m = pp(at(u2)), q3 = pp(at(u3));
+              if (q1 && m && q3) { f.q1 = q1; f.m = m; f.q3 = q3; um = u2; _lightFitStat.resampled++; } } } } }
+      const sp = a + (b - a) * um;
+      let kids = null; if (depth > 0) { const k0 = _lightFitTreeOf(sub, a, sp, depth - 1, pp), k1 = _lightFitTreeOf(sub, sp, b, depth - 1, pp); if (k0 && k1) kids = [k0, k1]; }
       return { f, kids };
     };
     // the chords of a caster face's curves, as its rings landed on the plane (r: the projection of f.rings, whole - a face cut at the plane has other vertices)
     const _lightChordsOf = (f, r, chords) => {
+      if (r && !r.whole && r.prov) {   // (v20261124m, A) a CUT face: an edge of the cut ring whose two ends lie on ONE original edge is that edge's chord, its parameters read at the two shares
+        const byEdge = new Map();
+        if (f.fch) for (const c of f.fch) byEdge.set(c.ring + ':' + c.i, { cur: c.cur, tA: c.tA, tB: c.tB });
+        else if (f.cv) for (let k = 0; k < f.cv.length; k++) for (const c of (f.cv[k] || [])) { const cur = { C: c.C }; for (let j = 0; j < LIGHT_SHADOW_STEPS; j++) byEdge.set(k + ':' + (c.i0 + j), { cur, tA: j / LIGHT_SHADOW_STEPS, tB: (j + 1) / LIGHT_SHADOW_STEPS }); }
+        if (!byEdge.size) return;
+        for (let q = 0; q < r.length; q++) { const ring = r[q], pv = r.prov[q], k0 = r.rk[q], n0 = f.rings[k0].length, n = ring.length;
+          for (let v = 0; v < n; v++) { const pa = pv[v], pb = pv[(v + 1) % n]; if (!pa || !pb) continue;
+            const sb = pb[0] === pa[0] ? pb[1] : (pb[0] === (pa[0] + 1) % n0 && pb[1] === 0 ? 1 : null); if (sb === null || !(Math.abs(sb - pa[1]) > 1e-12)) continue;
+            const e = byEdge.get(k0 + ':' + pa[0]); if (!e) continue;
+            chords.push({ a: ring[v], b: ring[(v + 1) % n], cur: e.cur, t0: e.tA + (e.tB - e.tA) * pa[1], t1: e.tA + (e.tB - e.tA) * sb }); } }
+        return;
+      }
       if (f.fch && r && r.whole) { for (const c of f.fch) { const ring = r[c.ring]; if (!ring) continue; const a = ring[c.i], b = ring[(c.i + 1) % ring.length]; if (a && b) chords.push({ a, b, cur: c.cur, t0: c.tA, t1: c.tB }); } return; }   // (v20261119k) a flowed strip: its edges on the art's bent curves (_lightFlowFaces)
       if (!f.cv || !r || !r.whole) return;
       for (let k = 0; k < r.length; k++) { const list = f.cv[k], ring = r[k]; if (!list || !ring) continue;
@@ -58917,7 +58958,7 @@
             let c = null;
             if (m[i]) { c = tree(m[i].cur, m[i].tA, m[(i + len - 1) % n].tB, 2); if (c) { any = true; if (m[i].cur.arc) c.tol = LIGHT_RIM_TOL; } }
             if (c) { const cur = m[i].cur, ts = [m[i].tA]; for (let j = 0; j < len; j++) ts.push(m[(i + j) % n].tB);   // (v20261120i) the run's parameter at each of its vertices and its maker: a run the view cuts (_lightViewClip) is fitted again on the part that is left
-              segs.push({ i, n: len, c, ts, mk: (a, b) => { const c2 = tree(cur, a, b, 2); if (c2 && cur.arc) c2.tol = LIGHT_RIM_TOL; return c2; } }); }
+              segs.push({ i, n: len, c, ts, at: (t) => { const R = subOf(cur)(t, t > 0.5 ? t - 1e-6 : t + 1e-6); return R ? pp(R[0]) : null; }, mk: (a, b) => { const c2 = tree(cur, a, b, 2); if (c2 && cur.arc) c2.tol = LIGHT_RIM_TOL; return c2; } }); }   // (v20261124m) at: the run's curve on the plane at its parameter (V)
             else segs.push({ i, n: len, c });
             k += len;
           }
@@ -58938,8 +58979,20 @@
       // the true curve's middle and quarter points against the cubic as 24 chords (the parameters do not correspond under a projective map: the nearest point counts)
       const X = []; for (let k = 0; k <= 24; k++) { const t = k / 24, u = 1 - t; X.push([u * u * u * P0[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t * t * t * P3[0], u * u * u * P0[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t * t * t * P3[1]]); }
       const far = (Q) => { let best = Infinity; for (let k = 0; k < 24; k++) { const a = X[k], b = X[k + 1], dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy, s = L2 > 0 ? Math.min(1, Math.max(0, ((Q[0] - a[0]) * dx + (Q[1] - a[1]) * dy) / L2)) : 0, d = Math.hypot(Q[0] - a[0] - s * dx, Q[1] - a[1] - s * dy); if (d < best) best = d; } return best; };
-      return force || Math.max(far(Q1), far(Q3), far(M)) <= (tol || LIGHT_CURVE_TOL) ? [c1, c2] : null;
+      const err = Math.max(far(Q1), far(Q3), far(M)), lim = tol || LIGHT_CURVE_TOL;
+      // (v20261124l, PLAN-shadow-horizon-wiggle-261124 F2) a forced fit past the tolerance is COUNTED (_lightFitStat); with LIGHT_FIT_REFUSE > 0 one that misses by
+      // more than that many tolerances is refused - _lightCurveD gives up the run and the caller writes it as its lines. OFF by default: measured worse (see
+      // LIGHT_FIT_REFUSE below).
+      if (force && err > lim) { _lightFitStat.forced++; if (err > _lightFitStat.worst) _lightFitStat.worst = err; if (LIGHT_FIT_REFUSE > 0 && err > LIGHT_FIT_REFUSE * lim) { _lightFitStat.refused++; return null; } }
+      return force || err <= lim ? [c1, c2] : null;
     };
+    // (v20261124l) see _lightFitCubic. OFF (0) BY DEFAULT, measured: on the ring of R (_tests/flow_shadow_persp_a.json, own camera) at 4 it refused 12 forced
+    // fits (worst 9.2 units off one test point) and the lines that replaced the 4 in the frame were FARTHER from the true outline - drawn samples over 1 unit
+    // 100 -> 508 in that region (the run's chords are 85 - 128 units long where the light magnifies). A forced fit is a bounded miss; its run's polygon need not
+    // be nearer. The owner's loops were removed by the horizon cap (F1), not by this. Kept as a switch with _lightFitStat for the probe (shadow_horizon_probe).
+    let LIGHT_FIT_REFUSE = 0;
+    const _lightFitStat = { forced: 0, refused: 0, worst: 0, resampled: 0 };   // (v20261124l) forced last-level fits past the tolerance since the probe reset it; refused = past LIGHT_FIT_REFUSE x; (m) resampled = R's re-picked nodes
+    let LIGHT_FIT_GAP = 0.6;                             // (v20261124m) R in _lightFitTreeOf: test points re-picked by plane length when one gap exceeds this share of their polyline; 0 = off (the probe's control)
     const _lightCurveD = (node, P0, P3, scr, f2, tol) => {
       const one = _lightFitCubic(P0, P3, node.f, scr, !node.kids, tol); if (one) return 'C' + f2(one[0]) + ' ' + f2(one[1]) + ' ' + f2(P3);
       if (!node.kids) return null;
@@ -59331,6 +59384,7 @@
     // over-cut: 0 of 2,000 disagree at FOV 173). A LARGER cap loses precision near the caster: PolyClip snaps to 2^20 steps across the union's box, so
     // a ten times longer shadow is a ten times coarser lattice at its foot (0.999: 178 px off in a close-up, 0.9999: 1,615; 0.995: 0).
     const LIGHT_ABOVE_KEEP = 0.995;                     // a caster point above this share of the light's height over the plane is cut away (it casts toward the horizon: 200 heights out at 0.995)
+    let _lightCapWholeOn = true;                         // (v20261124l) the cap above holds for a WHOLE face too (_lightProjectFace); false = the old path, the probe's control (shadow_horizon_probe K1)
     const _lightClipRing = (ring, f) => {              // Sutherland-Hodgman: the part of a world ring where f >= 0; a concave ring keeps zero-width bridges along the cut (no area under either rule)
       const out = [], n = ring.length; if (n < 3) return out;
       let A = ring[n - 1], fa = f(A);
@@ -59342,10 +59396,53 @@
       }
       return out;
     };
+    // (v20261124m, PLAN-shadow-curves-through-cut-261124 A + K) A CUT FACE KEEPS ITS CURVES. Since v20261112a a shadow's outline keeps the caster's curves only for a
+    // face projected WHOLE (_lightChordsOf reads chords by vertex index); a face cut by the light's horizon, the receiving plane, a panel's plane or a spot's Start
+    // was written as its 8-chords-a-cubic polygon (upright text with the light below its top: 0 cubics, 1,335 lines). A: the clipper carries each vertex's
+    // PROVENANCE [edge of the original ring, share along it] (null for a point of the cut line between two edges); an edge of the cut ring whose two ends lie on
+    // one original edge is that edge's chord. K: a cut that crosses an edge lying on a curve is put ON the curve (curveCut: 40 halvings of the curve's parameter),
+    // not on its chord - near the light's horizon the projection moves a point r h / (h - y)^2 per unit of height (~30,000 at the cap), so a chord's 0.001 sagitta
+    // put the run's end tens of units off its curve and the fit could not join them. _lightCutCurvesOn false = the old path.
+    let _lightCutCurvesOn = true;
+    const _lightClipRingP = (ring, pv, n0, f, curveCut) => {   // _lightClipRing with provenance pv (n0: the original ring's length) and K's curveCut(e, sa, sb, f) -> { X, s } | null
+      const out = [], po = [], n = ring.length; if (n < 3) return { out, po };
+      let A = ring[n - 1], pa = pv[n - 1], fa = f(A);
+      for (let i = 0; i < n; i++) {
+        const B = ring[i], pb = pv[i], fb = f(B);
+        if ((fa >= 0) !== (fb >= 0)) { const t = fa / (fa - fb); out.push([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t]);
+          let p = null; if (pa && pb) { const sb = pb[0] === pa[0] ? pb[1] : (pb[0] === (pa[0] + 1) % n0 && pb[1] === 0 ? 1 : null);
+            if (sb !== null) { p = [pa[0], pa[1] + (sb - pa[1]) * t]; if (curveCut) { const c = curveCut(pa[0], pa[1], sb, f); if (c) { out[out.length - 1] = c.X; p = [pa[0], c.s]; } } } }
+          po.push(p); }
+        if (fb >= 0) { out.push(B); po.push(pb); }
+        A = B; pa = pb; fa = fb;
+      }
+      return { out, po };
+    };
+    // the curve records of ring k0's edges (a flowed strip's fch, a flat path's / a cap's cv) -> K's curveCut for that ring, or null when it has none
+    const _lightCurveCutOf = (face, k0) => {
+      const recs = new Map();
+      if (face.fch) { for (const c of face.fch) if (c.ring === k0) recs.set(c.i, c); }
+      else if (face.cv && face.cv[k0]) for (const c of face.cv[k0]) { const cur = { C: c.C }; for (let j = 0; j < LIGHT_SHADOW_STEPS; j++) recs.set(c.i0 + j, { cur, tA: j / LIGHT_SHADOW_STEPS, tB: (j + 1) / LIGHT_SHADOW_STEPS }); }
+      if (!recs.size) return null; const memo = new Map();
+      const ptOf = (cur) => { let g = memo.get(cur); if (g) return g; if (cur.fn) { const R = cur.fn(0, 1); g = (t) => (R && R.pt ? R.pt(t) : null); } else g = (t) => _lightBezAt(cur.C, t); memo.set(cur, g); return g; };
+      return (e, sa, sb, f) => { const rc = recs.get(e); if (!rc) return null; const pt = ptOf(rc.cur), T = (s) => rc.tA + (rc.tB - rc.tA) * s;
+        let lo = sa, hi = sb; const Xl = pt(T(lo)), Xh = pt(T(hi)); if (!Xl || !Xh) return null; let gl = f(Xl); if (!((gl >= 0) !== (f(Xh) >= 0))) return null;
+        for (let it = 0; it < 40; it++) { const m = (lo + hi) / 2, Xm = pt(T(m)); if (!Xm) return null; const gm = f(Xm); if ((gm >= 0) === (gl >= 0)) { lo = m; gl = gm; } else hi = m; }
+        const sm = gl >= 0 ? lo : hi, X = pt(T(sm)); return X ? { X, s: sm } : null; };
+    };
     const _lightProjectFace = (face, L, pl, lift) => {   // (v20261120c) lift: the caster is cut this far above the plane, not at it (a twisted strip's neighbour)
       const out = [], up = lift > 0 ? lift : 0; let whole = !(up > 0);
       const nearF = (!Array.isArray(L) && L.near) ? (X) => vectorDot(vectorSubtract(X, L.P), L.near.d) - L.near.s : null;   // (v20261115zm) Start: a face with a point nearer is cut there
       if (nearF && face.rings.some(r => r.some(X => nearF(X) < 0))) whole = false;
+      // (v20261124l, PLAN-shadow-horizon-wiggle-261124 F1) THE CAP HOLDS FOR A WHOLE FACE TOO. Until now LIGHT_ABOVE_KEEP was met only by a face that FAILED the
+      // projection (a point above the light, ...): a face wholly below a point light whose top lies between 0.995 h and h was projected whole, out to
+      // h / (h - top) heights - 41,067 in the owner's scene (_tests/flow_shadow_wiggle_arc_text.json, the light at the letters' x-height; ten flow strips in the
+      // band). One such vertex set the floor union's extent 226 -> 50,700, so PolyClip's 2^20 lattice snapped EVERY shadow to 0.097 units (stair-steps), and
+      // _lightCurveRings' eps (the same extent) let run ends sit 143 units off their curves: forced cubics, loops ("a node of the bezier missing"). Now such a
+      // face goes the cut way below, as a face with a point above the light does. A directional light has no horizon. _lightCapWholeOn false = the old path.
+      if (whole && _lightCapWholeOn) { const s0 = Array.isArray(L) ? { P: L } : L;
+        if (!s0.dir) { const hs = vectorDot(vectorSubtract(s0.P, pl.o), pl.n), sg = hs < 0 ? -1 : 1, lim = Math.abs(hs) * LIGHT_ABOVE_KEEP;
+          if (face.rings.some(r => r.some(X => sg * vectorDot(vectorSubtract(X, pl.o), pl.n) > lim))) whole = false; } }
       if (whole) for (const r of face.rings) { const p = _lightProject(r, L, pl); if (!p) { whole = false; break; } out.push(p); }
       if (whole) { out.whole = true; return out.length ? out : null; }   // (v20261112a) whole: the rings' vertices are the face's, one for one - the curves' chords can be read
       const src = Array.isArray(L) ? { P: L } : L, cuts = [];
@@ -59358,6 +59455,17 @@
         if (src.near) cuts.push((P) => vectorDot(vectorSubtract(P, src.P), src.near.d) - src.near.s);   // (v20261115zm) beyond the spot's Start
       }
       const res = [];
+      if (_lightCutCurvesOn && (face.fch || face.cv)) {   // (v20261124m) A + K: the cut ring's provenance rides on the result (prov, rk, w3) for _lightChordsOf
+        res.prov = []; res.rk = []; res.w3 = [];
+        for (let k0 = 0; k0 < face.rings.length; k0++) { const r0 = face.rings[k0];
+          let r = r0, pv = r0.map((_, i) => [i, 0]); const cc = _lightCurveCutOf(face, k0);
+          for (const f of cuts) { const c = _lightClipRingP(r, pv, r0.length, f, cc); r = c.out; pv = c.po; if (r.length < 3) break; }
+          if (r.length < 3) continue;
+          const p = _lightProject(r, L, pl); if (!p) return null;
+          res.push(p); res.prov.push(pv); res.rk.push(k0); res.w3.push(r);
+        }
+        return res.length ? res : null;
+      }
       for (const r0 of face.rings) {
         let r = r0; for (const f of cuts) { r = _lightClipRing(r, f); if (r.length < 3) break; }
         if (r.length < 3) continue;                    // this ring lies wholly on the far side: nothing of it casts
@@ -60252,6 +60360,7 @@
     // (rings.cv) stay: a run the cut does not touch keeps its tree, a run it cuts is fitted again on the part that is left (the run's own parameters, sg.ts / sg.mk). A line run is cut into open runs, a cut end is butt.
     // NOTHING outside -> the SAME arrays are returned: every picture that was right is byte for byte the one of before (0 = the switch off).
     let LIGHT_VIEW_CLIP = 32;   // let: a probe sets 0 to read the picture without the cut (its control)
+    let _lightViewCurveOn = true;                        // (v20261124m) V in _lightViewClip: a curved run's cut on its curve; false = the old path (the probe's control)
     const _lightViewClip = (rings, lines, pl, vp) => {
       const M = LIGHT_VIEW_CLIP; if (!M || !vp || !pl) return { rings, lines };
       const row = (k, p, one) => vp[k][0] * p[0] + vp[k][1] * p[1] + vp[k][2] * p[2] + (one ? vp[k][3] : 0);
@@ -60267,16 +60376,26 @@
           if (!r.some(isOut)) { outR.push(r); if (cvOut) cvOut.push(cvIn[ri]); continue; }
           // s: where the point lies ALONG the ring as it was - vertex k is k, a point of edge k -> k + 1 is k + its share; null for a point of a cut's own edge
           const N0 = r.length; let P = r.map((q, i) => ({ q, s: i }));
+          // (v20261124m, PLAN-shadow-curves-through-cut-261124 V) THE VIEW'S CUT ON THE CURVE: a cut run's parameter was read LINEARLY along the projected edge and the cut
+          // vertex put on the edge; under the light's magnification the run's curve at that parameter lies far from the vertex, and the run refitted between them (sg.mk)
+          // drew a spike. An edge of a curved run is cut where its CURVE meets the guard (40 halvings through sg.at), and the cut carries that parameter (t) to edge().
+          const vcSeg = (_lightViewCurveOn && cvIn && cvIn[ri]) ? (() => { const m = new Array(N0).fill(null); for (const sg of cvIn[ri]) if (sg.c && sg.ts && sg.at) for (let j = 0; j < sg.n; j++) m[(sg.i + j) % N0] = { sg, j }; return m; })() : null;
           const fwd = (A, B) => { if (A.s === null || B.s === null) return 0; let dv = B.s - A.s; if (dv < 0) dv += N0; return dv > 0 && dv <= 1 + 1e-9 ? dv : 0; };   // B follows A on one edge of the ring
           for (const h of HP) { const Q = []; for (let i = 0; i < P.length; i++) { const A = P[i], B = P[(i + 1) % P.length], ea = ev(h, A.q), eb = ev(h, B.q), ia = ea >= 0, ib = eb >= 0; if (ia) Q.push(A);
-              if (ia !== ib) { const t = Math.min(1 - 1e-9, Math.max(1e-9, ea / (ea - eb))), dv = fwd(A, B); Q.push({ q: [A.q[0] + (B.q[0] - A.q[0]) * t, A.q[1] + (B.q[1] - A.q[1]) * t], s: dv ? (A.s + dv * t) % N0 : null }); } }
+              if (ia !== ib) { const t = Math.min(1 - 1e-9, Math.max(1e-9, ea / (ea - eb))), dv = fwd(A, B); let q = [A.q[0] + (B.q[0] - A.q[0]) * t, A.q[1] + (B.q[1] - A.q[1]) * t], tc;
+              if (vcSeg && dv) { const e = Math.floor(A.s + 1e-9) % N0, sv = vcSeg[e];
+                if (sv) { const parE = (x) => { let fr = x - e; if (fr < -0.5) fr += N0; return sv.sg.ts[sv.j] + Math.min(1, Math.max(0, fr)) * (sv.sg.ts[sv.j + 1] - sv.sg.ts[sv.j]); };
+                  let lo = A.t !== undefined ? A.t : parE(A.s), hi = B.t !== undefined ? B.t : parE(A.s + dv); const ql = sv.sg.at(lo), qh = sv.sg.at(hi);
+                  if (ql && qh) { let gl = ev(h, ql); if ((gl >= 0) !== (ev(h, qh) >= 0)) { for (let it = 0; it < 40; it++) { const m = (lo + hi) / 2, qm = sv.sg.at(m); if (!qm) break; const gm = ev(h, qm); if ((gm >= 0) === (gl >= 0)) { lo = m; gl = gm; } else hi = m; }
+                    const tt = gl >= 0 ? lo : hi, qq = sv.sg.at(tt); if (qq) { q = qq; tc = tt; } } } } }
+              Q.push({ q, s: dv ? (A.s + dv * t) % N0 : null, t: tc }); } }
             P = Q; if (P.length < 3) break; }
           if (P.length < 3) continue;
           const segsIn = cvIn && cvIn[ri]; let segs = null;
           if (segsIn && segsIn.some(sg => sg.c)) {
             const segOf = new Array(N0).fill(null); for (const sg of segsIn) if (sg.c && sg.ts && sg.mk) for (let j = 0; j < sg.n; j++) segOf[(sg.i + j) % N0] = sg;   // edge -> its curved run
             const M2 = P.length, edge = (i) => { const A = P[i], B = P[(i + 1) % M2], dv = fwd(A, B); if (!dv) return null; const e = Math.floor(A.s + 1e-9) % N0, sg = segOf[e]; if (!sg) return null;
-              const j = (e - sg.i + N0) % N0, par = (sv) => { let fr = sv - e; if (fr < -0.5) fr += N0; return sg.ts[j] + Math.min(1, Math.max(0, fr)) * (sg.ts[j + 1] - sg.ts[j]); }; return { sg, a: par(A.s), b: par(A.s + dv) }; };
+              const j = (e - sg.i + N0) % N0, par = (sv) => { let fr = sv - e; if (fr < -0.5) fr += N0; return sg.ts[j] + Math.min(1, Math.max(0, fr)) * (sg.ts[j + 1] - sg.ts[j]); }; const B2 = P[(i + 1) % M2]; return { sg, a: A.t !== undefined ? A.t : par(A.s), b: B2.t !== undefined ? B2.t : par(A.s + dv) }; };   // (v20261124m, V) a cut's own parameter
             const E = []; for (let i = 0; i < M2; i++) E.push(edge(i));
             const joins = (i) => { const a = E[(i + M2 - 1) % M2], b = E[i]; return !!(a && b && a.sg === b.sg && Math.abs(a.b - b.a) < 1e-9); };   // edge i goes on where edge i - 1 stopped, on one run
             let st = 0; while (st < M2 && joins(st)) st++; if (st === M2) st = 0;
@@ -63355,7 +63474,8 @@
             // v20260806d; their `riOrdered` / `prElements` tombstones went
             // v20261016m): a frame the Mask did not handle falls to the plain
             // mean-z sort.
-            if (!mrDone) { try { ZSortLayers.order(sharedFaceList); } catch (err) { console.error('[ZSortLayers] failed:', err); } sharedFaceList.sort((a, b) => b.z - a.z); }   // LAYER STACKS (v20261123zc): idempotent, so a failed apply that falls through is safe
+            if (!mrDone) { try { Path.prismKeys(sharedFaceList); } catch (err) { console.error('[prismKeys] failed:', err); }   // (v20261124k) PRISM KEYS: before the stacks, which place their members by their plane
+              try { ZSortLayers.order(sharedFaceList); } catch (err) { console.error('[ZSortLayers] failed:', err); } sharedFaceList.sort((a, b) => b.z - a.z); }   // LAYER STACKS (v20261123zc): idempotent, so a failed apply that falls through is safe
             // --- RASTER HELPER (experimental): debug raster view ---
             // Build from the FINAL face list (post-resolve, fragments
             // included) and paint the depth/ID buffer into the corner
@@ -63607,6 +63727,29 @@
     };
 
     class Path {
+      static PRISM_PARALLEL = true;   // (v20261124j) _orderPrismFaces under a parallel camera: rays by their lateral offset; false = the angular wedge of v20261124i (the probe's control)
+      static PRISM_KEYS = true;       // (v20261124k) a z-sort WITHOUT masks: a prism's faces whose mean-z keys TIE are put in its rank order (Path.prismKeys); false = v20261124j (the probe's control)
+      // (v20261124k) PLAN-oblique-zsort-261124 S3. When MaskRender does not run for a z-sort (Masks off, Skip Masks, a failed apply) the
+      // shared list is painted by mean z alone, and the rank of v20261124j (entry._prismRank) has no reader: under an oblique camera a
+      // Y-extruded box's caps and X sides tie EXACTLY on mean z and its side turned away painted over its top cap. Here a prism's faces
+      // whose keys tie are put in its exact order. Not used under masks (the rank verdict does that job there).
+      static prismKeys(list) {
+        if (!Path.PRISM_KEYS) return 0;
+        const by = new Map();
+        for (const e of list) { if (!e || e._prismRank === undefined || !e._prismOwner) continue; if (!by.has(e._prismOwner)) by.set(e._prismOwner, []); by.get(e._prismOwner).push(e); }
+        let n = 0;
+        for (const es of by.values()) {
+          if (es.length < 2) continue;
+          // TIES ONLY: faces of one prism whose keys are EQUAL are put in rank order by a 1e-9 step each; every other key stays. MEASURED and
+          // not chosen: handing the prism's whole key set out in rank order (strictly monotone - equal keys handed out equal kept the old
+          // order: 11,727 texels of a side turned away over the FRONT side) fixed the perspective case too, but gave a near cap the object's
+          // nearest key and moved it in front of OTHER objects: 8 of 12 corpus pictures changed with Masks off (curved_blobs 71,150 texels).
+          // Ties only: the corpus identical with Masks off and as saved; the oblique tie - the owner's case - fixed.
+          const groups = new Map(); for (const e of es) { if (!groups.has(e.z)) groups.set(e.z, []); groups.get(e.z).push(e); }
+          for (const [z, g] of groups) { if (g.length < 2) continue; g.sort((a, b) => a._prismRank - b._prismRank).forEach((e, i) => { if (i) { e.z = z - i * 1e-9; n++; } }); }
+        }
+        return n;
+      }
       constructor(name, position, rotation, vertices, algorithm, loop, style, scale, subPathData) {
         this.name = name;
         this.position = position;
@@ -70105,6 +70248,19 @@
             _svgKeepChildren(this.svgElement, faceList.map(face => face.element));
             }   // (EXACT)
           } else if (_pushedFaces.length) {
+            // (v20261124j) PRISM RANK UNDER A Z-SORT (PLAN-oblique-zsort-261124 S2). The exact prism order above runs only when the object
+            // paints its own faces; under a z-sort the shared list keys them by mean z alone, and MaskRender leaves a same-owner pair whose
+            // planes cross to "the emitter". Measured: under oblique a Y-extruded box's caps and X sides tie EXACTLY on mean z, and its
+            // side turned away painted over its top cap. So the emitter ranks its OWN entries (on a copy - no order and no z key moves) and
+            // MaskRender reads the rank (MaskRender.PRISM_RANK). Same eligibility as the local branch; a refusal (taper, a foreign face,
+            // a cycle) stamps nothing - today's picture.
+            if (_exs.enabled && extrudeRenderMode === 'clean' && !_exactDrawn
+              && !this.revolveSettings.enabled && !sweepActive
+              && !loftActive && !splineFlowActive && !surfaceMappingActive && (MaskRender.PRISM_RANK || Path.PRISM_KEYS)) {   // (v20261124k) the Masks-off keys read it too
+              const _pr = _pushedFaces.slice(); let _prOk = false;
+              try { _prOk = this._orderPrismFaces(_pr); } catch (e) { _prOk = false; }
+              if (_prOk && _pr.length === _pushedFaces.length) _pr.forEach((e, i) => { e._prismRank = i; e._prismOwner = this; });
+            }
             // --- Z-Sort style stamping --- (over THIS path's recorded entries, v20260914zc)
             // Face elements (frontFace, side ribbons, mesh faces, etc.) normally
             // inherit fill/stroke from their parent Path <g>. When z-sorted, the
@@ -71563,10 +71719,30 @@
           return [0, 1, 2].map(k => u * u * u * (seg.p0[k] || 0) + 3 * u * u * t * (seg.p1[k] || 0) + 3 * u * t * t * (seg.p2[k] || 0) + t * t * t * (seg.p3[k] || 0));
         };
         const TAU = Math.PI * 2;
+        // (v20261124j) A PARALLEL CAMERA (PLAN-oblique-zsort-261124 S1). Under ortho / oblique / 2D Mode the eye is 1e6 away, so every
+        // ribbon subtended ~5e-6 rad - under the 1e-4 wedge floor below: NO pair got an edge and the ribbons fell to Kahn's mean-z
+        // tie-break (measured: 0 of 45 pairs on the R; under oblique its ribbons share ONE mean z - emission order, its back side painted
+        // over its top). Parallel rays are parametrised by their lateral offset s = cross(u2, p), u2 the projector in the profile plane
+        // (unit, toward the eye); a ray at s starts at s * perp + RAY_FAR * u2 and runs along -u2; no 2 pi wrap; Kahn breaks a tie by the
+        // depth along u2 (every ribbon spans the same extrude range, so that is the whole depth). u2 is null when the projector runs along
+        // the extrude axis (the sides edge-on): today's code. A perspective eye never takes this branch (byte-identical).
+        let u2 = null, perp = null;
+        if (this._prismPar && Path.PRISM_PARALLEL) {
+          let cx = 0, cy = 0, cn = 0;
+          for (const f of ribbons) for (const s of f._prismSegs) { const q = to2(evalSeg(s, 0)); cx += q[0]; cy += q[1]; cn++; }
+          if (cn) { const dx = eye2[0] - cx / cn, dy = eye2[1] - cy / cn, L = Math.hypot(dx, dy);
+            if (L > 1e3) { u2 = [dx / L, dy / L]; perp = [-u2[1], u2[0]]; } }
+        }
+        const RAY_FAR = 1e5;
         const data = ribbons.map(f => {
           const pts = [];
           for (const s of f._prismSegs) {
             for (let i = (pts.length ? 1 : 0); i <= 6; i++) pts.push(to2(evalSeg(s, i / 6)));
+          }
+          if (u2) {
+            let aMin = 1 / 0, aMax = -1 / 0, dep = 0;
+            for (const p of pts) { const s = u2[0] * p[1] - u2[1] * p[0]; if (s < aMin) aMin = s; if (s > aMax) aMax = s; dep += u2[0] * p[0] + u2[1] * p[1]; }
+            return { f, pts, aMin, aMax, dep: dep / pts.length };
           }
           let prev = Math.atan2(pts[0][1] - eye2[1], pts[0][0] - eye2[0]);
           let aMin = prev, aMax = prev;
@@ -71580,13 +71756,13 @@
           if (aMax - aMin > TAU) aMax = aMin + TAU; // full wrap (eye2 encircled)
           return { f, pts, aMin, aMax };
         });
-        const rayHit = (pts, dir) => {
+        const rayHit = (pts, dir, O = eye2) => {
           let best = null;
           for (let i = 0; i + 1 < pts.length; i++) {
             const dx2 = pts[i + 1][0] - pts[i][0], dy2 = pts[i + 1][1] - pts[i][1];
             const det = dx2 * dir[1] - dy2 * dir[0];
             if (Math.abs(det) < 1e-12) continue;
-            const rx = pts[i][0] - eye2[0], ry = pts[i][1] - eye2[1];
+            const rx = pts[i][0] - O[0], ry = pts[i][1] - O[1];
             const t = (dx2 * ry - dy2 * rx) / det;
             const s = (dir[0] * ry - dir[1] * rx) / det;
             if (t > 1e-9 && s >= -0.001 && s <= 1.001 && (best === null || t < best)) best = t;
@@ -71600,10 +71776,10 @@
           for (let j = i + 1; j < N; j++) {
             const A = data[i], B = data[j];
             let mid = null;
-            for (const k of [0, -1, 1]) {
+            for (const k of (u2 ? [0] : [0, -1, 1])) {   // (v20261124j) an offset has no wrap
               const lo = Math.max(A.aMin, B.aMin + k * TAU);
               const hi = Math.min(A.aMax, B.aMax + k * TAU);
-              if (hi - lo > 1e-4) { mid = (lo + hi) / 2; break; }
+              if (hi - lo > (u2 ? 1e-7 : 1e-4)) { mid = (lo + hi) / 2; break; }
             }
             if (mid === null) continue;
             // v20260720d: 3-ray unanimous vote across the overlap wedge.
@@ -71614,8 +71790,9 @@
             const wLo = mid - (mid - Math.max(A.aMin, B.aMin)) / 2;
             let vote = 0, agree = true;
             for (const ang of [(wLo + mid) / 2, mid, mid + (mid - wLo) / 2]) {
-              const dir = [Math.cos(ang), Math.sin(ang)];
-              const ta = rayHit(A.pts, dir), tb = rayHit(B.pts, dir);
+              const dir = u2 ? [-u2[0], -u2[1]] : [Math.cos(ang), Math.sin(ang)];
+              const O = u2 ? [ang * perp[0] + u2[0] * RAY_FAR, ang * perp[1] + u2[1] * RAY_FAR] : eye2;   // (v20261124j) `ang` is the offset s
+              const ta = rayHit(A.pts, dir, O), tb = rayHit(B.pts, dir, O);
               if (ta === null || tb === null || Math.abs(ta - tb) < 1e-9) continue;
               const s = ta > tb ? 1 : -1;
               if (vote === 0) vote = s;
@@ -71632,7 +71809,9 @@
         for (let i = 0; i < N; i++) if (indeg[i] === 0) avail.push(i);
         while (avail.length) {
           let pick = 0;
-          for (let k = 1; k < avail.length; k++) if (data[avail[k]].f.z > data[avail[pick]].f.z) pick = k;
+          // (v20261124j) a parallel camera breaks a tie by the depth along the projector (smallest = farthest first); mean z ties under oblique
+          if (u2) { for (let k = 1; k < avail.length; k++) if (data[avail[k]].dep < data[avail[pick]].dep) pick = k; }
+          else for (let k = 1; k < avail.length; k++) if (data[avail[k]].f.z > data[avail[pick]].f.z) pick = k;
           const u = avail.splice(pick, 1)[0];
           orderedRibbons.push(data[u].f);
           for (const w of adj[u]) if (--indeg[w] === 0) avail.push(w);
@@ -78582,8 +78761,11 @@
         // v20260720c: stash the local eye for the exact prism ordering pass
         // (same-frame consumer only, never serialized — _collectIx pattern).
         this._prismEye = eyeLocalStart ? [eyeLocal[0], eyeLocal[1], eyeLocal[2]] : null;
+        // (v20261124j) PRISM ORDER UNDER A PARALLEL CAMERA: the eye above is a point pushed 1e6 along the projector (ortho, oblique,
+        // a lens under 5 degrees, 2D Mode); _orderPrismFaces reads this flag to parametrise its rays by their lateral offset.
+        this._prismPar = !!(isIn2DMode(this) || isOrtho);
 
-        // View Vector V = EyeLocal - CenterLocal. 
+        // View Vector V = EyeLocal - CenterLocal.
         // We approximate CenterLocal as (0,0,0) (the origin of the path object)
         const V_raw = eyeLocal; // since - [0,0,0] is itself
         const V = vectorNormalize(V_raw);

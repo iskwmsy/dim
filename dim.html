@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- dim v20261125c -->
+<!-- dim v20261126e -->
 
 <!--
   MIT License
@@ -25395,6 +25395,27 @@
         const st = this.operandStatus(o); if (!st.ok || !st.shell) return null;
         const r = this.solidOf(o); return (r.ok && r.solid.kind === 'shell') ? r.solid : null;
       },
+      // ---- (v20261125d, near clip D8 / D9) IS THE EYE INSIDE THE SOLID. P is a world POINT (a perspective eye; a parallel camera's
+      // eye is at infinity and is never inside). Asked of the engine's own solid of the object (solidOf, cached on its signature) -
+      // the solid's implicit is negative inside; a whole turn with a taper is two parts, their union (the min). An open surface (a
+      // shell) or a flat path (a sheet) encloses nothing: false. null: the engine cannot read the object. Exact. A box would read a
+      // torus's hole as inside; this does not.
+      eyeInside(o, P) {
+        if (!P) return null;
+        const r = this.solidOf(o); if (!r || !r.ok || !r.solid) return null;
+        if (r.solid.kind === 'sheet' || r.solid.kind === 'shell') return false;
+        const E = BooleanEngine, b = r.solid.box;
+        if (b && (P[0] < b.lo[0] || P[1] < b.lo[1] || P[2] < b.lo[2] || P[0] > b.hi[0] || P[1] > b.hi[1] || P[2] > b.hi[2])) return false;   // outside its box: outside it
+        const val = (q) => r.parts ? Math.min(...r.parts.map(S => E.solidImplicit(S, q).v)) : E.solidImplicit(r.solid, q).v;
+        const R = b ? Math.hypot(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2]) || 1 : 1, v = val(P);
+        if (Math.abs(v) > 1e-9 * R) return v < 0;
+        // ON the solid's zero set: a revolve's implicit is 0 along its whole AXIS (measured: the default Sphere's centre and every
+        // axis point read 0, 0.01 off it -0.01) - the eye on a sphere's axis is the commonest inside pose. Asked six points 1e-4 of
+        // the size away, the majority decides: on the axis inside, 4 of 6 (the two along the axis stay 0); on the skin, 3 of 6 = out.
+        const k = 1e-4 * R; let n = 0;
+        for (let i = 0; i < 3; i++) for (const s of [-1, 1]) { const q = [P[0], P[1], P[2]]; q[i] += s * k; if (val(q) < 0) n++; }
+        return n > 3;
+      },
       // is the side of the shell S that the direction N points to, at X (world, ON the surface), its outside. null: no direction
       shellSideOut(S, X, N) {
         const l = Math.hypot(N[0], N[1], N[2]); if (!(l > 0) || !S) return null;
@@ -29617,6 +29638,7 @@
       // Exact is stored as renderMode 'clean' + exactRender). `o.why` (the context only the draw knows - a mapping or a
       // fold reaching the object from a group above) refuses it.
       _carriers: new WeakMap(),
+      EXACT_INSIDE_CLEAN: true,   // (v20261125d, near clip D8) an Exact object with the camera INSIDE it draws Clean (the engine has no inner wall); false = v20261125c
       isExact(s) { return !!(s && s.enabled && s.exactRender === true && (s.renderMode || 'clean') === 'clean' && !s.silhouetteMerge); },
       exactRefusal(obj, why) {
         if (why) return why;
@@ -32889,6 +32911,7 @@
         if (closed && n > 2) S.push({ k: 'L', P: [vertices[n - 1], vertices[0]] });
         return S;
       },
+      rev(segs) { return segs.slice().reverse().map(s => ({ k: s.k, p: s.p.slice().reverse() })); },   // (v20261125f, D1a) a recorded ring run backwards: its segments in reverse order, each segment's points reversed
       crosses(segs) { const E = this.EPS_W; for (const s of segs) for (const q of s.p) { if (q.w === undefined) return false; if (!(q.w > E)) return true; } return false; },
       // ---- N5d (v20261123o): CURVES FITTED IN SCREEN SPACE (Stacks, Line mode). A chordal Catmull-Rom or a 4-point interpolant through
       // SCREEN points has no w and is not the image of a 3D curve, so face() cannot cut it. The builder keeps its d and, only when a
@@ -63732,6 +63755,20 @@
     class Path {
       static PRISM_PARALLEL = true;   // (v20261124j) _orderPrismFaces under a parallel camera: rays by their lateral offset; false = the angular wedge of v20261124i (the probe's control)
       static PRISM_KEYS = true;       // (v20261124k) a z-sort WITHOUT masks: a prism's faces whose mean-z keys TIE are put in its rank order (Path.prismKeys); false = v20261124j (the probe's control)
+      static NC_MERGE_CUT = true;       // (v20261125f, near clip D1a + D1b) a crossing Silhouette keeps its one union fill, each ring cut, and its outline, each curve cut (drawSurface's _ncCut pass); false = v20261125e's plain-strip fall-back
+      static CORNER_SKIP_ZERO = true;   // (v20261126a) the Silhouette / More Simple corner test steps over a ZERO-LENGTH profile segment for its tangent; false = a null tangent is a corner, v20261125g (the probe's control)
+      static POLE_RADIAL = true;        // (v20261125g) the Silhouette / More Simple pole suppression reads the RADIAL profile coordinate (y for a revolve about z or x); false = x always, v20261125f (the probe's control)
+      static NC_PRETEST = true;         // (v20261126c, near clip D1d-2) a merge that MAY cross the eye's plane is drawn cut from the start (one pass, no first pass thrown away); false = v20261126b
+      static NC_MERGE_CUT_MSS = true;   // (v20261126b, near clip D1c) More Simple / Streamline keep their merge while crossing too (pieces filled from cut rings, outlines cut as open runs); false = their plain-strip fall-back, v20261126a
+      static NC_INSIDE_FAR = true;      // (v20261125f, D1b - M6) that fill with the eye INSIDE its solid sorts at its farthest uncut ring; false = the uncut rings' mean (the probe's control)
+      static NC_KEEP_PLANE = true;      // (v20261125e, near clip D7) a cut STRAIGHT extrusion wall keeps the plane of its corners as its depth record (_nearClipRibbon's planeOf); false = v20261125d
+      static SEAM_SKIP_INSIDE = true;   // (v20261125d, near clip D9) a whole untapered revolve's two seam caps are skipped while the eye is inside its solid; false = v20261125c
+      // (v20261125d, near clip D8 / D9) is THIS camera's eye inside the object's solid - a perspective eye only (a parallel camera's is at
+      // infinity); the engine's own exact test (BooleanGroup.eyeInside). false when the engine cannot read the object.
+      _eyeInsideSolid(cam) {
+        const e = resolveEyeForObject(this, cam || activeCamera); if (e.w !== 1) return false;
+        try { return BooleanGroup.eyeInside(this, e.E) === true; } catch (err) { return false; }
+      }
       // (v20261124k) PLAN-oblique-zsort-261124 S3. When MaskRender does not run for a z-sort (Masks off, Skip Masks, a failed apply) the
       // shared list is painted by mean z alone, and the rank of v20261124j (entry._prismRank) has no reader: under an oblique camera a
       // Y-extruded box's caps and X sides tie EXACTLY on mean z and its side turned away painted over its top cap. Here a prism's faces
@@ -69961,7 +69998,8 @@
           let _exactDrawn = false;
           if (BooleanDraw.isExact(this.revolveSettings) || (!this.revolveSettings.enabled && BooleanDraw.isExact(_exs))) {
             const _why = cameraVP === VP_2D ? 'is in 2D Mode.' : (foldPieces || inheritedFold) ? 'is folded.'
-              : (splineFlowActive || surfaceMappingActive) ? 'is mapped (Spline Flow or Surface Mapping).' : (sweepActive || loftActive) ? 'has Sweep or Loft on.' : '';
+              : (splineFlowActive || surfaceMappingActive) ? 'is mapped (Spline Flow or Surface Mapping).' : (sweepActive || loftActive) ? 'has Sweep or Loft on.'
+              : (BooleanDraw.EXACT_INSIDE_CLEAN && this._eyeInsideSolid(cam)) ? 'has the camera inside it.' : '';   // (v20261125d, near clip D8) the engine draws no inner wall: from inside, Clean
             const _pw = (cameraVP && cameraVP !== VP_2D) ? null : (this.parent ? matrixInverse(this.parent.getWorldMatrix()) : null);
             const _xvp = (cameraVP && cameraVP !== VP_2D) ? cameraVP : (this.parent && _pw) ? matrixMultiply(vpMatrix, _pw) : vpMatrix;   // (v20261002h) the camera's own VP, as a group
             // (alone, the pieces are settled below as a lone Boolean group settles them - by MaskRender, so they carry their records)
@@ -71979,6 +72017,12 @@
         // from the same classified silhouette producer. Excluded under
         // Silhouette mode (that mode's single union fill wins the dropdown).
         const bandMergeMode = cleanRender && !silhouetteMode && !!rs.moreSimpleSides;
+        // (v20261125d, near clip D9) A WHOLE, UNTAPERED turn's two seam caps are one half-disc twice, INSIDE the solid: from outside the
+        // surface hides them, from inside they are a wall across the view (530 of 1,444 samples of the default Sphere). Skipped while
+        // the eye is inside the solid (BooleanGroup.eyeInside, the engine's own test) - from outside nothing changes, and the file a
+        // camera outside exports keeps its pieces. A taper keeps them: its two ends differ and the step between them is a real wall.
+        const _seamInside = Path.SEAM_SKIP_INSIDE && SurfaceMapper.revolveAngleDeg(rs) >= 360 && (rs.scaleStart ?? 1) === 1 && (rs.scaleEnd ?? 1) === 1
+          && (rs.capStart !== false || rs.capEnd !== false) && this._eyeInsideSolid(this._drawCam);
         const ssOverride = {
           enabled: true,
           railId: '__revolveRail__',
@@ -72017,8 +72061,8 @@
           stackCount: rs.stackCount || 16,   // Stacks mode (v20260824a): rings along the axis
           stackSnap: rs.stackSnap || false,  // Stacks: stations at profile anchors (v20260825f)
           lineTurns: rs.lineTurns, lineReverse: !!rs.lineReverse, lineFlat: rs.lineFlat, lineJoin: !!rs.lineJoin, lineFlatMode: rs.lineFlatMode,   // LINE (v20261020a; Flat / Join v20261020f; the Flat mode h)
-          showCapStart: rs.capStart !== false,
-          showCapEnd: rs.capEnd !== false,
+          showCapStart: rs.capStart !== false && !_seamInside,
+          showCapEnd: rs.capEnd !== false && !_seamInside,
           capStartMode: rs.capStartMode,     // v20260913c: three-way cap ('side' paints the cap as a ribbon)
           capEndMode: rs.capEndMode,
           drawPoints: rs.drawPoints || false,
@@ -73251,6 +73295,29 @@
           ? { fillD: '', strokes: [], occl: [], zSum: 0, zCount: 0, perSubpath: [], rings: bandMerge ? [] : null,
               srParts: [] /* S1 (PLAN-simple-mode-intersections): per-chain surface evaluators for the merged entry's sidecar sr record */ }
           : null;
+        // (v20261126c, near clip D1d-2) THE PRE-TEST. A merge crossing the eye was found by its first pass (a strip with a point behind the
+        // eye) and that pass was thrown away (2.0 of 8.4 ms of a crossing frame beside the eye, 1.3 of 3.7 inside). Here a cheap CONSERVATIVE
+        // bound decides first: sweepPoint is affine in the profile point for a fixed frame, so the profile's bounding box carried along 129
+        // rail frames bounds every surface point, and w is affine - if its least w comes within 2 % of the object's w-span of the eye's plane,
+        // the cut pass runs at once. The bound only chooses the ORDER: a cut pass that cut nothing hands over to the normal pass (_ncNoPre),
+        // and a crossing the bound missed is still found by the first pass below - every frame draws as before, byte for byte.
+        if (silh && _NC && Path.NC_PRETEST && Path.NC_MERGE_CUT && !ss._ncCut && !ss._ncNoPre && (bandMerge ? Path.NC_MERGE_CUT_MSS : true) && railPath && railPath._frameData) {
+          let bx0 = Infinity, by0 = Infinity, bz0 = Infinity, bx1 = -Infinity, by1 = -Infinity, bz1 = -Infinity;
+          for (const segs of subpathGroups) for (const sg of segs) for (const q of [sg.p0, sg.p1, sg.p2, sg.p3]) {
+            if (!q) continue; const z = q[2] || 0;
+            if (q[0] < bx0) bx0 = q[0]; if (q[0] > bx1) bx1 = q[0]; if (q[1] < by0) by0 = q[1]; if (q[1] > by1) by1 = q[1]; if (z < bz0) bz0 = z; if (z > bz1) bz1 = z;
+          }
+          if (isFinite(bx0)) {
+            const m = mvp[3], corners = [];
+            for (const x of [bx0, bx1]) for (const y of [by0, by1]) for (const z of (bz1 > bz0 ? [bz0, bz1] : [bz0])) corners.push([x, y, z]);
+            let wMin = Infinity, wMax = -Infinity;
+            for (let k = 0; k <= 128; k++) {
+              const fr = SurfaceMapper.getFrameAtU(railPath._frameData, k / 128); if (!fr) continue;
+              for (const c of corners) { const P = sweepPoint(fr, c); if (!P) continue; const w = m[0] * P[0] + m[1] * P[1] + m[2] * P[2] + m[3]; if (w < wMin) wMin = w; if (w > wMax) wMax = w; }
+            }
+            if (wMin <= NearClip.EPS_W + 0.02 * Math.max(0, wMax - wMin)) return this.drawSurface(faceList, vpMatrix, modelMatrix, { ...ss, _ncCut: true, _ncPre: true }, railOverride);
+          }
+        }
         // Reverse a single-ring d of the exact shape this renderer emits (M + C/L runs + Z).
         const _silhRevD = (dStr) => {
           const toks = dStr.match(/[MCLZ][^MCLZ]*/g) || [];
@@ -73287,7 +73354,7 @@
             // Silhouette merge needs per-chain facing and merged chains regardless of
             // Simple Sides; horizon-station insertion and split quantization keep
             // reading the true simpleSides flag (pipeline behavior unchanged).
-            const chainMerge = simpleSides || silhouetteMerge || bandMerge;
+            const chainMerge = (simpleSides || silhouetteMerge || bandMerge) && !ss._ncCut;   // (v20261125f, D1a) a crossing merge is cut at Clean granularity: a long bending ring cut as one loop is the fold's complement
             // Profile-parameter bookkeeping for the silhouette classifier: every
             // segment (and every split piece) knows which ORIGINAL segment span it
             // covers (p = _pIdx + t in [0, profileSegs.length]). Split t values
@@ -74267,9 +74334,27 @@
                 // NEAR CLIP (v20261123j, N5a): a strip with a point behind the eye is cut. Under a merge (silh) it is only NOTED: the union
                 // and the classified strokes are built from every strip at once and cannot take a ring with joins at the guard - the
                 // merge falls back to plain strips at its emit.
-                let ncCut = false;
+                let ncCut = false, _ncArea = null, _ncSign = true, _ncAbs = 0;
                 if (ncS) {
-                  if (silh) { if (!_ncCrossed && NearClip.crosses(ncS)) _ncCrossed = true; }
+                  // (v20261125f, near clip D1a - PLAN-near-clip-merge-cut-261125) THE MERGE'S OWN CUT: on the second pass (ss._ncCut) a
+                  // Silhouette ring is cut as a filled loop and goes into the union like any other - its orientation taken AFTER the cut (the
+                  // shoelace over the kept points; the screen ring's own perim holds mirrored points), and a negative one cut again from the
+                  // reversed segments, never _silhRevD on NearClip's string. A ring wholly behind adds nothing.
+                  if (silh && ss._ncCut) {
+                    const nc = NearClip.face(ncS, true);
+                    if (nc) {
+                      ncCut = true; zSum = nc.z; zCount = 1;
+                      if (nc.empty) { d = ''; _ncArea = 0; }
+                      else { let a = 0, aW = 0; const P = nc.pts, W = FRAME_SIZE, cl = (v) => v < -W ? -W : v > W ? W : v;
+                        for (let k = 0; k < P.length; k++) { const p = P[k], q = P[(k + 1) % P.length]; a += p.x * q.y - q.x * p.y; aW += cl(p.x) * cl(q.y) - cl(q.x) * cl(p.y); }
+                        // (v20261126b, near clip D1c) the FACING of a cut ring is the sign of its kept polygon as written (every kept point is in front, a projective
+                        // map keeps orientation there); its weight (More Simple's calibration, the lights' shade of a piece) the area read in the frame
+                        // window +-2 H - the kept polygon reaches the guard
+                        _ncSign = a >= 0; _ncAbs = Math.abs(aW);
+                        d = nc.d; if (a < 0) { const n2 = NearClip.face(NearClip.rev(ncS), true); if (n2 && !n2.empty) { d = n2.d; a = -a; } } _ncArea = a; }
+                    }
+                  }
+                  else if (silh) { if (!_ncCrossed && NearClip.crosses(ncS)) _ncCrossed = true; }
                   else { const nc = NearClip.face(ncS, !!(surfPal || (fillColor && fillColor !== 'none'))); if (nc) { if (nc.empty) continue; d = nc.d; zSum = nc.z; zCount = 1; ncCut = true; } }
                 }
 
@@ -74279,11 +74364,12 @@
                   // Collect instead of emit: orientation-normalized ring into the
                   // union fill + a chain record for the edge classifier.
                   let area = 0;
-                  for (let k = 0; k < perim.length; k++) {
+                  if (_ncArea !== null) area = _ncArea;   // (v20261125f, D1a) a cut ring: already oriented, its area from the kept points
+                  else for (let k = 0; k < perim.length; k++) {
                     const p = perim[k], q = perim[(k + 1) % perim.length];
                     area += p.x * q.y - q.x * p.y;
                   }
-                  const normD = area < 0 ? _silhRevD(d) : d;
+                  const normD = ncCut ? d : (area < 0 ? _silhRevD(d) : d);
                   // M1 (PLAN-more-simple-sides): band merge keeps each ring
                   // individually for the per-(band x facing) grouping at emit;
                   // silhouette mode concatenates them into the one union fill.
@@ -74291,18 +74377,26 @@
                     silh.rings.push({
                       d: normD, zSum, zCount, z: avgZ,
                       seesOut: _osS ? _osSeg(profileSegs, segsA[chain[chain.length >> 1]], frameA, frameB) : null,   // (v20261002f)
-                      areaSign: area >= 0, absArea: Math.abs(area),
+                      areaSign: ncCut ? _ncSign : area >= 0, absArea: ncCut ? _ncAbs : Math.abs(area), ncCut,   // (D1c) a cut ring: its facing and weight from the cut
                       pMid: 0, /* filled below from the chain rec */
                       sp: silh.perSubpath.length - 1,
                       iv: i  // P1: azimuth interval, for the exact piece-visibility probes
                     });
                   } else {
                     // v20260929u (SILH_UNTWIST): a ring that crosses itself, as its lobes
-                    const lobes = ringSegs ? RenderIntersections.untwistRingKept(normD, ringSegs) : null;
-                    silh.fillD += ' ' + (lobes === null ? normD : lobes);
+                    const lobes = (ringSegs && !ncCut) ? RenderIntersections.untwistRingKept(normD, ringSegs) : null;   // (D1a) no untwist on a cut ring (guard-size coordinates)
+                    if (normD) silh.fillD += ' ' + (lobes === null ? normD : lobes);
                   }
-                  silh.zSum += zSum; silh.zCount += zCount;
+                  // (v20261125f, D1a) a cut ring's z is the mean of its original in-front points (D5) and one near the eye is near -infinity:
+                  // kept apart, so the union's z is the mean over the UNCUT rings while any exist
+                  if (ncCut) { silh.anyCut = true; silh.ncZSum = (silh.ncZSum || 0) + zSum; silh.ncZCount = (silh.ncZCount || 0) + 1; }
+                  else { silh.zSum += zSum; silh.zCount += zCount; if (ss._ncCut && zCount > 0 && !(avgZ <= silh.ncZFar)) silh.ncZFar = avgZ; }   // (D1b) the farthest uncut ring, for the eye inside
                   const firstSeg = segsA[firstIdx], lastSeg = segsA[lastIdx];
+                  // (v20261126b, near clip D1c) while the merge is cut, an UNCUT ring whose screen centroid lies in the frame may calibrate the facing:
+                  // the nearest ring by mean z is otherwise a strip right at the eye's plane, far off screen and seen edge-on - the back of the
+                  // Sphere tool's pole cap beside the eye was "nearest" and flipped every piece's facing (a band line popped in at the crossing)
+                  let _inFrame = !ss._ncCut;
+                  if (ss._ncCut && !ncCut && perim && perim.length) { let cx = 0, cy = 0; for (const q of perim) { cx += q.x; cy += q.y; } cx /= perim.length; cy /= perim.length; _inFrame = Math.abs(cx) <= FRAME_SIZE / 2 && Math.abs(cy) <= FRAME_SIZE / 2; }
                   // facing is assigned in the post-pass from the SCREEN shoelace
                   // sign (camera-exact), calibrated per subpath - the du-cross-dv
                   // sampling used for chain MERGING is only relatively consistent,
@@ -74310,9 +74404,9 @@
                   const chainRec = {
                     pStart: (firstSeg._pIdx ?? 0) + (firstSeg._t0 !== undefined ? firstSeg._t0 : 0),
                     pEnd: (lastSeg._pIdx ?? (profileSegs.length - 1)) + (lastSeg._t1 !== undefined ? lastSeg._t1 : 1),
-                    areaSign: area >= 0,
-                    absArea: Math.abs(area),
-                    z: avgZ,
+                    areaSign: ncCut ? _ncSign : area >= 0,
+                    absArea: ncCut ? _ncAbs : Math.abs(area),
+                    z: avgZ, ncCut, inFrame: _inFrame,   // (v20261125f, D1b) a cut ring's sign and depth calibrate nothing (calib skips it); (D1c) nor a ring off the frame
                     uEdgeStart: { pA: p0A, cp1: uCP1_s, cp2: uCP2_s, pB: p0B },
                     uEdgeEnd: { pA: p3A_last, cp1: uCP1_e, cp2: uCP2_e, pB: p3B_last }
                   };
@@ -74320,6 +74414,7 @@
                   if (silh.rings) {
                     const rg = silh.rings[silh.rings.length - 1];
                     rg.pMid = (chainRec.pStart + chainRec.pEnd) / 2;
+                    rg.inFrame = _inFrame;   // (D1c)
                     rg.rec = chainRec;  // M4: outline union reads pStart/pEnd + the U-edge cubics
                   }
                   // S1 (PLAN-simple-mode-intersections): the merged fill loses
@@ -74328,7 +74423,7 @@
                   // keeps intersections alive in silhouette mode. Same
                   // closure as the per-chain cleanEntry below, duplicated
                   // deliberately so the non-merge path stays byte-identical.
-                  if (this._collectIx) {
+                  if (this._collectIx && !ncCut) {   // (D1a) a cut face keeps no 'sr' record: evalScreen would hand MaskRender mirrored points
                     const cA1 = [], cB1 = [];
                     let cubicOk1 = true;
                     for (const sIdx of chain) {
@@ -74519,6 +74614,15 @@
                   } else {
                     pts = [c00, c01, c11, c10];
                   }
+                  // (v20261125f, near clip D1b) while the merge is cut (ss._ncCut) an occluder with a corner behind the eye is cut too, as a
+                  // closed polygon in clip space (NearClip.ring): its mirrored corners would claim screen area the surface never covers. Its
+                  // plane is fitted to the kept points (a cut point lies on the quad's own edge, so on its plane); its depth is the mean of
+                  // its ORIGINAL in-front corners (D5). Nothing kept: no occluder.
+                  let qz = (c00.z + c01.z + c11.z + c10.z) / 4, qCut = false;
+                  if (ss._ncCut && pts.some(p => !(p.w > _NCE))) {
+                    const r = NearClip.ring(pts, pts.map(() => 'q'), 'closure');
+                    if (r) { if (r.pts.length < 3 || !r.front.length) continue; pts = r.pts; qz = r.front.reduce((a, p) => a + p.z, 0) / r.front.length; qCut = true; }
+                  }
                   const plane = RenderIntersections.planeFromPoints(pts);
                   let resid = 0;
                   if (plane) {
@@ -74542,7 +74646,7 @@
                   silh.occl.push({
                     pts, plane, resid, owner, pMid,
                     sp: silh.perSubpath.length - 1, iv: i,
-                    z: (c00.z + c01.z + c11.z + c10.z) / 4,
+                    z: qz, ncCut: qCut,
                     pxMin: bx0, pxMax: bx1, pyMin: by0, pyMax: by1
                   });
                 }
@@ -75171,7 +75275,14 @@
         // cannot recurse. THIS IS SAFE ONLY WHILE drawSurface HAS NO await: it runs to its end before any other object pushes into the
         // shared faceList. An await above this line would let the truncation delete other objects' faces.
         // The cost, seen: the object changes look while it crosses (every strip its own element with its own stroke).
-        if (silh && _ncCrossed) { faceList.length = _ncLen0; return this.drawSurface(faceList, vpMatrix, modelMatrix, { ...ss, silhouetteMerge: false, moreSimpleSides: false }, railOverride); }
+        // (v20261125f, near clip D1a + D1b - PLAN-near-clip-merge-cut-261125) SILHOUETTE keeps its merge: the second pass (ss._ncCut) cuts
+        // each ring at Clean granularity into the one union fill (D1a) and each outline CURVE as open runs - the analytic runs by
+        // NearClip.poly, station runs and rims in spanD / pushEdge, the occluders by NearClip.ring, the pruner's statistics read in the
+        // frame window (D1b). More Simple and Streamline keep theirs too since v20261126b (D1c): a piece with a cut ring is filled with its
+        // rings' cut strings and its outline cut as open runs (_ncRunD). Path.NC_MERGE_CUT = false: the fall-back for all three, as
+        // v20261125e; Path.NC_MERGE_CUT_MSS = false: More Simple / Streamline only, as v20261126a.
+        if (silh && ss._ncPre && !silh.anyCut) { faceList.length = _ncLen0; const { _ncCut, _ncPre, ...ssN } = ss; return this.drawSurface(faceList, vpMatrix, modelMatrix, { ...ssN, _ncNoPre: true }, railOverride); }   // (v20261126c, D1d-2) the bound flagged a crossing that is not there: the normal pass draws it, exactly as before
+        if (silh && _ncCrossed) { faceList.length = _ncLen0; return this.drawSurface(faceList, vpMatrix, modelMatrix, (Path.NC_MERGE_CUT && !ss._ncCut && (bandMerge ? Path.NC_MERGE_CUT_MSS : silhouetteMerge)) ? { ...ss, _ncCut: true } : { ...ss, silhouetteMerge: false, moreSimpleSides: false }, railOverride); }
 
         // --- SILHOUETTE MERGE: emit (one fill + one classified stroke path) ---
         if (silh && (silh.fillD.trim() || (silh.rings && silh.rings.length))) {
@@ -75181,6 +75292,11 @@
           // (revolveUntapered is explicitly false just for those; sweeps and
           // untapered revolves keep sub=1 and stay byte-identical).
           const _stSub = ss.revolveUntapered === false ? 6 : 1;
+          // (v20261125f, near clip D1b) WHILE THE MERGE IS CUT every screen-bbox statistic of the occluders (the pruner's bucket grid and
+          // degenMin, the seam step, the sliver rule's objDiag) is clamped to the frame window +-2 H: a cut occluder reaches the guard (32
+          // half-frames off), which would put every on-screen sample outside a 512-cell grid (no pruning: hidden ink shows) and make degenMin
+          // ~180 px (real strokes deleted). Infinity otherwise: Math.max(x, -Infinity) is x, so an uncut draw is byte-identical.
+          const _ncWin = ss._ncCut ? FRAME_SIZE : Infinity;
 
           // Materialize a profile-parameter span [a, b] at a station frame as a
           // screen path run (exact de Casteljau sub-cubics of the ORIGINAL segs,
@@ -75190,6 +75306,7 @@
           const spanD = (profileSegs, a, b, frame, sub) => {
             let d = '', started = false;
             const samples = [];
+            const ncSg = ss._ncCut ? [] : null;   // (v20261125f, near clip D1b) the run's segments beside its d, for NearClip.face
             const lerp3 = (p, q, t) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, (p[2] || 0) + ((q[2] || 0) - (p[2] || 0)) * t];
             const i0 = Math.max(0, Math.floor(a + 1e-9));
             const i1 = Math.min(profileSegs.length - 1, Math.ceil(b - 1e-9) - 1);
@@ -75226,7 +75343,7 @@
                 const s3 = toScreen(sweepPoint(frame, pc.p3));
                 if (!s0 || !s1 || !s2 || !s3) { started = false; continue; }
                 if (!started) { d += `M ${s0.x} ${s0.y}`; samples.push(s0); started = true; }
-                d += ` C ${s1.x} ${s1.y}, ${s2.x} ${s2.y}, ${s3.x} ${s3.y}`;
+                d += ` C ${s1.x} ${s1.y}, ${s2.x} ${s2.y}, ${s3.x} ${s3.y}`; if (ncSg) ncSg.push({ k: 'C', p: [s0, s1, s2, s3] });
                 // on-curve midpoint of this piece (de Casteljau at t=0.5)
                 samples.push({
                   x: (s0.x + 3 * s1.x + 3 * s2.x + s3.x) / 8,
@@ -75239,10 +75356,13 @@
                 const s0 = toScreen(sweepPoint(frame, pa)), s3 = toScreen(sweepPoint(frame, pb));
                 if (!s0 || !s3) { started = false; continue; }
                 if (!started) { d += `M ${s0.x} ${s0.y}`; samples.push(s0); started = true; }
-                d += ` L ${s3.x} ${s3.y}`;
+                d += ` L ${s3.x} ${s3.y}`; if (ncSg) ncSg.push({ k: 'L', p: [s0, s3] });
                 samples.push({ x: (s0.x + s3.x) / 2, y: (s0.y + s3.y) / 2, z: (s0.z + s3.z) / 2 }, s3);
               }
             }
+            // (D1b) a run with a point behind the eye is cut as OPEN runs (a stroke: no join along the guard); its samples are the kept
+            // anchors, never a mirrored point
+            if (ncSg && NearClip.crosses(ncSg)) { const nc = NearClip.face(ncSg, false); if (nc) return nc.empty ? { d: '', samples: [] } : { d: nc.d.trim(), samples: nc.pts }; }
             return { d, samples };
           };
 
@@ -75419,7 +75539,16 @@
               }
               return null;
             };
-            const a = tan(profileSegs[iBefore], true), b = tan(profileSegs[iAfter], false);
+            let a = tan(profileSegs[iBefore], true), b = tan(profileSegs[iAfter], false);
+            // (v20261126a) A ZERO-LENGTH segment has no tangent and is not a side of the joint: the Torus tool's 13-point bezier circle
+            // repeats its first point, so its closed path ends in a segment of length 0, and a null tangent read as a corner drew a false
+            // crease and an edge ring along the top of the tube in Silhouette. The tangent is taken from the nearest segment WITH length
+            // on that side (round the loop when closed). Path.CORNER_SKIP_ZERO = false: a null tangent is a corner, as v20261125g.
+            if (Path.CORNER_SKIP_ZERO) {
+              let iB = iBefore, iA = iAfter;
+              for (let g = 1; !a && g < nSegs && (closed || iB > 0); g++) { iB = (iB - 1 + nSegs) % nSegs; a = tan(profileSegs[iB], true); }
+              for (let g = 1; !b && g < nSegs && (closed || iA < nSegs - 1); g++) { iA = (iA + 1) % nSegs; b = tan(profileSegs[iA], false); }
+            }
             if (!a || !b) return true;
             return (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) <= 0.7;
           };
@@ -75439,12 +75568,17 @@
             // as a dot at every zoom. Judged by RADIUS RATIO, not pixels, so it
             // stays suppressed when scaled and never touches a real thin neck.
             const axisOff = isRevolveSurface ? (ss.axisOffset || 0) : 0;
-            const radiusAt = (p) => Math.abs(axisOff + profilePointAt(profileSegs, p)[0]);
+            // (v20261125g) THE RADIAL COORDINATE is the profile's y for a revolve about z or x (generateCircularRail: "Profile.y = radial
+            // distance", the x is the position ALONG the axis - horizonCos reads it the same way, radialFromY). Reading x there suppressed the
+            // ring at the profile's x = 0 - the Sphere tool's EQUATOR: its Silhouette outline had a gap a sample step wide at every pose - and
+            // never the real poles. Path.POLE_RADIAL = false: x for every axis, as v20261125f.
+            const _radIx = (Path.POLE_RADIAL && (_revAxis === 'z' || _revAxis === 'x')) ? 1 : 0;
+            const radiusAt = (p) => Math.abs(axisOff + profilePointAt(profileSegs, p)[_radIx]);
             let maxProfR = 0;
             if (isRevolveSurface) {
               for (const sg of profileSegs) {
                 for (const q of [sg.p0, sg.p3]) {
-                  const r = Math.abs(axisOff + q[0]);
+                  const r = Math.abs(axisOff + q[_radIx]);
                   if (r > maxProfR) maxProfR = r;
                 }
               }
@@ -75468,6 +75602,14 @@
             if (allRecs.length === 0) continue;
             let calib = null;
             for (const r of allRecs) {
+              if (r.absArea > 1e-6 && !r.ncCut && r.inFrame !== false && (!calib || r.z < calib.z)) calib = r;
+            }
+            if (!calib) for (const r of allRecs) {
+              if (r.absArea > 1e-6 && !r.ncCut && (!calib || r.z < calib.z)) calib = r;
+            }
+            // (v20261125f, near clip D1b) a CUT ring is oriented after its cut (always positive) and its depth is its in-front points'
+            // (near the eye, the nearest of all): it would win "min z" and calibrate the wrong sign. Only when every ring is cut is one used.
+            if (!calib) for (const r of allRecs) {
               if (r.absArea > 1e-6 && (!calib || r.z < calib.z)) calib = r;
             }
 
@@ -75489,6 +75631,7 @@
                 if (q.pxMax > _sx1) _sx1 = q.pxMax;
                 if (q.pyMax > _sy1) _sy1 = q.pyMax;
               }
+              _sx0 = Math.max(_sx0, -_ncWin); _sy0 = Math.max(_sy0, -_ncWin); _sx1 = Math.min(_sx1, _ncWin); _sy1 = Math.min(_sy1, _ncWin);   // (D1b)
               const _sDiag = (isFinite(_sx0) && isFinite(_sx1)) ? Math.hypot(_sx1 - _sx0, _sy1 - _sy0) : 0;
               _seamStepPx = Math.abs((ss.revolveScaleEnd ?? 1) - (ss.revolveScaleStart ?? 1)) * _sDiag / 2;
             }
@@ -75947,6 +76090,15 @@
             const pushEdge = (edge, ivIdx, kindTag, pRefEdge, ...ownerRecs) => {
               const s0 = toScreen(edge.pA), s1 = toScreen(edge.cp1), s2 = toScreen(edge.cp2), s3 = toScreen(edge.pB);
               if (!s0 || !s1 || !s2 || !s3) return;
+              // (v20261125f, near clip D1b) a rim edge with a point behind the eye: cut as an open run, its samples the kept anchors
+              if (ss._ncCut) {
+                const nc = NearClip.face([{ k: 'C', p: [s0, s1, s2, s3] }], false);
+                if (nc) {
+                  if (nc.empty) return;
+                  silh.strokes.push({ d: nc.d.trim(), samples: nc.pts, owners: new Set(ownerRecs), sp: spIdx, ivs: [ivIdx], nInt, kind: kindTag, pRefU: pRefEdge });
+                  return;
+                }
+              }
               const mid = {
                 x: (s0.x + 3 * s1.x + 3 * s2.x + s3.x) / 8,
                 y: (s0.y + 3 * s1.y + 3 * s2.y + s3.y) / 8,
@@ -75984,6 +76136,24 @@
           // The producers above still run (cheap, keeps the debug probe
           // alive); their output is discarded here.
           if (bandMerge) silh.strokes.length = 0;
+          // (v20261125f, near clip D1b) THE INK IS CUT PER CURVE, as open runs - never made from a cut ring, so no guard edge can be inked.
+          // An analytic run (horizon, corner edge, crease: pendA samples, every one the projection of a 3D point with its w) with a sample
+          // out of the pyramid becomes one unit per kept run (NearClip.poly); a point the cut made (nc) takes its in-pyramid neighbour's
+          // interval and parameters for the pruner. Station runs and rim edges were cut where they were made (spanD, pushEdge).
+          if (ss._ncCut) {
+            const cutUnits = [];
+            for (const u of silh.strokes) {
+              const runs = u.pendA ? NearClip.poly(u.pendA) : null;
+              if (!runs) { cutUnits.push(u); continue; }
+              for (const r of runs) {
+                if (r.length < 2 || r.every(q => q.nc)) continue;   // a chord cut at both ends lies along the guard's corner, off screen
+                const home = (q, nb) => q.nc ? Object.assign(q, { iv: nb.iv, pp: nb.pp, uu: nb.uu }) : q;
+                home(r[0], r[1]); home(r[r.length - 1], r[r.length - 2]);
+                cutUnits.push({ ...u, samples: r.slice(), pendA: r, ncRun: true });
+              }
+            }
+            silh.strokes = cutUnits;
+          }
           _mark('pruneFilter');
           // --- OCCLUSION PRUNING of candidate strokes (v20260726b) ---
           // The classification above is LOCAL, so a locally-correct edge can be
@@ -76014,6 +76184,14 @@
               if (q.pyMin < gy0) gy0 = q.pyMin;
               if (q.pxMax > gx1) gx1 = q.pxMax;
               if (q.pyMax > gy1) gy1 = q.pyMax;
+            }
+            gx0 = Math.max(gx0, -_ncWin); gy0 = Math.max(gy0, -_ncWin); gx1 = Math.min(gx1, _ncWin); gy1 = Math.min(gy1, _ncWin);   // (D1b) the frame window while cut
+            // (D1b) and the depth span is read over the occluders that MEET the window: one next to the eye has an NDC z near -infinity
+            // (measured -121.8 against a span of 0.05 - 0.78 in the window), and the 3 % margin then hid nothing at all
+            if (ss._ncCut) {
+              let z0 = Infinity, z1 = -Infinity;
+              for (const q of quads) if (q.pxMax >= -_ncWin && q.pxMin <= _ncWin && q.pyMax >= -_ncWin && q.pyMin <= _ncWin) { if (q.z < z0) z0 = q.z; if (q.z > z1) z1 = q.z; }
+              if (z1 >= z0) { zMinAll = z0; zMaxAll = z1; }
             }
             const eps = 0.03 * (zMaxAll - zMinAll) + 1e-9;
             const degenMin = Math.max(0.5, 0.004 * Math.hypot(gx1 - gx0, gy1 - gy0));
@@ -76183,7 +76361,8 @@
                 const pm = a + (b - a) * ((i + 0.5) / K);
                 const sPt = toScreen(sweepPoint(frame, profilePointAt(profileSegs, pm)));
                 let v = sPt ? !coveredBy(sPt, u) : true;
-                if (sPt && _stExact) {
+                if (sPt && ss._ncCut && !(sPt.w > _NCE)) v = true;   // (v20261125f, D1b) a probe behind the eye is not judged at its mirrored place: spanD cuts it
+                else if (sPt && _stExact) {
                   const c = _rayOcc(profileSegs, pm, u.pend.uu);
                   if (c === 0) v = true; else if (c > 0) v = false;
                 }
@@ -76368,7 +76547,7 @@
                   for (let it = 0; it < 6; it++) {
                     const mid = (lo + hi) / 2;
                     const s = u.evalAt(mid);
-                    if (!s) break;
+                    if (!s || (u.ncRun && NearClip.out(s))) break;   // (D1b) a bisection never lands past the cut
                     if (verdict(s)) hi = mid;      // covered: tighten from that side
                     else { lo = mid; best = s; }   // visible: advance, keep the sample
                   }
@@ -76390,6 +76569,9 @@
                 for (const g of groups) {
                   const xy = g.map(s => [s.x, s.y]);
                   let fit = [];
+                  // (v20261125f, D1b) a group that reaches a cut end is written as its polyline (the D2 / D3 precedent: a fit through
+                  // points whose w spans decades is not the curve); every other group keeps its fit, as on an uncut frame
+                  if (!(u.ncRun && g.some(s => s.nc)))
                   try { fit = RenderIntersections._fitRunClean(xy, false, 0.05, 0.15) || []; } catch (e) { fit = []; }
                   if (fit.length) {
                     d += (d ? ' ' : '') + `M ${fit[0][0][0]} ${fit[0][0][1]}`;
@@ -76445,7 +76627,11 @@
           _mark('dedupe');
 
           _mark('emitChain');
-          const avgZ = silh.zCount > 0 ? silh.zSum / silh.zCount : 0;
+          let avgZ = silh.zCount > 0 ? silh.zSum / silh.zCount : (silh.ncZCount ? silh.ncZSum / silh.ncZCount : 0);   // (D1a) the uncut rings' mean while any exist
+          // (v20261125f, near clip D1b - M6) THE EYE INSIDE the solid: every visible piece of the union is its INNER wall, behind everything else
+          // in the solid, so the one fill paints first - at its farthest uncut ring. Measured: at the mean, three small spheres before the
+          // wall were painted over (0 of 58 and 0 of 103 samples shown, Masks on or off). Outside (crossing beside the eye) the mean stays.
+          if (Path.NC_INSIDE_FAR && silh.anyCut && silh.ncZFar !== undefined && this._eyeInsideSolid(this._drawCam)) avgZ = silh.ncZFar;
           let _mssNearZ = null;   // nearest piece z (band merge) — the stroke element paints after it
           // INK INHERITS ITS FILL'S MASK (v20260904t, PLAN-ink-occlusion-v2 slice
           // 1). The Silhouette outline and the Streamline strokes are stroke-only
@@ -76509,6 +76695,14 @@
             for (let sp = 0; sp < silh.perSubpath.length; sp++) {
               let best = null;
               for (const r of silh.rings) {
+                if (r.sp !== sp || r.absArea <= 1e-6 || r.ncCut || r.inFrame === false) continue;   // (v20261126b, D1c) a cut ring, or one off the frame, calibrates nothing while another exists
+                if (!best || r.z < best.z) best = r;
+              }
+              if (!best) for (const r of silh.rings) {
+                if (r.sp !== sp || r.absArea <= 1e-6 || r.ncCut) continue;
+                if (!best || r.z < best.z) best = r;
+              }
+              if (!best) for (const r of silh.rings) {
                 if (r.sp !== sp || r.absArea <= 1e-6) continue;
                 if (!best || r.z < best.z) best = r;
               }
@@ -76699,6 +76893,12 @@
               return runOf;
             })();
             const _pieces = [];
+            // (v20261126b, D1c - Q4) the eye INSIDE the solid while it crosses: every piece seen is the inner wall, behind everything else in the
+            // solid - every piece sorts at the object's FARTHEST uncut ring (Silhouette's rule, Path.NC_INSIDE_FAR; the monotone nudge below
+            // keeps their class order). Measured: at their own means a piece holding only cut rings sat at -3.3 (the eye) and the nudge pulled
+            // every later piece down to it - three small spheres before the wall were painted over (0 of 69, 58, 103 samples, Masks on or off)
+            let _ncInside = !!(ss._ncCut && Path.NC_INSIDE_FAR && this._eyeInsideSolid(this._drawCam)), _ncZFarAll = -Infinity;
+            if (_ncInside) { for (const r of silh.rings) if (!r.ncCut && r.zCount > 0 && r.z > _ncZFarAll) _ncZFarAll = r.z; if (!(_ncZFarAll > -Infinity)) _ncInside = false; }
             for (const [key, g] of _groups.entries()) {
               const subP = silh.perSubpath[g.sp];
               const nIvP = subP ? (subP.intervals.length || 1) : 1;
@@ -76743,21 +76943,26 @@
               for (const ro of [...byRun.keys()].sort((a, b) => a - b)) {
                 const rl = byRun.get(ro);
                 if (!rl.length) continue;
-                let zS = 0, zC = 0, d = '';
+                let zS = 0, zC = 0, d = '', anyCut = false, cS = 0, cC = 0;
                 const reps = [];
                 for (const r of rl) {
-                  zS += r.zSum; zC += r.zCount; d += ' ' + r.d;
-                  if (reps.length < 64 && r.iv !== undefined) reps.push([r.pMid, r.iv]);
+                  if (r.ncCut) { anyCut = true; cS += r.zSum; cC += r.zCount; } else { zS += r.zSum; zC += r.zCount; }   // (v20261126b, D1c) a cut ring's depth apart: the uncut rings' mean while any exist
+                  if (r.d) d += ' ' + r.d;
+                  if (reps.length < 64 && r.iv !== undefined && !r.ncCut) reps.push([r.pMid, r.iv]);
                 }
+                if (!(zC > 0)) { zS = cS; zC = cC; }
+                // (D1c) the exact visibility probes (P1 below) ask the UNCUT rings' centres: a cut ring's centre may lie behind the eye, where
+                // no surface lies between it and the eye - a back piece "seen" there was no longer painted first (a band line popped in)
+                if (!reps.length) for (const r of rl) if (reps.length < 64 && r.iv !== undefined) reps.push([r.pMid, r.iv]);
                 // Revolve keeps its familiar near/far debug key; other rails
                 // name the run ordinal (there can be more than two).
                 const tag = !_useRunSplit ? (ro === 1 ? 'near' : 'far') : ('r' + ro);
                 _pieces.push({
                   key: key + '|' + tag, d: d.trim(), front: g.front, sp: g.sp, band: g.band,
-                  runOrd: ro, near: ro === 1, reps, rings: rl, silent,
+                  runOrd: ro, near: ro === 1, reps, rings: rl, silent, anyCut,
                   // LIGHT (v20261111j): what the piece's shade reads - EVERY ring of its band and facing, the other runs' too (g.rings, not rl): see _litSurf.piece
                   shadeRings: g.rings,
-                  z: zC > 0 ? zS / zC : avgZ
+                  z: _ncInside ? _ncZFarAll : (zC > 0 ? zS / zC : avgZ)
                 });
               }
             }
@@ -77119,10 +77324,21 @@
                   let d0 = '';
                   for (const c of e.cmds) d0 += cmdStr(c);
                   return { ink: e.ink, xk: e.xk, vSt: e.vSt, vLo: e.vLo, vHi: e.vHi,
-                    m: `M ${q.x} ${q.y}`, d0 };
+                    m: `M ${q.x} ${q.y}`, d0, cmds: ss._ncCut ? e.cmds : undefined };   // (D1c) the run's curves, to be cut while crossing
                 }));
               }
-              return { fillD: fillD.trim(), strokeLoops, bboxDiag, rings };
+              return { fillD: fillD.trim(), strokeLoops, bboxDiag, rings,
+                loopCmds: ss._ncCut ? loops.map(loop => [].concat(...loop.map(ei => edges[ei].cmds))) : null };   // (D1c) E4's outline, cut as open runs while crossing
+            };
+            // (v20261126b, near clip D1c) the outline's curves (screen points that keep w) as NearClip segments; a run of them written cut as OPEN runs
+            // when a point is behind the eye (no join along the guard is ever inked), else as the string it always was
+            const _ncSegsOf = (cmds) => cmds.map(c => c.line ? { k: 'L', p: [c.p0, c.p3] } : { k: 'C', p: [c.p0, c.p1, c.p2, c.p3] });
+            const _ncRunD = (cmds) => {
+              const nc = NearClip.face(_ncSegsOf(cmds), false);
+              if (nc) return nc.empty ? '' : nc.d.trim();
+              let d = `M ${cmds[0].p0.x} ${cmds[0].p0.y}`;
+              for (const c of cmds) d += c.line ? ` L ${c.p3.x} ${c.p3.y}` : ` C ${c.p1.x} ${c.p1.y}, ${c.p2.x} ${c.p2.y}, ${c.p3.x} ${c.p3.y}`;
+              return d;
             };
             // Degenerate-STROKE guard, relative to the object's screen size
             // (the v20260726 "center dot" precedent): a near-axis bore band's
@@ -77136,6 +77352,7 @@
               if (q.pxMax > _mssOx1) _mssOx1 = q.pxMax;
               if (q.pyMax > _mssOy1) _mssOy1 = q.pyMax;
             }
+            _mssOx0 = Math.max(_mssOx0, -_ncWin); _mssOy0 = Math.max(_mssOy0, -_ncWin); _mssOx1 = Math.min(_mssOx1, _ncWin); _mssOy1 = Math.min(_mssOy1, _ncWin);   // (D1b / D1c)
             const _mssDiag = (isFinite(_mssOx0) && isFinite(_mssOx1)) ? Math.hypot(_mssOx1 - _mssOx0, _mssOy1 - _mssOy0) : 0;
             const _mssStrokeMin = Math.max(2, 0.004 * _mssDiag);
             let _prevZ = Infinity;
@@ -77161,10 +77378,13 @@
               _prevZ = z;
               p._z = z;
               const outline = p._outline = _buildOutline(p);
+              // (v20261126b, near clip D1c) a piece with a CUT ring: filled with its rings' cut strings (each cut at Clean granularity - a
+              // whole band outline cut as ONE loop is the fold's complement), no untwist, no ix, its outline inked by a sibling element below
+              if (p.anyCut && !p.d.trim()) { p._strokeOk = false; continue; }   // wholly behind the eye
               const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
               // v20260929x (SILH_UNTWIST_MSS): a ring of the piece that crosses itself to the other side, as its loops
-              const pieceD = outline ? outline.fillD : p.d;
-              el.setAttribute('d', !RenderIntersections.SILH_UNTWIST_MSS ? pieceD
+              const pieceD = (outline && !p.anyCut) ? outline.fillD : p.d;
+              el.setAttribute('d', (!RenderIntersections.SILH_UNTWIST_MSS || p.anyCut) ? pieceD
                 : (outline && outline.rings) ? RenderIntersections.untwistRings(outline.rings, pieceD) : RenderIntersections.untwistPathD(pieceD));
               // M3: Side Color palette cycles/interpolates by BAND — the merged
               // face is the unit here, not the source segment clean mode uses.
@@ -77184,7 +77404,7 @@
               el.setAttribute('fill-rule', 'nonzero');
               el.setAttribute('fill-opacity', _effSurface['fill-opacity']);
               const strokeOk = !!(outline && strokeColor && outline.bboxDiag >= _mssStrokeMin);
-              if (!streamlineInk && strokeOk) {
+              if (!streamlineInk && strokeOk && !p.anyCut) {
                 el.setAttribute('stroke', strokeColor);
                 el.setAttribute('stroke-width', strokeWidth);
                 el.setAttribute('stroke-linecap', 'round');
@@ -77203,7 +77423,7 @@
               // guard-band construction and srComposite host rule as S1's
               // merged fill; same-owner skip keeps sibling pieces from
               // pairing with each other.
-              if (this._collectIx && silh.srParts.length) {
+              if (this._collectIx && silh.srParts.length && !p.anyCut) {   // (D1c) a piece with a cut ring keeps no composite record
                 const parts = [];
                 for (const r of p.rings) if (r.srPart !== undefined) parts.push(silh.srParts[r.srPart]);
                 if (parts.length) {
@@ -77220,6 +77440,18 @@
                 }
               }
               faceList.push(pieceEntry);
+              // (D1c) E4 while crossing: the piece's outline on its own element right after its fill, at its z, inking only what is in front
+              if (!streamlineInk && strokeOk && p.anyCut && outline.loopCmds) {
+                let sd = '';
+                for (const cmds of outline.loopCmds) if (cmds.length) { const d2 = _ncRunD(cmds); if (d2) sd += (sd ? ' ' : '') + d2; }
+                if (sd) {
+                  const se = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                  se.setAttribute('d', sd); se.setAttribute('fill', 'none'); se.setAttribute('stroke', strokeColor); se.setAttribute('stroke-width', strokeWidth);
+                  se.setAttribute('stroke-linecap', 'round'); se.setAttribute('stroke-linejoin', 'round');
+                  if (_effSurface['stroke-opacity'] !== undefined) se.setAttribute('stroke-opacity', _effSurface['stroke-opacity']);
+                  faceList.push({ element: se, z, inkOf: pieceEntry });
+                }
+              }
               if (streamlineInk) {
                 p._strokeOk = strokeOk;
                 if (strokeOk) for (const loop of outline.strokeLoops) for (const s2 of loop) {
@@ -77236,6 +77468,8 @@
               const p = _pieces[_oi];
               if (!p._strokeOk) continue;
               let strokeD = '';
+              // (D1c) while a piece is cut, each drawn run is collected as curves and written by _ncRunD (cut as open runs when it crosses)
+              const cutRuns = p.anyCut ? [] : null;
               for (const loop of p._outline.strokeLoops) {
                 let run = false;
                 for (const s2 of loop) {
@@ -77248,12 +77482,16 @@
                       }
                     } else if (s2.xk !== undefined && _uOwn.get(s2.xk) > _oi) draw = false;
                   }
-                  if (draw) {
+                  if (draw && cutRuns && s2.cmds) {
+                    if (!run) { cutRuns.push([]); run = true; }
+                    for (const c of s2.cmds) cutRuns[cutRuns.length - 1].push(c);
+                  } else if (draw) {
                     if (!run) { strokeD += s2.m; run = true; }
                     strokeD += s2.d0 + ' ';
                   } else run = false;
                 }
               }
+              if (cutRuns) for (const cmds of cutRuns) { const d2 = cmds.length ? _ncRunD(cmds) : ''; if (d2) strokeD += d2 + ' '; }
               strokeD = strokeD.trim();
               if (!strokeD) continue;
               const se = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -77304,7 +77542,7 @@
           // fields) never triangulate across spatially disjoint chains —
           // every sr consumer already tolerates null samples. MaskRender and
           // the RI kernel see the surface again.
-          if (this._collectIx && silh.srParts.length) {
+          if (this._collectIx && silh.srParts.length && !silh.anyCut) {   // (D1a) a cut union keeps no composite record
             const parts = silh.srParts, nP = parts.length;
             const evalScreen = (t, w) => {
               const i = Math.floor(t / 2);
@@ -77381,6 +77619,7 @@
               if (q.pxMax > ox1) ox1 = q.pxMax;
               if (q.pyMax > oy1) oy1 = q.pyMax;
             }
+            ox0 = Math.max(ox0, -_ncWin); oy0 = Math.max(oy0, -_ncWin); ox1 = Math.min(ox1, _ncWin); oy1 = Math.min(oy1, _ncWin);   // (D1b)
             const objDiag = (isFinite(ox0) && isFinite(ox1)) ? Math.hypot(ox1 - ox0, oy1 - oy0) : 0;
             const dParts = [];
             for (const seed of parts) {
@@ -78598,7 +78837,19 @@
         let zs = 0, n = 0; for (const q of F) for (const P of q.P) if (P[3] > NearClip.EPS_W) { zs += P[2] / P[3]; n++; }
         for (const q of B) for (const P of q.P) if (P[3] > NearClip.EPS_W) { zs += P[2] / P[3]; n++; }
         if (!n) for (const q of lp) for (const P of q.P) { zs += P[2] / P[3]; n++; }   // (no original point in front: the kept ones)
-        return { d: NearClip.d(lp, true, FRAME_SIZE / 2), z: n ? zs / n : 0 };
+        // (v20261125e, near clip D7) THE PLANE OF A CUT WALL. A cut ribbon had no depth record, so under Masks an object half through it was
+        // painted whole over it (a block through a room's wall, the eye inside: 1,898 - 2,935 wrong texels in three poses). A plane in the
+        // scene is a plane in NDC, MIRRORED points included (a projective map keeps a plane a plane), so a STRAIGHT chain's plane is fitted
+        // from its original corners - every one with a usable w, in front or behind - and recorded by the caller (planeOf); MaskRender then
+        // splits the pair exactly (2 - 8 wrong texels). A curved chain is not one plane: it keeps no record, as before.
+        const H2 = FRAME_SIZE / 2;
+        const planeOf = () => {
+          if (!Path.NC_KEEP_PLANE || !(chainB || chain).every(sg => sg.type === 'L') || !chain.every(sg => sg.type === 'L')) return null;
+          const pp = []; for (const q of [...F, ...B]) for (const P of q.P) if (Math.abs(P[3]) > 1e-6) pp.push({ x: P[0] / P[3] * H2, y: -P[1] / P[3] * H2, z: P[2] / P[3] });
+          const plane = pp.length >= 3 ? RenderIntersections.planeFromPoints(pp) : null; if (!plane) return null;
+          return { plane, pts: lp.map(q => { const P = q.P[0]; return { x: P[0] / P[3] * H2, y: -P[1] / P[3] * H2, z: P[2] / P[3] }; }) };
+        };
+        return { d: NearClip.d(lp, true, H2), z: n ? zs / n : 0, planeOf };
       }
 
       drawSideRibbons(mvpFront, mvpBack, faceList, collectIx = false) {
@@ -78860,6 +79111,7 @@
               const entry = { element: sidePath, z: ribbon.z };
               entry._prismRole = 'ribbon'; entry._prismSegs = ribbon.srcSegs || null; // v20260720c
               if (collectIx && ribbon.ixCurved) entry.ix = { ...ribbon.ixCurved, splits: 0, owner: this };
+              else if (collectIx && ribbon.planeOf) { const pl = ribbon.planeOf(); if (pl) entry.ix = { plane: pl.plane, pts: pl.pts, splits: 0, owner: this }; }   // (v20261125e, D7) a cut Simple Sides wall
               faceList.push(entry);
             });
           }
@@ -78914,6 +79166,7 @@
               if (_osS) _osApply(sidePath, sg);
               const entry = { element: sidePath, z: nc.z };
               entry._prismRole = 'ribbon'; entry._prismSegs = chain;
+              if (collectIx) { const pl = nc.planeOf(); if (pl) entry.ix = { plane: pl.plane, pts: pl.pts, splits: 0, owner: this }; }   // (v20261125e, D7) a cut straight wall keeps its plane
               faceList.push(entry);
             }
           }
@@ -117187,7 +117440,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
     const _tlCloseCurveEditor = () => {
       _activeCurveKf = null;
       _activeCurveTrack = null;
-      _activeCurveExtra = [];   // (v20261115c, A2)
+      _activeCurveExtra = []; _activeCurveExtraTracks = [];   // (v20261115c, A2)
       if (_ceGallery) _ceGallery.hidden = true;
       if (tlCurveEditor.matches(':popover-open')) tlCurveEditor.hidePopover();
     };
@@ -117210,10 +117463,20 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
     // (v20261115c, A2) THE TARGETS: the clicked segment's left key (_activeCurveKf, what the editor shows and its point drags write) plus, when keys are
     // selected and the clicked one is among them, the segment LEAVING each selected key (a key with a next key on its track). A preset, Paste
     // and the two Mirrors write all of them in one undo entry; the toolbar says "3 segments".
+    // (v20261126d, PLAN-motion-path-spatial-261126 S0) EVERY writer of this editor writes all the targets. Until now only the preset, Paste and
+    // the two Mirrors did; a handle drag, the point's fields, Add / Remove point, the Algorithm, Import, Shoot On and the Loop selects wrote
+    // the clicked key alone - and the Position row's segment opens on its three axes with Pos X as the clicked one, so a hand edit eased X
+    // apart from Y and Z and BENT the motion path (measured on the owner's file: 56.4 px off the straight line; a preset: 0.01). Those
+    // writers now end in _ceMirror() (the clicked key's curve copied to the others) / _ceMirrorShoot() / write each of _ceLoopTracks().
+    // The editor on ONE segment (an unfolded axis row) is unchanged: a deliberate per-axis ease stays possible.
     let _activeCurveExtra = [];
+    let _activeCurveExtraTracks = [];   // { key, prop } of each extra target's track, for the track-scoped Loop selects
+    const _ceMirror = () => { const a = _activeCurveKf; if (!a || !Array.isArray(a.cubicBezier)) return; for (const k of _activeCurveExtra) { if (!k || k === a) continue; k.cubicBezier = a.cubicBezier.map(p => [...p]); k.curveAlgorithm = a.curveAlgorithm || 'bezier'; } };
+    const _ceMirrorShoot = () => { const a = _activeCurveKf; if (!a) return; for (const k of _activeCurveExtra) { if (!k || k === a) continue; if (a.shootOn >= 2) k.shootOn = a.shootOn; else delete k.shootOn; } };
+    const _ceLoopTracks = () => { const out = [], seen = new Set(); for (const t of [_activeCurveTrack].concat(_activeCurveExtraTracks)) { if (!t) continue; const id = t.key + '::' + t.prop; if (!seen.has(id)) { seen.add(id); out.push(t); } } return out; };
     const _ceTargets = () => (_activeCurveKf ? [_activeCurveKf] : []).concat(_activeCurveExtra.filter(k => k && k !== _activeCurveKf));
     const _ceSetTargets = (kf, trackKey, prop) => {
-      _activeCurveExtra = [];
+      _activeCurveExtra = []; _activeCurveExtraTracks = [];
       if (trackKey != null && tlSelectedKfs.has(_kfKey(trackKey, prop, kf.frame)) && tlSelectedKfs.size > 1) {
         for (const key of tlSelectedKfs) {
           const r = _tlFindKfByKey(key); if (!r || r.kf === kf) continue;
@@ -117221,11 +117484,11 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           const i = kfs.indexOf(r.kf); if (i < 0 || i >= kfs.length - 1) continue;   // the last key of a track starts no segment
           if (!r.kf.cubicBezier) { if (typeof pushAnimUndoStateCoalesced === 'function') pushAnimUndoStateCoalesced(); r.kf.cubicBezier = [[0, 0], [1, 1]]; r.kf.curveAlgorithm = 'bezier'; }   // the identity, as the editor writes for its own (the same coalesced entry first)
           else r.kf.cubicBezier = _migrateBezierData(r.kf.cubicBezier);
-          _activeCurveExtra.push(r.kf);
+          _activeCurveExtra.push(r.kf); _activeCurveExtraTracks.push({ key: r.objectName, prop: r.prop });
         }
       }
       const n = 1 + _activeCurveExtra.length, t = document.getElementById('tlCurveTargets');
-      if (t) { t.hidden = n < 2; t.textContent = n + ' segments'; t.title = 'A preset, Paste and Mirror write all ' + n + '; the graph shows the clicked one'; }
+      if (t) { t.hidden = n < 2; t.textContent = n + ' segments'; t.title = 'Every edit here writes all ' + n + ' segments; the graph shows the clicked one'; }   // (v20261126d) was: a preset, Paste and Mirror only
     };
     // the button: the current curve in small and its preset's name (A1's thumbnail)
     const _ceSyncPresetBtn = () => {
@@ -117318,6 +117581,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       if (!_activeCurveKf) return;
       _tlAnimEdit('curve algorithm');
       _activeCurveKf.curveAlgorithm = tlCurveAlgorithm.value;
+      _ceMirror();   // (v20261126d)
       _updateCurveSvg(_activeCurveKf.cubicBezier);
       tlCurvePreset.value = _matchPreset(_activeCurveKf.cubicBezier, tlCurveAlgorithm.value);
       tlApplyFrame(animationTimeline.currentFrame, true);
@@ -117349,6 +117613,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       if (!_ceShootBurst) _tlAnimEdit('shoot on');
       if (n >= 2) _activeCurveKf.shootOn = n;
       else delete _activeCurveKf.shootOn;   // 1 = off; the lazy-key rule
+      _ceMirrorShoot();   // (v20261126d)
       tlCurveShootOn.classList.toggle('armed', n >= 2);
       _updateCurveSvg(_activeCurveKf.cubicBezier);   // redraws the staircase
       tlApplyFrame(animationTimeline.currentFrame);
@@ -117370,7 +117635,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
     const _ceLoopHandler = (side, sel) => () => {
       if (!_activeCurveTrack) return;
       _tlAnimEdit('loop mode');
-      _tlSetLoop(_activeCurveTrack.key, _activeCurveTrack.prop, side, sel.value);
+      for (const t of _ceLoopTracks()) _tlSetLoop(t.key, t.prop, side, sel.value);   // (v20261126d) every target's track
       tlApplyFrame(animationTimeline.currentFrame);
       sceneObjects.forEach(obj => updateVisualsRecursive(obj));
       tlRenderTracks();
@@ -117383,6 +117648,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       if (!_activeCurveKf) return;
       _tlAnimEdit('add curve point');
       _activeCurveKf.cubicBezier.push([1, 1]);
+      _ceMirror();   // (v20261126d)
       _ceSelectedIdx = _activeCurveKf.cubicBezier.length - 1;
       _updateCurveSvg(_activeCurveKf.cubicBezier);
       tlCurvePreset.value = 'custom';
@@ -117398,6 +117664,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
       if (pts.length <= 1) return; // minimum 1 handle (quad bézier with implicit start/end)
       _tlAnimEdit('remove curve point');
       pts.splice(_ceSelectedIdx, 1);
+      _ceMirror();   // (v20261126d)
       if (_ceSelectedIdx >= pts.length) _ceSelectedIdx = pts.length - 1;
       _updateCurveSvg(pts);
       tlCurvePreset.value = (_activeCurveKf.curveAlgorithm === 'bezier') ? _matchPreset(pts) : 'custom';
@@ -117559,6 +117826,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         _tlAnimEdit('import curve');
         _activeCurveKf.cubicBezier = payload.points.map(p => [...p]);
         _activeCurveKf.curveAlgorithm = payload.algorithm;
+        _ceMirror();   // (v20261126d)
         tlCurveAlgorithm.value = payload.algorithm;
         // Also fill the in-memory clipboard so Paste works afterward
         _curveClipboard = { points: payload.points.map(p => [...p]), algorithm: payload.algorithm };
@@ -117582,6 +117850,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
         pts[_ceSelectedIdx][0] = Math.max(0, Math.min(1, parseFloat(tlCurvePtX.value) || 0));
         pts[_ceSelectedIdx][1] = parseFloat(tlCurvePtY.value) || 0; // Y is unclamped
       }
+      _ceMirror();   // (v20261126d)
       _updateCurveSvg(pts);
       tlCurvePreset.value = (_activeCurveKf.curveAlgorithm === 'bezier') ? _matchPreset(pts) : 'custom';
       tlApplyFrame(animationTimeline.currentFrame, true);
@@ -117678,6 +117947,7 @@ ok('blend: linear in the line\'s length, capped at home (0) and at the line (1)'
           }
         }
       }
+      _ceMirror();   // (v20261126d) the drag writes every target segment - the Position row's three axes stay on one curve
 
       _updateCurveSvg(pts);
       tlCurvePreset.value = (algo === 'bezier') ? _matchPreset(pts) : 'custom';
